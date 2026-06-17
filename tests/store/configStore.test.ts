@@ -26,4 +26,22 @@ describe('ConfigStore', () => {
     expect(cfg.apiKey()).toBe('k1');
     expect(cfg.get().autopilot.apiKeySet).toBe(true);
   });
+  it('defaults include empty autopilot notes and launch defaults', () => {
+    const c = cfg.get();
+    expect(c.autopilot.notes).toBe('');
+    expect(c.defaults).toEqual({ exec: 'sonnet', autonomy: 'L3', maxSessions: 1 });
+  });
+  it('update merges notes and defaults', () => {
+    cfg.update({ autopilot: { notes: 'be careful' }, defaults: { exec: 'codex:gpt-5.4', maxSessions: 3 } });
+    const c = cfg.get();
+    expect(c.autopilot.notes).toBe('be careful');
+    expect(c.defaults).toEqual({ exec: 'codex:gpt-5.4', autonomy: 'L3', maxSessions: 3 });
+  });
+  it('reads an old row without the new fields as defaults', () => {
+    // simulate a pre-L2-8 stored row
+    cfg.update({ allowedExecs: ['sonnet'] });
+    const c = cfg.get();
+    expect(c.autopilot.notes).toBe('');
+    expect(c.defaults.exec).toBe('sonnet');
+  });
 });
