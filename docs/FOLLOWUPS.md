@@ -42,3 +42,15 @@ Task 17 scoped a subset. Spec §5 also lists: `GET /tasks/:id/tree`, `POST /task
 ## Web shell (#2) deferred
 
 - Explicit SSE reconnect backoff (spec §8) — relying on native EventSource auto-reconnect for now.
+
+## Web deploy: SSE must NOT go through the Next rewrite proxy
+
+Confirmed live (chrome-devtools): Next.js `rewrites()` BUFFER SSE responses — a browser
+`EventSource` to `/orca-api/...` receives ZERO events (terminal stream + `/events` realtime both
+dead). The daemon is directly reachable from the browser at `http://<host>:4400` with open CORS, and
+direct `EventSource` streams live. **Deploy builds with `NEXT_PUBLIC_ORCA_URL=http://<host>:4400`**
+(direct daemon URL) so fetch + SSE bypass the buffering proxy. The `/orca-api` rewrite in
+`next.config.ts` is now unused — remove it, or replace the whole approach with a streaming Route
+Handler (`app/orca-api/[...path]/route.ts` returning the piped fetch body) if same-origin is needed
+(e.g. behind HTTPS where mixed-content blocks a direct HTTP daemon call). For the current HTTP preview,
+the direct URL is correct and verified.
