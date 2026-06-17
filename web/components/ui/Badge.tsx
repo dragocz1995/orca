@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
+import type { Tone } from './tone';
 
-type Tone = 'default' | 'accent' | 'muted';
 const TONES: Record<Tone, string> = {
   default: 'border-border text-text',
   accent: 'border-accent text-accent',
   muted: 'border-border text-text-muted',
+  danger: 'text-danger border-danger',
 };
 
 export function Badge({ children, tone = 'default' }: { children: ReactNode; tone?: Tone }) {
