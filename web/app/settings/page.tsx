@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Save } from 'lucide-react';
+import { Save, Boxes, Bot, SlidersHorizontal } from 'lucide-react';
 import { useConfig } from '../../lib/queries';
 import { useUpdateConfig } from '../../lib/mutations';
 import { EXEC_PRESETS } from '../../lib/execPresets';
@@ -52,11 +52,12 @@ export default function SettingsPage() {
 
   return (
     <ModuleShell moduleId="settings">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <div className="flex w-full flex-col gap-6">
         <PageHeader title="Settings" />
 
         <Section
           title="Models"
+          icon={Boxes}
           actions={
             <Button variant="accent" icon={Save} onClick={() => update.mutate({ allowedExecs: allowed }, { onSuccess: () => toast('Models saved'), onError: (e) => toast(String(e), 'error') })}>
               Save models
@@ -74,6 +75,7 @@ export default function SettingsPage() {
 
         <Section
           title="Autopilot"
+          icon={Bot}
           actions={
             <Button variant="accent" icon={Save} onClick={() => update.mutate({ autopilot: { model, apiUrl, notes, ...(apiKey ? { apiKey } : {}) } }, { onSuccess: () => { toast('Autopilot saved'); setApiKey(''); }, onError: (e) => toast(String(e), 'error') })}>
               Save autopilot
@@ -98,6 +100,7 @@ export default function SettingsPage() {
 
         <Section
           title="Defaults"
+          icon={SlidersHorizontal}
           actions={
             <Button variant="accent" icon={Save} onClick={() => update.mutate({ defaults: { exec: defExec, autonomy: defAutonomy, maxSessions: defMaxSessions } }, { onSuccess: () => toast('Defaults saved'), onError: (e) => toast(String(e), 'error') })}>
               Save defaults
