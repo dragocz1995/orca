@@ -20,6 +20,7 @@ export interface BuildOpts {
   relay: { baseUrl: string; apiKey: string; model: string } | null;
   tmux?: TmuxDriver;
   bootstrap?: { username: string; password: string } | null;
+  allowOpen?: boolean;
 }
 
 export function buildApp(opts: BuildOpts) {
@@ -42,8 +43,11 @@ export function buildApp(opts: BuildOpts) {
   const engine = new MissionEngine({ tasks, readiness, missions, spawn, tmux, bus, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => `Agent${Math.floor(performance.now()) % 9999}` });
   // Deriver resolves a session's task via the agent registry / in-progress task (simplified: first in_progress child).
   const deriver = new Deriver({ tmux, agents, tasks, sink: bus, clock: new SystemClock(), sessionTaskId: () => tasks.list({ status: 'in_progress' })[0]?.id ?? null });
-  const serverUsers = users.count() > 0 ? users : undefined;
-  const app = createServer({ tasks, readiness, missions, engine, spawn, tmux, bus, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users: serverUsers });
+  const openMode = users.count() === 0 && opts.allowOpen === true;
+  if (openMode) {
+    console.warn('[orca] running OPEN (no auth) — ORCA_ALLOW_OPEN is set and no users exist');
+  }
+  const app = createServer({ tasks, readiness, missions, engine, spawn, tmux, bus, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users: openMode ? undefined : users });
 
   const startLoops = () => {
     const clock = new SystemClock();
