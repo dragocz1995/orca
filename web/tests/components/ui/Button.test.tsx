@@ -1,0 +1,17 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { Button } from '../../../components/ui/Button';
+
+describe('Button', () => {
+  it('renders children and fires onClick', async () => {
+    const onClick = vi.fn();
+    render(<Button onClick={onClick}>Engage</Button>);
+    const btn = screen.getByRole('button', { name: 'Engage' });
+    btn.click();
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+  it('applies the accent variant class', () => {
+    render(<Button variant="accent">Go</Button>);
+    expect(screen.getByRole('button', { name: 'Go' }).className).toContain('bg-accent');
+  });
+});
