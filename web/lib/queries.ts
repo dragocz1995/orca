@@ -27,3 +27,10 @@ export const useHealth = () =>
 
 export const useConfig = () =>
   useQuery({ queryKey: QUERY_KEYS.config, queryFn: orcaClient.getConfig });
+
+export const useMissionDetail = (id: string | null) =>
+  useQuery({
+    queryKey: ['mission', id],
+    queryFn: () => orcaClient.getMissionDetail(id as string),
+    enabled: !!id,
+  });

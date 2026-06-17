@@ -1,4 +1,4 @@
-import type { Task, Session, Mission, CreateTaskInput, EngageInput, OrcaConfig, ConfigPatch } from './types';
+import type { Task, Session, Mission, CreateTaskInput, EngageInput, OrcaConfig, ConfigPatch, MissionDetail } from './types';
 
 export const BASE = process.env.NEXT_PUBLIC_ORCA_URL ?? 'http://localhost:4400';
 
@@ -19,6 +19,7 @@ export const orcaClient = {
   ready: () => req<Task[]>('/tasks/ready'),
   sessions: () => req<string[]>('/sessions'),
   missions: () => req<Mission[]>('/missions'),
+  getMissionDetail: (id: string) => req<MissionDetail>(`/missions/${encodeURIComponent(id)}`),
   health: () => req<{ ok: boolean }>('/health'),
   createTask: (input: CreateTaskInput) => req<Task>('/tasks', json(input)),
   engage: (input: EngageInput) => req<Mission>('/missions', json(input)),

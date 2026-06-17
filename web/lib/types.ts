@@ -18,3 +18,13 @@ export interface ConfigPatch {
   allowedExecs?: string[];
   autopilot?: { model?: string; apiUrl?: string; apiKey?: string };
 }
+export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null }
+export interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }
+export interface MissionDeps { taskId: string; dependsOnId: string }
+export interface MissionDetail {
+  mission: Mission;
+  epic: MissionTask | null;
+  tasks: MissionTask[];
+  deps: MissionDeps[];
+  progress: MissionProgress;
+}

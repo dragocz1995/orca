@@ -18,8 +18,8 @@ export function useOrcaEvents(): void {
       invalidate();
     };
 
-    const taskHandler = makeHandler(() => qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks }));
-    const missionHandler = makeHandler(() => qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }));
+    const taskHandler = makeHandler(() => { qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks }); qc.invalidateQueries({ queryKey: ['mission'] }); });
+    const missionHandler = makeHandler(() => { qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }); qc.invalidateQueries({ queryKey: ['mission'] }); });
     const signalHandler = makeHandler(() => qc.invalidateQueries({ queryKey: QUERY_KEYS.sessions }));
 
     es.addEventListener('task', taskHandler);
