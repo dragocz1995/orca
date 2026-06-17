@@ -10,6 +10,16 @@
   --color-text: oklch(0.97 0 0);
   --color-text-muted: oklch(0.62 0 0);
   --radius-sharp: 0px;
+  --text-display: 2rem;
+  --text-h1: 1.5rem;
+  --text-h2: 1.125rem;
+  --text-body: 0.875rem;
+  --text-caption: 0.6875rem;
+  --shadow-card: inset 0 0 0 1px var(--color-border);
+  --shadow-raised: 0 0 0 1px var(--color-border), 0 8px 24px -12px rgb(0 0 0 / 0.8);
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html, body { background: var(--color-bg); color: var(--color-text); }
