@@ -30,7 +30,8 @@ export function LoginForm({ onAuthed }: { onAuthed: () => void }) {
   return (
     <div className="flex h-screen items-center justify-center bg-bg">
       <div className="bg-surface border border-border rounded-none p-8 w-full max-w-sm flex flex-col gap-4">
-        <h1 className="uppercase tracking-wide text-sm text-text">Sign in to Orca</h1>
+        <img src="/orca-logo.png" alt="Orca" className="w-64 h-auto mx-auto" />
+        <h1 className="uppercase tracking-wide text-sm text-text-muted text-center">Sign in</h1>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <input
             type="text"

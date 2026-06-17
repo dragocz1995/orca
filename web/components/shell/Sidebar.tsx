@@ -44,7 +44,9 @@ export function Sidebar() {
       style={{ width: effectiveCollapsed ? 56 : width }}
     >
       <div className="flex items-center justify-center border-b border-border px-3 py-3">
-        <span className="font-bold tracking-tight text-text">{effectiveCollapsed ? 'O' : 'Orca'}</span>
+        {effectiveCollapsed
+          ? <span className="font-bold tracking-tight text-text">O</span>
+          : <img src="/orca-logo.png" alt="Orca" className="w-full h-auto" />}
       </div>
 
       <div className="flex-1 overflow-y-auto">
