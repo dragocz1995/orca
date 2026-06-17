@@ -1,7 +1,7 @@
 'use client';
 import { usePathname } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Circle } from 'lucide-react';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NAV_GROUPS } from '../../lib/nav';
 import { useSidebarState } from '../../lib/useSidebarState';
 import { useHealth } from '../../lib/queries';
@@ -13,6 +13,17 @@ export function Sidebar() {
   const { data } = useHealth();
   const up = data?.ok === true;
   const dragging = useRef(false);
+
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    setMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const effectiveCollapsed = collapsed || mobile;
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     dragging.current = true;
@@ -30,19 +41,21 @@ export function Sidebar() {
     <nav
       aria-label="Primary"
       className="relative flex h-full flex-col border-r border-border bg-surface"
-      style={{ width: collapsed ? 56 : width }}
+      style={{ width: effectiveCollapsed ? 56 : width }}
     >
       <div className="flex items-center justify-center border-b border-border px-3 py-3">
-        <span className="font-bold tracking-tight text-text">{collapsed ? 'O' : 'Orca'}</span>
+        <span className="font-bold tracking-tight text-text">{effectiveCollapsed ? 'O' : 'Orca'}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {NAV_GROUPS.map((g) => <NavGroup key={g.label} group={g} pathname={pathname} collapsed={collapsed} />)}
+        {NAV_GROUPS.map((g) => <NavGroup key={g.label} group={g} pathname={pathname} collapsed={effectiveCollapsed} />)}
       </div>
 
       <div className="flex items-center gap-2 border-t border-border px-3 py-2">
-        <Circle size={8} className={up ? 'text-accent fill-accent' : 'text-text-muted fill-text-muted'} aria-label={up ? 'daemon up' : 'daemon down'} />
-        {!collapsed && <span className="font-mono text-[10px] uppercase tracking-wide text-text-muted">daemon</span>}
+        <span role="status" aria-label={up ? 'daemon up' : 'daemon down'}>
+          <Circle size={8} className={up ? 'text-accent fill-accent' : 'text-text-muted fill-text-muted'} aria-hidden />
+        </span>
+        {!effectiveCollapsed && <span className="font-mono text-[10px] uppercase tracking-wide text-text-muted">daemon</span>}
       </div>
 
       <button
@@ -51,10 +64,10 @@ export function Sidebar() {
         onClick={toggle}
         className="absolute -right-3 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center border border-border bg-elevated text-text-muted hover:text-text"
       >
-        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        {effectiveCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>
 
-      {!collapsed && (
+      {!effectiveCollapsed && (
         <div
           data-testid="sidebar-resize"
           onPointerDown={onPointerDown}

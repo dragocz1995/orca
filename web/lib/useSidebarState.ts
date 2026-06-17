@@ -20,7 +20,7 @@ function write(s: Stored) {
 }
 
 export function useSidebarState() {
-  const [state, setState] = useState<Stored>(() => read());
+  const [state, setState] = useState<Stored>({ collapsed: false, width: DEFAULT });
   useEffect(() => { setState(read()); }, []);
   const toggle = useCallback(() => setState((s) => { const n = { ...s, collapsed: !s.collapsed }; write(n); return n; }), []);
   const setWidth = useCallback((w: number) => setState((s) => { const n = { ...s, width: clamp(w) }; write(n); return n; }), []);
