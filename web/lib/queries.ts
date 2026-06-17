@@ -6,6 +6,7 @@ export const QUERY_KEYS = {
   sessions: ['sessions'] as const,
   missions: ['missions'] as const,
   health: ['health'] as const,
+  config: ['config'] as const,
 };
 
 export const useTasks = () =>
@@ -23,3 +24,6 @@ export const useHealth = () =>
     queryFn: orcaClient.health,
     refetchInterval: 10000,
   });
+
+export const useConfig = () =>
+  useQuery({ queryKey: QUERY_KEYS.config, queryFn: orcaClient.getConfig });

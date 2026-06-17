@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
-import type { CreateTaskInput, EngageInput } from './types';
+import type { CreateTaskInput, EngageInput, ConfigPatch } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -45,4 +45,8 @@ export function useResumeMission() {
 export function useDisengage() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (id: string) => orcaClient.disengageMission(id), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }) });
+}
+export function useUpdateConfig() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (patch: ConfigPatch) => orcaClient.updateConfig(patch), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.config }) });
 }

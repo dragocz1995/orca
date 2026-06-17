@@ -10,3 +10,11 @@ export type OrcaEvent =
   | { type: 'signal'; session: string; signal: DerivedSignal }
   | { type: 'mission'; missionId: string; state: string }
   | { type: 'task'; taskId: string; status: string };
+export interface OrcaConfig {
+  allowedExecs: string[];
+  autopilot: { model: string; apiUrl: string; apiKeySet: boolean };
+}
+export interface ConfigPatch {
+  allowedExecs?: string[];
+  autopilot?: { model?: string; apiUrl?: string; apiKey?: string };
+}
