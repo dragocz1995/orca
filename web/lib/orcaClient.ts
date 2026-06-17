@@ -1,4 +1,4 @@
-import type { Task, Session, Mission, CreateTaskInput, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, AuthResult } from './types';
+import type { Task, Session, Mission, CreateTaskInput, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, AuthResult, ActivityEvent } from './types';
 import { getToken, clearToken } from './token';
 
 export const BASE = process.env.NEXT_PUBLIC_ORCA_URL ?? 'http://localhost:4400';
@@ -45,5 +45,6 @@ export const orcaClient = {
   listUsers: () => req<User[]>('/users'),
   createUser: (username: string, password: string) => req<User>('/users', json({ username, password })),
   deleteUser: (id: number) => req<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
+  activity: (opts?: { limit?: number; type?: string }) => req<ActivityEvent[]>(`/activity?${new URLSearchParams({ ...(opts?.limit ? { limit: String(opts.limit) } : {}), ...(opts?.type ? { type: opts.type } : {}) }).toString()}`),
 };
 export type { Session };

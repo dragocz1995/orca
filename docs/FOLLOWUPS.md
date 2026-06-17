@@ -61,3 +61,7 @@ the direct URL is correct and verified.
 
 ## L2-6 cleanup (non-blocking, from final review)
 - `web/components/auth/LoginGate.tsx` imports `EventBridge` from `app/providers` (components→app layering). Cleaner: relocate `EventBridge` to `web/components/EventBridge.tsx` and import from there in both `providers.tsx` and `LoginGate.tsx`.
+
+## Events table retention (from L2-5 timeline slice)
+
+The `events` table grows unbounded; add a retention/pruning policy (e.g. keep last N or last 30d) before long-running production.

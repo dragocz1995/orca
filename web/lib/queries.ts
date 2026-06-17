@@ -37,3 +37,6 @@ export const useMissionDetail = (id: string | null) =>
 
 export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: orcaClient.listUsers });
 export const useMe = () => useQuery({ queryKey: ['me'], queryFn: orcaClient.me });
+
+export const useActivity = (type?: string) =>
+  useQuery({ queryKey: ['activity', type ?? 'all'], queryFn: () => orcaClient.activity(type ? { type } : undefined) });
