@@ -13,7 +13,7 @@ export function Button({ variant = 'default', icon: Icon, className = '', childr
   const extra = className.trim();
   return (
     <button
-      className={`inline-flex items-center gap-2 border px-3 py-1.5 text-sm rounded-none transition-colors hover:-translate-y-px ${VARIANTS[variant]}${extra ? ` ${extra}` : ''}`}
+      className={`inline-flex items-center gap-2 border px-3 py-1.5 text-sm rounded-none transition-colors hover:-translate-y-px disabled:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed ${VARIANTS[variant]}${extra ? ` ${extra}` : ''}`}
       {...rest}
     >
       {Icon ? <Icon size={14} aria-hidden /> : null}

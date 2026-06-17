@@ -27,6 +27,12 @@
 
 html, body { background: var(--color-bg); color: var(--color-text); }
 
+/* Always-visible keyboard focus on interactive elements (OLED-safe accent ring) */
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [role="switch"]:focus-visible, [role="radio"]:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
