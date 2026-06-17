@@ -22,6 +22,9 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.card-interactive { transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out); }
+.card-interactive:hover { border-color: var(--color-accent); box-shadow: var(--shadow-raised); }
+
 html, body { background: var(--color-bg); color: var(--color-text); }
 
 * {

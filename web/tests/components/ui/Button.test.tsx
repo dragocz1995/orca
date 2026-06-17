@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { Save } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 
 describe('Button', () => {
@@ -13,5 +14,13 @@ describe('Button', () => {
   it('applies the accent variant class', () => {
     render(<Button variant="accent">Go</Button>);
     expect(screen.getByRole('button', { name: 'Go' }).className).toContain('bg-accent');
+  });
+  it('renders children', () => {
+    render(<Button>Go</Button>);
+    expect(screen.getByRole('button', { name: 'Go' })).toBeTruthy();
+  });
+  it('renders an optional leading icon', () => {
+    const { container } = render(<Button icon={Save}>Save</Button>);
+    expect(container.querySelector('svg')).not.toBeNull();
   });
 });

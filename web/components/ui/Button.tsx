@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes } from 'react';
+import type { LucideIcon } from 'lucide-react';
 
 type Variant = 'default' | 'accent' | 'ghost' | 'danger';
 const VARIANTS: Record<Variant, string> = {
@@ -8,12 +9,15 @@ const VARIANTS: Record<Variant, string> = {
   danger: 'bg-transparent border-danger text-danger hover:bg-danger hover:text-bg',
 };
 
-export function Button({ variant = 'default', className = '', ...rest }: { variant?: Variant } & ButtonHTMLAttributes<HTMLButtonElement>) {
+export function Button({ variant = 'default', icon: Icon, className = '', children, ...rest }: { variant?: Variant; icon?: LucideIcon } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const extra = className.trim();
   return (
     <button
-      className={`inline-flex items-center gap-2 border px-3 py-1.5 text-sm rounded-none transition-colors ${VARIANTS[variant]}${extra ? ` ${extra}` : ''}`}
+      className={`inline-flex items-center gap-2 border px-3 py-1.5 text-sm rounded-none transition-colors hover:-translate-y-px ${VARIANTS[variant]}${extra ? ` ${extra}` : ''}`}
       {...rest}
-    />
+    >
+      {Icon ? <Icon size={14} aria-hidden /> : null}
+      {children}
+    </button>
   );
 }
