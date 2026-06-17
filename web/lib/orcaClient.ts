@@ -1,4 +1,5 @@
-import type { Task, Session, Mission, CreateTaskInput, EngageInput, OrcaConfig, ConfigPatch, MissionDetail } from './types';
+import type { Task, Session, Mission, CreateTaskInput, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, AuthResult } from './types';
+import { getToken, clearToken } from './token';
 
 export const BASE = process.env.NEXT_PUBLIC_ORCA_URL ?? 'http://localhost:4400';
 
@@ -7,7 +8,11 @@ export class OrcaApiError extends Error {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set('authorization', `Bearer ${token}`);
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+  if (res.status === 401) { clearToken(); throw new OrcaApiError(`orca 401 on ${path}`, 401); }
   if (!res.ok) throw new OrcaApiError(`orca ${res.status} on ${path}`, res.status);
   return res.json() as Promise<T>;
 }
@@ -33,5 +38,11 @@ export const orcaClient = {
   disengageMission: (id: string) => req<{ ok: boolean }>(`/missions/${id}`, { method: 'DELETE' }),
   getConfig: () => req<OrcaConfig>('/config'),
   updateConfig: (patch: ConfigPatch) => req<OrcaConfig>('/config', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) }),
+  login: (username: string, password: string) => req<AuthResult>('/auth/login', json({ username, password })),
+  logout: () => req<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  me: () => req<{ user: User }>('/auth/me'),
+  listUsers: () => req<User[]>('/users'),
+  createUser: (username: string, password: string) => req<User>('/users', json({ username, password })),
+  deleteUser: (id: number) => req<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
 };
 export type { Session };

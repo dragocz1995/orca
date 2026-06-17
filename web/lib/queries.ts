@@ -34,3 +34,6 @@ export const useMissionDetail = (id: string | null) =>
     queryFn: () => orcaClient.getMissionDetail(id as string),
     enabled: !!id,
   });
+
+export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: orcaClient.listUsers });
+export const useMe = () => useQuery({ queryKey: ['me'], queryFn: orcaClient.me });

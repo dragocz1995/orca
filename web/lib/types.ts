@@ -28,3 +28,5 @@ export interface MissionDetail {
   deps: MissionDeps[];
   progress: MissionProgress;
 }
+export interface User { id: number; username: string; created_at: string }
+export interface AuthResult { token: string; user: User }

@@ -50,3 +50,17 @@ export function useUpdateConfig() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (patch: ConfigPatch) => orcaClient.updateConfig(patch), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.config }) });
 }
+export function useLogin() {
+  return useMutation({ mutationFn: (v: { username: string; password: string }) => orcaClient.login(v.username, v.password) });
+}
+export function useLogout() {
+  return useMutation({ mutationFn: () => orcaClient.logout() });
+}
+export function useCreateUser() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (v: { username: string; password: string }) => orcaClient.createUser(v.username, v.password), onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }) });
+}
+export function useDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: number) => orcaClient.deleteUser(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }) });
+}

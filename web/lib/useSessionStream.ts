@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { BASE } from './orcaClient';
+import { withToken } from './token';
 
 // Dedupe seam: identical idle frames must not churn React state (the backend
 // resends full snapshots on an interval). Returns the previous reference when
@@ -12,7 +13,7 @@ export function nextPane(prev: string, next: string): string {
 export function useSessionStream(name: string): string {
   const [pane, setPane] = useState('');
   useEffect(() => {
-    const es = new EventSource(`${BASE}/sessions/${encodeURIComponent(name)}/stream`);
+    const es = new EventSource(withToken(`${BASE}/sessions/${encodeURIComponent(name)}/stream`));
     const onPane = (e: MessageEvent) => {
       try {
         const parsed = JSON.parse(e.data) as { pane: string };

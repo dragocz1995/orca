@@ -3,11 +3,12 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from './queries';
 import { BASE } from './orcaClient';
+import { withToken } from './token';
 
 export function useOrcaEvents(): void {
   const qc = useQueryClient();
   useEffect(() => {
-    const es = new EventSource(`${BASE}/events`);
+    const es = new EventSource(withToken(`${BASE}/events`));
 
     // Native EventSource auto-reconnects on transport drops (browser-managed retry with
     // exponential backoff per HTML spec §9.2.6), which satisfies spec §8 for the common
