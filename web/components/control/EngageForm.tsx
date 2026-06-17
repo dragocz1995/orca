@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
+import type { EngageInput } from '../../lib/types';
 import { Button } from '../ui/Button';
-export function EngageForm({ onEngage }: { onEngage: (v: { epicId: string; autonomy: string; maxSessions: number; clearedGuardrails: string[] }) => void }) {
+export function EngageForm({ onEngage }: { onEngage: (v: EngageInput) => void }) {
   const [epicId, setEpicId] = useState('');
   const [autonomy, setAutonomy] = useState('L3');
   const [maxSessions, setMaxSessions] = useState(1);

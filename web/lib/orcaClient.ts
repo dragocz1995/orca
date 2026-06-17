@@ -1,4 +1,4 @@
-import type { Task, Session, Mission } from './types';
+import type { Task, Session, Mission, CreateTaskInput, EngageInput } from './types';
 
 export const BASE = process.env.NEXT_PUBLIC_ORCA_URL ?? 'http://localhost:4400';
 
@@ -20,8 +20,8 @@ export const orcaClient = {
   sessions: () => req<string[]>('/sessions'),
   missions: () => req<Mission[]>('/missions'),
   health: () => req<{ ok: boolean }>('/health'),
-  createTask: (input: unknown) => req<Task>('/tasks', json(input)),
-  engage: (input: unknown) => req<Mission>('/missions', json(input)),
+  createTask: (input: CreateTaskInput) => req<Task>('/tasks', json(input)),
+  engage: (input: EngageInput) => req<Mission>('/missions', json(input)),
   spawn: (input: { taskId: string; exec?: string }) => req<{ session: string }>('/sessions', json(input)),
   closeTask: (id: string) => req<Task>(`/tasks/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'closed' }) }),
   setTaskStatus: (id: string, status: string) => req<Task>(`/tasks/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status }) }),

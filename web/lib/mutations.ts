@@ -2,6 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
+import type { CreateTaskInput, EngageInput } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -12,7 +13,7 @@ export function useSpawn() {
 }
 export function useCreateTask() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (input: unknown) => orcaClient.createTask(input), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks }) });
+  return useMutation({ mutationFn: (input: CreateTaskInput) => orcaClient.createTask(input), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks }) });
 }
 export function useCloseTask() {
   const qc = useQueryClient();
@@ -31,7 +32,7 @@ export function useSendInput() {
 }
 export function useEngage() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (input: unknown) => orcaClient.engage(input), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }) });
+  return useMutation({ mutationFn: (input: EngageInput) => orcaClient.engage(input), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }) });
 }
 export function usePauseMission() {
   const qc = useQueryClient();

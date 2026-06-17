@@ -29,9 +29,9 @@ export default function MissionsPage() {
                 <span className="font-mono text-xs text-text-muted">{m.id} · {m.epic_id}</span>
                 <div className="flex items-center gap-2">
                   <Badge tone="accent">{m.autonomy}</Badge>
-                  <Button onClick={() => pause.mutate(m.id, { onSuccess: () => toast(`Paused ${m.id}`) })}>Pause</Button>
-                  <Button onClick={() => resume.mutate(m.id, { onSuccess: () => toast(`Resumed ${m.id}`) })}>Resume</Button>
-                  <Button variant="danger" onClick={() => disengage.mutate(m.id, { onSuccess: () => toast(`Disengaged ${m.id}`) })}>Disengage</Button>
+                  <Button onClick={() => pause.mutate(m.id, { onSuccess: () => toast(`Paused ${m.id}`), onError: (e) => toast(String(e), 'error') })}>Pause</Button>
+                  <Button onClick={() => resume.mutate(m.id, { onSuccess: () => toast(`Resumed ${m.id}`), onError: (e) => toast(String(e), 'error') })}>Resume</Button>
+                  <Button variant="danger" onClick={() => disengage.mutate(m.id, { onSuccess: () => toast(`Disengaged ${m.id}`), onError: (e) => toast(String(e), 'error') })}>Disengage</Button>
                 </div>
               </li>
             ))}
