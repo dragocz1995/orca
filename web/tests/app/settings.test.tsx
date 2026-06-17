@@ -27,11 +27,12 @@ describe('SettingsPage', () => {
 const config = { allowedExecs: ['sonnet'], autopilot: { model: 'm', apiUrl: 'u', apiKeySet: false, notes: 'mind the guardrails' }, defaults: { exec: 'sonnet', autonomy: 'L3', maxSessions: 2 } };
 
 describe('Settings depth', () => {
-  it('renders the notes and defaults from config', async () => {
+  it('renders model toggles and a defaults segmented control', async () => {
     server.use(http.get('*/config', () => HttpResponse.json(config)));
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    expect(await screen.findByDisplayValue('mind the guardrails')).toBeTruthy();
-    expect(screen.getByText(/Defaults/i)).toBeTruthy();
+    expect(await screen.findByDisplayValue('mind the guardrails')).toBeTruthy(); // notes textarea still present
+    expect(screen.getAllByRole('switch').length).toBeGreaterThan(0);            // model toggle cards
+    expect(screen.getAllByRole('radiogroup').length).toBeGreaterThan(0);        // defaults segmented (autonomy/exec)
   });
 });
