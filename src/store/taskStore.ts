@@ -34,4 +34,25 @@ export class TaskStore {
   addDep(taskId: string, dependsOnId: string): void {
     this.db.prepare('INSERT OR IGNORE INTO task_deps (task_id, depends_on_id) VALUES (?, ?)').run(taskId, dependsOnId);
   }
+
+  descendants(rootId: string): Task[] {
+    const rows = this.db.prepare(
+      `WITH RECURSIVE sub(id) AS (
+         SELECT id FROM tasks WHERE parent_id = @root
+         UNION
+         SELECT t.id FROM tasks t JOIN sub ON t.parent_id = sub.id
+       )
+       SELECT t.* FROM tasks t JOIN sub ON t.id = sub.id ORDER BY t.created_at`
+    ).all({ root: rootId }) as Row[];
+    return rows.map(toTask);
+  }
+
+  depsAmong(ids: string[]): { task_id: string; depends_on_id: string }[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    return this.db.prepare(
+      `SELECT task_id, depends_on_id FROM task_deps
+       WHERE task_id IN (${placeholders}) AND depends_on_id IN (${placeholders})`
+    ).all(...ids, ...ids) as { task_id: string; depends_on_id: string }[];
+  }
 }
