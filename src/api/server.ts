@@ -16,7 +16,6 @@ import { uniqueName } from '../daemon/uniqueName.js';
 import type { Clock } from '../shared/clock.js';
 import type { ConfigStore } from '../store/configStore.js';
 
-const ALLOWED_EXEC = new Set(['sonnet', 'ollama/deepseek-v4-flash', 'ollama/kimi-k2.7-code', 'ollama/minimax-m2.7', 'codex:gpt-5.4']);
 
 export interface ServerDeps {
   tasks: TaskStore; readiness: Readiness; missions: MissionStore;
@@ -46,7 +45,7 @@ export function createServer(d: ServerDeps): Hono {
   app.get('/sessions', async c => c.json(await d.tmux.list()));
   app.post('/sessions', async (c) => {
     const { taskId, exec } = await c.req.json() as { taskId: string; exec?: string };
-    if (exec !== undefined && !ALLOWED_EXEC.has(exec)) return c.json({ error: 'invalid exec' }, 400);
+    if (exec && !d.config.get().allowedExecs.includes(exec)) return c.json({ error: 'exec not allowed' }, 400);
     const spec = resolveExecutor(exec ? [`exec:${exec}`] : [], d.fallback);
     d.tasks.setStatus(taskId, 'in_progress');
     const { session } = await d.spawn.launch({ projectId: d.project.id, projectPath: d.project.path, taskId, agentName: uniqueName(), spec });

