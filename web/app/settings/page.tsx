@@ -20,12 +20,21 @@ export default function SettingsPage() {
   const [model, setModel] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const [defExec, setDefExec] = useState('');
+  const [defAutonomy, setDefAutonomy] = useState('');
+  const [defMaxSessions, setDefMaxSessions] = useState(1);
 
   useEffect(() => {
     if (config.data) {
       setAllowed(config.data.allowedExecs);
       setModel(config.data.autopilot.model);
       setApiUrl(config.data.autopilot.apiUrl);
+      setNotes(config.data.autopilot.notes);
+      setDefExec(config.data.defaults.exec);
+      setDefAutonomy(config.data.defaults.autonomy);
+      setDefMaxSessions(config.data.defaults.maxSessions);
     }
   }, [config.data]);
 
@@ -62,7 +71,34 @@ export default function SettingsPage() {
           <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-text-muted">API key {apiKeySet && <span className="text-accent normal-case">•••• set</span>}
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeySet ? 'leave blank to keep' : 'paste key'} className="bg-surface border border-border rounded-none px-2 py-1 text-sm text-text normal-case" />
           </label>
-          <div><Button variant="accent" onClick={() => update.mutate({ autopilot: { model, apiUrl, ...(apiKey ? { apiKey } : {}) } }, { onSuccess: () => { toast('Autopilot saved'); setApiKey(''); }, onError: (e) => toast(String(e), 'error') })}>Save autopilot</Button></div>
+          <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-text-muted">Notes
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="bg-surface border border-border rounded-none px-2 py-1 text-sm text-text normal-case resize-none" />
+          </label>
+          <div><Button variant="accent" onClick={() => update.mutate({ autopilot: { model, apiUrl, notes, ...(apiKey ? { apiKey } : {}) } }, { onSuccess: () => { toast('Autopilot saved'); setApiKey(''); }, onError: (e) => toast(String(e), 'error') })}>Save autopilot</Button></div>
+        </div>
+      </Panel>
+
+      <Panel>
+        <PageHeader title="Defaults" />
+        <div className="flex flex-col gap-3 p-3 max-w-md">
+          <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-text-muted">Executor
+            <select value={defExec} onChange={(e) => setDefExec(e.target.value)} className="bg-surface border border-border rounded-none px-2 py-1 text-sm text-text normal-case">
+              {EXEC_PRESETS.map((p) => (
+                <option key={p.exec} value={p.exec}>{p.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-text-muted">Autonomy
+            <select value={defAutonomy} onChange={(e) => setDefAutonomy(e.target.value)} className="bg-surface border border-border rounded-none px-2 py-1 text-sm text-text normal-case">
+              {['L0', 'L1', 'L2', 'L3'].map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-text-muted">Max sessions
+            <input type="number" min={1} value={defMaxSessions} onChange={(e) => setDefMaxSessions(Number(e.target.value))} className="bg-surface border border-border rounded-none px-2 py-1 text-sm text-text normal-case" />
+          </label>
+          <div><Button variant="accent" onClick={() => update.mutate({ defaults: { exec: defExec, autonomy: defAutonomy, maxSessions: defMaxSessions } }, { onSuccess: () => toast('Defaults saved'), onError: (e) => toast(String(e), 'error') })}>Save</Button></div>
         </div>
       </Panel>
     </ModuleShell>

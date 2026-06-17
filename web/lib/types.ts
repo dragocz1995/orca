@@ -12,11 +12,13 @@ export type OrcaEvent =
   | { type: 'task'; taskId: string; status: string };
 export interface OrcaConfig {
   allowedExecs: string[];
-  autopilot: { model: string; apiUrl: string; apiKeySet: boolean };
+  autopilot: { model: string; apiUrl: string; apiKeySet: boolean; notes: string };
+  defaults: { exec: string; autonomy: string; maxSessions: number };
 }
 export interface ConfigPatch {
   allowedExecs?: string[];
-  autopilot?: { model?: string; apiUrl?: string; apiKey?: string };
+  autopilot?: { model?: string; apiUrl?: string; apiKey?: string; notes?: string };
+  defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
 }
 export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null }
 export interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }
