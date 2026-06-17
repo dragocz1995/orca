@@ -3,18 +3,14 @@ import type { ReactNode } from 'react';
 import { Providers } from '../../app/providers';
 import { ToastProvider } from '../ui/Toast';
 import { Sidebar } from './Sidebar';
-import { TopBar } from './TopBar';
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <Providers>
       <ToastProvider>
-        <div className="grid min-h-screen grid-cols-[12rem_1fr] max-md:grid-cols-1">
+        <div className="flex min-h-screen">
           <Sidebar />
-          <div className="flex flex-col">
-            <TopBar />
-            <main className="flex-1 p-4">{children}</main>
-          </div>
+          <main className="flex-1 overflow-x-hidden p-4">{children}</main>
         </div>
       </ToastProvider>
     </Providers>
