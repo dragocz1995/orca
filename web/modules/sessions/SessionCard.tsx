@@ -35,6 +35,15 @@ export function SessionCard({ name, onOpenTerminal }: { name: string; onOpenTerm
       <pre className="h-32 overflow-hidden whitespace-pre-wrap break-all rounded-md border border-border bg-bg p-2 font-mono text-[11px] leading-snug text-text-muted">
         {isLoading ? 'loading…' : (tail || '— no output —')}
       </pre>
+      {needsInput && signal?.type === 'needs_input' && (
+        <div className="flex flex-col gap-2 rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 p-2.5">
+          <p className="text-xs text-text">{signal.question}</p>
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={() => send.mutate({ name, keys: ['Enter'] }, { onSuccess: () => toast(`Approved ${name}`), onError: (e) => toast(String(e), 'error') })} className="rounded-md border border-[#10b981]/50 bg-[#10b981]/10 px-2.5 py-1 text-xs font-medium text-[#10b981] transition-colors hover:bg-[#10b981] hover:text-white active:scale-95">Allow ⏎</button>
+            <button type="button" onClick={() => send.mutate({ name, keys: ['Escape'] }, { onSuccess: () => toast(`Rejected on ${name}`), onError: (e) => toast(String(e), 'error') })} className="rounded-md border border-danger/50 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger hover:text-white active:scale-95">Reject ⎋</button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         <SendInput onSend={(keys) => send.mutate({ name, keys }, { onSuccess: () => toast(`Sent to ${name}`), onError: (e) => toast(String(e), 'error') })} />
         <div className="flex items-center gap-1">
