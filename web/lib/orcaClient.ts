@@ -36,6 +36,7 @@ export const orcaClient = {
   taskDeps: (id: string) => req<string[]>(`/tasks/${encodeURIComponent(id)}/deps`),
   allDeps: () => req<{ task_id: string; depends_on_id: string }[]>('/tasks/deps'),
   planTask: (input: PlanInput) => req<PlanResult>('/tasks/plan', json(input)),
+  planPreview: (input: { goal: string; prompt?: string }) => req<{ phases: { title: string; type: string; agent?: string; details?: string }[] }>('/tasks/plan', json({ ...input, dryRun: true })),
   engage: (input: EngageInput) => req<Mission>('/missions', json(input)),
   spawn: (input: { taskId: string; exec?: string }) => req<{ session: string }>('/sessions', json(input)),
   closeTask: (id: string) => req<Task>(`/tasks/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'closed' }) }),

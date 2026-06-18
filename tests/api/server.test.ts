@@ -254,6 +254,8 @@ it('POST /tasks sets dependencies and GET /tasks/:id/deps returns them; PATCH re
   expect(deps.sort()).toEqual(['dep-a', 'dep-b']);
   await app.request('/tasks/dep-c', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deps: ['dep-a'] }) });
   expect(await (await app.request('/tasks/dep-c/deps')).json()).toEqual(['dep-a']);
+  const all = await (await app.request('/tasks/deps')).json() as { task_id: string; depends_on_id: string }[];
+  expect(all).toContainEqual({ task_id: 'dep-c', depends_on_id: 'dep-a' });
 });
 
 it('POST /tasks persists a description and PATCH updates it', async () => {
@@ -333,6 +335,22 @@ it('POST /tasks/plan with supplied phases skips the LLM and needs no key', async
   const body = await res.json() as { epic: { title: string }; phases: { title: string; type: string }[] };
   expect(body.epic.title).toBe('manual goal');
   expect(body.phases.map(p => [p.title, p.type])).toEqual([['One', 'feature'], ['Two', 'task']]);
+});
+
+it('POST /tasks/plan dryRun returns phases without creating any tasks', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db);
+  const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: null as any, tmux: null as any,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config,
+    makeInference: () => new FakeInference('[{"title":"A","type":"task"},{"title":"B"}]'),
+  });
+  const res = await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'preview me', dryRun: true, prompt: 'custom {{goal}}' }) });
+  expect(res.status).toBe(200);
+  expect((await res.json() as { phases: { title: string }[] }).phases.map(p => p.title)).toEqual(['A', 'B']);
+  expect(await (await app.request('/tasks')).json()).toEqual([]); // nothing persisted
 });
 
 it('POST /tasks/plan with engage=true engages a mission on the epic', async () => {

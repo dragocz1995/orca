@@ -122,7 +122,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json({ ok: true });
   });
   app.post('/tasks/plan', async c => {
-    const b = await c.req.json() as { goal?: string; exec?: string; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title?: string; type?: string }[] };
+    const b = await c.req.json() as { goal?: string; exec?: string; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title?: string; type?: string }[]; dryRun?: boolean; prompt?: string };
     const goal = (b.goal ?? '').trim();
     if (!goal) return c.json({ error: 'goal required' }, 400);
     if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
@@ -139,11 +139,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       if (!key) return c.json({ error: 'autopilot_key_missing' }, 400);
       const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
       try {
-        phases = await decompose(inf, goal, cfg.autopilot.prompt);
+        // A playground request may pass a prompt override to test an unsaved template.
+        phases = await decompose(inf, goal, b.prompt ?? cfg.autopilot.prompt);
       } catch {
         return c.json({ error: 'plan_parse_failed' }, 502);
       }
     }
+
+    // Playground: return the decomposition without persisting anything.
+    if (b.dryRun === true) return c.json({ phases });
 
     const newId = () => `${basename(d.project.path)}-${randomBytes(4).toString('hex')}`;
     const epic = d.tasks.create({ id: newId(), project_id: d.project.id, title: goal, type: 'epic', description: goal });

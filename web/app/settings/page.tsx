@@ -4,6 +4,7 @@ import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, type Lucide
 import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { useConfig } from '../../lib/queries';
 import { useUpdateConfig } from '../../lib/mutations';
+import { orcaClient, OrcaApiError } from '../../lib/orcaClient';
 import { EXEC_PRESETS, allModels } from '../../lib/execPresets';
 import { useToast } from '../../components/ui/Toast';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -47,6 +48,20 @@ export default function SettingsPage() {
   const [notes, setNotes] = useState('');
   const [prompt, setPrompt] = useState('');
   const [providers, setProviders] = useState<Record<string, { bin: string; args: string }>>({});
+  const [sampleGoal, setSampleGoal] = useState('');
+  const [preview, setPreview] = useState<{ title: string; type: string; agent?: string; details?: string }[] | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+
+  const runPreview = async () => {
+    setPreviewing(true);
+    try {
+      const r = await orcaClient.planPreview({ goal: sampleGoal.trim(), prompt });
+      setPreview(r.phases);
+    } catch (e) {
+      if (e instanceof OrcaApiError && e.code === 'autopilot_key_missing') toast('Set the autopilot API key first', 'error');
+      else toast(String(e), 'error');
+    } finally { setPreviewing(false); }
+  };
 
   const [defExec, setDefExec] = useState('');
   const [defAutonomy, setDefAutonomy] = useState('');
@@ -282,6 +297,31 @@ export default function SettingsPage() {
                   </HelpTip>
                 </div>
                 <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={8} spellCheck={false} className={`${inputClass} resize-y font-mono text-xs leading-relaxed`} />
+
+                <div className="mt-3 flex flex-col gap-2 rounded-md border border-border bg-elevated/40 p-3">
+                  <span className="text-xs font-medium uppercase tracking-wide text-text-muted">Test plan</span>
+                  <div className="flex items-center gap-2">
+                    <Input value={sampleGoal} onChange={(e) => setSampleGoal(e.target.value)} placeholder="A sample goal to test this prompt…" />
+                    <Button variant="default" disabled={previewing || !sampleGoal.trim()} onClick={runPreview}>{previewing ? 'Planning…' : 'Test plan'}</Button>
+                  </div>
+                  {preview && (
+                    <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
+                      {preview.map((p, i) => (
+                        <li key={i} className="flex items-start gap-2 px-3 py-2 text-sm">
+                          <span className="w-4 shrink-0 font-mono text-xs text-text-muted">{i + 1}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-text">{p.title}</span>
+                              <span className="shrink-0 rounded border border-border px-1 text-[10px] uppercase text-text-muted">{p.type}</span>
+                              {p.agent ? <span className="shrink-0 rounded-md border border-accent/40 bg-accent/10 px-1.5 text-[10px] text-accent">{p.agent}</span> : null}
+                            </div>
+                            {p.details ? <p className="mt-0.5 truncate text-xs text-text-muted">{p.details}</p> : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             </div>
           </Section>
