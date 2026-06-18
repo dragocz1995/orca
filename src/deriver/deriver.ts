@@ -13,6 +13,13 @@ export interface DeriverDeps {
   sink: SignalSink; clock?: Clock;
   /** Resolve the task a session is working (signal file / registry); injected for testability. */
   sessionTaskId: (session: string) => string | null;
+  /** Autonomy level (L0–L3) of the mission owning a session, or null when none (manual launch). */
+  autonomyFor?: (session: string) => string | null;
+}
+
+/** L2/L3 missions (and manual, mission-less launches) clear permission prompts themselves; L0/L1 escalate to a human. */
+function autoClears(autonomy: string | null): boolean {
+  return autonomy === null || autonomy === 'L2' || autonomy === 'L3';
 }
 
 export class Deriver {
@@ -28,7 +35,7 @@ export class Deriver {
     const sessions = (await this.d.tmux.list()).filter(s => s.startsWith('orca-'));
     for (const session of sessions) {
       const program = this.d.agents.programFor(session.replace(/^orca-/, ''));
-      if (!program || program.startsWith('claude')) continue;
+      if (!program) continue;
       const taskId = this.d.sessionTaskId(session); if (!taskId) continue;
       const task = this.d.tasks.get(taskId); if (!task) continue;
 
@@ -36,19 +43,18 @@ export class Deriver {
       if (task.status !== 'in_progress' && task.status !== 'open') continue;
 
       const prompt = detectAgentPrompt(await this.d.tmux.capturePane(session, PANE_TAIL), program);
-      if (prompt?.autoApprove) {
-        const key = `auto:${hash(prompt.question + prompt.context)}`;
-        if (this.last.get(session) === key) continue;
-        this.last.set(session, key);
-        await this.d.tmux.sendKeys(session, prompt.autoApprove.keys);
-        this.d.sink.emit(session, { type: 'working' });
-        continue;
-      }
       if (prompt) {
-        const key = `need:${hash(prompt.question + prompt.context)}`;
+        // Autonomy gate: L2/L3 (and manual launches) clear the prompt; L0/L1 escalate to a human.
+        const auto = autoClears(this.d.autonomyFor?.(session) ?? null);
+        const key = `${auto ? 'auto' : 'need'}:${hash(prompt.question + prompt.context)}`;
         if (this.last.get(session) === key) continue;
         this.last.set(session, key);
-        this.d.sink.emit(session, { type: 'needs_input', question: prompt.question, options: prompt.options, context: prompt.context });
+        if (auto) {
+          await this.d.tmux.sendKeys(session, prompt.acceptKeys);
+          this.d.sink.emit(session, { type: 'working' });
+        } else {
+          this.d.sink.emit(session, { type: 'needs_input', question: prompt.question, options: prompt.options, context: prompt.context });
+        }
         continue;
       }
       this.last.set(session, 'working');

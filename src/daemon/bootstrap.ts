@@ -58,7 +58,20 @@ export function buildApp(opts: BuildOpts) {
   const engine = new MissionEngine({ tasks, readiness, missions, spawn, tmux, bus, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: uniqueName });
   const scheduler = new Scheduler({ tasks, spawn, bus, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: uniqueName, clock: new SystemClock() });
   // Deriver resolves a session's task via the agent registry / in-progress task (simplified: first in_progress child).
-  const deriver = new Deriver({ tmux, agents, tasks, sink: bus, clock: new SystemClock(), sessionTaskId: () => tasks.list({ status: 'in_progress' })[0]?.id ?? null });
+  // Resolve a session's task via its agent:<name> label, and the autonomy of the mission that owns it.
+  const taskForSession = (session: string) => {
+    const name = session.replace(/^orca-/, '');
+    return tasks.list({ project_id: opts.project.id }).find((t) => t.labels.includes(`agent:${name}`)) ?? null;
+  };
+  const deriver = new Deriver({
+    tmux, agents, tasks, sink: bus, clock: new SystemClock(),
+    sessionTaskId: (session) => taskForSession(session)?.id ?? tasks.list({ status: 'in_progress' })[0]?.id ?? null,
+    autonomyFor: (session) => {
+      const t = taskForSession(session);
+      if (!t?.parent_id) return null;
+      return missions.active().find((m) => m.epic_id === t.parent_id)?.autonomy ?? null;
+    },
+  });
   const openMode = users.count() === 0 && opts.allowOpen === true;
   if (openMode) {
     console.warn('[orca] running OPEN (no auth) — ORCA_ALLOW_OPEN is set and no users exist');
