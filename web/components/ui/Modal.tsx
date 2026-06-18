@@ -30,7 +30,7 @@ export function Modal({ title, onClose, children, size = 'lg' }: ModalProps) {
       onClick={onClose}
     >
       <div
-        className={`flex flex-col rounded-lg bg-surface border border-border ${SIZES[size]}`}
+        className={`animate-pop-in flex flex-col rounded-lg bg-surface border border-border ${SIZES[size]}`}
         style={{ boxShadow: 'var(--shadow-raised)' }}
         onClick={(e) => e.stopPropagation()}
       >

@@ -64,7 +64,7 @@ export function MissionsView() {
                       </div>
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="h-1.5 w-32 overflow-hidden rounded-full bg-elevated">
-                          <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                          <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${pct}%`, transitionTimingFunction: 'var(--ease-out)' }} />
                         </div>
                         <span className="font-mono text-[11px] text-text-muted">{done}/{total} done</span>
                       </div>

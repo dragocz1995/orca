@@ -1,6 +1,5 @@
 'use client';
 import { usePathname } from 'next/navigation';
-import { Circle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { modulesByGroup } from '../../modules/registry';
 import { useSidebarState } from '../../lib/useSidebarState';
@@ -65,8 +64,12 @@ export function Sidebar() {
       </div>
 
       <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-        <span role="status" aria-label={up ? 'daemon up' : 'daemon down'}>
-          <Circle size={8} className={up ? 'text-accent fill-accent' : 'text-text-muted fill-text-muted'} aria-hidden />
+        <span role="status" aria-label={up ? 'daemon up' : 'daemon down'} className="flex items-center justify-center">
+          <span
+            className={`h-2 w-2 rounded-full ${up ? 'live-dot bg-accent' : 'bg-text-muted'}`}
+            style={up ? ({ ['--live-ring' as string]: 'rgba(59,130,246,0.5)' }) : undefined}
+            aria-hidden
+          />
         </span>
         {expanded && <span className="font-mono text-[10px] uppercase tracking-wide text-text-muted">daemon</span>}
       </div>

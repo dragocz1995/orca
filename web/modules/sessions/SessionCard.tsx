@@ -30,7 +30,7 @@ export function SessionCard({ name, onOpenTerminal }: { name: string; onOpenTerm
         <Icon size={15} className="shrink-0 text-text-muted" aria-hidden />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-text" title={task?.title}>{name}</span>
         {needsInput ? <span className="shrink-0 rounded-full border border-[#f59e0b]/40 bg-[#f59e0b]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#f59e0b]" title={signal?.type === 'needs_input' ? signal.question : ''}>needs input</span> : null}
-        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} aria-label={needsInput ? 'needs input' : 'online'} title={needsInput ? 'needs input' : 'online'} />
+        <span className="live-dot h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot, ['--live-ring' as string]: needsInput ? 'rgba(245,158,11,0.5)' : 'rgba(16,185,129,0.5)' }} aria-label={needsInput ? 'needs input' : 'online'} title={needsInput ? 'needs input' : 'online'} />
       </div>
       <pre className="h-32 overflow-hidden whitespace-pre-wrap break-all rounded-md border border-border bg-bg p-2 font-mono text-[11px] leading-snug text-text-muted">
         {isLoading ? 'loading…' : (tail || '— no output —')}

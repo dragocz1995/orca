@@ -25,15 +25,32 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Vercel-style: subtle elevation + border lighten on hover (no glow, no gradient) */
-.card-interactive { transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out); }
-.card-interactive:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-raised); }
+/* Vercel-style: subtle elevation + border lighten + a 1px lift on hover (no glow, no gradient) */
+.card-interactive { transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
+.card-interactive:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-raised); transform: translateY(-1px); }
 
 html, body { background: var(--color-bg); color: var(--color-text); }
 
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Motion layer: tasteful entrances + liveliness ───────────────────────── */
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes live-ring { 0% { box-shadow: 0 0 0 0 var(--live-ring, rgba(16,185,129,0.5)); } 70%, 100% { box-shadow: 0 0 0 5px rgba(0,0,0,0); } }
+
+.animate-fade-up { animation: fade-up 260ms var(--ease-out) both; }
+.animate-pop-in { animation: pop-in 180ms var(--ease-out) both; }
+.skeleton { background: var(--color-elevated); border-radius: var(--radius-sm); animation: skel-pulse 1.4s ease-in-out infinite; }
+.live-dot { position: relative; }
+.live-dot::after { content: ''; position: absolute; inset: 0; border-radius: 9999px; animation: live-ring 2s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up, .animate-pop-in, .skeleton, .live-dot::after { animation: none !important; }
+  .card-interactive:hover { transform: none; }
 }
 
 /* Always-visible keyboard focus on interactive elements (OLED-safe accent ring) */

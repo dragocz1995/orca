@@ -3,7 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 
 export function Section({ title, icon: Icon, actions, children }: { title: string; icon?: LucideIcon; actions?: ReactNode; children: ReactNode }) {
   return (
-    <section className="bg-surface border border-border rounded-lg overflow-hidden" style={{ boxShadow: 'var(--shadow-card)' }}>
+    <section className="animate-fade-up bg-surface border border-border rounded-lg overflow-hidden" style={{ boxShadow: 'var(--shadow-card)' }}>
       <header className="flex items-center justify-between gap-2 border-b border-border px-5 py-3.5">
         <div className="flex items-center gap-2.5">
           {Icon ? <Icon size={16} className="text-text-muted" aria-hidden /> : null}

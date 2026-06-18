@@ -9,8 +9,18 @@ export function EmptyState({ title, description }: { title: string; description?
   );
 }
 
-export function LoadingState({ label = 'Loading' }: { label?: string }) {
-  return <div className="flex items-center justify-center py-12 font-mono text-xs text-text-muted animate-pulse">{label}</div>;
+export function LoadingState({ label }: { label?: string }) {
+  if (label) return <div className="flex items-center justify-center py-12 font-mono text-xs text-text-muted animate-pulse">{label}</div>;
+  return (
+    <div className="flex flex-col gap-2.5 py-2" aria-busy="true" aria-label="Loading">
+      {[88, 72, 80, 64].map((w, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <div className="skeleton h-4 w-4 rounded-md" />
+          <div className="skeleton h-3.5 rounded" style={{ width: `${w}%` }} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
