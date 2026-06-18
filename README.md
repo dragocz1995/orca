@@ -83,6 +83,15 @@ orca sessions
 
 The CLI auto-starts the daemon if it isn't already running.
 
+### Auth
+
+If the daemon has authentication enabled, use the API token:
+
+```bash
+export ORCA_TOKEN="your-token"
+curl -H "Authorization: Bearer $ORCA_TOKEN" http://localhost:4400/tasks
+```
+
 ## REST API
 
 The daemon exposes a Hono server on port 4400:

@@ -9,23 +9,39 @@ Next.js 16 frontend at `web/`. Built with React 19, Tailwind CSS 4, TanStack Rea
 Overview screen with:
 
 - **Stat cards** — open tasks, in progress, blocked, live sessions, active missions
-- **Status bar** — visual breakdown of task states
+- **Status bar** — visual breakdown of task states (proportional colored segments)
 - **Tasks table** — recent tasks with status badges
 - **Sessions list** — active agent sessions
-- **Missions list** — active missions with state
+- **Missions list** — active missions with state badges
 
-Data refreshes on mount and via real-time SSE events.
+Data refreshes on mount and via real-time SSE events (`useOrcaEvents`).
 
 ### Tasks `/tasks`
 
 Full task management:
 
 - **Create task form** — title, optional type and priority
-- **Task table** — all tasks with ID, title, status badge
+- **Task table** — all tasks with ID, title, status badge (color-coded per `statusTone`)
 - **Actions per task:**
   - `ExecutorPicker` — launch agent with selected model/executor
   - `Close` button — mark task as closed
 - States: loading, error (with retry), empty
+
+### Kanban `/kanban`
+
+Drag-and-drop task board with 5 columns:
+
+| Column | Status |
+|---|---|
+| Open | `open` |
+| In progress | `in_progress` |
+| Blocked | `blocked` |
+| Closed | `closed` |
+| Cancelled | `cancelled` |
+
+- Drag tasks between columns to update status
+- Each card shows title, ID, and status badge
+- Uses native HTML5 drag-and-drop (`draggable`, `onDrop`)
 
 ### Missions `/missions`
 
@@ -37,7 +53,10 @@ Mission lifecycle management:
   - `Detail` — opens modal with `MissionProgressView`
   - `Pause` / `Resume` — toggle mission state
   - `Disengage` — kill all associated sessions and end mission
-- **Modal** — `MissionProgressView` shows detailed progress per mission
+- **Mission detail modal** — `MissionProgressView` shows:
+  - Progress stat cards (total, done, in progress, blocked)
+  - Phase-based task visualization (topological layout from DAG)
+  - Tasks grouped by phase with status badges
 
 ### Sessions `/sessions`
 
@@ -47,18 +66,50 @@ Live agent session management:
 - **Actions per session:**
   - `Terminal` — opens modal with live Xterm.js terminal
   - `Send input` — send keystrokes (e.g., approve prompts)
-  - `Interrupt` — send Ctrl+C
+  - `Interrupt` — send Ctrl+C (`["C-c"]`)
   - `Kill` — terminate tmux session
-- **Terminal modal** — real-time pane stream via SSE, ANSI color support
+- **Terminal modal** — real-time pane stream via SSE, ANSI color support, auto-fit resize
+
+### Timeline `/timeline`
+
+Visual activity log with two views:
+
+- **Axis view** — horizontal timeline showing last 12 hours of events as dots
+  - Dot size scales with event frequency (logarithmic)
+  - Hover tooltip shows target, detail, and timestamp
+  - Hour gridlines and UTC clock labels
+- **Feed view** — chronological event list with icons and badges
+- **Filter** — segmented control: All / Tasks / Missions / Signals
+- Events are grouped (identical events within 5 min collapse into `×N`)
+
+### Users `/users`
+
+User management (Config group):
+
+- **User table** — list of all users with username, creation date, delete button
+- **Add user form** — username + password fields
+- **Session section** — logout button (clears token and reloads)
+- Cannot delete the last remaining user
+
+### Projects `/projects`
+
+Project registry (Config group):
+
+- **Project cards** — grid of projects with slug and path, clickable to select
+- **New project modal** — form with slug, path, optional pilot info
+- **Git section** (when project selected) — shows:
+  - Current branch with dirty/ahead/behind counts
+  - Branch list (current branch highlighted)
+  - Recent commits (hash, subject, author, relative time)
 
 ### Settings `/settings`
 
-Daemon configuration:
+Daemon configuration (Config group):
 
 - **Models** — toggle allowed executors (checkboxes per model preset)
   - Claude Sonnet, DeepSeek v4 Flash, Kimi k2.7 Code, Minimax m2.7, Codex gpt-5.4
 - **Autopilot** — decision model settings
-  - Model name, API URL, API key (masked input)
+  - Model name, API URL, API key (masked input, shows "•••• set" when configured)
 
 ## Architecture
 
@@ -94,6 +145,19 @@ web/
 │   ├── settings/           Settings meta + theme CSS
 │   └── tasks/              Task module meta
 ```
+
+## Auth
+
+The web UI includes an authentication layer:
+
+- **LoginGate** — wraps the entire app, checks for a stored token on mount
+- **LoginForm** — centered login screen with Orca logo, username/password fields
+- **Token storage** — stored in `localStorage` under `orca.token`
+- **EventBridge** — only mounted after auth (prevents 401 on SSE connections)
+- **Logout** — revokes token server-side, clears local storage, reloads page
+- Token is appended to SSE URLs via `?token=<value>` (EventSource limitation)
+
+Auth is optional — if the daemon has no `UserStore`, the gate renders children directly (assumes no token needed).
 
 ## Key patterns
 

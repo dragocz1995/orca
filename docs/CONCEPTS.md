@@ -125,6 +125,89 @@ If not permitted, the task is skipped during the engine tick. It remains `open` 
 
 ---
 
+## Authentication & authorization
+
+The daemon supports optional token-based authentication. When a `UserStore` is configured, all endpoints except `/health` and `POST /auth/login` require a bearer token.
+
+### Token flow
+
+```
+login (username + password) → receive token → pass as Authorization: Bearer <token>
+```
+
+Tokens are:
+- Issued via `POST /auth/login` (scrypt password verification)
+- Stored in the `auth_tokens` table
+- Revocable via `POST /auth/logout`
+- Passable as query param `?token=<value>` (for SSE EventSource which can't set headers)
+
+### Password storage
+
+Passwords are hashed with scrypt (random 16-byte salt, 64-byte hash). No plaintext storage.
+
+### Users
+
+The `users` table stores username + password hash. The `UserStore` provides:
+- `verify(username, password)` — authentication
+- `issueToken(userId)` — creates a session token
+- `userForToken(token)` — resolves token to user
+- `revokeToken(token)` — logout
+- `create / list / delete` — user management
+
+### Enforcement
+
+The `authMiddleware` in `src/api/auth.ts` checks every request:
+1. Is the path public? (health, login) → allow
+2. Is there a valid token? (Authorization header or query param) → allow
+3. Otherwise → 401
+
+The middleware is only active when `d.users` is provided to the server factory.
+
+---
+
+## AI planning
+
+The `POST /tasks/plan` endpoint uses an LLM to decompose a high-level goal into ordered implementation phases.
+
+### How it works
+
+1. **Prompt construction** — `planPrompt(goal)` builds a system prompt asking for 3–7 JSON phases
+2. **LLM call** — `decompose(inf, goal)` sends the prompt via the configured autopilot inference client
+3. **Parse** — `parsePhases(text)` extracts the JSON array, validates each phase has a title and valid type
+4. **Task creation** — each phase becomes a `task` child of an `epic` task, chained sequentially via `task_deps`
+5. **Optional engage** — if `engage: true`, creates and starts a mission immediately
+
+### Phase types
+
+| Type | Purpose |
+|---|---|
+| `task` | General implementation work |
+| `feature` | New feature addition |
+| `bug` | Bug fix |
+| `chore` | Maintenance, refactoring, tooling |
+
+### Requirements
+
+- Autopilot API key must be configured in daemon settings
+- LLM must return valid JSON (no markdown fences, no prose)
+- On parse failure, returns 502 with `"plan_parse_failed"`
+
+---
+
+## Activity log
+
+All state changes are recorded in the `activity_log` table:
+
+| Event type | Example |
+|---|---|
+| `task` | Task created, status changed |
+| `mission` | Mission engaged, paused, disengaged |
+| `signal` | Deriver detected working/needs_input/complete |
+
+The log is queryable via `GET /activity` with optional `type` and `limit` filters. Used by the Timeline page in the web UI.
+
+---
+
 ## Agent routing
 
 Tasks specify which AI agent should execute them via the `exec:<program>` label.

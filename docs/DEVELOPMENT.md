@@ -146,6 +146,48 @@ src/
 
 ---
 
+## Auth system
+
+Auth is optional. When the server factory receives a `UserStore`, it enables:
+
+- `POST /auth/login` — public endpoint, returns bearer token
+- `POST /auth/logout` — revokes current token
+- `GET /auth/me` — returns current user
+- `GET /users`, `POST /users`, `DELETE /users/:id` — user management
+- `authMiddleware` on all other routes (401 if no valid token)
+
+Passwords use scrypt with random salt. Tokens are 32-byte hex strings stored in `auth_tokens` table.
+
+### Adding auth to bootstrap
+
+```typescript
+import { UserStore } from '../store/userStore.js';
+
+const users = new UserStore(db);
+const app = createServer({ ...deps, users });
+```
+
+Without `users`, the server runs without authentication.
+
+## AI planning
+
+The `POST /tasks/plan` endpoint decomposes goals via LLM:
+
+1. Constructs a prompt asking for JSON array of 3–7 phases
+2. Sends via the configured autopilot inference client
+3. Parses and validates the response
+4. Creates epic + sequential tasks with dependencies
+5. Optionally engages a mission
+
+The planner is in `src/overseer/planner.ts`. To test:
+
+```typescript
+import { parsePhases } from '../src/overseer/planner.js';
+
+const phases = parsePhases('[{"title":"Fix login","type":"bug"}]');
+// [{ title: 'Fix login', type: 'bug' }]
+```
+
 ## Adding a new endpoint
 
 1. Add the handler in `src/api/server.ts`
@@ -205,6 +247,12 @@ settings  (id, data)  -- JSON blob for runtime config
 ```
 
 DB path defaults to `./orca.db` (configurable via `bootstrap.ts`).
+
+### Extras
+
+The `activity_log` table records all state changes automatically (via event bus → activity store).  
+The `settings` table stores daemon configuration as a JSON blob.  
+The `auth_tokens` table manages active sessions when auth is enabled.
 
 ---
 
