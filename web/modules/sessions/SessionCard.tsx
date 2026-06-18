@@ -8,6 +8,7 @@ import { ActionMenu } from '../../components/ui/ActionMenu';
 import { SendInput } from '../../components/control/SendInput';
 import { useToast } from '../../components/ui/Toast';
 import { useSessionPane } from './useSessionPane';
+import { parseAnsi } from './ansi';
 
 export function SessionCard({ name, onOpenTerminal }: { name: string; onOpenTerminal: () => void }) {
   const kill = useKillSession();
@@ -33,7 +34,9 @@ export function SessionCard({ name, onOpenTerminal }: { name: string; onOpenTerm
         <span className="live-dot h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot, ['--live-ring' as string]: needsInput ? 'rgba(245,158,11,0.5)' : 'rgba(16,185,129,0.5)' }} aria-label={needsInput ? 'needs input' : 'online'} title={needsInput ? 'needs input' : 'online'} />
       </div>
       <pre className="h-32 overflow-hidden whitespace-pre-wrap break-all rounded-md border border-border bg-bg p-2 font-mono text-[11px] leading-snug text-text-muted">
-        {isLoading ? 'loading…' : (tail || '— no output —')}
+        {isLoading ? 'loading…' : tail
+          ? parseAnsi(tail).map((s, i) => <span key={i} style={s.color ? { color: s.color } : undefined}>{s.text}</span>)
+          : '— no output —'}
       </pre>
       {needsInput && signal?.type === 'needs_input' && (
         <div className="flex flex-col gap-2 rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 p-2.5">

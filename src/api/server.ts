@@ -179,7 +179,11 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   });
   app.delete('/sessions/:name', async c => { await d.tmux.kill(c.req.param('name')); return c.json({ ok: true }); });
   app.post('/sessions/:name/keys', async c => { const { keys } = await c.req.json(); await d.tmux.sendKeys(c.req.param('name'), keys); return c.json({ ok: true }); });
-  app.get('/sessions/:name/pane', async c => c.json({ pane: await d.tmux.capturePane(c.req.param('name'), 60) }));
+  app.get('/sessions/:name/pane', async c => {
+    const name = c.req.param('name');
+    const pane = c.req.query('ansi') ? await d.tmux.capturePaneAnsi(name, 60) : await d.tmux.capturePane(name, 60);
+    return c.json({ pane });
+  });
 
   app.get('/sessions/:name/stream', (c) => {
     const name = c.req.param('name');
