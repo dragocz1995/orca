@@ -38,7 +38,7 @@ export function TerminalControls({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="command…"
-          className="bg-bg border border-border rounded-none px-2 py-1 font-mono text-xs text-text"
+          className="rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-xs text-text transition-colors focus:border-accent focus:outline-none"
           disabled={busy}
         />
         <Button type="submit" disabled={busy}>Send</Button>

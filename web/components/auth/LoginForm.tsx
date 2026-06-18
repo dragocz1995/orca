@@ -4,6 +4,7 @@ import { useLogin } from '../../lib/mutations';
 import { setToken } from '../../lib/token';
 import { useToast } from '../ui/Toast';
 import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
 
 export function LoginForm({ onAuthed }: { onAuthed: () => void }) {
   const [username, setUsername] = useState('');
@@ -29,26 +30,12 @@ export function LoginForm({ onAuthed }: { onAuthed: () => void }) {
 
   return (
     <div className="flex h-screen items-center justify-center bg-bg">
-      <div className="bg-surface border border-border rounded-none p-8 w-full max-w-sm flex flex-col gap-4">
-        <img src="/orca-logo.png" alt="Orca" className="w-64 h-auto mx-auto" />
-        <h1 className="uppercase tracking-wide text-sm text-text-muted text-center">Sign in</h1>
+      <div className="animate-pop-in flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-surface p-8" style={{ boxShadow: 'var(--shadow-raised)' }}>
+        <img src="/orca-logo.png" alt="Orca" className="mx-auto h-auto w-64" />
+        <h1 className="text-center text-sm uppercase tracking-wide text-text-muted">Sign in</h1>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            className="bg-bg border border-border rounded-none px-3 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            className="bg-bg border border-border rounded-none px-3 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent"
-          />
+          <Input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+          <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
           <Button type="submit" variant="accent" disabled={login.isPending} className="w-full justify-center">
             Sign in
           </Button>

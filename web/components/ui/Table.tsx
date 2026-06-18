@@ -9,10 +9,10 @@ export function THead({ children }: { children: ReactNode }) {
 }
 
 export function TR({ children }: { children: ReactNode }) {
-  return <tr className="border-b border-border">{children}</tr>;
+  return <tr className="border-b border-border transition-colors hover:bg-elevated/40">{children}</tr>;
 }
 
-export function TH({ children, ...rest }: { children: ReactNode } & ThHTMLAttributes<HTMLTableCellElement>) {
+export function TH({ children, ...rest }: { children?: ReactNode } & ThHTMLAttributes<HTMLTableCellElement>) {
   return <th className="text-left uppercase tracking-wide text-xs text-text-muted px-3 py-2 font-normal" {...rest}>{children}</th>;
 }
 

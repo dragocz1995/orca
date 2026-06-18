@@ -35,7 +35,7 @@ const DOT_TONE: Record<Tone, string> = {
 /** "12:05" style UTC clock label. */
 function clock(ms: number): string {
   const d = new Date(ms);
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 function AxisMarker({ point }: { point: AxisPoint }) {

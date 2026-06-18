@@ -10,6 +10,7 @@ import { Table, THead, TR, TH, TD } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { ActivityTicker } from './ActivityTicker';
+import { taskTypeMeta } from '../tasks/taskMeta';
 import type { TaskStatus } from '../../lib/types';
 
 const STATUS_BAR_KEYS: Array<{ key: TaskStatus; bg: string }> = [
@@ -78,21 +79,24 @@ export function DashboardView() {
             <Table>
               <THead>
                 <TR>
-                  <TH>ID</TH>
+                  <TH aria-label="Type" />
                   <TH>Title</TH>
                   <TH>Status</TH>
                 </TR>
               </THead>
               <tbody>
-                {tasks.data.map((t) => (
-                  <TR key={t.id}>
-                    <TD mono>{t.id}</TD>
-                    <TD>{t.title}</TD>
-                    <TD>
-                      <Badge tone={statusTone(t.status)}>{t.status}</Badge>
-                    </TD>
-                  </TR>
-                ))}
+                {tasks.data.slice(0, 8).map((t) => {
+                  const Icon = taskTypeMeta(t.type).icon;
+                  return (
+                    <TR key={t.id}>
+                      <TD><Icon size={14} className="text-text-muted" aria-hidden /></TD>
+                      <TD>{t.title}</TD>
+                      <TD>
+                        <Badge tone={statusTone(t.status)}>{t.status}</Badge>
+                      </TD>
+                    </TR>
+                  );
+                })}
               </tbody>
             </Table>
           </div>
@@ -131,19 +135,26 @@ export function DashboardView() {
           <Table>
             <THead>
               <TR>
-                <TH>ID</TH>
+                <TH>Epic</TH>
+                <TH>Progress</TH>
                 <TH>State</TH>
               </TR>
             </THead>
             <tbody>
-              {missions.data.map((m) => (
-                <TR key={m.id}>
-                  <TD mono>{m.id}</TD>
-                  <TD>
-                    <Badge tone={m.state === 'disengaged' ? 'muted' : 'accent'}>{m.state}</Badge>
-                  </TD>
-                </TR>
-              ))}
+              {missions.data.map((m) => {
+                const epic = tasks.data?.find((t) => t.id === m.epic_id);
+                const kids = (tasks.data ?? []).filter((t) => t.parent_id === m.epic_id);
+                const done = kids.filter((t) => t.status === 'closed' || t.status === 'cancelled').length;
+                return (
+                  <TR key={m.id}>
+                    <TD>{epic?.title ?? m.epic_id}</TD>
+                    <TD mono>{done}/{kids.length}</TD>
+                    <TD>
+                      <Badge tone={m.state === 'disengaged' ? 'muted' : 'accent'}>{m.state}</Badge>
+                    </TD>
+                  </TR>
+                );
+              })}
             </tbody>
           </Table>
         ) : (

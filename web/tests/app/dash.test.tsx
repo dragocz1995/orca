@@ -16,7 +16,7 @@ describe('DashPage', () => {
   it('renders live tasks and sessions, empty missions', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><DashPage /></Wrapper>);
-    await waitFor(() => expect(screen.getByText('orca-1')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Build')).toBeInTheDocument());
     expect(screen.getByText('orca-SwiftLake')).toBeInTheDocument();
     expect(screen.getByText(/no active missions/i)).toBeInTheDocument();
   });

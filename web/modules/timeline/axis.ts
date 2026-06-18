@@ -89,7 +89,7 @@ export function plotAxis(events: AxisEvent[], now: number, hours: number): AxisR
   const ticks: AxisTick[] = Array.from({ length: hours }, (_, i) => {
     const tickMs = windowStart + (i + 1) * HOUR_MS;
     const d = new Date(tickMs);
-    const label = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    const label = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     const frac = (tickMs - windowStart) / (now - windowStart);
     return { label, frac };
   });
