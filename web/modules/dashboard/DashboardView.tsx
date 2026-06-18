@@ -9,6 +9,7 @@ import { Section } from '../../components/ui/Section';
 import { Table, THead, TR, TH, TD } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
+import { ActivityTicker } from './ActivityTicker';
 import type { TaskStatus } from '../../lib/types';
 
 const STATUS_BAR_KEYS: Array<{ key: TaskStatus; bg: string }> = [
@@ -37,6 +38,8 @@ export function DashboardView() {
 
   return (
     <div className="flex w-full flex-col gap-6">
+      <ActivityTicker />
+
       {/* Metrics row */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Open" value={metrics.open} hint={`of ${metrics.totalTasks} total`} />

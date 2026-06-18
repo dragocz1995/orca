@@ -41,6 +41,11 @@ html, body { background: var(--color-bg); color: var(--color-text); }
 @keyframes pop-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 @keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @keyframes live-ring { 0% { box-shadow: 0 0 0 0 var(--live-ring, rgba(16,185,129,0.5)); } 70%, 100% { box-shadow: 0 0 0 5px rgba(0,0,0,0); } }
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+.marquee-track { display: inline-flex; animation: marquee 40s linear infinite; }
+.marquee-mask:hover .marquee-track { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .marquee-track { animation: none; } }
 
 .animate-fade-up { animation: fade-up 260ms var(--ease-out) both; }
 .animate-pop-in { animation: pop-in 180ms var(--ease-out) both; }
