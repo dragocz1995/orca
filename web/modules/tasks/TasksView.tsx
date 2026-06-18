@@ -5,8 +5,10 @@ import { Plus, ListChecks, Search, Archive, Trash2, X, ChevronLeft, ChevronRight
 import type { Task, TaskStatus } from '../../lib/types';
 import { useTasks, useAllDeps } from '../../lib/queries';
 import { taskBlockers } from '../../lib/agentUtils';
+import { epicChildren, phaseIds } from '../../lib/taskTree';
 import { useCloseTask, useDeleteTask } from '../../lib/mutations';
 import { TaskDetailPane } from './TaskDetailPane';
+import { EpicGroup } from './EpicGroup';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
@@ -45,6 +47,12 @@ export function TasksView() {
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Autopilot epics own their phases; phases are hidden from the flat list and nested instead.
+  const childMap = useMemo(() => epicChildren(tasks.data ?? []), [tasks.data]);
+  const phaseSet = useMemo(() => phaseIds(tasks.data ?? []), [tasks.data]);
+  const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set());
+  const toggleEpic = (id: string) => setExpandedEpics((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
   const FILTERS: { value: Filter; label: string }[] = [
     { value: 'in_progress', label: t.tasks.filterActive },
     { value: 'open', label: t.tasks.filterOpen },
@@ -58,6 +66,12 @@ export function TasksView() {
   const params = useSearchParams();
   useEffect(() => { if (params.get('new') === '1') { setCreating(true); router.replace('/tasks'); } }, [params, router]);
   useEffect(() => { const s = params.get('select'); if (s) setSelectedId(s); }, [params]);
+  // Reveal a deep-linked phase by expanding its parent epic.
+  useEffect(() => {
+    if (!selectedId) return;
+    const task = tasks.data?.find((x) => x.id === selectedId);
+    if (task?.parent_id && phaseSet.has(selectedId)) setExpandedEpics((s) => new Set(s).add(task.parent_id as string));
+  }, [selectedId, tasks.data, phaseSet]);
 
   // Resolve each task's unresolved dependency blockers once for the whole list.
   const blockedBy = useMemo(() => {
@@ -77,14 +91,18 @@ export function TasksView() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const matchText = (t: Task) => `${t.title} ${t.id} ${t.description ?? ''}`.toLowerCase().includes(q);
     return (tasks.data ?? [])
+      .filter((t) => !phaseSet.has(t.id)) // phases are shown nested inside their epic group
       .filter((t) => {
-        if (filter !== 'all' && t.status !== filter) return false;
+        // An epic matches the status filter / search if it or any of its phases matches.
+        const kids = t.type === 'epic' ? (childMap.get(t.id) ?? []) : [];
+        if (filter !== 'all' && t.status !== filter && !kids.some((k) => k.status === filter)) return false;
         if (!q) return true;
-        return `${t.title} ${t.id} ${t.description ?? ''}`.toLowerCase().includes(q);
+        return matchText(t) || kids.some(matchText);
       })
       .sort((a, b) => taskDayMs(b) - taskDayMs(a)); // newest day first
-  }, [tasks.data, query, filter]);
+  }, [tasks.data, query, filter, childMap, phaseSet]);
 
   // Reset to the first page whenever the result set changes shape.
   useEffect(() => { setPage(0); }, [query, filter]);
@@ -141,7 +159,13 @@ export function TasksView() {
                     <span className="font-mono text-tiny text-text-muted">{g.items.length}</span>
                   </div>
                   <div className="flex flex-col gap-3">
-                    {g.items.map((task) => <TaskCard key={task.id} task={task} onEdit={setEditing} onSelect={(x) => setSelectedId(x.id)} active={selectedId === task.id} blockers={blockedBy.get(task.id)} selected={selected.has(task.id)} onToggleSelect={toggleSelect} selecting={selected.size > 0} />)}
+                    {g.items.map((task) => {
+                      const kids = childMap.get(task.id);
+                      if (task.type === 'epic' && kids && kids.length > 0) {
+                        return <EpicGroup key={task.id} epic={task} phases={kids} expanded={expandedEpics.has(task.id)} onToggle={() => toggleEpic(task.id)} onEdit={setEditing} onSelect={(x) => setSelectedId(x.id)} activeId={selectedId} blockedBy={blockedBy} />;
+                      }
+                      return <TaskCard key={task.id} task={task} onEdit={setEditing} onSelect={(x) => setSelectedId(x.id)} active={selectedId === task.id} blockers={blockedBy.get(task.id)} selected={selected.has(task.id)} onToggleSelect={toggleSelect} selecting={selected.size > 0} />;
+                    })}
                   </div>
                 </div>
               ))}
@@ -162,8 +186,9 @@ export function TasksView() {
               )}
             </div>
 
-            {/* Right — persistent detail pane */}
-            <aside className="mt-5 min-w-0 lg:mt-0 lg:flex-1 lg:sticky lg:top-[57px]">
+            {/* Right — persistent detail pane. Bounded height + internal scroll so its header
+                stays pinned below the toolbar instead of sliding under it on long tasks. */}
+            <aside className="mt-5 min-w-0 lg:mt-0 lg:flex-1 lg:sticky lg:top-[57px] lg:max-h-[calc(100vh-73px)] lg:overflow-y-auto">
               {selectedId
                 ? <div className="rounded-lg border border-border bg-surface p-4" style={{ boxShadow: 'var(--shadow-card)' }}><TaskDetailPane taskId={selectedId} onEdit={setEditing} /></div>
                 : <div className="hidden items-center justify-center rounded-lg border border-dashed border-border py-20 text-sm text-text-muted lg:flex">{t.tasks.selectHint}</div>}
