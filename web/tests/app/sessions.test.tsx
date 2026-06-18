@@ -10,6 +10,9 @@ import { createWrapper } from '../test-utils';
 
 vi.mock('../../components/terminal/Terminal', () => ({ Terminal: ({ name }: { name: string }) => <div data-testid="term">{name}</div> }));
 
+// SessionsView reads/writes the ?filter param; stub the app-router hooks it depends on.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: () => {} }), useSearchParams: () => new URLSearchParams() }));
+
 // next/dynamic is async in real Next.js; in tests mock it as a synchronous passthrough
 // so that vi.mock on the target module is respected and components render immediately
 vi.mock('next/dynamic', () => ({

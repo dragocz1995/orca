@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { taskAgentName, taskSessionName, taskElapsed, taskBlockers, tailSnippet, liveState } from '../../lib/agentUtils';
+import { taskAgentName, taskSessionName, taskElapsed, taskBlockers, tailSnippet, liveState, needsInputSessions, lastClosedTask } from '../../lib/agentUtils';
 import type { Task } from '../../lib/types';
 
 const task = (over: Partial<Task> = {}): Task => ({ id: 't1', title: 'T', status: 'open', ...over });
@@ -66,6 +66,25 @@ describe('liveState', () => {
   it('falls back to complete then idle', () => {
     expect(liveState({ type: 'complete' }, false)).toBe('complete');
     expect(liveState(undefined, false)).toBe('idle');
+  });
+});
+
+describe('needsInputSessions', () => {
+  it('keeps only sessions whose signal is needs_input', () => {
+    const signals = { 'orca-a': { type: 'working' as const }, 'orca-b': { type: 'needs_input' as const, question: '?' } };
+    expect(needsInputSessions(['orca-a', 'orca-b', 'orca-c'], signals)).toEqual(['orca-b']);
+  });
+});
+
+describe('lastClosedTask', () => {
+  it('returns the closed task with the latest closed_at', () => {
+    const a = task({ id: 'a', status: 'closed', closed_at: '2026-06-18 10:00:00' });
+    const b = task({ id: 'b', status: 'closed', closed_at: '2026-06-18 12:00:00' });
+    const c = task({ id: 'c', status: 'open' });
+    expect(lastClosedTask([a, b, c])?.id).toBe('b');
+  });
+  it('returns null when nothing is closed', () => {
+    expect(lastClosedTask([task({ status: 'open' })])).toBeNull();
   });
 });
 

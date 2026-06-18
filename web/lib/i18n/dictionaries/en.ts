@@ -213,6 +213,11 @@ export const en = {
     autonomyL3: 'L3 · Auto',
     autonomyL3Desc: 'Full autonomy within guardrails — runs and self-clears, escalating only when it truly cannot judge.',
   },
+  sidebar: {
+    needsAttention: '{count} needs attention',
+    liveAgents: '{count} live agents',
+    lastOutcome: 'Last: {title}',
+  },
   agent: {
     working: 'Working',
     needsInput: 'Needs input',
@@ -234,6 +239,9 @@ export const en = {
     emptyDescription: 'Launch a task to spawn one.',
     terminalTitle: 'Terminal — {name}',
     online: 'online',
+    filterAll: 'All',
+    filterNeedsInput: 'Needs input',
+    noNeedsInput: 'No agent is waiting for input.',
     comfortable: 'Comfortable',
     compact: 'Compact',
     approved: 'Approved {name}',
@@ -288,6 +296,8 @@ export const en = {
   },
   dashboard: {
     viewAll: 'View all',
+    needsAttentionTitle: 'Needs attention',
+    recentOutcomes: 'Recent outcomes',
     now: 'Now',
     nothingRunning: 'Nothing running — start a task or engage a mission.',
     open: 'Open',

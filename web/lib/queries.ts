@@ -12,10 +12,12 @@ export const QUERY_KEYS = {
 };
 
 /** Latest derived signal per session, populated by the SSE stream (see useOrcaEvents). */
-export const useSessionSignal = (name: string): DerivedSignal | undefined => {
+export const useSessionSignals = (): Record<string, DerivedSignal> => {
   const { data } = useQuery<Record<string, DerivedSignal>>({ queryKey: QUERY_KEYS.sessionSignals, queryFn: () => ({}), staleTime: Infinity, initialData: {} });
-  return data[name];
+  return data;
 };
+
+export const useSessionSignal = (name: string): DerivedSignal | undefined => useSessionSignals()[name];
 
 export const useTasks = () =>
   useQuery({ queryKey: QUERY_KEYS.tasks, queryFn: orcaClient.tasks, refetchInterval: 5000 });

@@ -1,24 +1,26 @@
 'use client';
 import Link from 'next/link';
-import { ListChecks, Rocket, ArrowRight, Plus, Radio } from 'lucide-react';
-import { useTasks, useSessions, useMissions } from '../../lib/queries';
+import { ListChecks, Rocket, ArrowRight, Plus, Radio, CircleCheckBig } from 'lucide-react';
+import { useTasks, useSessions, useMissions, useSessionSignals } from '../../lib/queries';
 import { deriveDashboardMetrics } from './metrics';
 import { statusTone } from './statusTone';
 import { Badge } from '../../components/ui/Badge';
+import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
+import { NeedsInputBanner } from '../../components/ui/NeedsInputBanner';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { useTranslation } from '../../lib/i18n';
 import { useSessionPane } from '../sessions/useSessionPane';
-import { parseAnsi } from '../sessions/ansi';
+import { tailSnippet, taskSessionName, parseTs } from '../../lib/agentUtils';
 import { taskExec } from '../../lib/taskExec';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { taskTypeMeta } from '../tasks/taskMeta';
-import type { Task } from '../../lib/types';
+import type { Task, DerivedSignal } from '../../lib/types';
 
 /** A single live agent lane in the hero: status pulse, model icon, name, current activity line. */
 function LiveLane({ name, task }: { name: string; task?: Task }) {
   const { tail } = useSessionPane(name, 4);
   const exec = taskExec(task?.labels);
-  const line = parseAnsi(tail).map((s) => s.text).join('').split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '…';
+  const line = tailSnippet(tail) || '…';
   return (
     <Link href="/sessions" className="flex items-center gap-2.5 rounded-md border border-border bg-bg px-3 py-2 transition-colors hover:border-border-strong">
       <span className="live-dot h-2 w-2 shrink-0 rounded-full bg-accent" style={{ ['--live-ring' as string]: 'color-mix(in srgb, var(--color-info) 50%, transparent)' }} aria-hidden />
@@ -45,20 +47,28 @@ export function DashboardView() {
   const tasks = useTasks();
   const sessions = useSessions();
   const missions = useMissions();
+  const signals = useSessionSignals();
 
   const metrics = deriveDashboardMetrics(tasks.data, sessions.data, missions.data);
   const TASK_STATUS_LABEL: Record<string, string> = { open: t.tasks.statusOpen, in_progress: t.tasks.statusInProgress, blocked: t.tasks.statusBlocked, closed: t.tasks.statusClosed, cancelled: t.tasks.statusCancelled };
   const MISSION_STATE_LABEL: Record<string, string> = { active: t.missions.stateActive, paused: t.missions.paused, disengaged: t.missions.stateDisengaged };
 
-  const live = (sessions.data ?? []).slice(0, 4);
+  const live = (sessions.data ?? []).slice(0, 6);
   const taskForSession = (s: string): Task | undefined => {
     const agent = s.startsWith('orca-') ? s.slice('orca-'.length) : null;
     return agent ? tasks.data?.find((x) => (x.labels ?? []).includes(`agent:${agent}`)) : undefined;
   };
   const recent = (tasks.data ?? []).filter((x) => x.type !== 'epic').slice(0, 6);
+  // Last 6 closed tasks, newest first, for the outcomes column.
+  const outcomes = (tasks.data ?? [])
+    .filter((x) => x.status === 'closed' && x.type !== 'epic')
+    .sort((a, b) => (parseTs(b.closed_at) ?? 0) - (parseTs(a.closed_at) ?? 0))
+    .slice(0, 6);
 
   return (
     <div className="flex w-full flex-col gap-5">
+      <NeedsInputBanner />
+
       {/* ── Hero: NOW ─────────────────────────────────────────── */}
       <section className="rounded-lg border border-border border-t-2 border-t-accent/40 bg-surface p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
@@ -125,9 +135,13 @@ export function DashboardView() {
                   const epic = tasks.data?.find((x) => x.id === m.epic_id);
                   const kids = (tasks.data ?? []).filter((x) => x.parent_id === m.epic_id);
                   const done = kids.filter((x) => x.status === 'closed' || x.status === 'cancelled').length;
+                  const liveKids = kids.filter((x) => x.status === 'in_progress');
+                  const needs = liveKids.filter((x) => { const s = taskSessionName(x); return s ? signals[s]?.type === 'needs_input' : false; }).length;
                   return (
                     <Link key={m.id} href="/missions" className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-elevated">
                       <span className="min-w-0 flex-1 truncate text-sm text-text">{epic?.title ?? m.epic_id}</span>
+                      {needs > 0 ? <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-warning" title={t.agent.needsInput}><span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />{needs}</span> : null}
+                      {liveKids.length > 0 ? <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-success" title={t.agent.working}><span className="live-dot h-1.5 w-1.5 rounded-full bg-success" style={{ ['--live-ring' as string]: 'color-mix(in srgb, var(--color-success) 50%, transparent)' }} aria-hidden />{liveKids.length}</span> : null}
                       <span className="shrink-0 font-mono text-[11px] text-text-muted">{done}/{kids.length}</span>
                       <Badge tone={m.state === 'disengaged' ? 'muted' : 'accent'}>{MISSION_STATE_LABEL[m.state] ?? m.state}</Badge>
                     </Link>
@@ -137,6 +151,26 @@ export function DashboardView() {
             )}
         </section>
       </div>
+
+      {/* ── Recent outcomes ──────────────────────────────────────── */}
+      {outcomes.length > 0 && (
+        <section className="flex flex-col rounded-lg border border-border bg-surface" style={{ boxShadow: 'var(--shadow-card)' }}>
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="flex items-center gap-2"><CircleCheckBig size={15} className="text-text-muted" aria-hidden /><h2 className="text-sm font-medium text-text">{t.dashboard.recentOutcomes}</h2></div>
+          </div>
+          <div className="flex flex-col divide-y divide-border">
+            {outcomes.map((task) => (
+              <Link key={task.id} href={`/tasks?select=${encodeURIComponent(task.id)}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-elevated">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-text">{task.title}</span>
+                  <span className="block truncate text-[11px] text-text-muted">{task.result_summary?.trim() || t.tasks.noSummary}</span>
+                </span>
+                <OutcomeBadge outcome={task.outcome} />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

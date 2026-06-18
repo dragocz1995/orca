@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { DashboardView } from '../../../modules/dashboard/DashboardView';
+import { ToastProvider } from '../../../components/ui/Toast';
 import { createWrapper } from '../../test-utils';
 
 const server = setupServer(
@@ -25,5 +26,13 @@ describe('DashboardView', () => {
     expect(screen.getAllByText(/Blocked/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Live sessions/i)).toBeTruthy();
     expect(screen.getByText(/Active missions/i)).toBeTruthy();
+  });
+
+  it('shows the needs-input banner when an agent is waiting', async () => {
+    const { wrapper: Wrapper, client } = createWrapper();
+    client.setQueryData(['session-signals'], { 'orca-x': { type: 'needs_input', question: 'Proceed?' } });
+    render(<Wrapper><ToastProvider><DashboardView /></ToastProvider></Wrapper>);
+    expect(await screen.findByText('Needs attention')).toBeTruthy();
+    expect(await screen.findByText('Proceed?')).toBeTruthy();
   });
 });

@@ -213,6 +213,11 @@ export const cs = {
     autonomyL3: 'L3 · Automaticky',
     autonomyL3Desc: 'Plná autonomie v rámci guardrailů — spouští a řeší sám, předává jen opravdu nejasné.',
   },
+  sidebar: {
+    needsAttention: '{count} vyžaduje pozornost',
+    liveAgents: '{count} živých agentů',
+    lastOutcome: 'Poslední: {title}',
+  },
   agent: {
     working: 'Pracuje',
     needsInput: 'Vyžaduje vstup',
@@ -234,6 +239,9 @@ export const cs = {
     emptyDescription: 'Spusťte úkol pro vytvoření relace.',
     terminalTitle: 'Terminál — {name}',
     online: 'online',
+    filterAll: 'Vše',
+    filterNeedsInput: 'Vyžaduje vstup',
+    noNeedsInput: 'Žádný agent nečeká na vstup.',
     comfortable: 'Pohodlné',
     compact: 'Kompaktní',
     approved: 'Schváleno {name}',
@@ -288,6 +296,8 @@ export const cs = {
   },
   dashboard: {
     viewAll: 'Zobrazit vše',
+    needsAttentionTitle: 'Vyžaduje pozornost',
+    recentOutcomes: 'Poslední výsledky',
     now: 'Teď',
     nothingRunning: 'Nic neběží — spusťte úkol nebo zahajte misi.',
     open: 'Otevřené',

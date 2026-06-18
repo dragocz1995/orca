@@ -19,4 +19,15 @@ describe('Sidebar (registry-driven)', () => {
     expect(screen.getByText('Config')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Dash/ }).className).toContain('border-accent');
   });
+
+  it('shows the ops status bar counts: needs attention, live agents and last outcome', () => {
+    const { wrapper: Wrapper, client } = createWrapper();
+    client.setQueryData(['tasks'], [{ id: 'tx', title: 'Refactor', status: 'closed', outcome: 'ok', result_summary: 'passed', closed_at: '2026-06-18 10:00:00' }]);
+    client.setQueryData(['sessions'], ['orca-a', 'orca-b']);
+    client.setQueryData(['session-signals'], { 'orca-a': { type: 'needs_input', question: 'go?' } });
+    render(<Wrapper><Sidebar /></Wrapper>);
+    expect(screen.getByText('1 needs attention')).toBeInTheDocument();
+    expect(screen.getByText('2 live agents')).toBeInTheDocument();
+    expect(screen.getByText('Last: Refactor')).toBeInTheDocument();
+  });
 });

@@ -57,6 +57,18 @@ export function liveState(signal: DerivedSignal | undefined, live: boolean): Liv
   return 'idle';
 }
 
+/** Live session names currently asking for human input. */
+export function needsInputSessions(sessions: string[], signals: Record<string, DerivedSignal>): string[] {
+  return sessions.filter((s) => signals[s]?.type === 'needs_input');
+}
+
+/** The most recently closed task (by closed_at), for the "last outcome" surfaces. */
+export function lastClosedTask(tasks: Task[]): Task | null {
+  const closed = tasks.filter((x) => x.status === 'closed');
+  if (closed.length === 0) return null;
+  return closed.reduce((a, b) => ((parseTs(b.closed_at) ?? 0) > (parseTs(a.closed_at) ?? 0) ? b : a));
+}
+
 /** Last non-empty terminal line, with ANSI escapes stripped — for a one-line live preview. */
 export function tailSnippet(pane: string): string {
   const lines = pane.split('\n');

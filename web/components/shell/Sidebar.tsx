@@ -8,6 +8,7 @@ import { useSidebarState } from '../../lib/useSidebarState';
 import { useHealth, useTasks } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { NavGroup } from './NavGroup';
+import { OpsStatusBar } from './OpsStatusBar';
 
 const RAIL = 56;
 const DAEMON_STATUS = {
@@ -94,6 +95,8 @@ export function Sidebar() {
           <div className="mt-0.5 truncate text-xs text-text">{nextReady.title}</div>
         </Link>
       )}
+
+      <OpsStatusBar expanded={expanded} />
 
       <div className={`flex items-center border-t border-border px-4 py-3 ${expanded ? 'gap-2.5' : 'justify-center'}`}>
         <span role="status" aria-label={up ? t.common.daemonUp : t.common.daemonDown} title={status === 'fail' ? t.common.daemonOffline : status === 'busy' ? t.common.daemonBusy : t.common.daemonReady} className="flex shrink-0 items-center justify-center">
