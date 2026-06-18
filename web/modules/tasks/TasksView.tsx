@@ -1,12 +1,15 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { Plus, ListChecks, Search } from 'lucide-react';
+import { Plus, ListChecks, Search, Archive, Trash2, X } from 'lucide-react';
 import type { Task, TaskStatus } from '../../lib/types';
 import { useTasks } from '../../lib/queries';
+import { useCloseTask, useDeleteTask } from '../../lib/mutations';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Section } from '../../components/ui/Section';
 import { Segmented } from '../../components/ui/Segmented';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { useToast } from '../../components/ui/Toast';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { TaskRow } from './TaskRow';
 import { TaskModal } from './TaskModal';
@@ -22,10 +25,20 @@ const FILTERS: { value: Filter; label: string }[] = [
 
 export function TasksView() {
   const tasks = useTasks();
+  const close = useCloseTask();
+  const del = useDeleteTask();
+  const { toast } = useToast();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  const toggleSelect = (id: string) => setSelected((cur) => { const next = new Set(cur); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const clearSelection = () => setSelected(new Set());
+  const bulkClose = () => { selected.forEach((id) => close.mutate(id)); toast(`Closed ${selected.size} tasks`); clearSelection(); };
+  const bulkDelete = () => { selected.forEach((id) => del.mutate(id)); toast(`Deleted ${selected.size} tasks`); clearSelection(); setConfirmBulkDelete(false); };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -57,13 +70,23 @@ export function TasksView() {
           : filtered.length === 0 ? <EmptyState title="No matches" description="Try a different search or filter." />
           : (
             <div className="flex flex-col divide-y divide-border">
-              {filtered.map((t) => <TaskRow key={t.id} task={t} onEdit={setEditing} />)}
+              {filtered.map((t) => <TaskRow key={t.id} task={t} onEdit={setEditing} selected={selected.has(t.id)} onToggleSelect={toggleSelect} selecting={selected.size > 0} />)}
             </div>
           )}
       </Section>
 
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-elevated px-3 py-2 shadow-[var(--shadow-raised)] animate-fade-up">
+          <span className="px-1 text-sm text-text">{selected.size} selected</span>
+          <Button variant="default" icon={Archive} onClick={bulkClose}>Close</Button>
+          <Button variant="danger" icon={Trash2} onClick={() => setConfirmBulkDelete(true)}>Delete</Button>
+          <button type="button" aria-label="Clear selection" onClick={clearSelection} className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface hover:text-text"><X size={15} /></button>
+        </div>
+      )}
+
       {creating && <TaskModal onClose={() => setCreating(false)} />}
       {editing && <TaskModal task={editing} onClose={() => setEditing(null)} />}
+      <ConfirmDialog open={confirmBulkDelete} title={`Delete ${selected.size} tasks?`} description="This permanently removes the selected tasks." onClose={() => setConfirmBulkDelete(false)} onConfirm={bulkDelete} />
     </>
   );
 }

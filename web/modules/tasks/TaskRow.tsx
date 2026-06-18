@@ -17,7 +17,7 @@ function fmtSchedule(iso: string): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function TaskRow({ task, onEdit }: { task: Task; onEdit: (t: Task) => void }) {
+export function TaskRow({ task, onEdit, selected = false, onToggleSelect, selecting = false }: { task: Task; onEdit: (t: Task) => void; selected?: boolean; onToggleSelect?: (id: string) => void; selecting?: boolean }) {
   const spawn = useSpawn();
   const close = useCloseTask();
   const del = useDeleteTask();
@@ -35,8 +35,18 @@ export function TaskRow({ task, onEdit }: { task: Task; onEdit: (t: Task) => voi
       tabIndex={0}
       onClick={() => onEdit(task)}
       onKeyDown={(e) => { if (e.key === 'Enter') onEdit(task); }}
-      className="group -mx-2 flex cursor-pointer items-start gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-elevated/50"
+      className={`group -mx-2 flex cursor-pointer items-start gap-3 rounded-lg px-2 py-3 transition-colors ${selected ? 'bg-accent/10' : 'hover:bg-elevated/50'}`}
     >
+      {onToggleSelect ? (
+        <input
+          type="checkbox"
+          checked={selected}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => onToggleSelect(task.id)}
+          aria-label={`Select ${task.id}`}
+          className={`mt-0.5 shrink-0 accent-accent transition-opacity ${selecting || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        />
+      ) : null}
       <Icon size={16} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
