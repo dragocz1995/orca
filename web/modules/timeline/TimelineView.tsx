@@ -106,6 +106,19 @@ function TimelineTrack({ points, ticks }: { points: AxisPoint[]; ticks: { label:
   );
 }
 
+function Lane({ target, points, ticks }: { target: string; points: AxisPoint[]; ticks: { label: string; frac: number }[] }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-28 shrink-0 truncate font-mono text-[11px] text-text-muted" title={target}>{target}</span>
+      <div className="relative h-7 flex-1">
+        {ticks.map((t) => <div key={t.label} className="absolute inset-y-0 w-px bg-border/40" style={{ left: `${t.frac * 100}%` }} aria-hidden />)}
+        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border/60" aria-hidden />
+        {points.map((p) => <AxisMarker key={p.id} point={p} />)}
+      </div>
+    </div>
+  );
+}
+
 function FeedRow({ event }: { event: GroupedEvent }) {
   const Icon = eventIcon(event.type);
   const tone = eventTone(event.type);
@@ -126,6 +139,7 @@ function FeedRow({ event }: { event: GroupedEvent }) {
 
 export function TimelineView() {
   const [filter, setFilter] = useState<string>('all');
+  const [view, setView] = useState<string>('axis');
   const type = filter === 'all' ? undefined : filter;
   const q = useActivity(type);
 
@@ -142,6 +156,16 @@ export function TimelineView() {
   const { points, ticks } = useMemo(() => plotAxis(rawEvents, Date.now(), WINDOW_HOURS), [rawEvents]);
   // Feed: most-recent-first, deduped the same way as the axis.
   const feed = useMemo(() => groupEvents(rawEvents).sort((a, b) => b.timestamp - a.timestamp), [rawEvents]);
+  // Swimlanes: one track per target (agent/session/task), busiest-recent first.
+  const lanes = useMemo(() => {
+    const now = Date.now();
+    const byTarget = new Map<string, AxisEvent[]>();
+    for (const e of rawEvents) { const list = byTarget.get(e.target) ?? []; list.push(e); byTarget.set(e.target, list); }
+    return Array.from(byTarget.entries())
+      .map(([target, evs]) => ({ target, points: plotAxis(evs, now, WINDOW_HOURS).points, last: Math.max(...evs.map((e) => e.timestamp)) }))
+      .sort((a, b) => b.last - a.last)
+      .slice(0, 10);
+  }, [rawEvents]);
 
   const hasData = !q.isLoading && !q.isError && rawEvents.length > 0;
 
@@ -150,7 +174,12 @@ export function TimelineView() {
       <Section
         title="Activity / last 12h"
         icon={Activity}
-        actions={<Segmented options={FILTER_OPTIONS} value={filter} onChange={setFilter} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented options={[{ label: 'Axis', value: 'axis' }, { label: 'Lanes', value: 'lanes' }]} value={view} onChange={setView} />
+            <Segmented options={FILTER_OPTIONS} value={filter} onChange={setFilter} />
+          </div>
+        }
       >
         {q.isLoading ? (
           <LoadingState />
@@ -158,6 +187,15 @@ export function TimelineView() {
           <ErrorState message="Failed to load activity" onRetry={() => q.refetch()} />
         ) : !hasData ? (
           <EmptyState title="No activity yet" description="Events from the last 12 hours appear here." />
+        ) : view === 'lanes' ? (
+          <div className="flex flex-col gap-2.5">
+            {lanes.map((l) => <Lane key={l.target} target={l.target} points={l.points} ticks={ticks} />)}
+            <div className="relative mt-1 ml-[7.75rem] h-4">
+              {ticks.map((t) => (
+                <span key={t.label} className="absolute -translate-x-1/2 font-mono text-text-muted" style={{ left: `${t.frac * 100}%`, fontSize: 'var(--text-caption)' }}>{t.label}</span>
+              ))}
+            </div>
+          </div>
         ) : (
           <TimelineTrack points={points} ticks={ticks} />
         )}
