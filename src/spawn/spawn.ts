@@ -22,6 +22,15 @@ export class SpawnService {
       closeCommand, env, bin: provider?.bin, extraArgs: provider?.args,
     });
     await this.d.tmux.spawn(session, { cwd: input.projectPath, command });
+    // OpenCode boots an interactive TUI that holds the --prompt in its composer without
+    // submitting it; nudge Enter a few times after the UI mounts to send the task.
+    // (Enter on an empty composer is a no-op, so whichever press lands first submits and
+    // the rest are harmless.) Timers are unref'd so they never keep tests/process alive.
+    if (input.spec.program.startsWith('opencode')) {
+      for (const delay of [4000, 8000, 13000]) {
+        setTimeout(() => { void this.d.tmux.sendKeys(session, ['Enter']).catch(() => {}); }, delay).unref();
+      }
+    }
     return { session };
   }
 }

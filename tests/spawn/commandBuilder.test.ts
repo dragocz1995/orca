@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { buildAgentCommand } from '../../src/spawn/commandBuilder.js';
 
 describe('buildAgentCommand', () => {
-  it('routes a provider/model to headless `opencode run`', () => {
+  it('routes a provider/model to the interactive `opencode` TUI with --prompt', () => {
     const cmd = buildAgentCommand({ program: 'opencode', model: 'ollama-cloud/deepseek-v4-flash' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });
-    expect(cmd).toContain('opencode run');
     expect(cmd).toContain('--model ollama-cloud/deepseek-v4-flash');
-    expect(cmd).not.toContain('--prompt'); // headless run, not the interactive TUI
+    expect(cmd).toContain('--prompt'); // UI mode: task preloaded into the composer
+    expect(cmd).not.toContain('opencode run'); // not headless
   });
   it('routes a bare model to claude', () => {
     const cmd = buildAgentCommand({ program: 'claude-code', model: 'sonnet' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });
@@ -38,6 +38,6 @@ describe('buildAgentCommand', () => {
   });
   it('uses the configured provider binary and extra args', () => {
     const cmd = buildAgentCommand({ program: 'opencode', model: 'm' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A', bin: '/opt/oc/opencode', extraArgs: '--pure' });
-    expect(cmd).toContain('/opt/oc/opencode run --model m --pure ');
+    expect(cmd).toContain('/opt/oc/opencode --model m --pure --prompt ');
   });
 });

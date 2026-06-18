@@ -37,9 +37,11 @@ export function buildAgentCommand(spec: AgentSpec, ctx: SpawnCtx): string {
   ].join('\n');
   if (spec.program.startsWith('opencode')) {
     const bin = ctx.bin || 'opencode';
-    // `run` executes headless and exits when done (the interactive TUI via --prompt
-    // does not reliably auto-run the prompt, leaving agents idle).
-    return `${cd} && ${envExport}${bin} run --model ${spec.model}${extra} ${esc(prompt)}`;
+    // Launch the interactive TUI (UI mode) with the task preloaded into the composer
+    // via --prompt. The TUI holds the prompt but does not auto-submit it, so SpawnService
+    // nudges Enter a few times once the UI has mounted (Enter on an empty composer is a
+    // harmless no-op, so the extra presses are safe).
+    return `${cd} && ${envExport}${bin} --model ${spec.model}${extra} --prompt ${esc(prompt)}`;
   }
   if (spec.program.startsWith('codex')) {
     const bin = ctx.bin || 'codex';
