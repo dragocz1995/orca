@@ -23,6 +23,9 @@ export const useTasks = () =>
 export const useSessions = () =>
   useQuery({ queryKey: QUERY_KEYS.sessions, queryFn: orcaClient.sessions });
 
+export const useAllDeps = () =>
+  useQuery({ queryKey: ['tasks', 'deps'], queryFn: orcaClient.allDeps });
+
 export const useMissions = () =>
   useQuery({ queryKey: QUERY_KEYS.missions, queryFn: orcaClient.missions });
 

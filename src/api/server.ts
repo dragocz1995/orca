@@ -102,6 +102,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json(created, 201);
   });
   app.get('/tasks/ready', c => c.json(d.readiness.ready(1)));
+  app.get('/tasks/deps', c => c.json(d.tasks.allDeps()));
   app.patch('/tasks/:id', async c => {
     const b = await c.req.json();
     const id = c.req.param('id');

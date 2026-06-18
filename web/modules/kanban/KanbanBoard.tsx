@@ -1,4 +1,5 @@
 'use client';
+import { Link2 } from 'lucide-react';
 import type { Task, TaskStatus } from '../../lib/types';
 import { Badge } from '../../components/ui/Badge';
 import { statusTone } from '../dashboard/statusTone';
@@ -13,7 +14,7 @@ const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'cancelled', label: 'Cancelled' },
 ];
 
-export function KanbanBoard({ tasks, onMove, onSelect }: { tasks: Task[]; onMove: (taskId: string, status: TaskStatus) => void; onSelect?: (t: Task) => void }) {
+export function KanbanBoard({ tasks, onMove, onSelect, blockedIds }: { tasks: Task[]; onMove: (taskId: string, status: TaskStatus) => void; onSelect?: (t: Task) => void; blockedIds?: Set<string> }) {
   const groups = groupByStatus(tasks);
   const byId = new Map(tasks.map((t) => [t.id, t]));
   return (
@@ -36,17 +37,19 @@ export function KanbanBoard({ tasks, onMove, onSelect }: { tasks: Task[]; onMove
           </header>
           {groups[col.status].map((task) => {
             const Icon = taskTypeMeta(task.type).icon;
+            const blocked = blockedIds?.has(task.id) ?? false;
             return (
               <div
                 key={task.id}
-                draggable
-                onDragStart={(e) => e.dataTransfer.setData('text/plain', task.id)}
+                draggable={!blocked}
+                onDragStart={(e) => { if (blocked) { e.preventDefault(); return; } e.dataTransfer.setData('text/plain', task.id); }}
                 onClick={() => onSelect?.(task)}
-                className="flex cursor-grab flex-col gap-1.5 rounded-md border border-border bg-bg p-2.5 transition-colors hover:border-border-strong"
+                className={`flex flex-col gap-1.5 rounded-md border bg-bg p-2.5 transition-colors ${blocked ? 'cursor-pointer border-danger/40' : 'cursor-grab border-border hover:border-border-strong'}`}
               >
                 <div className="flex items-start gap-2">
                   <Icon size={14} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
                   <span className="min-w-0 text-sm text-text">{task.title}</span>
+                  {blocked ? <span className="live-dot ml-auto shrink-0 text-danger" style={{ ['--live-ring' as string]: 'rgba(239,68,68,0.5)' }} title="Blocked by unfinished dependencies"><Link2 size={13} aria-hidden /></span> : null}
                 </div>
                 {task.description?.trim() ? <span className="truncate pl-6 text-[11px] text-text-muted">{task.description.trim()}</span> : null}
                 <div className="flex items-center justify-between gap-2 pl-6">

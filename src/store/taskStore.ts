@@ -67,6 +67,10 @@ export class TaskStore {
     return (this.db.prepare('SELECT depends_on_id FROM task_deps WHERE task_id = ?').all(taskId) as { depends_on_id: string }[]).map((r) => r.depends_on_id);
   }
 
+  allDeps(): { task_id: string; depends_on_id: string }[] {
+    return this.db.prepare('SELECT task_id, depends_on_id FROM task_deps').all() as { task_id: string; depends_on_id: string }[];
+  }
+
   descendants(rootId: string): Task[] {
     const rows = this.db.prepare(
       `WITH RECURSIVE sub(id) AS (
