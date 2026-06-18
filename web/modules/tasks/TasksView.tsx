@@ -1,5 +1,6 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, ListChecks, Search, Archive, Trash2, X } from 'lucide-react';
 import type { Task, TaskStatus } from '../../lib/types';
 import { useTasks } from '../../lib/queries';
@@ -34,6 +35,11 @@ export function TasksView() {
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  // Command palette: /tasks?new=1 opens the create modal.
+  const router = useRouter();
+  const params = useSearchParams();
+  useEffect(() => { if (params.get('new') === '1') { setCreating(true); router.replace('/tasks'); } }, [params, router]);
 
   const toggleSelect = (id: string) => setSelected((cur) => { const next = new Set(cur); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const clearSelection = () => setSelected(new Set());

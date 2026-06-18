@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => {}, replace: () => {} }), useSearchParams: () => new URLSearchParams() }));
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import TasksPage from '../../app/tasks/page';

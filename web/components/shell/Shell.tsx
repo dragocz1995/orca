@@ -4,6 +4,7 @@ import { Providers } from '../../app/providers';
 import { ToastProvider } from '../ui/Toast';
 import { LoginGate } from '../auth/LoginGate';
 import { Sidebar } from './Sidebar';
+import { CommandPalette } from './CommandPalette';
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
@@ -14,6 +15,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <Sidebar />
             <main className="flex-1 overflow-y-auto p-4">{children}</main>
           </div>
+          <CommandPalette />
         </LoginGate>
       </ToastProvider>
     </Providers>

@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Rocket, Plus, Pause, Play, Power, Layers } from 'lucide-react';
 import { useMissions, useTasks } from '../../lib/queries';
 import { usePauseMission, useResumeMission, useDisengage } from '../../lib/mutations';
@@ -23,6 +24,10 @@ export function MissionsView() {
   const { toast } = useToast();
   const [detailId, setDetailId] = useState<string | null>(null);
   const [engaging, setEngaging] = useState(false);
+
+  const router = useRouter();
+  const params = useSearchParams();
+  useEffect(() => { if (params.get('new') === '1') { setEngaging(true); router.replace('/missions'); } }, [params, router]);
 
   const epicTitle = (epicId: string) => tasks.data?.find((t) => t.id === epicId)?.title ?? epicId;
   const progressFor = (epicId: string) => {
