@@ -1,12 +1,13 @@
 'use client';
 import { useState } from 'react';
-import { Users, UserPlus, Trash2, LogOut, User, Shield, ShieldCheck, FolderGit2, Cpu } from 'lucide-react';
+import { Users, UserPlus, Trash2, LogOut, Shield, ShieldCheck, FolderGit2, Cpu } from 'lucide-react';
 import { useUsers, useMe, useProjects, useUserProjects, useConfig } from '../../lib/queries';
 import { useCreateUser, useDeleteUser, useLogout, useAssignProject, useUpdateUser } from '../../lib/mutations';
 import type { Project, User as OrcaUser } from '../../lib/types';
 import { allModels } from '../../lib/execPresets';
 import { clearToken } from '../../lib/token';
 import { useToast } from '../../components/ui/Toast';
+import { Avatar } from '../../components/ui/Avatar';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -22,8 +23,6 @@ const fmtDate = (iso: string, locale?: string) => {
   const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(locale, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
-
-const initials = (username: string) => username.trim().slice(0, 2).toUpperCase();
 
 /** Admin-only: toggle chips assigning a user to projects (the access boundary for non-admins). */
 function ProjectChips({ userId, projects }: { userId: number; projects: Project[] }) {
@@ -168,17 +167,14 @@ export function UsersView() {
                 key={user.id}
                 className="card-interactive group flex items-center gap-3.5 rounded-lg border border-border bg-surface p-3.5"
               >
-                <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-border bg-elevated">
-                  <User size={20} className="text-text-muted group-hover:opacity-0" aria-hidden />
-                  <span className="absolute inset-0 flex items-center justify-center font-mono text-sm font-semibold text-text opacity-0 group-hover:opacity-100">{initials(user.username)}</span>
-                </span>
+                <Avatar user={user} size={48} />
 
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex items-center gap-2">
-                    <span className="truncate font-semibold text-text">{user.username}</span>
+                    <span className="truncate font-semibold text-text">{user.name || user.username}</span>
                     {user.is_admin ? <Badge tone="accent"><ShieldCheck size={11} className="mr-1" aria-hidden />{t.users.admin}</Badge> : null}
                   </span>
-                  <span className="truncate font-mono text-xs text-text-muted">{fmtDate(user.created_at, locale)}</span>
+                  <span className="truncate font-mono text-xs text-text-muted">@{user.username} · {fmtDate(user.created_at, locale)}</span>
                   {isAdmin ? <ProjectChips userId={user.id} projects={projects.data ?? []} /> : null}
                   {isAdmin ? <ModelChips user={user} globalExecs={globalExecs} custom={customModels} /> : null}
                 </div>

@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Languages } from 'lucide-react';
+import { Languages, User } from 'lucide-react';
 import { modulesByGroup } from '../../modules/registry';
 import { useSidebarState } from '../../lib/useSidebarState';
 import { useHealth, useTasks, useMe } from '../../lib/queries';
@@ -113,43 +113,38 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
 
       <OpsStatusBar expanded={expanded} />
 
-      {me.data?.user && (
+      {/* Thin footer: account link (avatar + name + role) with the live daemon-health as a corner
+          dot, plus the language toggle — one compact bar instead of a verbose status block. */}
+      <div className={`flex items-center border-t border-border px-3 py-2 ${expanded ? 'gap-2' : 'justify-center'}`}>
         <Link
           href="/account"
-          className={`flex items-center border-t border-border px-4 py-3 transition-colors hover:bg-elevated ${expanded ? 'gap-2.5' : 'justify-center'}`}
-          title={me.data.user.name || me.data.user.username}
+          className={`flex min-w-0 items-center gap-2 rounded-md py-1 transition-colors hover:bg-elevated ${expanded ? 'flex-1 px-1' : ''}`}
+          title={me.data?.user ? (me.data.user.name || me.data.user.username) : t.common.daemon}
         >
-          <Avatar user={me.data.user} size={expanded ? 30 : 26} />
-          {expanded && (
-            <div className="flex min-w-0 flex-col leading-tight">
+          <span className="relative flex shrink-0 items-center justify-center">
+            {me.data?.user
+              ? <Avatar user={me.data.user} size={28} />
+              : <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-elevated"><User size={14} className="text-text-muted" aria-hidden /></span>}
+            <span
+              role="status"
+              aria-label={up ? t.common.daemonUp : t.common.daemonDown}
+              title={status === 'fail' ? t.common.daemonOffline : status === 'busy' ? t.common.daemonBusy : t.common.daemonReady}
+              className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface ${up ? 'live-dot' : ''}`}
+              style={{ backgroundColor: DAEMON_STATUS[status].color, ['--live-ring' as string]: DAEMON_STATUS[status].ring }}
+            />
+          </span>
+          {expanded && me.data?.user && (
+            <span className="flex min-w-0 flex-col leading-tight">
               <span className="truncate text-xs font-medium text-text">{me.data.user.name || me.data.user.username}</span>
-              <span className="truncate font-mono text-tiny text-text-muted">{me.data.user.is_admin ? t.users.admin : t.users.member}</span>
-            </div>
+              <span className="truncate text-tiny text-text-muted">{me.data.user.is_admin ? t.users.admin : t.users.member}</span>
+            </span>
           )}
         </Link>
-      )}
-
-      <div className={`flex items-center border-t border-border px-4 py-3 ${expanded ? 'gap-2.5' : 'justify-center'}`}>
-        <span role="status" aria-label={up ? t.common.daemonUp : t.common.daemonDown} title={status === 'fail' ? t.common.daemonOffline : status === 'busy' ? t.common.daemonBusy : t.common.daemonReady} className="flex shrink-0 items-center justify-center">
-          <span
-            className={`h-2.5 w-2.5 rounded-full ${up ? 'live-dot' : ''}`}
-            style={{ backgroundColor: DAEMON_STATUS[status].color, ['--live-ring' as string]: DAEMON_STATUS[status].ring }}
-            aria-hidden
-          />
-        </span>
-        {expanded && (
-          <div className="flex min-w-0 flex-col leading-tight">
-            <span className="font-mono text-tiny uppercase tracking-wide text-text-muted">{t.common.daemon}</span>
-            <span className="text-tiny font-medium" style={{ color: DAEMON_STATUS[status].color }}>
-              {status === 'fail' ? t.common.daemonOffline : status === 'busy' ? t.common.daemonBusy : t.common.daemonReady}
-            </span>
-          </div>
-        )}
         {expanded && (
           <button
             type="button"
             onClick={() => setLocale(locale === 'en' ? 'cs' : 'en')}
-            className="ml-auto flex items-center gap-1 rounded-md border border-border px-2 py-1 text-tiny font-mono uppercase tracking-wide text-text-muted transition-colors hover:border-border-strong hover:text-text"
+            className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-tiny font-mono uppercase tracking-wide text-text-muted transition-colors hover:border-border-strong hover:text-text"
             aria-label={t.common.switchLang}
           >
             <Languages size={12} aria-hidden />
