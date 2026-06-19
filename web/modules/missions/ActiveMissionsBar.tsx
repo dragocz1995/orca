@@ -45,6 +45,7 @@ export function ActiveMissionsBar({ missions, selectedId, onSelect }: { missions
         const done = kids.filter((task) => task.status === 'closed' || task.status === 'cancelled').length;
         const paused = m.state === 'paused';
         const disengaged = m.state === 'disengaged';
+        const stalled = m.state === 'stalled';
         const isActive = selectedId === m.id;
         const { live, needs } = missionLive(kids, signals);
         const cap = epicCapacity(kids, sessions.data ?? [], m.max_sessions);
@@ -61,7 +62,7 @@ export function ActiveMissionsBar({ missions, selectedId, onSelect }: { missions
           >
             <div className="flex items-start gap-2">
               <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{epicTitle(m.epic_id)}</span>
-              <Badge tone={disengaged ? 'muted' : 'accent'}>{disengaged ? t.missions.stateDisengaged : paused ? t.missions.statePaused : m.autonomy}</Badge>
+              <Badge tone={disengaged ? 'muted' : (paused || stalled) ? 'warning' : 'accent'}>{disengaged ? t.missions.stateDisengaged : paused ? t.missions.statePaused : stalled ? t.missions.stateStalled : m.autonomy}</Badge>
             </div>
             <div className="flex items-center gap-2">
               <ProgressRibbon phases={kids} className="flex-1" />

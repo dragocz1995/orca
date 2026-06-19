@@ -15,6 +15,10 @@ export interface Decision {
   rationale: string;
 }
 
+/** Minimum overseer confidence to auto-approve a decision; below this the action escalates to a
+ *  human. Single source of truth for both the prompt gate (deriver) and the task gate (engine). */
+export const MIN_CONFIDENCE = 0.6;
+
 // Operations that always escalate to a human, regardless of autonomy or LLM opinion.
 const DESTRUCTIVE = /\brm\s+-rf|DROP\s+TABLE|DELETE\s+FROM|TRUNCATE\b|\bmigrat|\.env\b|secret|credential|password|private[_-]?key|force[- ]?push|git\s+reset\s+--hard|git\s+push\s+.*-f|chmod\s+777|curl[^|]*\|\s*(sh|bash)/i;
 

@@ -226,6 +226,7 @@ export const en = {
     disengaged: 'Disengaged mission',
     engaged: 'Engaged mission on {epicId}',
     stateActive: 'Active',
+    stateStalled: 'Needs attention',
     stateDisengaged: 'Disengaged',
     phaseN: 'Phase {n}',
     autonomyL0: 'L0 · Recommend',

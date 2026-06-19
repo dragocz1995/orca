@@ -29,6 +29,13 @@ export class MissionStore {
     return (this.db.prepare("SELECT * FROM missions WHERE state='active'").all() as MRow[]).map(toMission);
   }
 
+  /** Missions the overseer should keep ticking: active ones plus 'stalled' ones (waiting on a
+   *  human to unblock a child). A stalled mission resumes to 'active' on the tick after its
+   *  blocker clears, so it must stay in the loop. */
+  live(): Mission[] {
+    return (this.db.prepare("SELECT * FROM missions WHERE state IN ('active','stalled')").all() as MRow[]).map(toMission);
+  }
+
   setState(id: string, state: string): void {
     this.db.prepare('UPDATE missions SET state=? WHERE id=?').run(state, id);
   }

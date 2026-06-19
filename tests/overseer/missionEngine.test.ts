@@ -105,14 +105,15 @@ describe('MissionEngine overseer gate (decideTask)', () => {
     // Title trips the 'auth' guardrail, so the gate is consulted once that guardrail is cleared.
     tasks.create({ id: 'g1', project_id: 1, title: 'Add auth login flow', parent_id: 'epic' });
     const tmux = new FakeTmuxDriver();
+    const missions = new MissionStore(db);
     const engine = new MissionEngine({
-      tasks, readiness: new Readiness(db), missions: new MissionStore(db),
+      tasks, readiness: new Readiness(db), missions,
       spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux, bus: new EventBus(),
       projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' },
       nameAgent: () => 'AgentX', clock: new SystemClock(),
       decideTask: decideTask as never,
     });
-    return { tasks, tmux, engine };
+    return { tasks, tmux, engine, missions };
   }
 
   it('escalates a guardrail-triggering task to blocked when the overseer denies', async () => {
@@ -120,6 +121,22 @@ describe('MissionEngine overseer gate (decideTask)', () => {
     await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: ['auth'] });
     expect(tasks.get('g1')!.status).toBe('blocked'); // escalated, not spawned
     expect(await tmux.list()).not.toContain('orca-AgentX');
+  });
+
+  it('marks the mission stalled when a blocked child halts it, and resumes on unblock', async () => {
+    let calls = 0; // deny the first decision (→ blocked/stalled), approve the retry after unblock
+    const { tasks, engine, missions } = gateSetup(async () => ({ approve: ++calls > 1, destructive: false }));
+    const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: ['auth'] });
+    expect(tasks.get('g1')!.status).toBe('blocked');
+    expect(missions.get(m.id)!.state).toBe('stalled'); // not a misleading "active"
+    expect(missions.active().map((x) => x.id)).not.toContain(m.id); // dropped from active...
+    expect(missions.live().map((x) => x.id)).toContain(m.id);       // ...but still ticked
+
+    // Human unblocks the task; the next tick clears the gate, dispatches it, and resumes the mission.
+    tasks.setStatus('g1', 'open');
+    await engine.tick(m.id);
+    expect(missions.get(m.id)!.state).toBe('active');
+    expect(tasks.get('g1')!.status).toBe('in_progress');
   });
 
   it('escalates when the overseer flags the task destructive even if it approves', async () => {

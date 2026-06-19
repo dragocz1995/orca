@@ -102,7 +102,7 @@ export function MissionsView() {
   );
 }
 
-const STATE_TONE = (state: string): Tone => (state === 'disengaged' ? 'muted' : state === 'paused' ? 'warning' : 'accent');
+const STATE_TONE = (state: string): Tone => (state === 'disengaged' ? 'muted' : (state === 'paused' || state === 'stalled') ? 'warning' : 'accent');
 
 function MissionWorkspace({ missionId }: { missionId: string }) {
   const detail = useMissionDetail(missionId);
@@ -126,7 +126,7 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
   if (!detail.data) return null;
 
   const d = detail.data;
-  const STATE_LABEL: Record<string, string> = { active: t.missions.stateActive, paused: t.missions.statePaused, disengaged: t.missions.stateDisengaged };
+  const STATE_LABEL: Record<string, string> = { active: t.missions.stateActive, paused: t.missions.statePaused, disengaged: t.missions.stateDisengaged, stalled: t.missions.stateStalled };
   const paused = d.mission.state === 'paused';
   const disengagedFlag = d.mission.state === 'disengaged';
 

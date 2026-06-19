@@ -76,7 +76,7 @@ export class MissionEngine {
   }
 
   async tick(id: string): Promise<void> {
-    const m = this.d.missions.get(id); if (!m || m.state !== 'active') return;
+    const m = this.d.missions.get(id); if (!m || (m.state !== 'active' && m.state !== 'stalled')) return;
     // The mission's project is wherever its epic lives — resolve it per tick.
     const epic = this.d.tasks.get(m.epic_id); if (!epic) return;
     const project = this.d.projects.get(epic.project_id);
@@ -124,6 +124,17 @@ export class MissionEngine {
       this.d.tasks.setStatus(task.id, 'in_progress');
       await this.d.spawn.launch({ projectId: epic.project_id, projectPath: project.path, taskId: task.id, agentName, spec, taskTitle: task.title, taskDescription: task.description, epicId: m.epic_id });
       running++;
+    }
+
+    // Stall vs resume: with nothing running and a blocked child present, the mission can't advance
+    // until a human unblocks it — mark it 'stalled' so the UI reads "needs attention" rather than a
+    // misleading "active". The overseer keeps ticking stalled missions (missions.live()), so once
+    // the blocker clears and work resumes (running > 0), it flips back to 'active'.
+    const stalled = this.children(m.epic_id);
+    if (running === 0 && stalled.some(t => t.status === 'blocked')) {
+      if (m.state !== 'stalled') { this.d.missions.setState(id, 'stalled'); this.d.bus.publish({ type: 'mission', missionId: id, state: 'stalled' }); }
+    } else if (m.state === 'stalled') {
+      this.d.missions.setState(id, 'active'); this.d.bus.publish({ type: 'mission', missionId: id, state: 'active' });
     }
   }
 }

@@ -149,6 +149,23 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return !!u && d.userProjects.canAccess(u.id, id);
   };
 
+  // The set of project ids the caller may see, or null for unrestricted (open mode / admin).
+  // Computed once for list endpoints so they don't run a per-row access query.
+  const accessibleProjects = (c: { get: (k: 'user') => User | undefined }): Set<number> | null => {
+    if (!d.userProjects || !d.users) return null;
+    const u = c.get('user');
+    if (!u || d.userProjects.isAdmin(u.id)) return null;
+    return new Set(d.userProjects.forUser(u.id));
+  };
+
+  // A mission belongs to its epic's project — gate by that project's access. Open/single-user mode
+  // has no tenancy boundary, so it always passes (even if the epic row is absent).
+  const missionAccessible = (c: { get: (k: 'user') => User | undefined }, epicId: string): boolean => {
+    if (!d.userProjects || !d.users) return true;
+    const epic = d.tasks.get(epicId);
+    return !!epic && canAccessProject(c, epic.project_id);
+  };
+
   // Per-user model allow-list: a non-admin whose allowed_execs is non-empty may only use those
   // execs. Open mode (no auth), admins, or an empty list → unrestricted. The global
   // config.allowedExecs check still applies independently and is the outer bound.
@@ -340,7 +357,11 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json(d.events.list({ limit, type }));
   });
 
-  app.get('/tasks', c => c.json(d.tasks.list()));
+  app.get('/tasks', c => {
+    const allowed = accessibleProjects(c);
+    const all = d.tasks.list();
+    return c.json(allowed ? all.filter((t) => allowed.has(t.project_id)) : all);
+  });
   app.post('/tasks', async c => {
     const b = await c.req.json() as { title: string; type?: string; priority?: string; id?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[]; project_id?: number };
     const target = resolveTarget(c, b.project_id);
@@ -358,6 +379,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   app.get('/tasks/:id/usage', c => {
     const task = d.tasks.get(c.req.param('id'));
     if (!task) return c.json({ error: 'not found' }, 404);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
     // Pass the task's own project siblings so usage can disambiguate concurrent agents by start-order
     // rank, and read sessions from that project's path (not the daemon home, under multi-project).
     return c.json(readTaskUsage(task, d.tasks.list({ project_id: task.project_id }), pathFor(task.project_id), d.fallback));
@@ -365,6 +387,9 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   app.patch('/tasks/:id', async c => {
     const b = await c.req.json();
     const id = c.req.param('id');
+    const existing = d.tasks.get(id);
+    if (!existing) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, existing.project_id)) return c.json({ error: 'forbidden' }, 403);
     if (b.status) {
       if (b.status === 'closed') d.tasks.close(id, { summary: b.result_summary, outcome: b.outcome });
       else d.tasks.setStatus(id, b.status);
@@ -380,6 +405,9 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   app.get('/tasks/:id/deps', c => c.json(d.tasks.depsFor(c.req.param('id'))));
   app.delete('/tasks/:id', c => {
     const id = c.req.param('id');
+    const existing = d.tasks.get(id);
+    if (!existing) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, existing.project_id)) return c.json({ error: 'forbidden' }, 403);
     d.tasks.delete(id);
     d.bus.publish({ type: 'task', taskId: id, status: 'cancelled' }); // live SSE so open UIs drop the row
     d.events?.deleteForTarget(id); // purge its history — a removed task leaves no dead feed
@@ -445,6 +473,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const epicId = c.req.param('epicId');
     const epic = d.tasks.get(epicId);
     if (!epic || epic.type !== 'epic') return c.json({ error: 'epic not found' }, 404);
+    if (!canAccessProject(c, epic.project_id)) return c.json({ error: 'forbidden' }, 403);
     const b = await c.req.json() as { phases?: { title?: string; type?: string }[]; goal?: string; prompt?: string; exec?: string };
     if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
     if (b.exec && !execAllowedForUser(c, b.exec)) return c.json({ error: 'exec not allowed for user' }, 403);
@@ -574,14 +603,28 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     });
   });
 
-  app.get('/missions', c => c.json(d.missions.active()));
+  app.get('/missions', c => {
+    const allowed = accessibleProjects(c);
+    const live = d.missions.live();
+    return c.json(allowed ? live.filter((m) => { const epic = d.tasks.get(m.epic_id); return epic && allowed.has(epic.project_id); }) : live);
+  });
   app.get('/missions/:id', (c) => {
+    const mission = d.missions.get(c.req.param('id'));
+    if (!mission) return c.json({ error: 'mission not found' }, 404);
+    if (!missionAccessible(c, mission.epic_id)) return c.json({ error: 'forbidden' }, 403);
     const detail = assembleMissionDetail({ missions: d.missions, tasks: d.tasks }, c.req.param('id'));
     return detail ? c.json(detail) : c.json({ error: 'mission not found' }, 404);
   });
-  app.post('/missions', async c => { const b = await c.req.json(); return c.json(await d.engine.engage(b), 201); });
+  app.post('/missions', async c => {
+    const b = await c.req.json();
+    if (!missionAccessible(c, b.epicId)) return c.json({ error: 'forbidden' }, 403);
+    return c.json(await d.engine.engage(b), 201);
+  });
   app.patch('/missions/:id', async (c) => {
     const id = c.req.param('id');
+    const mission = d.missions.get(id);
+    if (!mission) return c.json({ error: 'mission not found' }, 404);
+    if (!missionAccessible(c, mission.epic_id)) return c.json({ error: 'forbidden' }, 403);
     const { action } = await c.req.json();
     if (action === 'pause') {
       await d.engine.pause(id); // kills running agents + reverts their tasks, then marks paused
@@ -592,7 +635,13 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     }
     return c.json(d.missions.get(id));
   });
-  app.delete('/missions/:id', async c => { await d.engine.disengage(c.req.param('id')); return c.json({ ok: true }); });
+  app.delete('/missions/:id', async c => {
+    const mission = d.missions.get(c.req.param('id'));
+    if (!mission) return c.json({ error: 'mission not found' }, 404);
+    if (!missionAccessible(c, mission.epic_id)) return c.json({ error: 'forbidden' }, 403);
+    await d.engine.disengage(c.req.param('id'));
+    return c.json({ ok: true });
+  });
 
   app.get('/config', (c) => c.json(d.config.get()));
   app.put('/config', async (c) => { const patch = await c.req.json(); return c.json(d.config.update(patch)); });

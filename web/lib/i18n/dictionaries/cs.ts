@@ -226,6 +226,7 @@ export const cs = {
     disengaged: 'Mise odpojena',
     engaged: 'Mise zahájena na {epicId}',
     stateActive: 'Aktivní',
+    stateStalled: 'Čeká na zásah',
     stateDisengaged: 'Odpojeno',
     phaseN: 'Fáze {n}',
     autonomyL0: 'L0 · Doporučovat',

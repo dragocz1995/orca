@@ -8,7 +8,7 @@ import { MissionEngine } from '../overseer/missionEngine.js';
 import { Scheduler } from '../overseer/scheduler.js';
 import { sweepFinishedSessions } from '../overseer/janitor.js';
 import { sweepStuckTasks, deadAgentTasks } from '../overseer/stuckDetector.js';
-import { decidePrompt, decideTask, isDestructive } from '../overseer/decision.js';
+import { decidePrompt, decideTask, isDestructive, MIN_CONFIDENCE } from '../overseer/decision.js';
 import { RelayClient } from '../inference/client.js';
 import { Deriver } from '../deriver/deriver.js';
 import { EventBus } from '../api/sse.js';
@@ -78,7 +78,7 @@ export function buildApp(opts: BuildOpts) {
       const inf = overseerClient();
       if (!inf) return { approve: true, destructive: false };
       const d = await decideTask(inf, input);
-      return { approve: d.approve && d.confidence >= 0.6, destructive: d.destructive };
+      return { approve: d.approve && d.confidence >= MIN_CONFIDENCE, destructive: d.destructive };
     },
   });
   const scheduler = new Scheduler({ tasks, spawn, bus, projects, fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: uniqueName, clock: new SystemClock() });
@@ -105,7 +105,7 @@ export function buildApp(opts: BuildOpts) {
       const inf = overseerClient();
       if (!inf) return { approve: true, destructive: isDestructive(`${input.question} ${input.context}`) };
       const d = await decidePrompt(inf, input);
-      return { approve: d.approve && d.confidence >= 0.6, destructive: d.destructive };
+      return { approve: d.approve && d.confidence >= MIN_CONFIDENCE, destructive: d.destructive };
     },
   });
   const openMode = users.count() === 0 && opts.allowOpen === true;
@@ -129,7 +129,7 @@ export function buildApp(opts: BuildOpts) {
     const clock = new SystemClock();
     void reconcileZombies(); // one-shot zombie sweep on startup
     const stopDeriver = deriver.start();
-    const stopOverseer = clock.setInterval(() => { for (const m of missions.active()) void engine.tick(m.id); }, 90000);
+    const stopOverseer = clock.setInterval(() => { for (const m of missions.live()) void engine.tick(m.id); }, 90000);
     const stopScheduler = clock.setInterval(() => { void scheduler.tick(); }, 30000);
     // Janitor: reap finished agents' zombie tmux sessions.
     const stopJanitor = clock.setInterval(() => { void sweepFinishedSessions({ tmux, taskForSession }); }, 60000);
