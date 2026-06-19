@@ -109,7 +109,8 @@ it('PATCH /missions/:id pauses (drops from active) and resumes', async () => {
   const missions = new MissionStore(db);
   missions.create({ id: 'm1', epic_id: 'e1', autonomy: 'L3', max_sessions: 1, cleared_guardrails: [] });
   const tmux = new FakeTmuxDriver();
-  const engine = { tick: async () => {} } as unknown as MissionEngine;
+  // pause is delegated to the engine (it stops running agents, then marks the mission paused).
+  const engine = { tick: async () => {}, pause: async (id: string) => missions.setState(id, 'paused') } as unknown as MissionEngine;
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions, bus: new EventBus(),
     engine, spawn: null as any, tmux, project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),

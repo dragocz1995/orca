@@ -73,4 +73,24 @@ describe('MissionEngine', () => {
     expect(disengaged.length).toBeGreaterThanOrEqual(1);
     expect(disengaged[0]).toMatchObject({ type: 'mission', missionId: m.id, state: 'disengaged' });
   });
+
+  it('disengage kills the running agent and reverts its task to open', async () => {
+    const { tasks, tmux, engine } = setup();
+    const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: [] });
+    expect(await tmux.list()).toContain('orca-AgentX');
+    expect(tasks.get('t1')!.status).toBe('in_progress');
+    await engine.disengage(m.id);
+    expect(await tmux.list()).not.toContain('orca-AgentX'); // session killed, not left running
+    expect(tasks.get('t1')!.status).toBe('open');           // reverted so the UI no longer reads "running"
+    expect(engine.isActive(m.id)).toBe(false);
+  });
+
+  it('pause stops the running agent and reverts its task (resume re-spawns it)', async () => {
+    const { tasks, tmux, engine } = setup();
+    const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: [] });
+    await engine.pause(m.id);
+    expect(await tmux.list()).not.toContain('orca-AgentX');
+    expect(tasks.get('t1')!.status).toBe('open');
+    expect(engine.isActive(m.id)).toBe(false); // paused, not active
+  });
 });

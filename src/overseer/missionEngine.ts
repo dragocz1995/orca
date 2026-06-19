@@ -28,7 +28,38 @@ export class MissionEngine {
 
   isActive(id: string): boolean { return this.d.missions.get(id)?.state === 'active'; }
 
-  async disengage(id: string): Promise<void> { this.d.missions.setState(id, 'disengaged'); this.d.bus.publish({ type: 'mission', missionId: id, state: 'disengaged' }); }
+  /** Hard-stop a mission's active work: kill the live tmux session of every in-progress child
+   *  and revert it to open. Without this, pausing/disengaging only flips the mission state while
+   *  the agent keeps running — so the UI still reads as "running". A later resume re-spawns from
+   *  open. Returns the number of agents stopped. */
+  async stopRunning(epicId: string): Promise<number> {
+    const live = new Set(await this.d.tmux.list());
+    let stopped = 0;
+    for (const t of this.children(epicId)) {
+      if (t.status !== 'in_progress') continue;
+      const agent = t.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
+      const session = agent ? `orca-${agent}` : null;
+      if (session && live.has(session)) await this.d.tmux.kill(session);
+      this.d.tasks.setStatus(t.id, 'open');
+      this.d.bus.publish({ type: 'task', taskId: t.id, status: 'open' });
+      stopped++;
+    }
+    return stopped;
+  }
+
+  async disengage(id: string): Promise<void> {
+    const m = this.d.missions.get(id);
+    if (m) await this.stopRunning(m.epic_id);
+    this.d.missions.setState(id, 'disengaged');
+    this.d.bus.publish({ type: 'mission', missionId: id, state: 'disengaged' });
+  }
+
+  async pause(id: string): Promise<void> {
+    const m = this.d.missions.get(id);
+    if (m) await this.stopRunning(m.epic_id);
+    this.d.missions.setState(id, 'paused');
+    this.d.bus.publish({ type: 'mission', missionId: id, state: 'paused' });
+  }
 
   private children(epicId: string) {
     return this.d.tasks.list({ project_id: this.d.project.id }).filter(t => t.parent_id === epicId && t.type !== 'epic');
@@ -53,8 +84,10 @@ export class MissionEngine {
       if (!permitted) continue;
       const spec = resolveExecutor(task.labels, this.d.fallback);
       const named = task.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
+      const agentName = named || this.d.nameAgent();
       this.d.tasks.setStatus(task.id, 'in_progress');
-      await this.d.spawn.launch({ projectId: this.d.project.id, projectPath: this.d.project.path, taskId: task.id, agentName: named || this.d.nameAgent(), spec, taskTitle: task.title, taskDescription: task.description, epicId: m.epic_id });
+      if (!named) this.d.tasks.setAgent(task.id, agentName); // tag fallback-named agents so task ↔ session stays linkable
+      await this.d.spawn.launch({ projectId: this.d.project.id, projectPath: this.d.project.path, taskId: task.id, agentName, spec, taskTitle: task.title, taskDescription: task.description, epicId: m.epic_id });
       running++;
     }
   }

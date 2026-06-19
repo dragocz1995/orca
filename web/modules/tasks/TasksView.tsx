@@ -230,7 +230,7 @@ export function TasksView() {
 
             {/* Right — persistent detail pane. Bounded height + internal scroll so its header
                 stays pinned below the toolbar instead of sliding under it on long tasks. */}
-            <aside className="mt-5 min-w-0 lg:mt-0 lg:flex-1 lg:sticky lg:top-[57px] lg:max-h-[calc(100vh-73px)] lg:overflow-y-auto">
+            <aside className="mt-5 min-w-0 lg:mt-0 lg:flex-1 lg:sticky lg:top-16 lg:max-h-[calc(100vh-80px)] lg:overflow-y-auto">
               {selectedId
                 ? <div className="rounded-lg border border-border bg-surface p-4" style={{ boxShadow: 'var(--shadow-card)' }}><TaskDetailPane taskId={selectedId} onEdit={setEditing} /></div>
                 : <div className="hidden items-center justify-center rounded-lg border border-dashed border-border py-20 text-sm text-text-muted lg:flex">{t.tasks.selectHint}</div>}

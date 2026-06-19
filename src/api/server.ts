@@ -315,12 +315,12 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const id = c.req.param('id');
     const { action } = await c.req.json();
     if (action === 'pause') {
-      d.missions.setState(id, 'paused');
+      await d.engine.pause(id); // kills running agents + reverts their tasks, then marks paused
     } else if (action === 'resume') {
       d.missions.setState(id, 'active');
+      d.bus.publish({ type: 'mission', missionId: id, state: 'active' });
       await d.engine.tick(id);
     }
-    d.bus.publish({ type: 'mission', missionId: id, state: action === 'pause' ? 'paused' : 'active' });
     return c.json(d.missions.get(id));
   });
   app.delete('/missions/:id', async c => { await d.engine.disengage(c.req.param('id')); return c.json({ ok: true }); });
