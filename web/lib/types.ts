@@ -36,7 +36,8 @@ export interface MissionDetail {
   deps: MissionDeps[];
   progress: MissionProgress;
 }
-export interface User { id: number; username: string; created_at: string; is_admin: boolean }
+export interface User { id: number; username: string; created_at: string; is_admin: boolean; allowed_execs: string[] }
+export interface UserPatch { is_admin?: boolean; allowed_execs?: string[] }
 export interface AuthResult { token: string; user: User }
 export interface ActivityEvent { id: number; ts: string; type: string; target: string; detail: string }
 export interface Project { id: number; slug: string; path: string; notes: string }

@@ -97,6 +97,27 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       return c.json({ ok: true });
     });
 
+    // Admin edits another user's permissions: role (is_admin) and per-user model allow-list.
+    app.patch('/users/:id', async (c) => {
+      const actor = c.get('user');
+      if (!actor || !users.isAdmin(actor.id)) return c.json({ error: 'forbidden' }, 403);
+      const id = Number(c.req.param('id'));
+      const target = users.get(id);
+      if (!target) return c.json({ error: 'user not found' }, 404);
+      const b = await c.req.json() as { is_admin?: boolean; allowed_execs?: string[] };
+      if (typeof b.is_admin === 'boolean') {
+        // Refuse to demote the last admin — it would lock out role/assignment management.
+        if (!b.is_admin && target.is_admin && users.adminCount() <= 1) return c.json({ error: 'cannot demote the last admin' }, 400);
+        users.setAdmin(id, b.is_admin);
+      }
+      if (Array.isArray(b.allowed_execs)) {
+        // Can't grant beyond what the daemon globally allows; keep only known execs (dedup).
+        const globalAllowed = new Set(d.config.get().allowedExecs);
+        users.setAllowedExecs(id, [...new Set(b.allowed_execs.filter((e) => typeof e === 'string' && globalAllowed.has(e)))]);
+      }
+      return c.json(users.get(id));
+    });
+
     // User ↔ project assignments. Only the bootstrap admin may view/manage them.
     if (d.userProjects) {
       const up = d.userProjects;
@@ -126,6 +147,16 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (!d.userProjects || !d.users) return true; // open mode / single-user → no gating
     const u = c.get('user');
     return !!u && d.userProjects.canAccess(u.id, id);
+  };
+
+  // Per-user model allow-list: a non-admin whose allowed_execs is non-empty may only use those
+  // execs. Open mode (no auth), admins, or an empty list → unrestricted. The global
+  // config.allowedExecs check still applies independently and is the outer bound.
+  const execAllowedForUser = (c: { get: (k: 'user') => User | undefined }, exec: string): boolean => {
+    if (!d.users) return true;
+    const u = c.get('user');
+    if (!u || u.is_admin) return true;
+    return u.allowed_execs.length === 0 || u.allowed_execs.includes(exec);
   };
 
   // Filesystem path of a project. The daemon's home project is always known; others resolve via the
@@ -359,6 +390,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const goal = (b.goal ?? '').trim();
     if (!goal) return c.json({ error: 'goal required' }, 400);
     if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
+    if (b.exec && !execAllowedForUser(c, b.exec)) return c.json({ error: 'exec not allowed for user' }, 403);
     const target = resolveTarget(c, b.project_id);
     if ('error' in target) return c.json({ error: target.error }, target.status);
 
@@ -415,6 +447,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (!epic || epic.type !== 'epic') return c.json({ error: 'epic not found' }, 404);
     const b = await c.req.json() as { phases?: { title?: string; type?: string }[]; goal?: string; prompt?: string; exec?: string };
     if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
+    if (b.exec && !execAllowedForUser(c, b.exec)) return c.json({ error: 'exec not allowed for user' }, 403);
 
     let phases: { title: string; type: string; agent?: string; details?: string }[];
     if (Array.isArray(b.phases) && b.phases.length > 0) {
@@ -496,6 +529,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   app.post('/sessions', async (c) => {
     const { taskId, exec } = await c.req.json() as { taskId: string; exec?: string };
     if (exec && !d.config.get().allowedExecs.includes(exec)) return c.json({ error: 'exec not allowed' }, 400);
+    if (exec && !execAllowedForUser(c, exec)) return c.json({ error: 'exec not allowed for user' }, 403);
     const spec = resolveExecutor(exec ? [`exec:${exec}`] : [], d.fallback);
     const task = d.tasks.get(taskId);
     if (!task) return c.json({ error: 'task not found' }, 404); // don't spawn a phantom agent for a missing task

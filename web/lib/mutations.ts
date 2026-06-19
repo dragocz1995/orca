@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
-import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, HermesInstallInput } from './types';
+import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, HermesInstallInput, UserPatch } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -93,6 +93,14 @@ export function useCreateUser() {
 export function useDeleteUser() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (id: number) => orcaClient.deleteUser(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }) });
+}
+export function useUpdateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: number; patch: UserPatch }) => orcaClient.updateUser(v.id, v.patch),
+    // Refresh the list and the current identity (an admin could change their own role).
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); qc.invalidateQueries({ queryKey: ['me'] }); },
+  });
 }
 export function useCreateProject() {
   const qc = useQueryClient();

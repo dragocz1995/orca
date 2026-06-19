@@ -1,9 +1,9 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { Db } from './db.js';
 
-export interface User { id: number; username: string; created_at: string; is_admin: boolean }
-type Row = { id: number; username: string; created_at: string; is_admin: number; password_hash: string };
-const mask = (r: Row): User => ({ id: r.id, username: r.username, created_at: r.created_at, is_admin: !!r.is_admin });
+export interface User { id: number; username: string; created_at: string; is_admin: boolean; allowed_execs: string[] }
+type Row = { id: number; username: string; created_at: string; is_admin: number; password_hash: string; allowed_execs: string };
+const mask = (r: Row): User => ({ id: r.id, username: r.username, created_at: r.created_at, is_admin: !!r.is_admin, allowed_execs: r.allowed_execs ? r.allowed_execs.split(',').filter(Boolean) : [] });
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16);
@@ -26,7 +26,7 @@ export class UserStore {
     const info = this.db
       .prepare('INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)')
       .run(username, hashPassword(password), isAdmin);
-    return this.getById(Number(info.lastInsertRowid))!;
+    return this.get(Number(info.lastInsertRowid))!;
   }
 
   /** Whether the user is the bootstrap admin (full access + manages project assignments). */
@@ -34,7 +34,21 @@ export class UserStore {
     const r = this.db.prepare('SELECT is_admin FROM users WHERE id = ?').get(id) as { is_admin: number } | undefined;
     return !!r?.is_admin;
   }
-  private getById(id: number): User | null {
+  /** How many admins exist — used to refuse demoting/deleting the last one. */
+  adminCount(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1').get() as { n: number }).n;
+  }
+  /** Grant/revoke admin. Returns the updated user, or null if the id is unknown. */
+  setAdmin(id: number, isAdmin: boolean): User | null {
+    this.db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(isAdmin ? 1 : 0, id);
+    return this.get(id);
+  }
+  /** Set the per-user model allow-list (exec specs). Empty → no per-user restriction. */
+  setAllowedExecs(id: number, execs: string[]): User | null {
+    this.db.prepare('UPDATE users SET allowed_execs = ? WHERE id = ?').run(execs.join(','), id);
+    return this.get(id);
+  }
+  get(id: number): User | null {
     const r = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined;
     return r ? mask(r) : null;
   }

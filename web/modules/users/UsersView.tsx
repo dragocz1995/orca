@@ -1,16 +1,19 @@
 'use client';
 import { useState } from 'react';
-import { Users, UserPlus, Trash2, LogOut, User } from 'lucide-react';
-import { useUsers, useMe, useProjects, useUserProjects } from '../../lib/queries';
-import { useCreateUser, useDeleteUser, useLogout, useAssignProject } from '../../lib/mutations';
-import type { Project } from '../../lib/types';
+import { Users, UserPlus, Trash2, LogOut, User, Shield, ShieldCheck, FolderGit2, Cpu } from 'lucide-react';
+import { useUsers, useMe, useProjects, useUserProjects, useConfig } from '../../lib/queries';
+import { useCreateUser, useDeleteUser, useLogout, useAssignProject, useUpdateUser } from '../../lib/mutations';
+import type { Project, User as OrcaUser } from '../../lib/types';
+import { allModels } from '../../lib/execPresets';
 import { clearToken } from '../../lib/token';
 import { useToast } from '../../components/ui/Toast';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { ModelIcon } from '../../components/ui/ModelIcon';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { useTranslation } from '../../lib/i18n';
@@ -30,8 +33,8 @@ function ProjectChips({ userId, projects }: { userId: number; projects: Project[
   const set = new Set(assigned.data ?? []);
   if (projects.length === 0) return null;
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] uppercase tracking-wide text-text-muted">{t.users.projects}:</span>
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wide text-text-muted"><FolderGit2 size={12} aria-hidden />{t.users.projects}</span>
       {projects.map((p) => {
         const on = set.has(p.id);
         return (
@@ -40,12 +43,51 @@ function ProjectChips({ userId, projects }: { userId: number; projects: Project[
             type="button"
             onClick={() => assign.mutate({ userId, projectId: p.id, assigned: on })}
             disabled={assign.isPending}
-            className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${on ? 'border-accent bg-accent/15 text-accent' : 'border-border text-text-muted hover:bg-elevated'}`}
+            className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${on ? 'border-accent bg-accent/15 text-accent' : 'border-border text-text-muted hover:bg-elevated'}`}
           >
             {p.slug}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** Admin-only: restrict which models a user may run on tasks. Empty selection → no restriction
+ *  (the user may use any globally-allowed model). Choices are the global allow-list. */
+function ModelChips({ user, globalExecs, custom }: { user: OrcaUser; globalExecs: string[]; custom: { label: string; exec: string }[] }) {
+  const { t } = useTranslation();
+  const update = useUpdateUser();
+  const { toast } = useToast();
+  const labelOf = (exec: string) => allModels(custom).find((m) => m.exec === exec)?.label ?? exec;
+  const set = new Set(user.allowed_execs);
+  if (globalExecs.length === 0) return null;
+  const toggle = (exec: string) => {
+    const next = new Set(set);
+    if (next.has(exec)) next.delete(exec); else next.add(exec);
+    update.mutate({ id: user.id, patch: { allowed_execs: [...next] } }, {
+      onSuccess: () => toast(t.users.modelsUpdated),
+      onError: (e) => toast(String(e) || t.users.updateError, 'error'),
+    });
+  };
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wide text-text-muted"><Cpu size={12} aria-hidden />{t.users.allowedModels}</span>
+      {globalExecs.map((exec) => {
+        const on = set.has(exec);
+        return (
+          <button
+            key={exec}
+            type="button"
+            onClick={() => toggle(exec)}
+            disabled={update.isPending}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${on ? 'border-accent bg-accent/15 text-accent' : 'border-border text-text-muted hover:bg-elevated'}`}
+          >
+            <ModelIcon name={exec} size={14} />{labelOf(exec)}
+          </button>
+        );
+      })}
+      {set.size === 0 ? <span className="text-[11px] italic text-text-muted">{t.users.allModelsHint}</span> : null}
     </div>
   );
 }
@@ -56,7 +98,9 @@ export function UsersView() {
   const projects = useProjects();
   const deleteUser = useDeleteUser();
   const createUser = useCreateUser();
+  const updateUser = useUpdateUser();
   const logout = useLogout();
+  const config = useConfig();
   const { toast } = useToast();
   const { t, locale } = useTranslation();
 
@@ -94,9 +138,18 @@ export function UsersView() {
     });
   }
 
+  function handleRole(user: OrcaUser) {
+    updateUser.mutate({ id: user.id, patch: { is_admin: !user.is_admin } }, {
+      onSuccess: () => toast(t.users.roleUpdated),
+      onError: (err) => toast(String(err) || t.users.updateError, 'error'),
+    });
+  }
+
   const data = users.data ?? [];
-  // The bootstrap admin (explicit is_admin flag) manages project assignments.
+  // The bootstrap admin (explicit is_admin flag) manages roles, project assignments and model access.
   const isAdmin = me.data?.user.is_admin ?? false;
+  const globalExecs = config.data?.allowedExecs ?? [];
+  const customModels = config.data?.customModels ?? [];
 
   return (
     <>
@@ -121,20 +174,31 @@ export function UsersView() {
                 </span>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate font-semibold text-text">{user.username}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="truncate font-semibold text-text">{user.username}</span>
+                    {user.is_admin ? <Badge tone="accent"><ShieldCheck size={11} className="mr-1" aria-hidden />{t.users.admin}</Badge> : null}
+                  </span>
                   <span className="truncate font-mono text-xs text-text-muted">{fmtDate(user.created_at, locale)}</span>
                   {isAdmin ? <ProjectChips userId={user.id} projects={projects.data ?? []} /> : null}
+                  {isAdmin ? <ModelChips user={user} globalExecs={globalExecs} custom={customModels} /> : null}
                 </div>
 
                 <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   <ActionMenu
                     label={t.users.deleteLabel.replace('{username}', user.username)}
-                    items={[{
-                      label: data.length <= 1 ? t.users.lastUserHint : t.users.delete,
-                      icon: Trash2,
-                      tone: 'danger',
-                      onSelect: () => { if (data.length > 1 && !deleteUser.isPending) handleDelete(user.id); },
-                    }]}
+                    items={[
+                      ...(isAdmin ? [{
+                        label: user.is_admin ? t.users.removeAdmin : t.users.makeAdmin,
+                        icon: user.is_admin ? Shield : ShieldCheck,
+                        onSelect: () => { if (!updateUser.isPending) handleRole(user); },
+                      }] : []),
+                      {
+                        label: data.length <= 1 ? t.users.lastUserHint : t.users.delete,
+                        icon: Trash2,
+                        tone: 'danger' as const,
+                        onSelect: () => { if (data.length > 1 && !deleteUser.isPending) handleDelete(user.id); },
+                      },
+                    ]}
                   />
                 </div>
               </li>

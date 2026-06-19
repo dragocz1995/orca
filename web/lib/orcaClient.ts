@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanResult, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, AuthResult, ActivityEvent, Project, ProjectGit, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, TokenUsage, FileNode } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanResult, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, AuthResult, ActivityEvent, Project, ProjectGit, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, TokenUsage, FileNode } from './types';
 import { getToken, clearToken } from './token';
 
 export const BASE = process.env.NEXT_PUBLIC_ORCA_URL ?? 'http://localhost:4400';
@@ -58,6 +58,7 @@ export const orcaClient = {
   me: () => req<{ user: User }>('/auth/me'),
   listUsers: () => req<User[]>('/users'),
   createUser: (username: string, password: string) => req<User>('/users', json({ username, password })),
+  updateUser: (id: number, patch: UserPatch) => req<User>(`/users/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) }),
   deleteUser: (id: number) => req<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
   activity: (opts?: { limit?: number; type?: string }) => req<ActivityEvent[]>(`/activity?${new URLSearchParams({ ...(opts?.limit ? { limit: String(opts.limit) } : {}), ...(opts?.type ? { type: opts.type } : {}) }).toString()}`),
   projects: () => req<Project[]>('/projects'),

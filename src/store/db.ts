@@ -20,6 +20,7 @@ export function openDb(path: string): Db {
   try { db.exec("ALTER TABLE tasks ADD COLUMN outcome TEXT"); } catch { /* column already exists */ }
   try { db.exec("ALTER TABLE tasks ADD COLUMN closed_at TEXT"); } catch { /* column already exists */ }
   try { db.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"); } catch { /* column already exists */ }
+  try { db.exec("ALTER TABLE users ADD COLUMN allowed_execs TEXT NOT NULL DEFAULT ''"); } catch { /* column already exists */ }
   // Seed the bootstrap admin on existing DBs: the lowest-id user, if none is flagged yet.
   db.exec("UPDATE users SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM users) AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)");
   return db;
