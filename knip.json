@@ -8,10 +8,11 @@
       "entry": ["app/providers.tsx"]
     }
   },
-  "ignoreBinaries": ["tmux"],
+  "ignoreBinaries": ["tmux", "which"],
   "ignoreIssues": {
     "web/lib/types.ts": ["types"],
     "web/lib/i18n/types.ts": ["types"],
-    "web/lib/i18n/dictionaries/index.ts": ["types"]
+    "web/lib/i18n/dictionaries/index.ts": ["types"],
+    "src/integrations/cliDetection.ts": ["types"]
   }
 }

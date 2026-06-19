@@ -22,9 +22,9 @@ import type { CliStatus as CliStatusType } from '../../lib/types';
 import type { LocaleDict } from '../../lib/i18n/types';
 
 const STATUS_TONES = {
-  success: { dot: 'bg-[var(--color-success)]', bg: 'bg-[var(--color-success)]/10', border: 'border-[var(--color-success)]/30', text: 'text-[var(--color-success)]', label: 'On' },
-  danger: { dot: 'bg-[var(--color-error)]', bg: 'bg-[var(--color-error)]/10', border: 'border-[var(--color-error)]/30', text: 'text-[var(--color-error)]', label: 'Off' },
-  muted: { dot: 'bg-[var(--color-text-muted)]', bg: 'bg-surface', border: 'border-border', text: 'text-text-muted', label: '?' },
+  success: { dot: 'bg-[var(--color-success)]', bg: 'bg-[var(--color-success)]/10', border: 'border-[var(--color-success)]/30', text: 'text-[var(--color-success)]' },
+  danger: { dot: 'bg-[var(--color-error)]', bg: 'bg-[var(--color-error)]/10', border: 'border-[var(--color-error)]/30', text: 'text-[var(--color-error)]' },
+  muted: { dot: 'bg-[var(--color-text-muted)]', bg: 'bg-surface', border: 'border-border', text: 'text-text-muted' },
 } as const;
 
 function StatusDot({ tone }: { tone: keyof typeof STATUS_TONES }) {
@@ -33,7 +33,7 @@ function StatusDot({ tone }: { tone: keyof typeof STATUS_TONES }) {
 }
 
 function CliRow({ tool, dict }: { tool: CliStatusType; dict: LocaleDict }) {
-  const tone = tool.functional ? 'success' : tool.installed ? 'danger' : 'danger';
+  const tone = tool.functional ? 'success' : 'danger';
   const st = STATUS_TONES[tone];
   return (
     <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${st.bg} ${st.border}`}>
@@ -41,7 +41,7 @@ function CliRow({ tool, dict }: { tool: CliStatusType; dict: LocaleDict }) {
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="text-sm font-medium text-text uppercase tracking-wide">{tool.name}</span>
         <span className={`text-xs font-mono ${st.text}`}>
-          {tool.functional ? `v${tool.version ?? ''}` : tool.error ?? dict.onboarding.statusNotFound}
+          {tool.functional ? (tool.version ?? '') : tool.error ?? dict.onboarding.statusNotFound}
         </span>
       </div>
       <span className={`shrink-0 text-xs font-medium ${st.text}`}>
