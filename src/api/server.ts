@@ -1,5 +1,6 @@
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { hermesStatus, installHermesPlugin } from '../integrations/hermesInstall.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
@@ -228,6 +229,24 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (d.engine && d.engine.isActive(missionId)) await d.engine.tick(missionId);
 
     return c.json({ epic, phases: created.map((t) => d.tasks.get(t.id)) }, 201);
+  });
+
+  // Hermes integration — install the bundled orca plugin into a same-host Hermes instance.
+  const hermesHome = (override?: string) => (override?.trim() || process.env.HERMES_HOME || '/var/www/.hermes');
+  app.get('/integrations/hermes/status', c => c.json(hermesStatus(hermesHome(c.req.query('home')))));
+  app.post('/integrations/hermes/install', async c => {
+    const b = await c.req.json() as { home?: string; url?: string; token?: string; timeout?: number };
+    const url = (b.url ?? '').trim();
+    const token = (b.token ?? '').trim();
+    if (!url || !token) return c.json({ error: 'url and token required' }, 400);
+    const home = hermesHome(b.home);
+    const pluginSrc = join(d.project.path, 'hermes-plugin', 'orca');
+    try {
+      const result = installHermesPlugin({ home, pluginSrc, url, token, timeout: b.timeout });
+      return c.json({ ...result, status: hermesStatus(home) }, 201);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
   });
 
   app.get('/sessions', async c => c.json((await d.tmux.list()).filter((s) => s.startsWith('orca-'))));

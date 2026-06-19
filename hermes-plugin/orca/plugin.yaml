@@ -1,0 +1,16 @@
+name: orca
+version: 1.0.0
+description: "Control the orca task/mission orchestrator from a Hermes agent — list/create/close tasks, plan & engage autopilot missions, insert or replan phases, watch live agent sessions and answer their prompts, all over orca's REST API."
+kind: standalone
+provides_tools:
+  - orca_health
+  - orca_tasks
+  - orca_create_task
+  - orca_close_task
+  - orca_plan
+  - orca_insert_phases
+  - orca_missions
+  - orca_mission_control
+  - orca_sessions
+  - orca_session_pane
+  - orca_send_keys
