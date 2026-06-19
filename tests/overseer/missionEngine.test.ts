@@ -8,6 +8,7 @@ import { SpawnService } from '../../src/spawn/spawn.js';
 import { FakeTmuxDriver } from '../../src/tmux/fakeDriver.js';
 import { MissionEngine } from '../../src/overseer/missionEngine.js';
 import { EventBus } from '../../src/api/sse.js';
+import { SystemClock } from '../../src/shared/clock.js';
 import type { OrcaEvent } from '../../src/api/sse.js';
 
 function setup() {
@@ -23,7 +24,7 @@ function setup() {
     tasks, readiness: new Readiness(db), missions: new MissionStore(db),
     spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux, bus,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
-    nameAgent: () => 'AgentX',
+    nameAgent: () => 'AgentX', clock: new SystemClock(),
   });
   return { tasks, tmux, engine, bus };
 }

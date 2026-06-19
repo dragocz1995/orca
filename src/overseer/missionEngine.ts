@@ -7,12 +7,13 @@ import type { AgentSpec } from '../spawn/commandBuilder.js';
 import type { EventBus } from '../api/sse.js';
 import { detectGuardrails, isCleared } from './guardrails.js';
 import { resolveExecutor } from './routing.js';
+import type { Clock } from '../shared/clock.js';
 
 export interface MissionEngineDeps {
   tasks: TaskStore; readiness: Readiness; missions: MissionStore;
   spawn: SpawnService; tmux: TmuxDriver; bus: EventBus;
   project: { id: number; path: string }; fallback: AgentSpec;
-  nameAgent: () => string;
+  nameAgent: () => string; clock: Clock;
 }
 
 export class MissionEngine {
@@ -89,6 +90,7 @@ export class MissionEngine {
       // agent label — otherwise a crash between the two writes would leave stopRunning unable to
       // find (and kill) the session.
       if (!named) this.d.tasks.setAgent(task.id, agentName);
+      this.d.tasks.markStarted(task.id, this.d.clock.now()); // precise spawn time → correct usage attribution under concurrency
       this.d.tasks.setStatus(task.id, 'in_progress');
       await this.d.spawn.launch({ projectId: this.d.project.id, projectPath: this.d.project.path, taskId: task.id, agentName, spec, taskTitle: task.title, taskDescription: task.description, epicId: m.epic_id });
       running++;

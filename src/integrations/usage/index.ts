@@ -18,35 +18,45 @@ function parseTs(ts?: string | null): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
+/** The precise spawn time (epoch ms) the agent launched, from the `started:<ms>` label — this is
+ *  sub-second and reflects real spawn order, unlike whole-second `created_at` (set at row insert).
+ *  Falls back to created_at for tasks launched before this label existed. */
+function startedMs(task: UsageTask): number {
+  const lbl = task.labels?.find((l) => l.startsWith('started:'));
+  if (lbl) { const ms = Number(lbl.slice('started:'.length)); if (Number.isFinite(ms)) return ms; }
+  return parseTs(task.created_at);
+}
+
 /** The resolved CLI program for a task ('opencode' | 'claude-code' | 'codex' | …). */
 function programOf(task: Pick<Task, 'labels'>, fallback: AgentSpec): string {
   const p = resolveExecutor(task.labels ?? [], fallback).program;
   return p.startsWith('opencode') ? 'opencode' : p;
 }
 
-/** Rank of `task` among the agents that started concurrently (same program, start time within the
- *  match window) — i.e. how many such peers started before it. This lets N parallel agents in the
- *  same project map to the N CLI sessions deterministically (rank 0,1,2…) instead of all resolving
- *  to the earliest one. For a sequential mission there are no concurrent peers, so rank is 0. */
+/** Rank of `task` among same-program agents that started at/before it within the match window —
+ *  i.e. how many such peers started first. Ordering is by real sub-second spawn time (started:<ms>),
+ *  with task id only as a final tiebreak for the astronomically-rare same-millisecond case. This
+ *  maps N parallel agents in one project to the N CLI sessions (sorted by session start) in the same
+ *  chronological order, so per-task usage isn't swapped. Sequential missions → rank 0. */
 function concurrentRank(task: UsageTask, siblings: UsageTask[], fallback: AgentSpec, program: string, since: number): number {
   let rank = 0;
   for (const s of siblings) {
     if (s.id === task.id) continue;
     if (programOf(s, fallback) !== program) continue;
-    const st = parseTs(s.created_at);
-    if (Math.abs(st - since) > SESSION_MATCH_SKEW_MS) continue;
-    if (st < since || (st === since && s.id < task.id)) rank++; // started before this one
+    const st = startedMs(s);
+    if (st > since || since - st > SESSION_MATCH_SKEW_MS) continue; // only peers that started at/before me, within the window
+    if (st < since || (st === since && s.id < task.id)) rank++;     // …and strictly ordered before me
   }
   return rank;
 }
 
 /** Token usage for a task's agent run, read from the executor CLI's local session storage.
- *  Chooses the parser by the task's resolved program, matches the session by project dir + start
- *  time, and disambiguates concurrent agents by start-order rank (so parallel missions attribute
- *  correctly). `siblings` are the other project tasks used to compute that rank. Returns null when
- *  no matching session is found (CLI unused or storage not persisted). */
+ *  Chooses the parser by the task's resolved program, matches the session by project dir + the
+ *  agent's spawn time, and disambiguates concurrent agents by start-order rank (so parallel
+ *  missions attribute correctly). `siblings` are the other project tasks used to compute that rank.
+ *  Returns null when no matching session is found (CLI unused or storage not persisted). */
 export function readTaskUsage(task: UsageTask, siblings: UsageTask[], projectPath: string, fallback: AgentSpec, home: string = homedir()): TokenUsage | null {
-  const since = parseTs(task.created_at);
+  const since = startedMs(task);
   const program = programOf(task, fallback);
   const nth = concurrentRank(task, siblings, fallback, program, since);
   switch (program) {

@@ -109,6 +109,17 @@ export class TaskStore {
     this.db.prepare('UPDATE tasks SET labels = ? WHERE id = ?').run(labels.join(','), id);
   }
 
+  /** Stamp the precise spawn time (epoch ms) the agent launched, as a `started:<ms>` label.
+   *  Sub-second precision is what lets concurrent agents in one project be ordered by who
+   *  actually started first (created_at is whole-second and set at row insert, not spawn). */
+  markStarted(id: string, ms: number): void {
+    const t = this.get(id);
+    if (!t) return;
+    const labels = t.labels.filter((l) => !l.startsWith('started:'));
+    labels.push(`started:${ms}`);
+    this.db.prepare('UPDATE tasks SET labels = ? WHERE id = ?').run(labels.join(','), id);
+  }
+
   depsAmong(ids: string[]): { task_id: string; depends_on_id: string }[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');

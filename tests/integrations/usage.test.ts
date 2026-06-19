@@ -94,8 +94,8 @@ describe('readTaskUsage', () => {
     expect(readTaskUsage(task, [task], DIR, fallback, home)).toBeNull();
   });
 
-  it('attributes concurrent agents in the same dir to distinct sessions by start-order rank', () => {
-    // Two opencode sessions opened in the same dir at nearly the same time.
+  it('attributes concurrent same-second agents to distinct sessions via sub-second started:<ms>', () => {
+    // Two opencode sessions opened in the same dir ~100ms apart.
     write('.local/share/opencode/storage/session/global/ses_first.json',
       JSON.stringify({ id: 'ses_first', directory: DIR, time: { created: SINCE + 100 } }));
     write('.local/share/opencode/storage/message/ses_first/m.json',
@@ -105,10 +105,14 @@ describe('readTaskUsage', () => {
     write('.local/share/opencode/storage/message/ses_second/m.json',
       JSON.stringify({ role: 'assistant', cost: 0.02, tokens: { input: 99, output: 0, cache: { read: 0, write: 0 } } }));
 
-    const a = ocTask('t-a', 'ollama-cloud/deepseek-v4-flash', '2026-06-19 10:00:00');
-    const b = ocTask('t-b', 'ollama-cloud/deepseek-v4-flash', '2026-06-19 10:00:01'); // started just after
+    // Both tasks share the SAME whole-second created_at (the realistic mission case), but carry
+    // distinct sub-second started:<ms> labels reflecting real spawn order — and crucially, the task
+    // that spawned FIRST (b, by id) actually started LATER in ms, proving rank follows started:<ms>,
+    // not created_at order or id order.
+    const mk = (id: string, startedMs: number) => ({ id, labels: ['exec:ollama-cloud/deepseek-v4-flash', `started:${startedMs}`], created_at: '2026-06-19 10:00:00' });
+    const a = mk('t-a', SINCE + 90);  // started first → rank 0 → ses_first (10)
+    const b = mk('t-b', SINCE + 140); // started second → rank 1 → ses_second (99)
     const siblings = [a, b];
-    // rank 0 → earliest session (10 tokens); rank 1 → second session (99 tokens). No collision.
     expect(readTaskUsage(a, siblings, DIR, fallback, home)?.total).toBe(10);
     expect(readTaskUsage(b, siblings, DIR, fallback, home)?.total).toBe(99);
   });
