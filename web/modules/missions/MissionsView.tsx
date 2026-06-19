@@ -1,10 +1,10 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Rocket, Plus, Pause, Play, Power, GitBranch, ArrowRight, AlertTriangle } from 'lucide-react';
 import { useMissions, useTasks, useMissionDetail, useSessionSignals, useConfig } from '../../lib/queries';
 import { usePauseMission, useResumeMission, useDisengage } from '../../lib/mutations';
-import type { Mission, MissionTask, MissionDeps, Task, DerivedSignal } from '../../lib/types';
+import type { MissionTask, MissionDeps, Task, DerivedSignal } from '../../lib/types';
 import type { Tone } from '../../components/ui/tone';
 import { taskSessionName, taskAgentName } from '../../lib/agentUtils';
 import { epicCapacity } from '../../lib/taskTree';
@@ -16,35 +16,23 @@ import { IconButton } from '../../components/ui/IconButton';
 import { AgentStatusDot } from '../../components/ui/AgentStatusDot';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { NeedsInputBanner } from '../../components/ui/NeedsInputBanner';
-import { ProgressRibbon } from '../../components/ui/ProgressRibbon';
 import { CapacityMeter } from '../../components/ui/CapacityMeter';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { TaskDetailPane } from '../tasks/TaskDetailPane';
-import { DependencyGraph } from './DependencyGraph';
+import { TaskFlow } from './TaskFlow';
+import { ActiveMissionsBar } from './ActiveMissionsBar';
 import { EngageModal } from './EngageModal';
 import { AddPhaseModal } from './AddPhaseModal';
 
-/** Count of a mission's live children and how many are waiting for input. */
-function missionLive(kids: { id: string; status: string; labels?: string[] }[], signals: Record<string, { type: string }>): { live: number; needs: number } {
-  const liveKids = kids.filter((k) => k.status === 'in_progress');
-  const needs = liveKids.filter((k) => { const s = taskSessionName(k); return s ? signals[s]?.type === 'needs_input' : false; }).length;
-  return { live: liveKids.length, needs };
-}
-
 /** A dependency is a fail-gate when its source closed with outcome 'fail' or was cancelled. */
 function isFailGate(dep: MissionTask): boolean {
-  if (dep.status === 'cancelled') return true;
-  if (dep.status === 'closed' && dep.outcome === 'fail') return true;
-  return false;
+  return dep.status === 'cancelled' || (dep.status === 'closed' && dep.outcome === 'fail');
 }
 
-/** Resolve the current running phase and the next ready/open phase of a mission.
- *  Purely derived from the mission's tasks + deps + live session signals — no backend calls.
- *  - current = the in_progress phase (prefer one whose session is live; else the first in_progress).
- *  - next = the first open phase whose deps are all terminal and none is a fail-gate, ordered
- *    by creation sequence (oldest first). Falls back to the first non-terminal open phase. */
+/** Resolve the current running phase and the next ready/open phase of a mission, derived purely
+ *  from its tasks + deps + live signals. */
 function missionSpotlight(
   tasks: MissionTask[],
   deps: MissionDeps[],
@@ -59,7 +47,6 @@ function missionSpotlight(
     }
   }
   const isTerminal = (s: string) => s === 'closed' || s === 'cancelled';
-
   const current = tasks.find((t) => t.status === 'in_progress') ?? null;
 
   const failedUpstream: MissionTask[] = [];
@@ -76,20 +63,8 @@ function missionSpotlight(
   return { current, next, failedUpstream };
 }
 
-// Missions split into rail groups by lifecycle state.
-const GROUP_ORDER = ['active', 'paused', 'disengaged'] as const;
-type Group = (typeof GROUP_ORDER)[number];
-const groupOf = (state: string): Group => (state === 'paused' ? 'paused' : state === 'disengaged' ? 'disengaged' : 'active');
-
 export function MissionsView() {
   const missions = useMissions();
-  const tasks = useTasks();
-  const sessions = useSessions();
-  const signals = useSessionSignals();
-  const pause = usePauseMission();
-  const resume = useResumeMission();
-  const disengage = useDisengage();
-  const { toast } = useToast();
   const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [engaging, setEngaging] = useState(false);
@@ -98,22 +73,13 @@ export function MissionsView() {
   const params = useSearchParams();
   useEffect(() => { if (params.get('new') === '1') { setEngaging(true); router.replace('/missions'); } }, [params, router]);
 
-  const epicTitle = (epicId: string) => tasks.data?.find((task) => task.id === epicId)?.title ?? epicId;
-
-  const grouped = useMemo(() => {
-    const map: Record<Group, Mission[]> = { active: [], paused: [], disengaged: [] };
-    for (const m of missions.data ?? []) map[groupOf(m.state)].push(m);
-    return map;
-  }, [missions.data]);
-
-  // Auto-select the first active mission once data lands and nothing is picked yet.
+  // Auto-select a mission once data lands (active first), if nothing is picked yet.
   useEffect(() => {
     if (selectedId || !missions.data?.length) return;
-    const first = grouped.active[0] ?? grouped.paused[0] ?? missions.data[0];
+    const rank: Record<string, number> = { active: 0, paused: 1, disengaged: 2 };
+    const first = [...missions.data].sort((a, b) => (rank[a.state] ?? 0) - (rank[b.state] ?? 0))[0];
     if (first) setSelectedId(first.id);
-  }, [missions.data, grouped, selectedId]);
-
-  const GROUP_LABEL: Record<Group, string> = { active: t.missions.groupActive, paused: t.missions.groupPaused, disengaged: t.missions.groupDisengaged };
+  }, [missions.data, selectedId]);
 
   return (
     <>
@@ -125,76 +91,14 @@ export function MissionsView() {
         : missions.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => missions.refetch()} />
         : !missions.data?.length ? <EmptyState title={t.missions.empty} description={t.missions.emptyDescription} icon={Rocket} action={<Button variant="accent" icon={Plus} onClick={() => setEngaging(true)}>{t.missions.newMission}</Button>} />
         : (
-          <div className="flex flex-col gap-6 md:flex-row md:items-start">
-            {/* Left rail — mission list grouped by state */}
-            <nav
-              aria-label={t.page.missions}
-              className="flex shrink-0 flex-col gap-4 md:sticky md:top-[57px] md:w-[280px]"
-            >
-              {GROUP_ORDER.map((g) => {
-                const items = grouped[g];
-                if (!items.length) return null;
-                return (
-                  <div key={g} className="flex flex-col gap-1.5">
-                    <span className="px-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">{GROUP_LABEL[g]}</span>
-                    {items.map((m) => {
-                      const kids = (tasks.data ?? []).filter((task) => task.parent_id === m.epic_id);
-                      const done = kids.filter((task) => task.status === 'closed' || task.status === 'cancelled').length;
-                      const total = kids.length;
-                      const paused = m.state === 'paused';
-                      const disengaged = m.state === 'disengaged';
-                      const isActive = selectedId === m.id;
-                      return (
-                        <div
-                          key={m.id}
-                          role="button"
-                          tabIndex={0}
-                          aria-pressed={isActive}
-                          onClick={() => setSelectedId(m.id)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') setSelectedId(m.id); }}
-                          className={`group flex cursor-pointer flex-col gap-1.5 rounded-lg border px-3 py-2.5 transition-colors ${
-                            isActive ? 'border-accent bg-accent/[0.06]' : 'border-border bg-surface hover:bg-elevated/50'
-                          }`}
-                          style={{ transitionDuration: 'var(--motion-fast)' }}
-                        >
-                          <div className="flex items-start gap-2">
-                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{epicTitle(m.epic_id)}</span>
-                            <Badge tone={disengaged ? 'muted' : 'accent'}>{disengaged ? t.missions.stateDisengaged : paused ? t.missions.statePaused : m.autonomy}</Badge>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <ProgressRibbon phases={kids} className="flex-1" />
-                            <span className="shrink-0 font-mono text-[11px] text-text-muted">{t.missions.progressDone.replace('{done}', String(done)).replace('{total}', String(total))}</span>
-                          </div>
-                          {(() => { const { live, needs } = missionLive(kids, signals); return (live > 0 || needs > 0) ? (
-                            <div className="flex items-center gap-2">
-                              {needs > 0 ? <span className="flex items-center gap-1 text-[11px] font-medium text-warning" title={t.agent.needsInput}><span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />{needs}</span> : null}
-                              {live > 0 ? <span className="flex items-center gap-1 text-[11px] font-medium text-success" title={t.agent.working}><span className="live-dot h-1.5 w-1.5 rounded-full bg-success" style={{ ['--live-ring' as string]: 'color-mix(in srgb, var(--color-success) 50%, transparent)' }} aria-hidden />{live}</span> : null}
-                            </div>
-                          ) : null; })()}
-                          {!disengaged ? (() => { const cap = epicCapacity(kids, sessions.data ?? [], m.max_sessions); return <CapacityMeter running={cap.running} max={cap.max} />; })() : null}
-                          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                            {paused
-                              ? <IconButton icon={Play} label={t.missions.resume} onClick={() => resume.mutate(m.id, { onSuccess: () => toast(t.missions.resumed), onError: (e) => toast(String(e), 'error') })} />
-                              : <IconButton icon={Pause} label={t.missions.pause} onClick={() => pause.mutate(m.id, { onSuccess: () => toast(t.missions.pausedMsg), onError: (e) => toast(String(e), 'error') })} />}
-                            <ActionMenu
-                              label={t.missions.disengage}
-                              items={[{ label: t.missions.disengage, icon: Power, tone: 'danger', onSelect: () => disengage.mutate(m.id, { onSuccess: () => toast(t.missions.disengaged), onError: (e) => toast(String(e), 'error') }) }]}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </nav>
+          <div className="flex flex-col gap-6">
+            {/* Active missions — horizontal bar across the top */}
+            <ActiveMissionsBar missions={missions.data} selectedId={selectedId} onSelect={setSelectedId} />
 
-            {/* Right workspace — DAG-as-page for the selected mission */}
-            <div className="min-w-0 flex-1">
-              {selectedId
-                ? <MissionWorkspace missionId={selectedId} />
-                : <div className="flex items-center justify-center rounded-lg border border-border bg-surface py-20 text-sm text-text-muted">{t.missions.selectMissionHint}</div>}
-            </div>
+            {/* Selected mission workspace — full width below the bar */}
+            {selectedId
+              ? <MissionWorkspace missionId={selectedId} />
+              : <div className="flex items-center justify-center rounded-lg border border-border bg-surface py-20 text-sm text-text-muted">{t.missions.selectMissionHint}</div>}
           </div>
         )}
 
@@ -251,8 +155,6 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
   const spotlight = missionSpotlight(d.tasks, d.deps);
   const showFailBanner = spotlight.failedUpstream.length > 0;
 
-  const selectPhase = (id: string | null) => setSelectedTaskId(id);
-
   return (
     <div className="flex flex-col gap-4">
       {/* Compact header + inline metric strip */}
@@ -284,7 +186,7 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
         sessions={new Set(sessions.data ?? [])}
         paused={paused}
         disengaged={disengagedFlag}
-        onSelectPhase={selectPhase}
+        onSelectPhase={setSelectedTaskId}
         onPause={() => pause.mutate(missionId, { onSuccess: () => toast(t.missions.pausedMsg), onError: (e) => toast(String(e), 'error') })}
         onResume={() => resume.mutate(missionId, { onSuccess: () => toast(t.missions.resumed), onError: (e) => toast(String(e), 'error') })}
         onDisengage={() => disengage.mutate(missionId, { onSuccess: () => toast(t.missions.disengaged), onError: (e) => toast(String(e), 'error') })}
@@ -301,27 +203,22 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
       {/* Needs-human-attention strip, scoped to this mission's live sessions */}
       <NeedsInputBanner sessions={missionSessions} />
 
-      {/* Side-by-side on lg+: DAG on the left, selected-phase detail on the right (sticky aside). */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
-        {/* Left — DAG canvas */}
-        <div className="rounded-xl border border-border border-t-2 border-t-accent/40 bg-surface p-3 lg:min-w-0 lg:flex-1" style={{ boxShadow: 'var(--shadow-card)' }}>
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
-            <GitBranch size={13} aria-hidden />
-            {t.missions.taskFlow}
-          </div>
-          {d.tasks.length === 0
-            ? <EmptyState title={t.missions.noTasks} />
-            : <DependencyGraph tasks={d.tasks} deps={d.deps} onSelect={setSelectedTaskId} />}
+      {/* TOK ÚKOLŮ — full-width flow whose pills auto-shrink to fit */}
+      <div className="rounded-xl border border-border border-t-2 border-t-accent/40 bg-surface p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+          <GitBranch size={13} aria-hidden />
+          {t.missions.taskFlow}
         </div>
+        {d.tasks.length === 0
+          ? <EmptyState title={t.missions.noTasks} />
+          : <TaskFlow tasks={d.tasks} deps={d.deps} selectedId={selectedTaskId} onSelect={setSelectedTaskId} />}
+      </div>
 
-        {/* Right — persistent detail pane, sticky on lg+, independent scroll */}
-        <aside className="min-w-0 lg:w-[420px] lg:shrink-0 lg:sticky lg:top-[57px] lg:max-h-[calc(100vh-73px)] lg:overflow-y-auto">
-          <div className="rounded-lg border border-border bg-surface p-4" style={{ boxShadow: 'var(--shadow-card)' }}>
-            {selectedTaskId ? <TaskDetailPane taskId={selectedTaskId} /> : (
-              <p className="py-2 text-center text-sm text-text-muted">{t.missions.selectTaskHint}</p>
-            )}
-           </div>
-        </aside>
+      {/* Selected-phase detail — below the flow, full width */}
+      <div className="rounded-lg border border-border bg-surface p-4" style={{ boxShadow: 'var(--shadow-card)' }}>
+        {selectedTaskId ? <TaskDetailPane taskId={selectedTaskId} /> : (
+          <p className="py-2 text-center text-sm text-text-muted">{t.missions.selectTaskHint}</p>
+        )}
       </div>
 
       {addingPhase && <AddPhaseModal epicId={d.epic?.id ?? d.mission.epic_id} onClose={() => setAddingPhase(false)} />}
@@ -418,4 +315,3 @@ function Metric({ label, value, tone = 'muted' }: { label: string; value: number
     </span>
   );
 }
-
