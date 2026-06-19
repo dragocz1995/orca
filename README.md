@@ -111,9 +111,17 @@ The daemon exposes a Hono server on port 4400:
 | `GET` | `/users` | List users |
 | `POST` | `/users` | Create user |
 | `DELETE` | `/users/:id` | Delete user |
-| `GET` | `/projects` | List projects |
-| `POST` | `/projects` | Create project |
+| `GET` | `/projects` | List projects (filtered to the caller's assigned projects) |
+| `POST` | `/projects` | Create project (admin only) |
 | `GET` | `/projects/:id/git` | Git info for project |
+| `GET` | `/projects/:id/files` | Project file tree (for the editor) |
+| `GET` | `/projects/:id/file?path=` | Read a file's contents |
+| `PUT` | `/projects/:id/file` | Write a file's contents |
+| `GET` | `/projects/:id/diff?path=` | Working-tree diff for a file |
+| `GET` | `/users/:id/projects` | A user's assigned projects (admin only) |
+| `POST` | `/users/:id/projects` | Assign a user to a project (admin only) |
+| `DELETE` | `/users/:id/projects/:pid` | Unassign (admin only) |
+| `GET` | `/tasks/:id/usage` | Token/cost usage for a task's agent run |
 | `GET` | `/tasks` | List tasks |
 | `POST` | `/tasks` | Create task |
 | `GET` | `/tasks/ready` | Tasks with all deps met |
@@ -161,11 +169,18 @@ Next.js web UI at `web/` with:
 
 - **Dashboard** — task list, mission overview
 - **Terminal** — real-time tmux stream via SSE + Xterm.js
-- **Mission control** — create and monitor missions
+- **Mission control** — create and monitor missions; live token/cost usage per agent
+- **Projects** — git status/log plus a Monaco code editor (file tree, edit & save, per-file diff)
+- **Users** — manage users and assign them to projects (admin only)
 
 ```bash
 cd web && npm install && npm run dev
 ```
+
+> **Access control:** users are assigned to projects (many-to-many); the bootstrap admin manages
+> assignments and sees everything. A non-admin must be assigned to the daemon's project to use it.
+> Project file/editor access is per-assignment. Per-project *task/mission* scoping (one daemon
+> serving multiple projects' autopilots) is a planned follow-up — today a daemon drives one project.
 
 ## Docs
 
