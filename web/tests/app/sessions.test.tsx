@@ -36,6 +36,9 @@ vi.mock('next/dynamic', () => ({
 
 let killed = false;
 const server = setupServer(
+  http.get('http://localhost:4400/tasks', () => HttpResponse.json([])),
+  http.get('http://localhost:4400/projects', () => HttpResponse.json([{ id: 1, slug: 'orca', path: '/var/www/orca', notes: '' }])),
+  http.get('http://localhost:4400/projects/1/git', () => HttpResponse.json({ isRepo: false, status: null, branches: [], commits: [] })),
   http.get('http://localhost:4400/sessions', () => HttpResponse.json(['orca-SwiftLake'])),
   http.get('http://localhost:4400/sessions/orca-SwiftLake/pane', () => HttpResponse.json({ pane: 'line a\nline b' })),
   http.delete('http://localhost:4400/sessions/orca-SwiftLake', () => { killed = true; return HttpResponse.json({ ok: true }); }),

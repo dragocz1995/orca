@@ -10,6 +10,7 @@ import { ModelIcon } from '../../components/ui/ModelIcon';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
 import { IconButton } from '../../components/ui/IconButton';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { ChangeStrip } from '../../components/ui/ChangeStrip';
 import { SendInput } from '../../components/control/SendInput';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -71,6 +72,7 @@ export function SessionCard({ name, onOpenTerminal, compact = false }: { name: s
             : t.sessions.noOutput}
         </pre>
       )}
+      {!finished && <ChangeStrip />}
       {needsInput && signal?.type === 'needs_input' && (
         <div className="flex flex-col gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5">
           <p className="text-xs text-text">{signal.question}</p>

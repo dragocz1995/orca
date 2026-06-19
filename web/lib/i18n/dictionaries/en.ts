@@ -227,6 +227,7 @@ export const en = {
     needsAttention: '{count} needs attention',
     liveAgents: '{count} live agents',
     lastOutcome: 'Last: {title}',
+    stuckAgents: '{count} stuck agents',
   },
   agent: {
     working: 'Working',
@@ -235,6 +236,8 @@ export const en = {
     complete: 'Complete',
     ready: 'Ready',
     waitingFor: 'Waiting for {deps}',
+    stalled: 'Silent {min}m',
+    stuck: 'Stuck {min}m',
   },
   sessions: {
     needsInput: 'needs input',
@@ -433,5 +436,21 @@ export const en = {
     userDeleted: 'User deleted',
     userCreated: 'User created',
     deleteLabel: 'Delete {username}',
+  },
+  changes: {
+    dirtyOne: '1 dirty',
+    dirtyN: '{count} dirty',
+    lastCommit: 'last commit {relative} “{subject}”',
+    none: 'no recent changes',
+  },
+  activity: {
+    editing: 'editing',
+    testing: 'testing',
+    building: 'building',
+    installing: 'installing',
+    thinking: 'thinking',
+    prompted: 'prompted',
+    error: 'error',
+    unknown: 'working',
   },
 } as const;

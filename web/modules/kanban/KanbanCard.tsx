@@ -12,6 +12,7 @@ import { taskTypeMeta } from '../tasks/taskMeta';
 import { taskExec } from '../../lib/taskExec';
 import { taskSessionName } from '../../lib/agentUtils';
 import { useConfig, useSessions, useSessionSignal } from '../../lib/queries';
+import { useSessionStall } from '../../lib/useSessionStall';
 import { useTranslation } from '../../lib/i18n';
 
 /** Enriched kanban card: model icon, live-state dot, agent identity, context line, outcome. */
@@ -32,6 +33,7 @@ export function KanbanCard({ task, blocked, blockers, dragging, statusLabel, isP
   const sessionName = taskSessionName(task);
   const live = task.status === 'in_progress' && !!sessionName && (sessions.data ?? []).includes(sessionName);
   const signal = useSessionSignal(sessionName ?? '');
+  const stall = useSessionStall(sessionName ?? '', live && !!sessionName);
   const exec = taskExec(task.labels) || config?.defaults?.exec || '';
   const TypeIcon = taskTypeMeta(task.type).icon;
   const isClosed = task.status === 'closed' || task.status === 'cancelled';
@@ -52,7 +54,7 @@ export function KanbanCard({ task, blocked, blockers, dragging, statusLabel, isP
           <span className="min-w-0 flex-1 text-sm text-text">{task.title}</span>
           {blocked
             ? <span className="live-dot shrink-0 text-danger" style={{ ['--live-ring' as string]: 'color-mix(in srgb, var(--color-error) 50%, transparent)' }} title={t.kanban.blockedDeps}><Link2 size={13} aria-hidden /></span>
-            : <span className="mt-1.5"><AgentStatusDot signal={signal} live={live} /></span>}
+            : <span className="mt-1.5"><AgentStatusDot signal={signal} live={live} stall={stall.state} silenceSec={stall.silenceSec} /></span>}
         </div>
         <AgentIdentityStrip task={task} />
         <TaskContextLine task={task} sessionName={live ? sessionName : null} blockers={blockers} />

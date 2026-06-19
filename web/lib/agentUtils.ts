@@ -46,7 +46,7 @@ export function taskBlockers(taskId: string, deps: DepEdge[], byId: Map<string, 
     .filter((t): t is Task => !!t && t.status !== 'closed' && t.status !== 'cancelled');
 }
 
-export type LiveState = 'working' | 'needs_input' | 'complete' | 'idle';
+export type LiveState = 'working' | 'needs_input' | 'complete' | 'idle' | 'stalled' | 'stuck';
 
 /** Resolve the agent's live state from its SSE signal and whether its session is live.
  *  The signal is authoritative when present; a live session with no signal yet reads as working. */

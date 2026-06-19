@@ -6,6 +6,7 @@ import { usePauseMission, useResumeMission, useDisengage } from '../../lib/mutat
 import { deriveDashboardMetrics } from './metrics';
 import { statusTone } from './statusTone';
 import { Badge } from '../../components/ui/Badge';
+import type { Tone } from '../../components/ui/tone';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
 import { NeedsInputBanner } from '../../components/ui/NeedsInputBanner';
 import { ProgressRibbon } from '../../components/ui/ProgressRibbon';
@@ -17,6 +18,8 @@ import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { useSessionPane } from '../sessions/useSessionPane';
 import { tailSnippet, taskSessionName, parseTs, liveState } from '../../lib/agentUtils';
+import { useSessionStall } from '../../lib/useSessionStall';
+import { sessionActivity } from '../../lib/sessionActivity';
 import { epicCapacity } from '../../lib/taskTree';
 import { taskExec } from '../../lib/taskExec';
 import { ModelIcon } from '../../components/ui/ModelIcon';
@@ -25,17 +28,22 @@ import type { Task, DerivedSignal, Mission } from '../../lib/types';
 
 /** A single live agent lane in the hero: status pulse, model icon, name, current activity line. */
 function LiveLane({ name, task }: { name: string; task?: Task }) {
+  const { t } = useTranslation();
   const { tail } = useSessionPane(name, 4);
   const exec = taskExec(task?.labels);
   const line = tailSnippet(tail) || '…';
+  const { state: stall, silenceSec } = useSessionStall(name, true);
+  const activity = sessionActivity(tail);
+  const activityTone = activity === 'error' ? 'danger' : activity === 'prompted' ? 'warning' : activity === 'unknown' ? 'muted' : 'accent';
   return (
     <Link href="/sessions" className="flex items-center gap-2.5 rounded-md border border-border bg-bg px-3 py-2 transition-colors hover:border-border-strong">
-      <span className="live-dot h-2 w-2 shrink-0 rounded-full bg-accent" style={{ ['--live-ring' as string]: 'color-mix(in srgb, var(--color-info) 50%, transparent)' }} aria-hidden />
+      <AgentStatusDot live size="sm" stall={stall} silenceSec={silenceSec} />
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-elevated">
         {exec ? <ModelIcon name={exec} size={13} /> : <Radio size={12} className="text-text-muted" aria-hidden />}
       </span>
       <span className="shrink-0 font-mono text-xs text-text">{name}</span>
       <span className="min-w-0 flex-1 truncate text-[11px] text-text-muted">{line}</span>
+      <Badge tone={activityTone as Tone}>{t.activity[activity]}</Badge>
     </Link>
   );
 }
@@ -228,6 +236,7 @@ function MissionSpotlightRow({ mission, epic, kids, sessionNames, signals, onPau
   const sessionName = runningPhase ? taskSessionName(runningPhase) : null;
   const live = !!(sessionName && sessionNames.includes(sessionName));
   const signal = sessionName ? signals[sessionName] : undefined;
+  const stall = useSessionStall(sessionName ?? '', live && !!sessionName);
   const cap = epicCapacity(kids, sessionNames, mission.max_sessions);
 
   return (
@@ -244,7 +253,7 @@ function MissionSpotlightRow({ mission, epic, kids, sessionNames, signals, onPau
       </div>
       {runningPhase ? (
         <div className="flex items-center gap-2 text-[11px] text-text-muted">
-          <AgentStatusDot signal={signal} live={live} size="sm" />
+          <AgentStatusDot signal={signal} live={live} size="sm" stall={stall.state} silenceSec={stall.silenceSec} />
           <span className="truncate">{runningPhase.title}</span>
         </div>
       ) : (

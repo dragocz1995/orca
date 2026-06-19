@@ -2,19 +2,32 @@
 import { Link2, CheckCircle2, XCircle, ChevronRight } from 'lucide-react';
 import type { Task } from '../../lib/types';
 import { tailSnippet } from '../../lib/agentUtils';
+import { sessionActivity } from '../../lib/sessionActivity';
 import { useSessionPane } from '../../modules/sessions/useSessionPane';
 import { useTranslation } from '../../lib/i18n';
+import { Badge } from './Badge';
+import type { Tone } from './tone';
+
+/** Activity badge tone for a given category. */
+function activityTone(cat: string): Tone {
+  if (cat === 'error') return 'danger';
+  if (cat === 'prompted') return 'warning';
+  if (cat === 'unknown') return 'muted';
+  return 'accent';
+}
 
 /** Live tail line for a running session — polls only while mounted, so closed cards stay quiet. */
 function LiveTailLine({ name }: { name: string }) {
   const { t } = useTranslation();
   const { tail, isLoading } = useSessionPane(name, 3);
   const line = tailSnippet(tail);
+  const activity = sessionActivity(tail);
   return (
-    <p className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-text-muted">
+    <div className="flex min-w-0 items-center gap-1.5">
       <ChevronRight size={12} className="shrink-0 text-success" aria-hidden />
-      <span className="truncate">{line || (isLoading ? t.sessions.loading : t.sessions.noOutput)}</span>
-    </p>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted">{line || (isLoading ? t.sessions.loading : t.sessions.noOutput)}</span>
+      <Badge tone={activityTone(activity)}>{t.activity[activity]}</Badge>
+    </div>
   );
 }
 

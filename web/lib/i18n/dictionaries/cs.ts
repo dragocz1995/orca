@@ -227,6 +227,7 @@ export const cs = {
     needsAttention: '{count} vyžaduje pozornost',
     liveAgents: '{count} živých agentů',
     lastOutcome: 'Poslední: {title}',
+    stuckAgents: '{count} zaseknutých agentů',
   },
   agent: {
     working: 'Pracuje',
@@ -235,6 +236,8 @@ export const cs = {
     complete: 'Dokončeno',
     ready: 'Připraven',
     waitingFor: 'Čeká na {deps}',
+    stalled: 'Ticho {min}m',
+    stuck: 'Zaseknuto {min}m',
   },
   sessions: {
     needsInput: 'vyžaduje vstup',
@@ -433,5 +436,21 @@ export const cs = {
     userDeleted: 'Uživatel smazán',
     userCreated: 'Uživatel vytvořen',
     deleteLabel: 'Smazat {username}',
+  },
+  changes: {
+    dirtyOne: '1 změněno',
+    dirtyN: '{count} změněno',
+    lastCommit: 'poslední commit {relative} „{subject}“',
+    none: 'žádné nedávné změny',
+  },
+  activity: {
+    editing: 'edituje',
+    testing: 'testuje',
+    building: 'buildí',
+    installing: 'instaluje',
+    thinking: 'přemýšlí',
+    prompted: 'vyzván k akci',
+    error: 'chyba',
+    unknown: 'pracuje',
   },
 } as const;

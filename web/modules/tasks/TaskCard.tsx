@@ -17,6 +17,8 @@ import { AgentStatusDot } from '../../components/ui/AgentStatusDot';
 import { AgentIdentityStrip } from '../../components/ui/AgentIdentityStrip';
 import { TaskContextLine } from '../../components/ui/TaskContextLine';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
+import { ChangeStrip } from '../../components/ui/ChangeStrip';
+import { useSessionStall } from '../../lib/useSessionStall';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { taskTypeMeta } from './taskMeta';
@@ -45,6 +47,8 @@ export function TaskCard({ task, onEdit, onSelect, active = false, blockers, sel
   const { session, running, start, stop, pause } = useTaskControls(task);
   const signal = useSessionSignal(session ?? '');
   const hasAgent = !!taskAgentName(task);
+  const stall = useSessionStall(session ?? '', running && !!session);
+  const stallProps = session ? { stall: stall.state, silenceSec: stall.silenceSec } : {};
 
   const STATUS_LABEL: Record<string, string> = { open: t.tasks.statusOpen, in_progress: t.tasks.statusInProgress, blocked: t.tasks.statusBlocked, closed: t.tasks.statusClosed, cancelled: t.tasks.statusCancelled };
   const open = () => (onSelect ?? onEdit)(task);
@@ -70,7 +74,7 @@ export function TaskCard({ task, onEdit, onSelect, active = false, blockers, sel
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span className="truncate text-sm font-medium text-text">{task.title}</span>
-              <AgentStatusDot signal={signal} live={running} size="sm" />
+              <AgentStatusDot signal={signal} live={running} size="sm" {...stallProps} />
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <Icon size={11} className="shrink-0 text-text-muted" aria-hidden />
@@ -99,6 +103,8 @@ export function TaskCard({ task, onEdit, onSelect, active = false, blockers, sel
         {hasAgent ? <AgentIdentityStrip task={task} /> : null}
 
         <TaskContextLine task={task} sessionName={running ? session : null} blockers={blockers} />
+
+        {running ? <ChangeStrip /> : null}
 
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-0.5">
           <Badge tone={statusTone(task.status)}>{STATUS_LABEL[task.status] ?? task.status}</Badge>
