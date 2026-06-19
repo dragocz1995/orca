@@ -1,18 +1,19 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Rocket, Plus, Pause, Play, Power, GitBranch } from 'lucide-react';
+import { Rocket, Plus, Pause, Play, Power, GitBranch, ArrowRight, AlertTriangle } from 'lucide-react';
 import { useMissions, useTasks, useMissionDetail, useSessionSignals } from '../../lib/queries';
 import { usePauseMission, useResumeMission, useDisengage } from '../../lib/mutations';
-import type { Mission } from '../../lib/types';
+import type { Mission, MissionTask, MissionDeps, Task, DerivedSignal } from '../../lib/types';
 import type { Tone } from '../../components/ui/tone';
-import { taskSessionName } from '../../lib/agentUtils';
+import { taskSessionName, taskAgentName } from '../../lib/agentUtils';
 import { epicCapacity } from '../../lib/taskTree';
 import { useSessions } from '../../lib/queries';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { IconButton } from '../../components/ui/IconButton';
+import { AgentStatusDot } from '../../components/ui/AgentStatusDot';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { NeedsInputBanner } from '../../components/ui/NeedsInputBanner';
 import { ProgressRibbon } from '../../components/ui/ProgressRibbon';
@@ -29,6 +30,49 @@ function missionLive(kids: { id: string; status: string; labels?: string[] }[], 
   const liveKids = kids.filter((k) => k.status === 'in_progress');
   const needs = liveKids.filter((k) => { const s = taskSessionName(k); return s ? signals[s]?.type === 'needs_input' : false; }).length;
   return { live: liveKids.length, needs };
+}
+
+/** A dependency is a fail-gate when its source closed with outcome 'fail' or was cancelled. */
+function isFailGate(dep: MissionTask): boolean {
+  if (dep.status === 'cancelled') return true;
+  if (dep.status === 'closed' && dep.outcome === 'fail') return true;
+  return false;
+}
+
+/** Resolve the current running phase and the next ready/open phase of a mission.
+ *  Purely derived from the mission's tasks + deps + live session signals — no backend calls.
+ *  - current = the in_progress phase (prefer one whose session is live; else the first in_progress).
+ *  - next = the first open phase whose deps are all terminal and none is a fail-gate, ordered
+ *    by creation sequence (oldest first). Falls back to the first non-terminal open phase. */
+function missionSpotlight(
+  tasks: MissionTask[],
+  deps: MissionDeps[],
+): { current: MissionTask | null; next: MissionTask | null; failedUpstream: MissionTask[] } {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const depsOf = new Map<string, string[]>();
+  for (const d of deps) {
+    if (byId.has(d.taskId) && byId.has(d.dependsOnId)) {
+      const list = depsOf.get(d.taskId) ?? [];
+      list.push(d.dependsOnId);
+      depsOf.set(d.taskId, list);
+    }
+  }
+  const isTerminal = (s: string) => s === 'closed' || s === 'cancelled';
+
+  const current = tasks.find((t) => t.status === 'in_progress') ?? null;
+
+  const failedUpstream: MissionTask[] = [];
+  for (const t of tasks) {
+    const ds = depsOf.get(t.id) ?? [];
+    if (ds.some((id) => { const dep = byId.get(id); return dep ? isFailGate(dep) : false; })) failedUpstream.push(t);
+  }
+
+  const next = tasks
+    .find((t) => t.status === 'open' && (depsOf.get(t.id) ?? []).every((id) => { const dep = byId.get(id); return dep ? isTerminal(dep.status) && !isFailGate(dep) : false; }))
+    ?? tasks.find((t) => t.status === 'open' && !isTerminal(t.status))
+    ?? null;
+
+  return { current, next, failedUpstream };
 }
 
 // Missions split into rail groups by lifecycle state.
@@ -164,6 +208,11 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
   const detail = useMissionDetail(missionId);
   const allTasks = useTasks();
   const sessions = useSessions();
+  const signals = useSessionSignals();
+  const pause = usePauseMission();
+  const resume = useResumeMission();
+  const disengage = useDisengage();
+  const { toast } = useToast();
   const { t } = useTranslation();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
@@ -176,6 +225,8 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
 
   const d = detail.data;
   const STATE_LABEL: Record<string, string> = { active: t.missions.stateActive, paused: t.missions.statePaused, disengaged: t.missions.stateDisengaged };
+  const paused = d.mission.state === 'paused';
+  const disengagedFlag = d.mission.state === 'disengaged';
 
   // Live tmux sessions belonging to this mission's tasks (labels live on the full task records).
   const fullById = new Map((allTasks.data ?? []).map((x) => [x.id, x]));
@@ -184,6 +235,11 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
     .filter((x): x is NonNullable<typeof x> => !!x)
     .map((x) => taskSessionName(x))
     .filter((s): s is string => !!s);
+
+  const spotlight = missionSpotlight(d.tasks, d.deps);
+  const showFailBanner = spotlight.failedUpstream.length > 0;
+
+  const selectPhase = (id: string | null) => setSelectedTaskId(id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -204,26 +260,138 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
         </div>
       </div>
 
+      {/* Phase spotlight: current phase + arrow + next phase, with mission controls */}
+      <PhaseSpotlight
+        missionId={d.mission.id}
+        state={d.mission.state}
+        current={spotlight.current}
+        next={spotlight.next}
+        fullById={fullById}
+        signals={signals}
+        sessions={new Set(sessions.data ?? [])}
+        paused={paused}
+        disengaged={disengagedFlag}
+        onSelectPhase={selectPhase}
+        onPause={() => pause.mutate(missionId, { onSuccess: () => toast(t.missions.pausedMsg), onError: (e) => toast(String(e), 'error') })}
+        onResume={() => resume.mutate(missionId, { onSuccess: () => toast(t.missions.resumed), onError: (e) => toast(String(e), 'error') })}
+        onDisengage={() => disengage.mutate(missionId, { onSuccess: () => toast(t.missions.disengaged), onError: (e) => toast(String(e), 'error') })}
+      />
+
+      {/* Upstream-fail warning banner */}
+      {showFailBanner ? (
+        <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/[0.06] p-3 text-sm text-danger" role="alert">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
+          <span>{t.missions.upstreamFailBanner}</span>
+        </div>
+      ) : null}
+
       {/* Needs-human-attention strip, scoped to this mission's live sessions */}
       <NeedsInputBanner sessions={missionSessions} />
 
-      {/* DAG canvas as hero */}
-      <div className="rounded-xl border border-border border-t-2 border-t-accent/40 bg-surface p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
-          <GitBranch size={13} aria-hidden />
-          {t.missions.taskFlow}
+      {/* Side-by-side on lg+: DAG on the left, selected-phase detail on the right (sticky aside). */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
+        {/* Left — DAG canvas */}
+        <div className="rounded-xl border border-border border-t-2 border-t-accent/40 bg-surface p-3 lg:min-w-0 lg:flex-1" style={{ boxShadow: 'var(--shadow-card)' }}>
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+            <GitBranch size={13} aria-hidden />
+            {t.missions.taskFlow}
+          </div>
+          {d.tasks.length === 0
+            ? <EmptyState title={t.missions.noTasks} />
+            : <DependencyGraph tasks={d.tasks} deps={d.deps} onSelect={setSelectedTaskId} />}
         </div>
-        {d.tasks.length === 0
-          ? <EmptyState title={t.missions.noTasks} />
-          : <DependencyGraph tasks={d.tasks} deps={d.deps} onSelect={setSelectedTaskId} />}
-      </div>
 
-      {/* Selected-task detail panel — full task detail resolved by id */}
-      <div className="rounded-lg border border-border bg-surface p-4">
-        {selectedTaskId ? <TaskDetailPane taskId={selectedTaskId} /> : (
-          <p className="py-2 text-center text-sm text-text-muted">{t.missions.selectTaskHint}</p>
-        )}
+        {/* Right — persistent detail pane, sticky on lg+, independent scroll */}
+        <aside className="min-w-0 lg:w-[420px] lg:shrink-0 lg:sticky lg:top-[57px] lg:max-h-[calc(100vh-73px)] lg:overflow-y-auto">
+          <div className="rounded-lg border border-border bg-surface p-4" style={{ boxShadow: 'var(--shadow-card)' }}>
+            {selectedTaskId ? <TaskDetailPane taskId={selectedTaskId} /> : (
+              <p className="py-2 text-center text-sm text-text-muted">{t.missions.selectTaskHint}</p>
+            )}
+          </div>
+        </aside>
       </div>
+    </div>
+  );
+}
+
+function PhaseSpotlight({
+  missionId, state, current, next, fullById, signals, sessions, paused, disengaged, onSelectPhase, onPause, onResume, onDisengage,
+}: {
+  missionId: string;
+  state: string;
+  current: MissionTask | null;
+  next: MissionTask | null;
+  fullById: Map<string, Task>;
+  signals: Record<string, DerivedSignal>;
+  sessions: Set<string>;
+  paused: boolean;
+  disengaged: boolean;
+  onSelectPhase: (id: string) => void;
+  onPause: () => void;
+  onResume: () => void;
+  onDisengage: () => void;
+}) {
+  const { t } = useTranslation();
+  const currentFull = current ? fullById.get(current.id) : null;
+  const nextFull = next ? fullById.get(next.id) : null;
+  const currentSession = currentFull ? taskSessionName(currentFull) : null;
+  const currentLive = currentSession ? sessions.has(currentSession) : false;
+  const currentSignal = currentSession ? signals[currentSession] : undefined;
+  const currentAgent = currentFull ? taskAgentName(currentFull) : null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface p-3" data-mission-id={missionId}>
+      {/* Current phase */}
+      <button
+        type="button"
+        disabled={!current}
+        onClick={() => current && onSelectPhase(current.id)}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2 text-left transition-colors enabled:hover:border-accent/50 enabled:hover:bg-elevated disabled:opacity-60"
+        style={{ transitionDuration: 'var(--motion-fast)' }}
+        title={current ? current.title : t.missions.spotlightNoCurrent}
+      >
+        <span className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">{t.missions.spotlightCurrent}</span>
+          <span className="flex items-center gap-1.5 min-w-0">
+            {current ? <AgentStatusDot signal={currentSignal} live={currentLive} size="sm" /> : null}
+            <span className="truncate text-sm font-semibold text-text">{current ? current.title : t.missions.spotlightNoCurrent}</span>
+          </span>
+          {currentAgent ? (
+            <span className="text-[11px] text-text-muted">{t.missions.spotlightAgent}: <span className="font-mono">{currentAgent}</span></span>
+          ) : null}
+        </span>
+      </button>
+
+      {/* Arrow */}
+      <ArrowRight size={16} className="shrink-0 text-text-muted" aria-hidden />
+
+      {/* Next phase */}
+      <button
+        type="button"
+        disabled={!next}
+        onClick={() => next && onSelectPhase(next.id)}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2 text-left transition-colors enabled:hover:border-accent/50 enabled:hover:bg-elevated disabled:opacity-60"
+        style={{ transitionDuration: 'var(--motion-fast)' }}
+        title={next ? next.title : t.missions.spotlightNoNext}
+      >
+        <span className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">{t.missions.spotlightNext}</span>
+          <span className="truncate text-sm font-semibold text-text">{next ? next.title : t.missions.spotlightNoNext}</span>
+        </span>
+      </button>
+
+      {/* Mission controls */}
+      {!disengaged ? (
+        <div className="flex items-center gap-1">
+          {paused
+            ? <IconButton icon={Play} label={t.missions.resume} onClick={onResume} />
+            : <IconButton icon={Pause} label={t.missions.pause} onClick={onPause} />}
+          <ActionMenu
+            label={t.missions.disengage}
+            items={[{ label: t.missions.disengage, icon: Power, tone: 'danger', onSelect: onDisengage }]}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

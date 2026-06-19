@@ -1,9 +1,9 @@
 'use client';
 import { useState } from 'react';
 import { Circle, LoaderCircle, Ban, CheckCircle2, XCircle, type LucideIcon } from 'lucide-react';
-import type { Task, TaskStatus } from '../../lib/types';
+import type { Task, Mission, TaskStatus } from '../../lib/types';
 import { groupByStatus } from './groupByStatus';
-import { epicChildren, phaseIds } from '../../lib/taskTree';
+import { epicChildren, phaseIds, epicEffectiveStatus } from '../../lib/taskTree';
 import { KanbanCard } from './KanbanCard';
 import { KanbanEpicCard } from './KanbanEpicCard';
 import { useTranslation } from '../../lib/i18n';
@@ -16,10 +16,13 @@ const COLUMNS: { status: TaskStatus; labelKey: string; icon: LucideIcon; color: 
   { status: 'cancelled', labelKey: 'columnCancelled', icon: XCircle, color: 'var(--color-cancelled)' },
 ];
 
-export function KanbanBoard({ tasks, onMove, onSelect, blockedBy }: { tasks: Task[]; onMove: (taskId: string, status: TaskStatus) => void; onSelect?: (t: Task) => void; blockedBy?: Map<string, Task[]> }) {
+export function KanbanBoard({ tasks, onMove, onSelect, blockedBy, missions }: { tasks: Task[]; onMove: (taskId: string, status: TaskStatus) => void; onSelect?: (t: Task) => void; blockedBy?: Map<string, Task[]>; missions?: Mission[] }) {
   const { t } = useTranslation();
   const STATUS_LABEL: Record<string, string> = { open: t.tasks.statusOpen, in_progress: t.tasks.statusInProgress, blocked: t.tasks.statusBlocked, closed: t.tasks.statusClosed, cancelled: t.tasks.statusCancelled };
-  const groups = groupByStatus(tasks);
+  const activeMissions = missions ?? [];
+  // An epic with an active mission renders in the 'In progress' column; its true status is
+  // preserved on the card (title/tooltip) via `effectiveStatus` vs `status`.
+  const groups = groupByStatus(tasks, (task) => (task.type === 'epic' ? epicEffectiveStatus(task, activeMissions) : task.status));
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const childMap = epicChildren(tasks);
   const phaseSet = phaseIds(tasks);
@@ -54,7 +57,7 @@ export function KanbanBoard({ tasks, onMove, onSelect, blockedBy }: { tasks: Tas
           {groups[col.status].map((task) => {
             // Autopilot epic → collapsible container; its phases stay hidden until expanded.
             if (task.type === 'epic' && childMap.has(task.id)) {
-              return <KanbanEpicCard key={task.id} epic={task} phases={childMap.get(task.id) ?? []} expanded={expanded.has(task.id)} onToggle={() => toggleEpic(task.id)} />;
+              return <KanbanEpicCard key={task.id} epic={task} phases={childMap.get(task.id) ?? []} expanded={expanded.has(task.id)} onToggle={() => toggleEpic(task.id)} effectiveStatus={epicEffectiveStatus(task, activeMissions)} trueStatusLabel={STATUS_LABEL[task.status] ?? task.status} />;
             }
             const isPhase = phaseSet.has(task.id);
             if (isPhase && !(task.parent_id && expanded.has(task.parent_id))) return null;

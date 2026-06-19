@@ -29,7 +29,7 @@ export interface ConfigPatch {
   providers?: Record<string, { bin: string; args: string }>;
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
 }
-export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null }
+export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null; labels?: string[]; outcome?: string | null }
 export interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }
 export interface MissionDeps { taskId: string; dependsOnId: string }
 export interface MissionDetail {

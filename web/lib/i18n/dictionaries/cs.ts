@@ -222,6 +222,13 @@ export const cs = {
     autonomyL2Desc: 'Spouští práci a sám řeší prompt agenta; nejednoznačné předává vám.',
     autonomyL3: 'L3 · Automaticky',
     autonomyL3Desc: 'Plná autonomie v rámci guardrailů — spouští a řeší sám, předává jen opravdu nejasné.',
+    spotlightCurrent: 'Aktuální fáze',
+    spotlightNext: 'Další fáze',
+    spotlightNoNext: 'Žádné další fáze',
+    spotlightNoCurrent: 'Žádná fáze neběží',
+    spotlightAgent: 'Agent',
+    upstreamFailBanner: 'Předchozí fáze selhala — následná práce je blokována, dokud se nevyřeší nebo nepřeskočí.',
+    failGate: 'Blokováno selhavší závislostí',
   },
   sidebar: {
     needsAttention: '{count} vyžaduje pozornost',
@@ -273,6 +280,7 @@ export const cs = {
     columnClosed: 'Uzavřené',
     columnCancelled: 'Zrušené',
     blockedDeps: 'Blokováno nedokončenými závislostmi',
+    trueStatusTooltip: 'Skutečný stav: {status}',
   },
   calendar: {
     day: 'Den',

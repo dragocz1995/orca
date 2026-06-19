@@ -1,4 +1,4 @@
-import type { Task, DerivedSignal } from './types';
+import type { Task, Mission, DerivedSignal } from './types';
 import { taskSessionName, parseTs } from './agentUtils';
 
 /** Children of each epic, keyed by epic id, in sequence order (oldest first). */
@@ -53,4 +53,14 @@ export function epicCapacity(children: Task[], sessions: string[], maxSessions: 
   const max = Math.max(0, Math.floor(maxSessions));
   const clamped = Math.min(running, max);
   return { running: clamped, max, free: Math.max(0, max - clamped) };
+}
+
+/** Effective status of an epic on the kanban board: while a mission is actively engaged
+ *  (any state other than 'disengaged'), the epic is shown as 'in_progress' regardless of
+ *  its true task status — epics stay 'open' underneath. The true status stays available
+ *  separately (e.g. for a title/tooltip). */
+export function epicEffectiveStatus(epic: Task, missions: Mission[]): Task['status'] {
+  if (epic.type !== 'epic') return epic.status;
+  const active = missions.some((m) => m.epic_id === epic.id && m.state !== 'disengaged');
+  return active ? 'in_progress' : epic.status;
 }

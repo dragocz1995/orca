@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { epicChildren, phaseIds, epicProgress, epicLive, epicCapacity } from '../../lib/taskTree';
-import type { Task } from '../../lib/types';
+import { epicChildren, phaseIds, epicProgress, epicLive, epicCapacity, epicEffectiveStatus } from '../../lib/taskTree';
+import type { Task, Mission } from '../../lib/types';
 
 const task = (over: Partial<Task> = {}): Task => ({ id: 't', title: 'T', status: 'open', ...over });
 
@@ -63,5 +63,29 @@ describe('epicCapacity', () => {
     expect(epicCapacity(children, ['orca-nova', 'orca-atlas'], 1)).toEqual({ running: 1, max: 1, free: 0 });
     expect(epicCapacity(children, ['orca-nova', 'orca-atlas'], 0)).toEqual({ running: 0, max: 0, free: 0 });
     expect(epicCapacity(children, ['orca-nova', 'orca-atlas'], -2)).toEqual({ running: 0, max: 0, free: 0 });
+  });
+});
+
+describe('epicEffectiveStatus', () => {
+  const epic = (over: Partial<Task> = {}): Task => ({ id: 'e', title: 'Epic', status: 'open', type: 'epic', ...over });
+  const mission = (over: Partial<Mission> = {}): Mission => ({ id: 'm', epic_id: 'e', autonomy: 'L3', max_sessions: 1, state: 'active', ...over });
+
+  it('renders an epic as in_progress when an engaged mission exists (state != disengaged)', () => {
+    expect(epicEffectiveStatus(epic(), [mission({ state: 'active' })])).toBe('in_progress');
+    expect(epicEffectiveStatus(epic(), [mission({ state: 'paused' })])).toBe('in_progress');
+  });
+
+  it('keeps the true status when the mission is disengaged or there is no mission', () => {
+    expect(epicEffectiveStatus(epic({ status: 'open' }), [mission({ state: 'disengaged' })])).toBe('open');
+    expect(epicEffectiveStatus(epic({ status: 'closed' }), [mission({ state: 'disengaged' })])).toBe('closed');
+    expect(epicEffectiveStatus(epic({ status: 'open' }), [])).toBe('open');
+  });
+
+  it('ignores missions for other epics', () => {
+    expect(epicEffectiveStatus(epic({ id: 'e1' }), [mission({ epic_id: 'e2', state: 'active' })])).toBe('open');
+  });
+
+  it('returns the true status for non-epic tasks (no virtual mapping)', () => {
+    expect(epicEffectiveStatus(task({ id: 't1', status: 'blocked' }), [mission({ epic_id: 't1', state: 'active' })])).toBe('blocked');
   });
 });

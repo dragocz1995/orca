@@ -2,10 +2,12 @@ import type { Task, TaskStatus } from '../../lib/types';
 
 const STATUSES: TaskStatus[] = ['open', 'in_progress', 'blocked', 'closed', 'cancelled'];
 
-export function groupByStatus(tasks: Task[]): Record<TaskStatus, Task[]> {
+/** Buckets tasks by status. Pass `statusOf` to override a task's column (e.g. an epic shown
+ *  under its mission's effective status while its true status is preserved elsewhere). */
+export function groupByStatus(tasks: Task[], statusOf: (t: Task) => TaskStatus = (t) => t.status): Record<TaskStatus, Task[]> {
   const groups = Object.fromEntries(STATUSES.map((s) => [s, [] as Task[]])) as Record<TaskStatus, Task[]>;
   for (const task of tasks) {
-    (groups[task.status] ??= []).push(task);
+    (groups[statusOf(task)] ??= []).push(task);
   }
   return groups;
 }

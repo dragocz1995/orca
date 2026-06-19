@@ -222,6 +222,13 @@ export const en = {
     autonomyL2Desc: 'Runs work and clears agent permission prompts itself; escalates only the ambiguous.',
     autonomyL3: 'L3 · Auto',
     autonomyL3Desc: 'Full autonomy within guardrails — runs and self-clears, escalating only when it truly cannot judge.',
+    spotlightCurrent: 'Current phase',
+    spotlightNext: 'Next phase',
+    spotlightNoNext: 'No further phases',
+    spotlightNoCurrent: 'No phase running',
+    spotlightAgent: 'Agent',
+    upstreamFailBanner: 'An upstream phase failed — downstream work is blocked until it is resolved or skipped.',
+    failGate: 'Blocked by a failed dependency',
   },
   sidebar: {
     needsAttention: '{count} needs attention',
@@ -273,6 +280,7 @@ export const en = {
     columnClosed: 'Closed',
     columnCancelled: 'Cancelled',
     blockedDeps: 'Blocked by unfinished dependencies',
+    trueStatusTooltip: 'True status: {status}',
   },
   calendar: {
     day: 'Day',

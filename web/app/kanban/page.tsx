@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useState } from 'react';
 import { KanbanSquare, Columns3, CalendarRange } from 'lucide-react';
 import type { Task } from '../../lib/types';
-import { useTasks, useAllDeps } from '../../lib/queries';
+import { useTasks, useAllDeps, useMissions } from '../../lib/queries';
 import { taskBlockers } from '../../lib/agentUtils';
 import { useSetTaskStatus, useUpdateTask } from '../../lib/mutations';
 import { KanbanBoard } from '../../modules/kanban/KanbanBoard';
@@ -19,6 +19,7 @@ import { useTranslation } from '../../lib/i18n';
 export default function KanbanPage() {
   const tasks = useTasks();
   const deps = useAllDeps();
+  const missions = useMissions();
   const setStatus = useSetTaskStatus();
   const updateTask = useUpdateTask();
   const { toast } = useToast();
@@ -53,6 +54,7 @@ export default function KanbanPage() {
           <KanbanBoard
             tasks={tasks.data ?? []}
             blockedBy={blockedBy}
+            missions={missions.data ?? []}
             onMove={(id, status) => setStatus.mutate({ id, status }, { onError: (e) => toast(String(e), 'error') })}
             onSelect={setEditing}
           />
