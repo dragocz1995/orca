@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, realpathSync, existsSync } from 'node:fs';
 import { resolve, join, relative, sep, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -30,8 +30,10 @@ function safe(root: string, rel: string, forWrite = false): string {
   const abs = resolve(r, rel);
   // 1) lexical guard (cheap; also covers non-existent paths and absolute escapes)
   if (abs !== r && !abs.startsWith(r + sep)) throw new Error('path outside project');
-  // 2) symlink guard — readFileSync/writeFileSync follow symlinks, so re-assert on the real path.
-  const real = realOfNearest(forWrite ? dirname(abs) : abs);
+  // 2) symlink guard — read/write follow symlinks, so re-assert on the real path. For a write we
+  //    must resolve the leaf when it ALREADY exists (an existing leaf symlink would otherwise be
+  //    followed outside on overwrite); only fall back to the parent dir when the file is new.
+  const real = realOfNearest(forWrite && !existsSync(abs) ? dirname(abs) : abs);
   if (real !== r && !real.startsWith(r + sep)) throw new Error('path outside project');
   return abs;
 }

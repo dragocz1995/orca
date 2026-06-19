@@ -61,9 +61,13 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     // userProjects store this is a no-op (single-user mode keeps full access).
     if (d.userProjects) {
       const up = d.userProjects;
+      // Every route family that exposes the daemon's project data — including the activity log and
+      // the live SSE event stream, which carry task/mission ids + statuses. Boundary-matched so
+      // '/tasksfoo' can't sneak past '/tasks'.
+      const GATED = ['/tasks', '/missions', '/sessions', '/activity', '/events'];
       app.use('*', async (c, next) => {
         const p = c.req.path;
-        if (!(p.startsWith('/tasks') || p.startsWith('/missions') || p.startsWith('/sessions'))) return next();
+        if (!GATED.some((g) => p === g || p.startsWith(g + '/'))) return next();
         const u = c.get('user');
         if (u && up.canAccess(u.id, d.project.id)) return next();
         return c.json({ error: 'forbidden' }, 403);
@@ -86,6 +90,9 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     });
     app.delete('/users/:id', (c) => {
       if (users.count() <= 1) return c.json({ error: 'cannot delete the last user' }, 400);
+      // Never delete the admin: it would lock out assignment management and (on restart) silently
+      // re-elect another user as admin. The flag must be transferred deliberately first.
+      if (users.isAdmin(Number(c.req.param('id')))) return c.json({ error: 'cannot delete the admin' }, 400);
       users.delete(Number(c.req.param('id')));
       return c.json({ ok: true });
     });

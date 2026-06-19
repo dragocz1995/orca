@@ -61,4 +61,16 @@ describe('project access gating', () => {
     expect((await app.request('/projects/1/files', auth(adminTok))).status).toBe(200);
     expect((await app.request('/tasks', auth(adminTok))).status).toBe(200);
   });
+
+  it('also gates the activity log and the live event stream (no cross-tenant leak)', async () => {
+    const { app, adminTok, bobTok } = setup();
+    expect((await app.request('/activity', auth(bobTok))).status).toBe(403);
+    expect((await app.request('/events', auth(bobTok))).status).toBe(403); // 403 before the SSE stream opens
+    expect((await app.request('/activity', auth(adminTok))).status).toBe(200);
+  });
+
+  it('refuses to delete the admin user (no adminless lockout / silent re-election)', async () => {
+    const { app, adminTok } = setup();
+    expect((await app.request('/users/1', { method: 'DELETE', headers: { authorization: `Bearer ${adminTok}` } })).status).toBe(400);
+  });
 });

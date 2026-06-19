@@ -64,4 +64,14 @@ describe('path-traversal safety', () => {
       expect(existsSync(join(outside, 'pwned.txt'))).toBe(false); // nothing written outside
     } finally { rmSync(outside, { recursive: true, force: true }); }
   });
+
+  it('refuses to OVERWRITE an existing leaf file that is a symlink pointing outside', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'orca-outside-'));
+    writeFileSync(join(outside, 'secret.txt'), 'ORIGINAL');
+    try {
+      symlinkSync(join(outside, 'secret.txt'), join(root, 'link')); // existing leaf symlink
+      expect(() => writeProjectFile(root, 'link', 'OVERWRITTEN')).toThrow(/outside project/);
+      expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('ORIGINAL'); // untouched
+    } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
 });
