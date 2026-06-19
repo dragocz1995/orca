@@ -18,6 +18,7 @@ import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states
 import type { Tone } from '../../components/ui/tone';
 import type { Task } from '../../lib/types';
 import { useTranslation } from '../../lib/i18n';
+import { usePersistentState } from '../../lib/usePersistentState';
 
 const WINDOW_MAX_HOURS = 168; // cap the axis window at one week
 
@@ -221,8 +222,8 @@ export function TimelineView() {
   const tasks = useTasks();
   const sessions = useSessions();
   const { data: config } = useConfig();
-  const [filter, setFilter] = useState<string>('all');
-  const [view, setView] = useState<string>('axis');
+  const [filter, setFilter] = usePersistentState<string>('orca.timeline.filter', 'all', ['all', 'task', 'mission', 'signal']);
+  const [view, setView] = usePersistentState<string>('orca.timeline.view', 'axis', ['axis', 'lanes']);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const type = filter === 'all' ? undefined : filter;
   const q = useActivity(type);

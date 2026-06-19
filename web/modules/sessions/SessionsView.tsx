@@ -1,10 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { TerminalSquare, ArrowRight } from 'lucide-react';
 import { useSessions, useSessionSignals } from '../../lib/queries';
 import { needsInputSessions } from '../../lib/agentUtils';
+import { usePersistentState } from '../../lib/usePersistentState';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { Segmented } from '../../components/ui/Segmented';
 import { Button } from '../../components/ui/Button';
@@ -26,18 +27,7 @@ export function SessionsView() {
   const params = useSearchParams();
   const { t } = useTranslation();
   const [openTerm, setOpenTerm] = useState<string | null>(null);
-  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
-
-  // Persist the density preference across sessions.
-  useEffect(() => {
-    const saved = localStorage.getItem('orca.sessions.density');
-    if (saved === 'compact' || saved === 'comfortable') setDensity(saved);
-  }, []);
-  const changeDensity = (v: string) => {
-    const next = v as 'comfortable' | 'compact';
-    setDensity(next);
-    try { localStorage.setItem('orca.sessions.density', next); } catch { /* ignore quota/SSR */ }
-  };
+  const [density, setDensity] = usePersistentState<'comfortable' | 'compact'>('orca.sessions.density', 'comfortable', ['comfortable', 'compact']);
 
   const compact = density === 'compact';
 
@@ -63,7 +53,7 @@ export function SessionsView() {
         {allNames.length > 0 ? (
           <>
             <Segmented value={filter} onChange={setFilter} options={[{ value: 'all', label: t.sessions.filterAll }, { value: 'needs_input', label: t.sessions.filterNeedsInput }]} />
-            <Segmented value={density} onChange={changeDensity} options={[{ value: 'comfortable', label: t.sessions.comfortable }, { value: 'compact', label: t.sessions.compact }]} />
+            <Segmented value={density} onChange={(v) => setDensity(v as 'comfortable' | 'compact')} options={[{ value: 'comfortable', label: t.sessions.comfortable }, { value: 'compact', label: t.sessions.compact }]} />
           </>
         ) : null}
       </ModuleHeader>

@@ -1,10 +1,10 @@
 'use client';
 import { useState } from 'react';
-import { Plus, X, Sparkles, ListChecks } from 'lucide-react';
+import { Plus, X, Sparkles, ListChecks, Layers } from 'lucide-react';
 import { useConfig } from '../../lib/queries';
 import { useInsertPhases } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
-import { Modal } from '../../components/ui/Modal';
+import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -61,8 +61,8 @@ export function AddPhaseModal({ epicId, onClose }: { epicId: string; onClose: ()
   }
 
   return (
-    <Modal title={t.missions.addPhaseModalTitle.replace('{epic}', epicId)} onClose={onClose} size="md">
-      <div className="flex max-h-[78vh] flex-col gap-5 overflow-y-auto p-5">
+    <Modal title={t.missions.addPhaseModalTitle.replace('{epic}', epicId)} description={epicId} onClose={onClose} size="md" icon={Layers}>
+      <ModalBody>
         <p className="text-xs text-text-muted">{t.missions.addPhaseModalDesc}</p>
 
         <div className="flex flex-col gap-2">
@@ -122,12 +122,11 @@ export function AddPhaseModal({ epicId, onClose }: { epicId: string; onClose: ()
             {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
           </Select>
         </Field>
-
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="accent" disabled={busy} onClick={submit}>{t.missions.addPhaseInsert}</Button>
-        </div>
-      </div>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+        <Button variant="accent" disabled={busy} onClick={submit}>{t.missions.addPhaseInsert}</Button>
+      </ModalFooter>
     </Modal>
   );
 }

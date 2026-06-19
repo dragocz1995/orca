@@ -411,6 +411,38 @@ When `phases` is supplied (manual mode), the LLM is bypassed and the supplied ph
 { "error": "plan_parse_failed" }
 ```
 
+### Insert phases (replan)
+
+```http
+POST /tasks/:epicId/phases
+Content-Type: application/json
+
+{
+  "phases": [
+    { "title": "Add tests", "type": "task" },
+    { "title": "Deploy to staging", "type": "chore" }
+  ],
+  "exec": "sonnet"
+}
+```
+
+Appends new phases to an existing epic. Accepts either a `phases` array (manual mode, no API key needed) or a `goal` string (decompose residual goal via LLM). New phases chain after the epic's current tail: the first new phase depends on the existing leaf phases, then new phases chain sequentially.
+
+When a mission is already active on this epic, triggers an immediate tick so the next ready phase is picked up.
+
+**Response `201`**
+```json
+{
+  "epic": { "id": "epic-1", "title": "Build login page", ... },
+  "phases": [ { "id": "phase-4", "title": "Add tests", ... } ]
+}
+```
+
+**Error `400`**
+```json
+{ "error": "phases or goal required" }
+```
+
 ### Insert / replan phases on an existing epic
 
 ```http
@@ -774,6 +806,61 @@ data: {"type": "signal", "session": "orca-Agent0", "signal": {"type": "working"}
 ```
 
 Signal types: `working`, `needs_input`, `complete` (from the deriver).
+
+---
+
+## Hermes integration
+
+### Plugin status
+
+```http
+GET /integrations/hermes/status?home=/var/www/.hermes
+```
+
+Reports whether the orca plugin is installed and enabled in a same-host Hermes instance.
+
+**Response `200`**
+```json
+{
+  "home": "/var/www/.hermes",
+  "exists": true,
+  "pluginsDir": true,
+  "pluginInstalled": true,
+  "enabled": true
+}
+```
+
+### Install plugin
+
+```http
+POST /integrations/hermes/install
+Content-Type: application/json
+
+{
+  "home": "/var/www/.hermes",
+  "url": "http://localhost:4400",
+  "token": "a1b2c3d4..."
+}
+```
+
+Copies the bundled `hermes-plugin/orca/` into the Hermes plugins directory, writes a per-instance config (url + token), and enables the plugin in Hermes's `config.yaml`. Backs up the config first.
+
+**Response `201`**
+```json
+{
+  "pluginDir": "/var/www/.hermes/plugins/orca",
+  "copied": true,
+  "alreadyEnabled": false,
+  "enabled": true,
+  "backedUp": true,
+  "status": { "home": "/var/www/.hermes", "pluginInstalled": true, "enabled": true }
+}
+```
+
+**Error `400`**
+```json
+{ "error": "url and token required" }
+```
 
 ---
 

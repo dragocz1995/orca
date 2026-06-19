@@ -37,6 +37,8 @@ Starts the daemon on `http://localhost:4400`.
 
 The daemon runs a tick loop every 90 seconds: checks ready tasks, evaluates guardrails, spawns agents up to `max_sessions`, and monitors their progress via tmux pane capture. A scheduler loop runs every 30 seconds for due tasks, and a janitor loop runs every 60 seconds to reap finished agent sessions.
 
+Includes a bundled **Hermes agent plugin** (`hermes-plugin/`) — installable via Settings → Hermes in the web UI — giving a Hermes agent full CRUD tools for orca tasks, missions, and sessions.
+
 ## Tech stack
 
 | Layer | Technology |
@@ -45,7 +47,8 @@ The daemon runs a tick loop every 90 seconds: checks ready tasks, evaluates guar
 | API | Hono + `@hono/node-server` |
 | Database | SQLite via `better-sqlite3` (WAL mode) |
 | Terminal | tmux (session management, pane capture) |
-| Frontend | Next.js 16, React 19, Tailwind CSS 4 |
+| Frontend | Next.js 16, React 19, Tailwind CSS 4, i18n (CS/EN) |
+| Integration | Hermes agent plugin (Python, orca toolset) |
 | Tests | Vitest |
 | CLI | Native Node CLI (`bin/orca`) |
 
@@ -119,6 +122,7 @@ The daemon exposes a Hono server on port 4400:
 | `DELETE` | `/tasks/:id` | Delete task |
 | `GET` | `/tasks/:id/deps` | Dependencies for a task |
 | `POST` | `/tasks/plan` | AI goal decomposition |
+| `POST` | `/tasks/:epicId/phases` | Insert/replan phases on an epic |
 | `POST` | `/sessions` | Spawn agent session |
 | `GET` | `/sessions` | List active sessions |
 | `GET` | `/sessions/:name/stream` | SSE terminal stream |
@@ -134,6 +138,8 @@ The daemon exposes a Hono server on port 4400:
 | `GET` | `/activity` | Activity event log |
 | `GET` | `/config` | Get daemon config |
 | `PUT` | `/config` | Update daemon config |
+| `GET` | `/integrations/hermes/status` | Hermes plugin status |
+| `POST` | `/integrations/hermes/install` | Install Hermes plugin |
 | `GET` | `/events` | SSE event bus |
 
 ## Missions & guardrails

@@ -9,6 +9,7 @@ import { useSetTaskStatus, useUpdateTask } from '../../lib/mutations';
 import { KanbanBoard } from '../../modules/kanban/KanbanBoard';
 import { CalendarView } from '../../modules/kanban/CalendarView';
 import { TaskModal } from '../../modules/tasks/TaskModal';
+import { TaskResultsModal } from '../../modules/tasks/TaskResultsModal';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { Segmented } from '../../components/ui/Segmented';
 import { LoadingState, ErrorState } from '../../components/ui/states';
@@ -26,7 +27,12 @@ export default function KanbanPage() {
   const { t } = useTranslation();
   const [view, setView] = useState<'board' | 'calendar'>('board');
   const [editing, setEditing] = useState<Task | null>(null);
+  const [viewing, setViewing] = useState<Task | null>(null);
   const [createSchedule, setCreateSchedule] = useState<string | null>(null);
+
+  // A finished card shows its result (read-only); a live/open one opens the editor.
+  const openTask = (task: Task) =>
+    (task.status === 'closed' || task.status === 'cancelled' ? setViewing : setEditing)(task);
 
   // A task is blocked when any task it depends on is not yet closed/cancelled.
   const byId = new Map((tasks.data ?? []).map((t) => [t.id, t]));
@@ -56,12 +62,12 @@ export default function KanbanPage() {
             blockedBy={blockedBy}
             missions={missions.data ?? []}
             onMove={(id, status) => setStatus.mutate({ id, status }, { onError: (e) => toast(String(e), 'error') })}
-            onSelect={setEditing}
+            onSelect={openTask}
           />
         ) : (
           <CalendarView
             tasks={tasks.data ?? []}
-            onSelect={setEditing}
+            onSelect={openTask}
             onCreateDay={(d) => { const dt = new Date(d); dt.setHours(9, 0, 0, 0); setCreateSchedule(dt.toISOString()); }}
             onReschedule={(id, day) => {
               const task = (tasks.data ?? []).find((x) => x.id === id);
@@ -73,6 +79,7 @@ export default function KanbanPage() {
           />
         )}
       {editing && <TaskModal task={editing} onClose={() => setEditing(null)} />}
+      {viewing && <TaskResultsModal task={viewing} onClose={() => setViewing(null)} />}
       {createSchedule && <TaskModal initialSchedule={createSchedule} onClose={() => setCreateSchedule(null)} />}
     </ModuleShell>
   );

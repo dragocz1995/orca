@@ -1,0 +1,108 @@
+'use client';
+import { CheckCircle2, XCircle, Archive, Bot, Clock, CalendarCheck } from 'lucide-react';
+import type { Task } from '../../lib/types';
+import { useConfig } from '../../lib/queries';
+import { taskExec } from '../../lib/taskExec';
+import { taskSessionName } from '../../lib/agentUtils';
+import { parseTs } from '../../lib/agentUtils';
+import { formatTaskTime } from '../../lib/formatTime';
+import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
+import { Button } from '../../components/ui/Button';
+import { Badge } from '../../components/ui/Badge';
+import { ModelIcon } from '../../components/ui/ModelIcon';
+import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
+import { statusTone } from '../dashboard/statusTone';
+import { useTranslation } from '../../lib/i18n';
+
+/** Format a run duration (ms) as a compact "1h 4m" / "3m 12s" / "8s" label. */
+function formatDuration(ms: number): string {
+  const secs = Math.max(0, Math.floor(ms / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ${secs % 60}s`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ${mins % 60}m`;
+}
+
+/** Read-only outcome view for a finished (closed/cancelled) task or autopilot agent.
+ *  Shown instead of the edit modal when a closed card is clicked — editing a done task
+ *  is pointless, so we present its result, agent, timing and summary nicely instead. */
+export function TaskResultsModal({ task, onClose }: { task: Task; onClose: () => void }) {
+  const { t, locale } = useTranslation();
+  const { data: config } = useConfig();
+
+  const exec = taskExec(task.labels);
+  const iconExec = exec || config?.defaults?.exec || '';
+  const session = taskSessionName(task);
+  const fail = task.outcome === 'fail';
+  const HeaderIcon = task.outcome ? (fail ? XCircle : CheckCircle2) : Archive;
+
+  const STATUS_LABEL: Record<string, string> = {
+    open: t.tasks.statusOpen, in_progress: t.tasks.statusInProgress, blocked: t.tasks.statusBlocked,
+    closed: t.tasks.statusClosed, cancelled: t.tasks.statusCancelled,
+  };
+
+  const finishedIso = task.closed_at || task.created_at;
+  const finished = formatTaskTime(finishedIso, Date.now(), locale);
+  const startMs = parseTs(task.created_at);
+  const endMs = parseTs(task.closed_at);
+  const duration = startMs != null && endMs != null && endMs >= startMs ? formatDuration(endMs - startMs) : null;
+
+  const meta: { icon: typeof Bot; label: string; value: string; modelIcon?: string }[] = [];
+  if (exec || iconExec) meta.push({ icon: Bot, label: t.tasks.resultExecutor, value: exec || iconExec, modelIcon: iconExec });
+  if (session) meta.push({ icon: Bot, label: t.tasks.resultAgent, value: session });
+  if (finished.label) meta.push({ icon: CalendarCheck, label: t.tasks.resultFinished, value: finished.label });
+  if (duration) meta.push({ icon: Clock, label: t.tasks.resultDuration, value: duration });
+
+  return (
+    <Modal title={task.title} description={task.id} onClose={onClose} size="md" icon={HeaderIcon}>
+      <ModalBody>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge tone={statusTone(task.status)}>{STATUS_LABEL[task.status] ?? task.status}</Badge>
+          <OutcomeBadge outcome={task.outcome} />
+          {exec ? <Badge>{exec}</Badge> : null}
+        </div>
+
+        {meta.length > 0 ? (
+          <dl className="grid grid-cols-2 gap-2">
+            {meta.map((m) => (
+              <div key={m.label} className="flex flex-col gap-1 rounded-md border border-border bg-elevated/40 p-2.5">
+                <dt className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+                  <m.icon size={12} aria-hidden /> {m.label}
+                </dt>
+                <dd className="flex min-w-0 items-center gap-1.5 text-sm text-text">
+                  {m.modelIcon ? <ModelIcon name={m.modelIcon} size={16} /> : null}
+                  <span className="min-w-0 truncate font-mono text-xs" title={finished.title || m.value}>{m.value}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+
+        {task.description?.trim() ? (
+          <Section label={t.tasks.fieldDetails}>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-muted">{task.description}</p>
+          </Section>
+        ) : null}
+
+        <Section label={t.tasks.resultTitle}>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-muted">
+            {task.result_summary?.trim() || t.tasks.noSummary}
+          </p>
+        </Section>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="accent" onClick={onClose}>{t.tasks.done}</Button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{label}</span>
+      {children}
+    </div>
+  );
+}

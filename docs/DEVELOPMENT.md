@@ -93,6 +93,15 @@ Connects to the daemon at `NEXT_PUBLIC_ORCA_URL` (default `http://localhost:4400
 - Constants: `UPPER_SNAKE_CASE`
 - SQL identifiers: `snake_case`
 
+### i18n (Internationalization)
+
+User-facing strings in the web UI use the `useTranslation()` hook with CS and EN dictionaries:
+
+- Dictionary files in `web/lib/i18n/dictionaries/` — edit `cs.ts` and `en.ts` in parallel
+- Every user-facing string must exist in BOTH languages
+- The `LanguageProvider` context reads the locale from `localStorage` and provides `t` (translations) + `setLocale`
+- New keys should be added under the appropriate namespace (nav, tasks, missions, etc.) in both dictionaries
+
 ### Testing
 
 - Tests mirror `src/` structure in `tests/`

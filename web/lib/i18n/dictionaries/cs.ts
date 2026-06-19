@@ -179,6 +179,11 @@ export const cs = {
     copyId: 'Kopírovat ID',
     idCopied: 'ID {id} zkopírováno',
     idCopyFailed: 'Kopírování selhalo',
+    resultsTitle: 'Výsledek úlohy',
+    resultExecutor: 'Vykonavatel',
+    resultAgent: 'Agent',
+    resultFinished: 'Dokončeno',
+    resultDuration: 'Doba běhu',
   },
   missions: {
     newMission: 'Nová mise',

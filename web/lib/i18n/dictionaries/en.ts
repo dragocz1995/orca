@@ -179,6 +179,11 @@ export const en = {
     copyId: 'Copy ID',
     idCopied: 'Copied {id}',
     idCopyFailed: 'Copy failed',
+    resultsTitle: 'Task result',
+    resultExecutor: 'Executor',
+    resultAgent: 'Agent',
+    resultFinished: 'Finished',
+    resultDuration: 'Duration',
   },
   missions: {
     newMission: 'New mission',

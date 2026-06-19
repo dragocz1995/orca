@@ -16,11 +16,13 @@ import { Segmented } from '../../components/ui/Segmented';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
+import { usePersistentState } from '../../lib/usePersistentState';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { TaskCard } from './TaskCard';
 import { TaskModal } from './TaskModal';
 
 type Filter = 'all' | TaskStatus | 'autopilot';
+const FILTER_VALUES: readonly Filter[] = ['all', 'open', 'in_progress', 'blocked', 'closed', 'cancelled', 'autopilot'];
 const PAGE_SIZE = 12;
 
 /** The date a task belongs to: its schedule, else when it closed, else when it was created. */
@@ -44,7 +46,7 @@ export function TasksView() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('in_progress');
+  const [filter, setFilter] = usePersistentState<Filter>('orca.tasks.filter', 'in_progress', FILTER_VALUES);
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);

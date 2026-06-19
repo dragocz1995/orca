@@ -8,7 +8,7 @@ import { useToast } from '../../components/ui/Toast';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
-import { Modal } from '../../components/ui/Modal';
+import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
@@ -109,21 +109,20 @@ export function UsersView() {
         )}
 
       {creating && (
-        <Modal title={t.users.addUser} onClose={() => setCreating(false)} size="md">
-          <form
-            onSubmit={(e) => { e.preventDefault(); handleCreate(); }}
-            className="flex flex-col gap-4 p-5"
-          >
-            <Field label={t.users.fieldUsername}>
-              <Input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder={t.auth.usernamePlaceholder} autoFocus />
-            </Field>
-            <Field label={t.auth.passwordPlaceholder}>
-              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t.auth.passwordPlaceholder} />
-            </Field>
-            <div className="flex items-center justify-end gap-2 pt-1">
+        <Modal title={t.users.addUser} onClose={() => setCreating(false)} size="md" icon={UserPlus}>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="flex min-h-0 flex-1 flex-col">
+            <ModalBody gap={4}>
+              <Field label={t.users.fieldUsername}>
+                <Input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder={t.auth.usernamePlaceholder} autoFocus />
+              </Field>
+              <Field label={t.auth.passwordPlaceholder}>
+                <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t.auth.passwordPlaceholder} />
+              </Field>
+            </ModalBody>
+            <ModalFooter>
               <Button type="button" variant="ghost" onClick={() => setCreating(false)}>{t.common.cancel}</Button>
               <Button type="submit" variant="accent" icon={UserPlus} disabled={createUser.isPending || !newUsername.trim() || !newPassword}>{t.users.create}</Button>
-            </div>
+            </ModalFooter>
           </form>
         </Modal>
       )}

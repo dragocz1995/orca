@@ -9,6 +9,7 @@ import { Badge } from '../../components/ui/Badge';
 import { taskTypeMeta } from '../tasks/taskMeta';
 import { type CalRange, dayKey, sameDay, tasksByDay, countUnscheduled, weekDays, monthMatrix, shift, taskCalDate } from './calendar';
 import { useTranslation } from '../../lib/i18n';
+import { usePersistentState } from '../../lib/usePersistentState';
 
 const fmtTime = (iso?: string | null, locale?: string) => iso ? new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -40,7 +41,7 @@ export function CalendarView({ tasks, onSelect, onCreateDay, onReschedule }: { t
   } : {};
   const STATUS_LABEL: Record<string, string> = { open: t.tasks.statusOpen, in_progress: t.tasks.statusInProgress, blocked: t.tasks.statusBlocked, closed: t.tasks.statusClosed, cancelled: t.tasks.statusCancelled };
   const WD = [t.calendar.shortMon, t.calendar.shortTue, t.calendar.shortWed, t.calendar.shortThu, t.calendar.shortFri, t.calendar.shortSat, t.calendar.shortSun];
-  const [range, setRange] = useState<CalRange>('week');
+  const [range, setRange] = usePersistentState<CalRange>('orca.calendar.range', 'week', ['day', 'week', 'month']);
   const [ref, setRef] = useState<Date>(() => new Date());
   const byDay = tasksByDay(tasks);
   const unscheduled = countUnscheduled(tasks);

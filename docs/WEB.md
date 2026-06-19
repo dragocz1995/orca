@@ -110,6 +110,11 @@ Daemon configuration (Config group):
   - Claude Sonnet, DeepSeek v4 Flash, Kimi k2.7 Code, Minimax m2.7, Codex gpt-5.4
 - **Autopilot** — decision model settings
   - Model name, API URL, API key (masked input, shows "•••• set" when configured)
+  - Planner prompt template with `{{goal}}` placeholder, test-plan button
+- **Providers** — per-program binary paths and extra CLI args
+- **Defaults** — default executor, autonomy level, max sessions
+- **Hermes** — one-click plugin install for same-host Hermes integration
+  - Hermes home, orca URL and token, plugin status indicator
 
 ---
 
@@ -249,6 +254,17 @@ The web UI includes an authentication layer:
 
 Auth is optional — if the daemon has no `UserStore`, the gate renders children directly (assumes no token needed).
 
+## Internationalization (i18n)
+
+The web UI supports Czech and English via `web/lib/i18n/`:
+
+- **Dictionaries** — `cs.ts` and `en.ts` in `dictionaries/`, keyed by namespace (nav, tasks, missions, sessions, settings, etc.)
+- **LanguageProvider** — React context wrapping the app, persisted to `localStorage` under `orca-locale`
+- **useTranslation** hook — returns `{ t, locale, setLocale }` for consuming translations
+- **Locale type** — `'en' | 'cs'`, derived from the dictionary shape
+
+Language switching is available via a toggle in the sidebar footer. The `document.documentElement.lang` attribute is kept in sync.
+
 ## Key patterns
 
 ### Real-time updates
@@ -324,6 +340,28 @@ The `SessionCard` component shows live session output inline:
 ### Atomic terminal repaint
 
 The `frame.ts` compositor prevents flicker by combining cursor-home + clear + content into one `term.write()` call. The `nextPane()` deduplication prevents React re-renders when the frame content hasn't changed.
+
+### Agent identity & status
+
+`AgentIdentityStrip` shows agent name, model, and task ID in a compact horizontal strip. `AgentStatusDot` renders a colored live-dot with signal-aware state (working, needs_input, idle, stalled, stuck). Used on session cards, kanban cards, and task detail panes.
+
+### Task detail pane
+
+`TaskDetailPane` (`modules/tasks/TaskDetailPane.tsx`) is a right-hand detail drawer for list-detail task browsing. Shows description, phases, dependencies, executor, result summary + outcome badge, and action buttons (launch, edit, close). Activated by selecting a task in the tasks list.
+
+### Phase spotlight & fail gate
+
+`EpicGroup` (`modules/tasks/EpicGroup.tsx`) renders an epic with its child phases, highlighting the current (in-progress) and next phase. A `NeedsInputBanner` shows when an upstream phase failed — downstream work is blocked until resolved.
+
+`OutcomeBadge` renders compact ok/fail badges on closed tasks. `ProgressRibbon` shows a segmented colored bar for phase-level progress.
+
+### Capacity & stall detection
+
+`CapacityMeter` shows `{running}/{max}` session usage per mission. The `useSessionStall` hook tracks agent silence — after configurable thresholds, emits `stalled`/`stuck` states surfaced in the UI. `ChangeStrip` shows git dirty count + last commit info.
+
+### Ops status bar
+
+`OpsStatusBar` (`components/shell/OpsStatusBar.tsx`) is a compact strip in the sidebar footer showing live agent count, needs-attention count, and the last outcome summary. Replaces the bare daemon dot with actionable ambient state.
 
 ## Running
 

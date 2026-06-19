@@ -4,7 +4,7 @@ import { Rocket, Layers } from 'lucide-react';
 import type { EngageInput } from '../../lib/types';
 import { useTasks, useMissions, useConfig } from '../../lib/queries';
 import { useEngage } from '../../lib/mutations';
-import { Modal } from '../../components/ui/Modal';
+import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
@@ -47,8 +47,8 @@ export function EngageModal({ onClose }: { onClose: () => void }) {
   const autoDesc = AUTONOMY.find((a) => a.value === autonomy)?.desc;
 
   return (
-    <Modal title={t.missions.newMission} onClose={onClose} size="md">
-      <div className="flex flex-col gap-5 p-5">
+    <Modal title={t.missions.newMission} onClose={onClose} size="md" icon={Rocket}>
+      <ModalBody>
         {epics.length === 0 ? (
           <EmptyState title={t.missions.noEpics} description={t.missions.noEpicsDescription} />
         ) : (
@@ -81,14 +81,15 @@ export function EngageModal({ onClose }: { onClose: () => void }) {
             <Field label={t.missions.fieldMaxSessions}>
               <Input type="number" min={1} value={maxSessions} onChange={(e) => setMaxSessions(Number(e.target.value))} className="w-28" />
             </Field>
-
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-              <Button variant="accent" icon={Rocket} disabled={!epicId || engage.isPending} onClick={submit}>{t.missions.engage}</Button>
-            </div>
           </>
         )}
-      </div>
+      </ModalBody>
+      {epics.length > 0 ? (
+        <ModalFooter>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="accent" icon={Rocket} disabled={!epicId || engage.isPending} onClick={submit}>{t.missions.engage}</Button>
+        </ModalFooter>
+      ) : null}
     </Modal>
   );
 }

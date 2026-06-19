@@ -8,7 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
-import { Modal } from '../../components/ui/Modal';
+import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { useTranslation } from '../../lib/i18n';
@@ -134,8 +134,8 @@ export function ProjectsView() {
       {selectedId && git.isError && <div className="mt-5"><ErrorState message={t.projects.gitError} onRetry={() => git.refetch()} /></div>}
 
       {creating && (
-        <Modal title={t.projects.newProject} onClose={() => setCreating(false)} size="md">
-          <div className="flex flex-col gap-4 p-5">
+        <Modal title={t.projects.newProject} onClose={() => setCreating(false)} size="md" icon={FolderGit2}>
+          <ModalBody gap={4}>
             <Field label={t.projects.fieldSlug} hint={t.projects.slugHint}>
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={t.projects.slugPlaceholder} autoFocus />
             </Field>
@@ -145,11 +145,11 @@ export function ProjectsView() {
             <Field label={t.projects.fieldNotes} hint={t.projects.notesHint}>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} className="w-full resize-none rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none" />
             </Field>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setCreating(false)}>{t.common.cancel}</Button>
-              <Button variant="accent" onClick={handleCreate} disabled={createProject.isPending || !slug.trim() || !path.trim()}>{t.projects.create}</Button>
-            </div>
-          </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" onClick={() => setCreating(false)}>{t.common.cancel}</Button>
+            <Button variant="accent" onClick={handleCreate} disabled={createProject.isPending || !slug.trim() || !path.trim()}>{t.projects.create}</Button>
+          </ModalFooter>
         </Modal>
       )}
     </>

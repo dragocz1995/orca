@@ -1,13 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Play, Sparkles, ListChecks, Plus, X, AlertTriangle } from 'lucide-react';
+import { Play, Sparkles, ListChecks, Plus, X, AlertTriangle, Pencil } from 'lucide-react';
 import type { Task, PlanResult } from '../../lib/types';
 import { useConfig, useTasks } from '../../lib/queries';
 import { useCreateTask, useUpdateTask, useSpawn, useSetTaskExec, usePlanTask } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
 import { taskExec } from '../../lib/taskExec';
 import { OrcaApiError, orcaClient } from '../../lib/orcaClient';
-import { Modal } from '../../components/ui/Modal';
+import { Modal, ModalBody } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -150,10 +150,11 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
   );
 
   const titleText = editing ? t.tasks.editTitle.replace('{id}', task!.id) : t.tasks.newTitle;
+  const headerIcon = editing ? Pencil : mode === 'planning' ? Sparkles : ListChecks;
 
   return (
-    <Modal title={titleText} onClose={onClose} size="xl">
-      <div className="flex max-h-[78vh] flex-col gap-5 overflow-y-auto p-5">
+    <Modal title={titleText} description={editing ? task!.id : undefined} onClose={onClose} size="xl" icon={headerIcon}>
+      <ModalBody>
         {!editing && (
           <div className="flex flex-col gap-2">
             <Segmented
@@ -326,7 +327,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
             </div>
           </div>
         )}
-      </div>
+      </ModalBody>
     </Modal>
   );
 }
