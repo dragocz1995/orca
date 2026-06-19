@@ -18,7 +18,11 @@ function parseTs(ts?: string | null): number {
 
 /** Token usage for a task's agent run, read from the executor CLI's local session storage.
  *  Chooses the parser by the task's resolved program and matches the session by project dir +
- *  the task's start time. Returns null when no matching session is found (e.g. CLI not used). */
+ *  the task's start time. Returns null when no matching session is found (e.g. CLI not used).
+ *  LIMITATION: the (dir + start-time) heuristic cannot disambiguate two agents that start in the
+ *  same project dir within the skew window (max_sessions >= 2) — both resolve to the same earliest
+ *  session, so usage may be mis-attributed. orca's missions are sequential (one agent per dir at a
+ *  time), so this doesn't bite today; the robust fix is to record the CLI's own session id at spawn. */
 export function readTaskUsage(task: Pick<Task, 'labels' | 'created_at'>, projectPath: string, fallback: AgentSpec, home: string = homedir()): TokenUsage | null {
   const spec = resolveExecutor(task.labels ?? [], fallback);
   const since = parseTs(task.created_at);

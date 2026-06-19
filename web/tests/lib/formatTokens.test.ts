@@ -14,4 +14,8 @@ describe('formatTokens', () => {
   it('shows M above a million', () => {
     expect(formatTokens(1_250_000)).toBe('1.3M');
   });
+  it('guards non-finite and negative inputs', () => {
+    expect(formatTokens(NaN)).toBe('0');
+    expect(formatTokens(-5)).toBe('0');
+  });
 });

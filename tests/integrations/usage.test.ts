@@ -45,7 +45,7 @@ describe('opencodeUsage', () => {
 
 describe('claudeUsage', () => {
   it('sums message.usage across the transcript started at the spawn time', () => {
-    const enc = DIR.replace(/[/.]/g, '-'); // /work/proj → -work-proj
+    const enc = DIR.replace(/[/._]/g, '-'); // /work/proj → -work-proj
     const lines = [
       JSON.stringify({ timestamp: '2026-06-19T10:00:02Z', message: { usage: { input_tokens: 200, output_tokens: 30, cache_creation_input_tokens: 15, cache_read_input_tokens: 60 } } }),
       JSON.stringify({ timestamp: '2026-06-19T10:00:05Z', message: { usage: { input_tokens: 100, output_tokens: 10 } } }),
@@ -53,6 +53,14 @@ describe('claudeUsage', () => {
     write(`.claude/projects/${enc}/sess.jsonl`, lines);
     const u = claudeUsage(home, DIR, SINCE);
     expect(u).toEqual({ input: 300, output: 40, cacheRead: 60, cacheWrite: 15, total: 415, costUsd: null });
+  });
+
+  it('encodes underscores in the project path (claude maps _ → -)', () => {
+    const dir = '/work/my_project';
+    write('.claude/projects/-work-my-project/s.jsonl',
+      JSON.stringify({ timestamp: '2026-06-19T10:00:02Z', message: { usage: { input_tokens: 5, output_tokens: 2 } } }));
+    const u = claudeUsage(home, dir, SINCE);
+    expect(u?.total).toBe(7);
   });
 });
 

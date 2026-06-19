@@ -3,6 +3,7 @@ import { Fragment } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { MissionTask, MissionDeps } from '../../lib/types';
 import { layoutPhases } from './layoutPhases';
+import { isFailGate, isTerminal } from './missionUtils';
 import { taskTypeMeta } from '../tasks/taskMeta';
 import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { useTranslation } from '../../lib/i18n';
@@ -11,12 +12,6 @@ const STATUS_COLOR: Record<string, string> = {
   closed: 'var(--color-success)', in_progress: 'var(--color-info)', blocked: 'var(--color-error)',
   cancelled: 'var(--color-cancelled)', open: 'var(--color-cancelled)',
 };
-const isTerminal = (s: string) => s === 'closed' || s === 'cancelled';
-
-/** A dependency is a fail-gate when its blocker closed with outcome 'fail' or was cancelled. */
-function isFailGate(dep: MissionTask): boolean {
-  return dep.status === 'cancelled' || (dep.status === 'closed' && dep.outcome === 'fail');
-}
 
 /** Horizontal flow of a mission's phases as pills that auto-shrink to fit the available width
  *  (flex-1 / basis-0 / truncate) — no horizontal scrollbar. Ordered topologically; connectors

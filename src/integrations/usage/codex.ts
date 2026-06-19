@@ -59,6 +59,8 @@ function finalUsage(path: string): TokenUsage | null {
     output: (last.output_tokens ?? 0) + (last.reasoning_output_tokens ?? 0),
     cacheRead,
     cacheWrite: 0,
+    // Unlike the other parsers (which sum the buckets), codex reports its own cumulative
+    // total_tokens — trust it directly; it may differ slightly from input+output+cacheRead.
     total: last.total_tokens ?? 0,
     costUsd: null,
   };

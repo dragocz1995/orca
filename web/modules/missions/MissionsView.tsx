@@ -23,13 +23,9 @@ import { useTranslation } from '../../lib/i18n';
 import { TaskDetailPane } from '../tasks/TaskDetailPane';
 import { TaskFlow } from './TaskFlow';
 import { ActiveMissionsBar } from './ActiveMissionsBar';
+import { isFailGate, isTerminal } from './missionUtils';
 import { EngageModal } from './EngageModal';
 import { AddPhaseModal } from './AddPhaseModal';
-
-/** A dependency is a fail-gate when its source closed with outcome 'fail' or was cancelled. */
-function isFailGate(dep: MissionTask): boolean {
-  return dep.status === 'cancelled' || (dep.status === 'closed' && dep.outcome === 'fail');
-}
 
 /** Resolve the current running phase and the next ready/open phase of a mission, derived purely
  *  from its tasks + deps + live signals. */
@@ -46,7 +42,6 @@ function missionSpotlight(
       depsOf.set(d.taskId, list);
     }
   }
-  const isTerminal = (s: string) => s === 'closed' || s === 'cancelled';
   const current = tasks.find((t) => t.status === 'in_progress') ?? null;
 
   const failedUpstream: MissionTask[] = [];

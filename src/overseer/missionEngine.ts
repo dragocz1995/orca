@@ -85,8 +85,11 @@ export class MissionEngine {
       const spec = resolveExecutor(task.labels, this.d.fallback);
       const named = task.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
       const agentName = named || this.d.nameAgent();
+      // Tag the agent BEFORE marking in_progress, so an in_progress child always carries its
+      // agent label — otherwise a crash between the two writes would leave stopRunning unable to
+      // find (and kill) the session.
+      if (!named) this.d.tasks.setAgent(task.id, agentName);
       this.d.tasks.setStatus(task.id, 'in_progress');
-      if (!named) this.d.tasks.setAgent(task.id, agentName); // tag fallback-named agents so task ↔ session stays linkable
       await this.d.spawn.launch({ projectId: this.d.project.id, projectPath: this.d.project.path, taskId: task.id, agentName, spec, taskTitle: task.title, taskDescription: task.description, epicId: m.epic_id });
       running++;
     }

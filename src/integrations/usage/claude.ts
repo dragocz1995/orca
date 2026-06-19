@@ -7,7 +7,8 @@ import { EMPTY_USAGE, SESSION_MATCH_SKEW_MS, type TokenUsage } from './types.js'
  *  `message.usage`. Pick the session that started when this spawn ran and sum its usage.
  *  claude does not record cost, so costUsd stays null (price externally if needed). */
 export function claudeUsage(home: string, dir: string, sinceMs: number): TokenUsage | null {
-  const projDir = join(home, '.claude', 'projects', dir.replace(/[/.]/g, '-'));
+  // claude-code encodes a project path into a dir name by replacing '/', '.' and '_' with '-'.
+  const projDir = join(home, '.claude', 'projects', dir.replace(/[/._]/g, '-'));
   if (!existsSync(projDir)) return null;
 
   // Find the transcript whose first event started closest-after the spawn time.
