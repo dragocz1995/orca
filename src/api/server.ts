@@ -176,6 +176,60 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json({ epic, phases: created.map((t) => d.tasks.get(t.id)), mission }, 201);
   });
 
+  // Insert phases into an existing epic — a manual list of phases, or `goal` to replan
+  // (decompose a residual goal). New phases run AFTER the epic's current chain; an active
+  // mission picks up the freshly-ready phase on the next tick (triggered immediately here).
+  app.post('/tasks/:epicId/phases', async c => {
+    const epicId = c.req.param('epicId');
+    const epic = d.tasks.get(epicId);
+    if (!epic || epic.type !== 'epic') return c.json({ error: 'epic not found' }, 404);
+    const b = await c.req.json() as { phases?: { title?: string; type?: string }[]; goal?: string; prompt?: string; exec?: string };
+    if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
+
+    let phases: { title: string; type: string; agent?: string; details?: string }[];
+    if (Array.isArray(b.phases) && b.phases.length > 0) {
+      // Manual insert: explicit phases, no LLM, no key required.
+      phases = b.phases.map((p) => ({ title: (p.title ?? '').trim(), type: VALID_PHASE_TYPES.has(p.type ?? '') ? p.type! : 'task' })).filter((p) => p.title);
+      if (phases.length === 0) return c.json({ error: 'phases required' }, 400);
+    } else if ((b.goal ?? '').trim()) {
+      // Replan: decompose the residual goal via the configured relay model.
+      const cfg = d.config.get();
+      const key = d.config.apiKey();
+      if (!key) return c.json({ error: 'autopilot_key_missing' }, 400);
+      const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
+      try { phases = await decompose(inf, b.goal!.trim(), b.prompt ?? cfg.autopilot.prompt); }
+      catch { return c.json({ error: 'plan_parse_failed' }, 502); }
+    } else {
+      return c.json({ error: 'phases or goal required' }, 400);
+    }
+
+    // Chain new phases after the epic's current tail: the first new phase waits on the existing
+    // leaf phase(s) (those nothing else depends on), then new phases chain sequentially.
+    const existing = d.tasks.descendants(epicId);
+    const dependedOn = new Set(d.tasks.depsAmong(existing.map((t) => t.id)).map((e) => e.depends_on_id));
+    const leaves = existing.map((t) => t.id).filter((id) => !dependedOn.has(id));
+    const overallGoal = epic.description?.trim() || epic.title;
+    const newId = () => `${basename(d.project.path)}-${randomBytes(4).toString('hex')}`;
+    const created: ReturnType<typeof d.tasks.create>[] = [];
+    let prevId: string | null = null;
+    for (const ph of phases) {
+      const childDesc = ph.details ? `${ph.details}\n\nOverall goal: ${overallGoal}` : `Overall goal: ${overallGoal}`;
+      const child = d.tasks.create({ id: newId(), project_id: d.project.id, title: ph.title, type: ph.type, parent_id: epicId, labels: ph.agent ? [`agent:${ph.agent}`] : [], description: childDesc });
+      if (prevId) d.tasks.addDep(child.id, prevId);
+      else for (const leaf of leaves) d.tasks.addDep(child.id, leaf);
+      if (b.exec) d.tasks.setExec(child.id, b.exec);
+      d.bus.publish({ type: 'task', taskId: child.id, status: child.status });
+      created.push(child);
+      prevId = child.id;
+    }
+
+    // If a mission is already driving this epic, let it pick up the new ready phase immediately.
+    const missionId = `m-${epicId}`;
+    if (d.engine && d.engine.isActive(missionId)) await d.engine.tick(missionId);
+
+    return c.json({ epic, phases: created.map((t) => d.tasks.get(t.id)) }, 201);
+  });
+
   app.get('/sessions', async c => c.json((await d.tmux.list()).filter((s) => s.startsWith('orca-'))));
   app.post('/sessions', async (c) => {
     const { taskId, exec } = await c.req.json() as { taskId: string; exec?: string };

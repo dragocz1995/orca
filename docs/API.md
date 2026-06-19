@@ -411,6 +411,39 @@ When `phases` is supplied (manual mode), the LLM is bypassed and the supplied ph
 { "error": "plan_parse_failed" }
 ```
 
+### Insert / replan phases on an existing epic
+
+```http
+POST /tasks/:epicId/phases
+Content-Type: application/json
+
+{
+  "phases": [{ "title": "Add rate limiting", "type": "feature" }],
+  "goal": "harden the auth flow",
+  "exec": "sonnet",
+  "prompt": ""
+}
+```
+
+Appends new phases to an existing epic. Supply `phases` for a manual insert (no LLM,
+no key needed), or `goal` to **replan** — the autopilot LLM decomposes the residual
+goal into ordered phases. New phases are chained to run **after** the epic's current
+tail phase(s) (those nothing else depends on), then sequentially among themselves. If a
+mission is already active on the epic (`m-<epicId>`), it is ticked immediately so the
+newly-ready phase can spawn. `exec`, when given, is set on every new phase.
+
+**Response `201`** — same shape as `POST /tasks/plan` minus `mission`:
+```json
+{
+  "epic": { "id": "my-project-...", "type": "epic", ... },
+  "phases": [ { "id": "my-project-...", "title": "Add rate limiting", "status": "open", ... } ]
+}
+```
+
+**Error `404`** `{ "error": "epic not found" }` — the id is missing or not an epic.
+**Error `400`** `{ "error": "phases or goal required" }`, `{ "error": "exec not allowed" }`, or `{ "error": "autopilot_key_missing" }` (replan without a key).
+**Error `502`** `{ "error": "plan_parse_failed" }` — the LLM output could not be parsed.
+
 ---
 
 ## Sessions

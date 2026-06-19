@@ -375,3 +375,69 @@ it('POST /tasks/plan with engage=true engages a mission on the epic', async () =
   expect(body.mission.id).toBe('m-x');
   expect(engagedEpic).toBe(body.epic.id);
 });
+
+it('POST /tasks/:epicId/phases inserts a phase chained after the epic\'s current tail', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db); const config = new ConfigStore(db);
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: null as any, tmux: null as any,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config,
+  });
+  // Build an epic with two sequential phases (manual mode — no key needed).
+  const plan = await (await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'epic', phases: [{ title: 'One' }, { title: 'Two' }] }) })).json() as { epic: { id: string }; phases: { id: string }[] };
+  const tail = plan.phases[1].id;
+  // Insert a third phase.
+  const res = await app.request(`/tasks/${plan.epic.id}/phases`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phases: [{ title: 'Three', type: 'feature' }] }) });
+  expect(res.status).toBe(201);
+  const body = await res.json() as { phases: { id: string; title: string; type: string; parent_id: string }[] };
+  expect(body.phases.map(p => [p.title, p.type])).toEqual([['Three', 'feature']]);
+  expect(body.phases[0].parent_id).toBe(plan.epic.id);
+  // The new phase waits on the previous tail (phase Two).
+  expect(tasks.depsFor(body.phases[0].id)).toEqual([tail]);
+});
+
+it('POST /tasks/:epicId/phases replans a residual goal into chained phases', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db); const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: null as any, tmux: null as any,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config,
+    makeInference: () => new FakeInference('[{"title":"R1"},{"title":"R2"}]'),
+  });
+  const plan = await (await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'epic', phases: [{ title: 'One' }] }) })).json() as { epic: { id: string }; phases: { id: string }[] };
+  const res = await app.request(`/tasks/${plan.epic.id}/phases`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'do more' }) });
+  expect(res.status).toBe(201);
+  const body = await res.json() as { phases: { id: string; title: string }[] };
+  expect(body.phases.map(p => p.title)).toEqual(['R1', 'R2']);
+  expect(tasks.depsFor(body.phases[0].id)).toEqual([plan.phases[0].id]); // R1 after the existing phase
+  expect(tasks.depsFor(body.phases[1].id)).toEqual([body.phases[0].id]); // R2 after R1
+});
+
+it('POST /tasks/:epicId/phases returns 404 for a non-epic id', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const app = createServer({
+    tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: null as any, tmux: null as any,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
+  });
+  const res = await app.request('/tasks/nope/phases', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phases: [{ title: 'X' }] }) });
+  expect(res.status).toBe(404);
+});
+
+it('POST /tasks/:epicId/phases ticks an active mission so it picks up the new phase', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db); const config = new ConfigStore(db);
+  let ticked = '';
+  const engine = { isActive: (id: string) => id === 'm-E', tick: async (id: string) => { ticked = id; } } as unknown as MissionEngine;
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine, spawn: null as any, tmux: null as any,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config,
+  });
+  tasks.create({ id: 'E', project_id: 1, title: 'Epic', type: 'epic', description: 'goal' });
+  const res = await app.request('/tasks/E/phases', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phases: [{ title: 'New' }] }) });
+  expect(res.status).toBe(201);
+  expect(ticked).toBe('m-E');
+});
