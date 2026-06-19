@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS missions (
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  password_hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  is_admin INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS auth_tokens (
   token TEXT PRIMARY KEY, user_id INTEGER NOT NULL,

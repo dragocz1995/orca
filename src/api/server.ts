@@ -56,6 +56,20 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const users = d.users;
     app.use('*', authMiddleware(users));
 
+    // Gate the project-scoped surface: a non-admin must be assigned to the daemon's project to
+    // touch its tasks/missions/sessions. Admin passes (canAccess checks is_admin). Without a
+    // userProjects store this is a no-op (single-user mode keeps full access).
+    if (d.userProjects) {
+      const up = d.userProjects;
+      app.use('*', async (c, next) => {
+        const p = c.req.path;
+        if (!(p.startsWith('/tasks') || p.startsWith('/missions') || p.startsWith('/sessions'))) return next();
+        const u = c.get('user');
+        if (u && up.canAccess(u.id, d.project.id)) return next();
+        return c.json({ error: 'forbidden' }, 403);
+      });
+    }
+
     app.post('/auth/login', async (c) => {
       const { username, password } = await c.req.json();
       const user = users.verify(username, password);
@@ -117,6 +131,8 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   });
   app.post('/projects', async (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    // Only the admin may register projects (when multi-user auth is on).
+    if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
     const { slug, path, notes } = await c.req.json();
     try { return c.json(d.projects.create({ slug, path, notes }), 201); }
     catch { return c.json({ error: 'slug taken' }, 409); }

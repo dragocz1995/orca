@@ -95,9 +95,8 @@ export function UsersView() {
   }
 
   const data = users.data ?? [];
-  // The bootstrap admin (lowest user id) manages project assignments.
-  const adminId = data.length ? Math.min(...data.map((u) => u.id)) : null;
-  const isAdmin = me.data?.user.id === adminId;
+  // The bootstrap admin (explicit is_admin flag) manages project assignments.
+  const isAdmin = me.data?.user.is_admin ?? false;
 
   return (
     <>
