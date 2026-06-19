@@ -325,9 +325,10 @@ task_deps (task_id, depends_on_id)
 agents    (id, project_id, name, program, model, last_active_ts)
 missions  (id, epic_id, autonomy, max_sessions, cleared_guardrails, state, started_at)
 settings  (id, data)  -- JSON blob for runtime config
-users     (id, username, password_hash, created_at)
+users     (id, username, password_hash, is_admin, created_at)
 auth_tokens (token, user_id, created_at)
 events    (id, ts, type, target, detail)
+user_projects (user_id, project_id)
 ```
 
 DB path defaults to `./orca.db` (configurable via `bootstrap.ts`).

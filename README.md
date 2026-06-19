@@ -39,6 +39,8 @@ The daemon runs a tick loop every 90 seconds: checks ready tasks, evaluates guar
 
 Includes a bundled **Hermes agent plugin** (`hermes-plugin/`) — installable via Settings → Hermes in the web UI — giving a Hermes agent full CRUD tools for orca tasks, missions, and sessions.
 
+The web UI ships a **Monaco-based code editor** in the Projects page — browse, edit, and save files, review per-file diffs, and inspect any git commit without leaving the browser. Multi-user deployments get **role-based access control**: the bootstrap admin sees everything; non-admin users only see projects they're explicitly assigned to.
+
 ## Tech stack
 
 | Layer | Technology |
@@ -47,7 +49,7 @@ Includes a bundled **Hermes agent plugin** (`hermes-plugin/`) — installable vi
 | API | Hono + `@hono/node-server` |
 | Database | SQLite via `better-sqlite3` (WAL mode) |
 | Terminal | tmux (session management, pane capture) |
-| Frontend | Next.js 16, React 19, Tailwind CSS 4, i18n (CS/EN) |
+| Frontend | Next.js 16, React 19, Tailwind CSS 4, i18n (CS/EN), Monaco editor |
 | Integration | Hermes agent plugin (Python, orca toolset) |
 | Tests | Vitest |
 | CLI | Native Node CLI (`bin/orca`) |
@@ -111,9 +113,20 @@ The daemon exposes a Hono server on port 4400:
 | `GET` | `/users` | List users |
 | `POST` | `/users` | Create user |
 | `DELETE` | `/users/:id` | Delete user |
-| `GET` | `/projects` | List projects (filtered to the caller's assigned projects) |
-| `POST` | `/projects` | Create project (admin only) |
+| `GET` | `/users/:id/projects` | User's assigned projects (admin) |
+| `POST` | `/users/:id/projects` | Assign project to user (admin) |
+| `DELETE` | `/users/:id/projects/:pid` | Unassign project (admin) |
+| `GET` | `/projects` | List projects |
+| `POST` | `/projects` | Create project |
 | `GET` | `/projects/:id/git` | Git info for project |
+| `GET` | `/projects/:id/files` | Project file tree |
+| `GET` | `/projects/:id/file` | Read a project file |
+| `PUT` | `/projects/:id/file` | Write a project file |
+| `GET` | `/projects/:id/diff` | Per-file working diff |
+| `GET` | `/projects/:id/changed` | Changed files list |
+| `GET` | `/projects/:id/changes` | Full working diff |
+| `GET` | `/projects/:id/commit/:hash` | Commit files + diff |
+| `GET` | `/projects/:id/commit/:hash/diff` | File diff in a commit |
 | `GET` | `/projects/:id/files` | Project file tree (for the editor) |
 | `GET` | `/projects/:id/file?path=` | Read a file's contents |
 | `PUT` | `/projects/:id/file` | Write a file's contents |
@@ -126,6 +139,7 @@ The daemon exposes a Hono server on port 4400:
 | `POST` | `/tasks` | Create task |
 | `GET` | `/tasks/ready` | Tasks with all deps met |
 | `GET` | `/tasks/deps` | All task dependencies |
+| `GET` | `/tasks/:id/usage` | Token/cost usage for a task |
 | `PATCH` | `/tasks/:id` | Update task (status, title, deps, exec) |
 | `DELETE` | `/tasks/:id` | Delete task |
 | `GET` | `/tasks/:id/deps` | Dependencies for a task |
@@ -148,6 +162,7 @@ The daemon exposes a Hono server on port 4400:
 | `PUT` | `/config` | Update daemon config |
 | `GET` | `/integrations/hermes/status` | Hermes plugin status |
 | `POST` | `/integrations/hermes/install` | Install Hermes plugin |
+| `GET` | `/integrations/cli-status` | Detect installed agent CLIs |
 | `GET` | `/events` | SSE event bus |
 
 ## Missions & guardrails

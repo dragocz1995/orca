@@ -117,6 +117,32 @@ export function useWriteProjectFile() {
     },
   });
 }
+/** Invalidate everything that a file-tree mutation (create/rename/copy/delete) can affect. */
+function invalidateProjectTree(qc: ReturnType<typeof useQueryClient>, id: number) {
+  qc.invalidateQueries({ queryKey: ['project-files', id] });
+  qc.invalidateQueries({ queryKey: ['project-git', id] });
+  qc.invalidateQueries({ queryKey: ['project-changed', id] });
+}
+export function useNewProjectFile() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (v: { id: number; path: string }) => orcaClient.newProjectFile(v.id, v.path), onSuccess: (_r, v) => invalidateProjectTree(qc, v.id) });
+}
+export function useNewProjectDir() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (v: { id: number; path: string }) => orcaClient.newProjectDir(v.id, v.path), onSuccess: (_r, v) => invalidateProjectTree(qc, v.id) });
+}
+export function useRenameProjectEntry() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (v: { id: number; from: string; to: string }) => orcaClient.renameProjectEntry(v.id, v.from, v.to), onSuccess: (_r, v) => invalidateProjectTree(qc, v.id) });
+}
+export function useCopyProjectEntry() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (v: { id: number; from: string; to: string }) => orcaClient.copyProjectEntry(v.id, v.from, v.to), onSuccess: (_r, v) => invalidateProjectTree(qc, v.id) });
+}
+export function useDeleteProjectEntry() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (v: { id: number; path: string }) => orcaClient.deleteProjectEntry(v.id, v.path), onSuccess: (_r, v) => invalidateProjectTree(qc, v.id) });
+}
 export function useHermesInstall() {
   const qc = useQueryClient();
   return useMutation({

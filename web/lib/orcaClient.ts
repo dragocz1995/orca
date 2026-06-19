@@ -67,7 +67,17 @@ export const orcaClient = {
   projectFile: (id: number, path: string) => req<{ content: string; truncated: boolean }>(`/projects/${id}/file?path=${encodeURIComponent(path)}`),
   writeProjectFile: (id: number, path: string, content: string) => req<{ ok: boolean }>(`/projects/${id}/file`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, content }) }),
   projectFileDiff: (id: number, path: string) => req<{ diff: string }>(`/projects/${id}/diff?path=${encodeURIComponent(path)}`),
-  projectCommit: (id: number, hash: string) => req<{ diff: string }>(`/projects/${id}/commit/${encodeURIComponent(hash)}`),
+  projectFileAtHead: (id: number, path: string) => req<{ content: string }>(`/projects/${id}/head?path=${encodeURIComponent(path)}`),
+  projectCommit: (id: number, hash: string) => req<{ diff: string; files: string[] }>(`/projects/${id}/commit/${encodeURIComponent(hash)}`),
+  projectCommitFileDiff: (id: number, hash: string, path: string) => req<{ diff: string }>(`/projects/${id}/commit/${encodeURIComponent(hash)}/diff?path=${encodeURIComponent(path)}`),
+  // Authenticated URL for raw file bytes (image previews) — usable directly as an <img> src since
+  // the daemon also accepts the token as a query param.
+  projectRawUrl: (id: number, path: string) => `${BASE}/projects/${id}/raw?path=${encodeURIComponent(path)}&token=${encodeURIComponent(getToken() ?? '')}`,
+  newProjectFile: (id: number, path: string) => req<{ ok: boolean }>(`/projects/${id}/new-file`, json({ path })),
+  newProjectDir: (id: number, path: string) => req<{ ok: boolean }>(`/projects/${id}/dir`, json({ path })),
+  renameProjectEntry: (id: number, from: string, to: string) => req<{ ok: boolean }>(`/projects/${id}/rename`, json({ from, to })),
+  copyProjectEntry: (id: number, from: string, to: string) => req<{ ok: boolean }>(`/projects/${id}/copy`, json({ from, to })),
+  deleteProjectEntry: (id: number, path: string) => req<{ ok: boolean }>(`/projects/${id}/entry?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   projectChanged: (id: number) => req<{ changed: string[] }>(`/projects/${id}/changed`),
   projectChanges: (id: number) => req<{ diff: string }>(`/projects/${id}/changes`),
   userProjects: (userId: number) => req<number[]>(`/users/${userId}/projects`),

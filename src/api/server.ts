@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { hermesStatus, installHermesPlugin } from '../integrations/hermesInstall.js';
 import { detectClis } from '../integrations/cliDetection.js';
 import { readTaskUsage } from '../integrations/usage/index.js';
-import { listProjectFiles, readProjectFile, writeProjectFile, projectFileDiff, projectCommitDiff, projectChangedFiles, projectWorkingDiff } from '../integrations/projectFiles.js';
+import { listProjectFiles, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectChangedFiles, projectWorkingDiff } from '../integrations/projectFiles.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
@@ -178,6 +178,67 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     try { writeProjectFile(p.path, b.path, b.content); return c.json({ ok: true }); }
     catch { return c.json({ error: 'invalid path' }, 400); }
   });
+  // Raw file bytes for binary previews (images). Content-type from extension; unknown → octet-stream.
+  app.get('/projects/:id/raw', (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const path = c.req.query('path'); if (!path) return c.json({ error: 'path required' }, 400);
+    try {
+      const bytes = readProjectBytes(p.path, path);
+      if (!bytes) return c.json({ error: 'not previewable' }, 415);
+      const ext = path.split('.').pop()?.toLowerCase() ?? '';
+      const mime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon', bmp: 'image/bmp', avif: 'image/avif' };
+      const body = new Uint8Array(bytes).buffer; // fresh ArrayBuffer (not the Buffer's shared pool)
+      return c.body(body, 200, { 'content-type': mime[ext] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    } catch { return c.json({ error: 'invalid path' }, 400); }
+  });
+  // File-manager operations (create / mkdir / rename / copy / delete). Each validates the path(s)
+  // stay inside the project root and is gated to the project's assigned users.
+  app.post('/projects/:id/new-file', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const b = await c.req.json() as { path?: string };
+    if (!b.path) return c.json({ error: 'path required' }, 400);
+    try { createProjectFile(p.path, b.path); return c.json({ ok: true }); }
+    catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
+  });
+  app.post('/projects/:id/dir', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const b = await c.req.json() as { path?: string };
+    if (!b.path) return c.json({ error: 'path required' }, 400);
+    try { createProjectDir(p.path, b.path); return c.json({ ok: true }); }
+    catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
+  });
+  app.post('/projects/:id/rename', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const b = await c.req.json() as { from?: string; to?: string };
+    if (!b.from || !b.to) return c.json({ error: 'from and to required' }, 400);
+    try { renameProjectEntry(p.path, b.from, b.to); return c.json({ ok: true }); }
+    catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
+  });
+  app.post('/projects/:id/copy', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const b = await c.req.json() as { from?: string; to?: string };
+    if (!b.from || !b.to) return c.json({ error: 'from and to required' }, 400);
+    try { copyProjectEntry(p.path, b.from, b.to); return c.json({ ok: true }); }
+    catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
+  });
+  app.delete('/projects/:id/entry', (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const path = c.req.query('path'); if (!path) return c.json({ error: 'path required' }, 400);
+    try { deleteProjectEntry(p.path, path); return c.json({ ok: true }); }
+    catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
+  });
   app.get('/projects/:id/diff', async (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
@@ -186,11 +247,29 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     try { return c.json({ diff: await projectFileDiff(p.path, path) }); }
     catch { return c.json({ error: 'invalid path' }, 400); }
   });
+  app.get('/projects/:id/head', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const path = c.req.query('path'); if (!path) return c.json({ error: 'path required' }, 400);
+    try { return c.json({ content: await projectFileAtHead(p.path, path) }); }
+    catch { return c.json({ error: 'invalid path' }, 400); }
+  });
   app.get('/projects/:id/commit/:hash', async (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
-    return c.json({ diff: await projectCommitDiff(p.path, c.req.param('hash')) });
+    const hash = c.req.param('hash');
+    const [diff, files] = await Promise.all([projectCommitDiff(p.path, hash), projectCommitFiles(p.path, hash)]);
+    return c.json({ diff, files });
+  });
+  app.get('/projects/:id/commit/:hash/diff', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    const path = c.req.query('path'); if (!path) return c.json({ error: 'path required' }, 400);
+    try { return c.json({ diff: await projectCommitFileDiff(p.path, c.req.param('hash'), path) }); }
+    catch { return c.json({ error: 'invalid path' }, 400); }
   });
   app.get('/projects/:id/changed', async (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);

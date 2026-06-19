@@ -55,8 +55,10 @@ Mission lifecycle management:
   - `Disengage` — kill all associated sessions and end mission
 - **Mission detail modal** — `MissionProgressView` shows:
   - Progress stat cards (total, done, in progress, blocked)
-  - Phase-based task visualization (topological layout from DAG)
+  - Phase-based task visualization via `TaskFlow` (`modules/missions/TaskFlow.tsx`) — a topological lane layout replacing the old `DependencyGraph`
   - Tasks grouped by phase with status badges
+- **Active missions bar** (`modules/missions/ActiveMissionsBar.tsx`) — compact strip on the dashboard showing every engaged mission in one row with current phase, progress ribbon, and capacity meter
+- **Add phase modal** (`modules/missions/AddPhaseModal.tsx`) — insert new phases into an existing epic (manual list or LLM replan)
 
 ### Sessions `/sessions`
 
@@ -101,6 +103,14 @@ Project registry (Config group):
   - Current branch with dirty/ahead/behind counts
   - Branch list (current branch highlighted)
   - Recent commits (hash, subject, author, relative time)
+- **Monaco code editor** (`modules/projects/ProjectEditor.tsx`) — self-hosted Monaco:
+  - File tree (changed files highlighted blue, folder icons)
+  - Tabbed multi-file editing with dirty-state tracking
+  - Save writes via `PUT /projects/:id/file`
+  - Per-file working diff (`GET /projects/:id/diff?path=`)
+  - Click a git commit to view its full diff (`GET /projects/:id/commit/:hash`)
+  - Click a dirty file to jump to its working diff
+- **Role-based access** (multi-user): non-admin users only see projects they're assigned to. Assignment management is admin-only via the Users page.
 
 ### Settings `/settings`
 
@@ -253,6 +263,23 @@ The web UI includes an authentication layer:
 - Token is appended to SSE URLs via `?token=<value>` (EventSource limitation)
 
 Auth is optional — if the daemon has no `UserStore`, the gate renders children directly (assumes no token needed).
+
+### Role-based access control (RBAC)
+
+When the daemon has a `UserStore` (multi-user mode):
+
+- The **bootstrap admin** (`users.is_admin`) sees and manages everything — all projects, all users, all assignments.
+- **Non-admin users** only see projects they're explicitly assigned to (via `user_projects`). Tasks, sessions, and missions are scoped to their visible projects.
+- Assignment management is admin-only, surfaced in the Users page (`GET/POST/DELETE /users/:id/projects`).
+- The `is_admin` flag is an explicit column, never a `MIN(id)` heuristic — deleting the admin user can't accidentally transfer admin.
+
+### Onboarding wizard
+
+`web/app/onboarding/page.tsx` is a first-run wizard that:
+
+- Detects installed agent CLIs (`GET /integrations/cli-status`) — claude, opencode, codex
+- Guides the user through setting up an API key, picking an executor, and creating a project
+- Redirects to the dashboard once the daemon is ready
 
 ## Internationalization (i18n)
 

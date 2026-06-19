@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, realpathSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, realpathSync, existsSync, rmSync, renameSync, cpSync } from 'node:fs';
 import { resolve, join, relative, sep, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -78,6 +78,62 @@ export function writeProjectFile(root: string, rel: string, content: string): vo
   writeFileSync(abs, content, 'utf8');
 }
 
+const MAX_RAW = 10 * 1024 * 1024; // 10 MB — cap for raw (binary) reads served to the image preview
+
+/** Read a project file's raw bytes (for binary previews like images). Returns null when it's not a
+ *  regular file or exceeds the size cap. Path validated to stay inside the project root. */
+export function readProjectBytes(root: string, rel: string): Buffer | null {
+  const abs = safe(root, rel);
+  const st = statSync(abs);
+  if (!st.isFile() || st.size > MAX_RAW) return null;
+  return readFileSync(abs);
+}
+
+/** Create an empty file inside the project, creating parent dirs as needed. Throws if it exists. */
+export function createProjectFile(root: string, rel: string): void {
+  const abs = safe(root, rel, true);
+  if (existsSync(abs)) throw new Error('already exists');
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, '', 'utf8');
+}
+
+/** Create an empty directory inside the project. Throws if it already exists. */
+export function createProjectDir(root: string, rel: string): void {
+  const abs = safe(root, rel, true);
+  if (existsSync(abs)) throw new Error('already exists');
+  mkdirSync(abs, { recursive: true });
+}
+
+/** Delete a file or directory (recursively) inside the project. Refuses to delete the project root.
+ *  Both the lexical and symlink-resolved paths must stay inside the project. */
+export function deleteProjectEntry(root: string, rel: string): void {
+  const r = realpathSync(resolve(root));
+  const abs = safe(root, rel, true);
+  if (abs === r) throw new Error('cannot delete project root');
+  rmSync(abs, { recursive: true, force: true });
+}
+
+/** Rename/move an entry within the project. Source must exist; target must not. Both validated to
+ *  stay inside the project root. */
+export function renameProjectEntry(root: string, from: string, to: string): void {
+  const src = safe(root, from, true);
+  const dst = safe(root, to, true);
+  if (!existsSync(src)) throw new Error('source does not exist');
+  if (existsSync(dst)) throw new Error('target already exists');
+  mkdirSync(dirname(dst), { recursive: true });
+  renameSync(src, dst);
+}
+
+/** Copy (duplicate) a file or directory within the project. Source must exist; target must not. */
+export function copyProjectEntry(root: string, from: string, to: string): void {
+  const src = safe(root, from, true);
+  const dst = safe(root, to, true);
+  if (!existsSync(src)) throw new Error('source does not exist');
+  if (existsSync(dst)) throw new Error('target already exists');
+  mkdirSync(dirname(dst), { recursive: true });
+  cpSync(src, dst, { recursive: true });
+}
+
 /** Relative paths of files with uncommitted changes (`git status --porcelain`), so the editor can
  *  highlight them in the tree. Renames report the new path. Empty list on any error / non-repo. */
 export async function projectChangedFiles(root: string): Promise<string[]> {
@@ -109,6 +165,48 @@ export async function projectCommitDiff(root: string, hash: string): Promise<str
   if (!/^[0-9a-f]{4,40}$/i.test(hash)) return '';
   try {
     const { stdout } = await run('git', ['-C', realpathSync(resolve(root)), 'show', '--stat', '--patch', hash], { maxBuffer: 8 * 1024 * 1024 });
+    return stdout;
+  } catch {
+    return '';
+  }
+}
+
+/** A file's contents as of HEAD (`git show HEAD:<path>`), for a side-by-side working diff. The path
+ *  is validated inside the project and prefixed with `HEAD:` so it can never be a git flag. Empty
+ *  string when the file is new/untracked or the repo can't be read. */
+export async function projectFileAtHead(root: string, rel: string): Promise<string> {
+  const r = realpathSync(resolve(root));
+  const cleanRel = relative(r, safe(root, rel));
+  try {
+    const { stdout } = await run('git', ['-C', r, 'show', `HEAD:${cleanRel}`], { maxBuffer: 4 * 1024 * 1024 });
+    return stdout;
+  } catch {
+    return '';
+  }
+}
+
+/** Relative paths of files changed in a single commit (`git show --name-only`), so the editor can
+ *  highlight them in the tree when browsing that commit. The hash is validated to be a plain hex
+ *  object id so it can never be a git flag. Empty list on any error / merge commit. */
+export async function projectCommitFiles(root: string, hash: string): Promise<string[]> {
+  if (!/^[0-9a-f]{4,40}$/i.test(hash)) return [];
+  try {
+    const { stdout } = await run('git', ['-C', realpathSync(resolve(root)), 'show', '--name-only', '--pretty=format:', hash], { maxBuffer: 4 * 1024 * 1024 });
+    return stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Unified diff of a single file as introduced by a commit (`git show <hash> -- <path>`). The hash is
+ *  validated as a hex object id; the path is validated to stay inside the project and handed to git
+ *  as a clean repo-relative pathspec after `--`. Empty string on any error. */
+export async function projectCommitFileDiff(root: string, hash: string, rel: string): Promise<string> {
+  if (!/^[0-9a-f]{4,40}$/i.test(hash)) return '';
+  const r = realpathSync(resolve(root));
+  const cleanRel = relative(r, safe(root, rel));
+  try {
+    const { stdout } = await run('git', ['-C', r, 'show', '--pretty=format:', hash, '--', cleanRel], { maxBuffer: 4 * 1024 * 1024 });
     return stdout;
   } catch {
     return '';

@@ -8,7 +8,7 @@ import { loader } from '@monaco-editor/react';
 loader.config({ paths: { vs: '/monaco/vs' } });
 import { ChevronRight, File as FileIcon, Folder, FolderOpen, Save, Code2, GitCompare, X } from 'lucide-react';
 import type { FileNode } from '../../lib/types';
-import { useProjectFiles, useProjectFile, useProjectFileDiff, useProjectCommit, useProjectChanged, useProjectChanges } from '../../lib/queries';
+import { useProjectFiles, useProjectFile, useProjectFileDiff, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges } from '../../lib/queries';
 import { useWriteProjectFile } from '../../lib/mutations';
 import { Button } from '../../components/ui/Button';
 import { LoadingState, EmptyState } from '../../components/ui/states';
@@ -138,7 +138,13 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const [tab, setTab] = useState<'edit' | 'diff'>('edit');
   const commitData = useProjectCommit(projectId, commit);
   const changesData = useProjectChanges(projectId, working);
-  const changedSet = new Set(useProjectChanged(projectId).data?.changed ?? []);
+  const workingChanged = useProjectChanged(projectId).data?.changed ?? [];
+  // In commit mode highlight the files that commit touched; otherwise the uncommitted working set.
+  const changedSet = useMemo(
+    () => new Set(commit ? (commitData.data?.files ?? []) : workingChanged),
+    [commit, commitData.data?.files, workingChanged],
+  );
+  const commitFileDiff = useProjectCommitFileDiff(projectId, commit, commit ? selected : null);
   // Per-file unsaved edit buffers — switching files never discards work (VS Code-like). A file with
   // no entry shows the server content; an entry that differs from it is "dirty".
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -154,6 +160,9 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const dirty = draft !== undefined && draft !== serverContent;
 
   const openFile = (p: string) => { setSelected(p); setCommit(null); setWorking(false); setTab('edit'); };
+  // In commit mode, picking a file shows that file's diff *within the commit* (history), staying in
+  // the read-only commit view; otherwise it opens the editable file.
+  const selectInTree = (p: string) => { if (commit) setSelected(p); else openFile(p); };
   const onChange = (v: string) => { if (selected != null) setDrafts((d) => ({ ...d, [selected]: v })); };
   const toggle = (p: string) => setExpanded((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
   const save = () => {
@@ -172,7 +181,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         <Code2 size={15} className="text-accent" aria-hidden />
         <span className="text-sm font-semibold text-text">{t.projects.editorTitle}</span>
         {working ? <span className="truncate font-mono text-xs text-warning"><GitCompare size={11} className="mr-1 inline" aria-hidden />{t.projects.workingChanges}</span>
-          : commit ? <span className="truncate font-mono text-xs text-accent"><GitCompare size={11} className="mr-1 inline" aria-hidden />{t.projects.commitLabel} {commit.slice(0, 8)}</span>
+          : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? t.projects.viewCommit : undefined} className="flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{t.projects.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
           : selected ? <span className="truncate font-mono text-xs text-text-muted">· {selected}{dirty ? ' •' : ''}</span> : null}
         <div className="ml-auto flex items-center gap-1.5">
           {!commit && !working && selected ? (
@@ -191,12 +200,13 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         <div className="w-64 shrink-0 overflow-auto border-r border-border bg-bg/40 p-1.5">
           {files.isLoading ? <LoadingState />
             : tree.length === 0 ? <p className="p-3 text-center text-xs text-text-muted">{t.projects.noFiles}</p>
-            : <ul role="tree" aria-label={t.projects.editorTitle} className="m-0 list-none p-0">{tree.map((n) => <TreeRow key={n.path} node={n} depth={0} expanded={expanded} onToggle={toggle} selected={selected} onSelect={openFile} changed={changedSet} />)}</ul>}
+            : <ul role="tree" aria-label={t.projects.editorTitle} className="m-0 list-none p-0">{tree.map((n) => <TreeRow key={n.path} node={n} depth={0} expanded={expanded} onToggle={toggle} selected={selected} onSelect={selectInTree} changed={changedSet} />)}</ul>}
         </div>
 
         {/* editor / diff / commit / working changes */}
         <div className="min-w-0 flex-1">
           {working ? <DiffView diff={changesData.data?.diff ?? ''} empty={changesData.isLoading ? t.common.loading : t.projects.noChanges} />
+            : commit && selected ? <DiffView diff={commitFileDiff.data?.diff ?? ''} empty={commitFileDiff.isLoading ? t.common.loading : t.projects.noChanges} />
             : commit ? <DiffView diff={commitData.data?.diff ?? ''} empty={commitData.isLoading ? t.common.loading : t.projects.noChanges} />
             : !selected ? <EmptyState title={t.projects.selectFile} icon={FileIcon} />
             : fileData.data?.truncated ? <p className="p-4 text-center text-sm text-text-muted">{t.projects.fileTooBig}</p>

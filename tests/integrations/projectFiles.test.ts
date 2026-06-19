@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { listProjectFiles, readProjectFile, writeProjectFile, projectCommitDiff } from '../../src/integrations/projectFiles.js';
+import { execFileSync } from 'node:child_process';
+import { listProjectFiles, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectCommitDiff, projectCommitFiles, projectCommitFileDiff } from '../../src/integrations/projectFiles.js';
 
 let root: string;
 const w = (rel: string, body: string) => { const p = join(root, rel); mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, body); };
@@ -46,6 +47,86 @@ describe('projectCommitDiff', () => {
     expect(await projectCommitDiff(root, 'not a hash')).toBe('');
     expect(await projectCommitDiff(root, '--output=/tmp/x')).toBe('');
     expect(await projectCommitDiff(root, 'deadbeef')).toBe(''); // valid hex but non-repo → caught
+  });
+});
+
+describe('file-manager operations', () => {
+  it('creates an empty file and refuses to clobber an existing one', () => {
+    createProjectFile(root, 'a/new.ts');
+    expect(readFileSync(join(root, 'a/new.ts'), 'utf8')).toBe('');
+    expect(() => createProjectFile(root, 'README.md')).toThrow(/already exists/);
+  });
+
+  it('creates a directory', () => {
+    createProjectDir(root, 'fresh/dir');
+    expect(listProjectFiles(root).map((n) => n.path)).toContain(join('fresh', 'dir'));
+    expect(() => createProjectDir(root, 'src')).toThrow(/already exists/);
+  });
+
+  it('renames an entry, requiring an existing source and a free target', () => {
+    renameProjectEntry(root, 'README.md', 'docs/README.md');
+    expect(existsSync(join(root, 'README.md'))).toBe(false);
+    expect(readFileSync(join(root, 'docs/README.md'), 'utf8')).toBe('# hi');
+    expect(() => renameProjectEntry(root, 'nope.txt', 'x.txt')).toThrow(/source does not exist/);
+    expect(() => renameProjectEntry(root, 'docs/README.md', 'src/index.ts')).toThrow(/already exists/);
+  });
+
+  it('copies (duplicates) an entry', () => {
+    copyProjectEntry(root, 'README.md', 'README copy.md');
+    expect(readFileSync(join(root, 'README copy.md'), 'utf8')).toBe('# hi');
+    expect(existsSync(join(root, 'README.md'))).toBe(true); // original untouched
+    expect(() => copyProjectEntry(root, 'README.md', 'src/index.ts')).toThrow(/already exists/);
+  });
+
+  it('deletes a file or directory but never the project root', () => {
+    deleteProjectEntry(root, 'README.md');
+    expect(existsSync(join(root, 'README.md'))).toBe(false);
+    deleteProjectEntry(root, 'src');
+    expect(existsSync(join(root, 'src'))).toBe(false);
+    expect(() => deleteProjectEntry(root, '.')).toThrow(/project root/);
+  });
+
+  it('reads raw bytes for previews, refusing escapes', () => {
+    expect(readProjectBytes(root, 'README.md')?.toString('utf8')).toBe('# hi');
+    expect(() => readProjectBytes(root, '../../etc/passwd')).toThrow(/outside project/);
+  });
+
+  it('refuses file-manager ops that escape the project root', () => {
+    expect(() => createProjectFile(root, '../escape.ts')).toThrow(/outside project/);
+    expect(() => createProjectDir(root, '../escape')).toThrow(/outside project/);
+    expect(() => deleteProjectEntry(root, '../../tmp')).toThrow(/outside project/);
+    expect(() => renameProjectEntry(root, 'README.md', '../escape.md')).toThrow(/outside project/);
+    expect(() => copyProjectEntry(root, 'README.md', '../escape.md')).toThrow(/outside project/);
+  });
+});
+
+describe('projectCommitFiles / projectCommitFileDiff', () => {
+  it('rejects a non-hex hash (no git option/flag injection) and errors safely', async () => {
+    expect(await projectCommitFiles(root, '--output=/tmp/x')).toEqual([]);
+    expect(await projectCommitFiles(root, 'not a hash')).toEqual([]);
+    expect(await projectCommitFileDiff(root, '-O/tmp/pwn', 'README.md')).toBe('');
+    expect(await projectCommitFileDiff(root, 'deadbeef', 'README.md')).toBe(''); // valid hex, non-repo → caught
+  });
+
+  it('lists a commit\'s changed files and diffs a single file within it', async () => {
+    const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+    git('init', '-q');
+    git('config', 'user.email', 't@t.io');
+    git('config', 'user.name', 'T');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'init');
+    w('src/index.ts', 'export const x = 2;'); // modify a tracked file
+    git('add', '-A');
+    git('commit', '-q', '-m', 'change');
+    const hash = git('rev-parse', 'HEAD').toString().trim();
+
+    const files = await projectCommitFiles(root, hash);
+    expect(files).toEqual([join('src', 'index.ts')]);
+
+    const diff = await projectCommitFileDiff(root, hash, 'src/index.ts');
+    expect(diff).toContain('-export const x = 1;');
+    expect(diff).toContain('+export const x = 2;');
+    expect(await projectCommitFileDiff(root, hash, 'README.md')).toBe(''); // untouched by this commit
   });
 });
 

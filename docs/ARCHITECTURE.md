@@ -72,6 +72,7 @@ SQLite with WAL mode. Tables:
 | `users` | User accounts (scrypt password hashes) |
 | `auth_tokens` | Session tokens for bearer auth |
 | `events` | Activity event log (state changes, signals) |
+| `user_projects` | User ↔ project assignments (RBAC many-to-many) |
 
 ### `src/inference/` — LLM relay
 
@@ -81,6 +82,13 @@ SQLite with WAL mode. Tables:
 ### `src/git/` — Git integration
 
 - `gitReader.ts` — reads git status, branches, and recent commits for project paths
+
+### `src/integrations/` — External integrations
+
+- `hermesInstall.ts` — installs the bundled orca plugin into a same-host Hermes instance
+- `projectFiles.ts` — safe file tree, read, write, and diff operations for the Monaco editor
+- `cliDetection.ts` — detects installed agent CLIs (claude, opencode, codex) for the onboarding wizard
+- `usage/` — reads token/cost usage from each executor CLI's local session storage (portable, no relay)
 
 ### `src/cli/` — CLI client
 

@@ -362,6 +362,28 @@ Returns dependency IDs for a specific task.
 ["dependency-task-id-1", "dependency-task-id-2"]
 ```
 
+### Task usage (tokens + cost)
+
+```http
+GET /tasks/:id/usage
+```
+
+Returns token/cost usage for the task's agent run, read from the executor CLI's local session storage (opencode / claude / codex). Portable — no relay needed. Returns `null` when no matching session is found.
+
+**Response `200`**
+```json
+{
+  "inputTokens": 12000,
+  "outputTokens": 3400,
+  "totalTokens": 15400,
+  "costUsd": 0.045,
+  "contextWindow": 200000,
+  "model": "claude-sonnet-4-20250514"
+}
+```
+
+Returns `{ "usage": null }` when no session matches.
+
 ### AI plan
 
 ```http
@@ -860,6 +882,185 @@ Copies the bundled `hermes-plugin/orca/` into the Hermes plugins directory, writ
 **Error `400`**
 ```json
 { "error": "url and token required" }
+```
+
+---
+
+## User ↔ Project assignments (admin only)
+
+Assignments gate which projects a non-admin user may see/operate. The bootstrap admin (users.is_admin) always has full access.
+
+### List a user's projects
+
+```http
+GET /users/:id/projects
+```
+
+**Response `200`**
+```json
+[1, 3]
+```
+
+### Assign a project
+
+```http
+POST /users/:id/projects
+Content-Type: application/json
+
+{ "projectId": 3 }
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+### Unassign a project
+
+```http
+DELETE /users/:id/projects/:pid
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+All three endpoints return `403 forbidden` when called by a non-admin user.
+
+---
+
+## Project file editor
+
+Browse, read, and write files in a project root, plus per-file and per-commit diffs. All paths are validated to stay inside the project root (symlink-escape safe).
+
+### File tree
+
+```http
+GET /projects/:id/files
+```
+
+Returns a flat list of files and directories (relative paths), skipping `.git`, `node_modules`, `.next`, `dist`, etc.
+
+**Response `200`**
+```json
+[
+  { "path": "src", "type": "dir" },
+  { "path": "src/index.ts", "type": "file" }
+]
+```
+
+### Read a file
+
+```http
+GET /projects/:id/file?path=src/index.ts
+```
+
+Returns file content (refused for files > 2 MB).
+
+**Response `200`**
+```json
+{ "path": "src/index.ts", "content": "console.log('hello');\n" }
+```
+
+### Write a file
+
+```http
+PUT /projects/:id/file
+Content-Type: application/json
+
+{ "path": "src/index.ts", "content": "console.log('updated');\n" }
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+### Per-file working diff
+
+```http
+GET /projects/:id/diff?path=src/index.ts
+```
+
+**Response `200`**
+```json
+{ "diff": "diff --git a/src/index.ts b/src/index.ts\n…" }
+```
+
+### Changed files
+
+```http
+GET /projects/:id/changed
+```
+
+Returns the list of files changed in the working tree.
+
+**Response `200`**
+```json
+{ "changed": ["src/index.ts", "README.md"] }
+```
+
+### Full working diff
+
+```http
+GET /projects/:id/changes
+```
+
+Returns the combined diff of all unstaged changes.
+
+**Response `200`**
+```json
+{ "diff": "diff --git a/…\n…" }
+```
+
+### Commit files + diff
+
+```http
+GET /projects/:id/commit/:hash
+```
+
+Returns the list of files touched by a commit and the full commit diff.
+
+**Response `200`**
+```json
+{ "files": ["src/index.ts"], "diff": "diff --git …" }
+```
+
+### File diff in a commit
+
+```http
+GET /projects/:id/commit/:hash/diff?path=src/index.ts
+```
+
+Returns the diff for a single file in a specific commit.
+
+**Response `200`**
+```json
+{ "diff": "diff --git …" }
+```
+
+---
+
+## CLI detection
+
+```http
+GET /integrations/cli-status
+```
+
+Detects which agent CLIs (claude, opencode, codex) are installed and usable, and whether the daemon has enough configuration to operate (API key, custom setup, users, projects). Used by the onboarding wizard.
+
+**Response `200`**
+```json
+{
+  "clis": [
+    { "name": "claude", "installed": true, "path": "/usr/local/bin/claude", "version": "1.2.3" },
+    { "name": "opencode", "installed": false, "path": null, "version": null },
+    { "name": "codex", "installed": true, "path": "/usr/bin/codex", "version": "0.5.0" }
+  ],
+  "ready": true,
+  "missing": []
+}
 ```
 
 ---
