@@ -18,8 +18,8 @@ function ShellLayout({ children }: { children: ReactNode }) {
         <Sidebar mobileOpen={drawerOpen} onMobileClose={() => setDrawerOpen(false)} />
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
-            {/* Mobile top bar — sticky inside the scroll container so it stays put on iOS */}
-            <div className="sticky top-0 z-40 flex h-12 items-center gap-2 border-b border-border bg-surface px-3 md:hidden">
+            {/* Mobile top bar — sits at the top of the page and scrolls away with content */}
+            <div className="flex h-12 items-center gap-2 border-b border-border bg-surface px-3 md:hidden">
               <button type="button" onClick={() => setDrawerOpen(true)} aria-label={t.common.toggleSidebar} className="flex h-9 w-9 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text">
                 <Menu size={20} aria-hidden />
               </button>
