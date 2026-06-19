@@ -12,7 +12,7 @@ export function ModuleHeader({ title, count, icon: Icon, children }: { title: st
         {count !== undefined ? <span className="rounded-full bg-elevated px-2 py-0.5 font-mono text-[11px] text-text-muted">{count}</span> : null}
       </div>
       {children ? (
-        <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 md:mx-0 md:ml-auto md:flex-wrap md:overflow-visible md:px-0">
+        <div className="no-scrollbar -mx-4 flex items-center gap-2 overflow-x-auto px-4 [&>*]:shrink-0 md:mx-0 md:ml-auto md:flex-wrap md:overflow-visible md:px-0">
           {children}
         </div>
       ) : null}

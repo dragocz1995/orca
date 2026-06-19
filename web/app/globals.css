@@ -109,3 +109,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 *::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 .xterm-viewport::-webkit-scrollbar-thumb { background: var(--color-border); }
+/* Opt-out: hide the scrollbar entirely (e.g. the mobile toolbar's horizontal scroll row).
+   Declared here, unlayered, so it overrides the global *::-webkit-scrollbar rule above. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
