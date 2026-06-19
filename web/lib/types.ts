@@ -81,3 +81,13 @@ export interface CliDetectionResult {
   summary: { allInstalled: boolean; allFunctional: boolean };
   freshInstall: FreshInstallInfo;
 }
+
+/** Token/cost usage for a task's agent run, read from the executor CLI's local session storage. */
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+  costUsd: number | null;
+}

@@ -185,6 +185,12 @@ export const cs = {
     resultFinished: 'Dokončeno',
     resultDuration: 'Doba běhu',
   },
+  usage: {
+    input: 'vstup',
+    output: 'výstup',
+    cache: 'cache',
+    cost: 'cena',
+  },
   missions: {
     newMission: 'Nová mise',
     paused: 'pozastaveno',

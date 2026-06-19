@@ -185,6 +185,12 @@ export const en = {
     resultFinished: 'Finished',
     resultDuration: 'Duration',
   },
+  usage: {
+    input: 'input',
+    output: 'output',
+    cache: 'cache',
+    cost: 'cost',
+  },
   missions: {
     newMission: 'New mission',
     paused: 'paused',

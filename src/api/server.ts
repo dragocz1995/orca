@@ -2,6 +2,7 @@ import { basename, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { hermesStatus, installHermesPlugin } from '../integrations/hermesInstall.js';
 import { detectClis } from '../integrations/cliDetection.js';
+import { readTaskUsage } from '../integrations/usage/index.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
@@ -105,6 +106,13 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   });
   app.get('/tasks/ready', c => c.json(d.readiness.ready(1)));
   app.get('/tasks/deps', c => c.json(d.tasks.allDeps()));
+  // Token/cost usage for a task's agent run, read from the executor CLI's local session storage
+  // (opencode / claude / codex) — portable, no relay. Null usage → no matching session found.
+  app.get('/tasks/:id/usage', c => {
+    const task = d.tasks.get(c.req.param('id'));
+    if (!task) return c.json({ error: 'not found' }, 404);
+    return c.json(readTaskUsage(task, d.project.path, d.fallback));
+  });
   app.patch('/tasks/:id', async c => {
     const b = await c.req.json();
     const id = c.req.param('id');

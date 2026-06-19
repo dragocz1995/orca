@@ -12,6 +12,7 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
+import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { statusTone } from '../dashboard/statusTone';
 import { useTranslation } from '../../lib/i18n';
 
@@ -52,6 +53,7 @@ export function TaskResultsModal({ task, onClose }: { task: Task; onClose: () =>
           <Badge tone={statusTone(task.status)}>{STATUS_LABEL[task.status] ?? task.status}</Badge>
           <OutcomeBadge outcome={task.outcome} />
           {exec ? <Badge>{exec}</Badge> : null}
+          <TaskUsageBadge taskId={task.id} />
         </div>
 
         {meta.length > 0 ? (

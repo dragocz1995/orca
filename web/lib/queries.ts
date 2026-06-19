@@ -29,6 +29,17 @@ export const useSessions = () =>
 export const useAllDeps = () =>
   useQuery({ queryKey: ['tasks', 'deps'], queryFn: orcaClient.allDeps });
 
+/** Token/cost usage for a task's agent run. Polls while the agent is live; for a finished task
+ *  it's fetched once and cached (the numbers no longer change). */
+export const useTaskUsage = (taskId: string, live = false) =>
+  useQuery({
+    queryKey: ['task-usage', taskId],
+    queryFn: () => orcaClient.taskUsage(taskId),
+    enabled: !!taskId,
+    refetchInterval: live ? 8000 : false,
+    staleTime: live ? 0 : 5 * 60 * 1000,
+  });
+
 export const useMissions = () =>
   useQuery({ queryKey: QUERY_KEYS.missions, queryFn: orcaClient.missions });
 

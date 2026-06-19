@@ -11,6 +11,7 @@ import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
 import { IconButton } from '../../components/ui/IconButton';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { ChangeStrip } from '../../components/ui/ChangeStrip';
+import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { LiveTail } from '../../components/terminal/LiveTail';
 import { SendInput } from '../../components/control/SendInput';
 import { useToast } from '../../components/ui/Toast';
@@ -41,6 +42,7 @@ export function SessionCard({ name, onOpenTerminal, compact = false }: { name: s
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-mono text-xs text-text" title={task?.title}>{name}</span>
           {task ? <Link href={`/tasks?select=${encodeURIComponent(task.id)}`} className="truncate text-[11px] text-text-muted transition-colors hover:text-accent" title={task.title}>{task.title}</Link> : null}
+          {task ? <TaskUsageBadge taskId={task.id} live={!finished} /> : null}
         </div>
         {needsInput ? <span className="shrink-0 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-tiny font-medium text-warning" title={signal?.type === 'needs_input' ? signal.question : ''}>{t.sessions.needsInput}</span> : null}
         <span className="live-dot h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot, ['--live-ring' as string]: needsInput ? 'color-mix(in srgb, var(--color-warning) 50%, transparent)' : 'color-mix(in srgb, var(--color-approve) 50%, transparent)' }} aria-label={needsInput ? t.sessions.needsInput : t.sessions.online} title={needsInput ? t.sessions.needsInput : t.sessions.online} />

@@ -13,6 +13,7 @@ import { ModelIcon } from '../../components/ui/ModelIcon';
 import { IconButton } from '../../components/ui/IconButton';
 import { AgentStatusDot } from '../../components/ui/AgentStatusDot';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
+import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { LiveTail } from '../../components/terminal/LiveTail';
 import { TerminalModal } from '../../components/terminal/TerminalModal';
 import { useToast } from '../../components/ui/Toast';
@@ -87,6 +88,7 @@ export function TaskDetailPane({ taskId, onEdit }: { taskId: string; onEdit?: (t
           <Badge tone={statusTone(task.status)}>{STATUS_LABEL[task.status] ?? task.status}</Badge>
           {isClosed ? <OutcomeBadge outcome={task.outcome} /> : null}
           {exec ? <Badge>{exec}</Badge> : null}
+          {agentName ? <TaskUsageBadge taskId={task.id} live={running} /> : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-1">

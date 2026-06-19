@@ -17,6 +17,7 @@ import { AgentStatusDot } from '../../components/ui/AgentStatusDot';
 import { AgentIdentityStrip } from '../../components/ui/AgentIdentityStrip';
 import { TaskContextLine } from '../../components/ui/TaskContextLine';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
+import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { ChangeStrip } from '../../components/ui/ChangeStrip';
 import { useSessionStall } from '../../lib/useSessionStall';
 import { useToast } from '../../components/ui/Toast';
@@ -105,6 +106,7 @@ export function TaskCard({ task, onEdit, onSelect, active = false, blockers, sel
           <Badge tone={statusTone(task.status)}>{STATUS_LABEL[task.status] ?? task.status}</Badge>
           {isClosed ? <OutcomeBadge outcome={task.outcome} /> : null}
           {exec ? <Badge>{exec}</Badge> : null}
+          {hasAgent ? <TaskUsageBadge taskId={task.id} live={running} /> : null}
           {task.scheduled_at ? (
             <Badge tone="muted">
               {task.autostart ? <Zap size={11} className="mr-1 inline" aria-hidden /> : <Clock size={11} className="mr-1 inline" aria-hidden />}
