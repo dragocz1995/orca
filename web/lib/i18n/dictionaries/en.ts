@@ -483,6 +483,8 @@ export const en = {
     fileSaved: 'Saved {path}',
     commitLabel: 'Commit',
     viewCommit: 'View this commit\'s changes',
+    workingChanges: 'Uncommitted changes',
+    viewChanges: 'View the uncommitted changes',
   },
   users: {
     loadError: 'Failed to load users',

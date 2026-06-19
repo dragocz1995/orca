@@ -483,6 +483,8 @@ export const cs = {
     fileSaved: 'Uloženo {path}',
     commitLabel: 'Commit',
     viewCommit: 'Zobrazit změny tohoto commitu',
+    workingChanges: 'Necommitnuté změny',
+    viewChanges: 'Zobrazit necommitnuté změny',
   },
   users: {
     loadError: 'Nepodařilo se načíst uživatele',

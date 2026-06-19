@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { hermesStatus, installHermesPlugin } from '../integrations/hermesInstall.js';
 import { detectClis } from '../integrations/cliDetection.js';
 import { readTaskUsage } from '../integrations/usage/index.js';
-import { listProjectFiles, readProjectFile, writeProjectFile, projectFileDiff, projectCommitDiff } from '../integrations/projectFiles.js';
+import { listProjectFiles, readProjectFile, writeProjectFile, projectFileDiff, projectCommitDiff, projectChangedFiles, projectWorkingDiff } from '../integrations/projectFiles.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
@@ -191,6 +191,18 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
     return c.json({ diff: await projectCommitDiff(p.path, c.req.param('hash')) });
+  });
+  app.get('/projects/:id/changed', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    return c.json({ changed: await projectChangedFiles(p.path) });
+  });
+  app.get('/projects/:id/changes', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
+    if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
+    return c.json({ diff: await projectWorkingDiff(p.path) });
   });
 
   app.get('/activity', (c) => {

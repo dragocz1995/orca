@@ -78,6 +78,31 @@ export function writeProjectFile(root: string, rel: string, content: string): vo
   writeFileSync(abs, content, 'utf8');
 }
 
+/** Relative paths of files with uncommitted changes (`git status --porcelain`), so the editor can
+ *  highlight them in the tree. Renames report the new path. Empty list on any error / non-repo. */
+export async function projectChangedFiles(root: string): Promise<string[]> {
+  try {
+    const { stdout } = await run('git', ['-C', realpathSync(resolve(root)), 'status', '--porcelain'], { maxBuffer: 4 * 1024 * 1024 });
+    return stdout.split('\n')
+      .map((line) => line.slice(3).trim())        // strip the 2-char XY status + space
+      .filter(Boolean)
+      .map((p) => { const a = p.indexOf(' -> '); return a >= 0 ? p.slice(a + 4) : p; }); // rename → new path
+  } catch {
+    return [];
+  }
+}
+
+/** Combined working-tree diff vs HEAD (`git diff HEAD`) — all uncommitted tracked changes, for the
+ *  "show me what changed" view. Empty string on any error / non-repo. */
+export async function projectWorkingDiff(root: string): Promise<string> {
+  try {
+    const { stdout } = await run('git', ['-C', realpathSync(resolve(root)), 'diff', 'HEAD'], { maxBuffer: 8 * 1024 * 1024 });
+    return stdout;
+  } catch {
+    return '';
+  }
+}
+
 /** Full diff of a single commit (`git show <hash>`). The hash is validated to be a plain
  *  hex object id so it can never be a git flag/option. Empty string on any error. */
 export async function projectCommitDiff(root: string, hash: string): Promise<string> {

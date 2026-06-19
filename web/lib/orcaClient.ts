@@ -68,6 +68,8 @@ export const orcaClient = {
   writeProjectFile: (id: number, path: string, content: string) => req<{ ok: boolean }>(`/projects/${id}/file`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, content }) }),
   projectFileDiff: (id: number, path: string) => req<{ diff: string }>(`/projects/${id}/diff?path=${encodeURIComponent(path)}`),
   projectCommit: (id: number, hash: string) => req<{ diff: string }>(`/projects/${id}/commit/${encodeURIComponent(hash)}`),
+  projectChanged: (id: number) => req<{ changed: string[] }>(`/projects/${id}/changed`),
+  projectChanges: (id: number) => req<{ diff: string }>(`/projects/${id}/changes`),
   userProjects: (userId: number) => req<number[]>(`/users/${userId}/projects`),
   assignProject: (userId: number, projectId: number) => req<{ ok: boolean }>(`/users/${userId}/projects`, json({ projectId })),
   unassignProject: (userId: number, projectId: number) => req<{ ok: boolean }>(`/users/${userId}/projects/${projectId}`, { method: 'DELETE' }),

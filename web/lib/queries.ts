@@ -83,6 +83,12 @@ export const useProjectFileDiff = (id: number | null, path: string | null) =>
 export const useProjectCommit = (id: number | null, hash: string | null) =>
   useQuery({ queryKey: ['project-commit', id, hash], queryFn: () => orcaClient.projectCommit(id as number, hash as string), enabled: !!id && !!hash });
 
+export const useProjectChanged = (id: number | null) =>
+  useQuery({ queryKey: ['project-changed', id], queryFn: () => orcaClient.projectChanged(id as number), enabled: !!id });
+
+export const useProjectChanges = (id: number | null, enabled: boolean) =>
+  useQuery({ queryKey: ['project-changes', id], queryFn: () => orcaClient.projectChanges(id as number), enabled: !!id && enabled });
+
 export const useMe = () =>
   useQuery({ queryKey: ['me'], queryFn: orcaClient.me, staleTime: 5 * 60 * 1000 });
 

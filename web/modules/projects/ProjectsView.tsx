@@ -20,10 +20,12 @@ export function ProjectsView() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingCommit, setEditingCommit] = useState<string | null>(null);
+  const [editingWorking, setEditingWorking] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  const openEditor = (commit: string | null) => { setEditingId(selectedId); setEditingCommit(commit); };
-  const closeEditor = () => { setEditingId(null); setEditingCommit(null); };
+  const openEditor = (commit: string | null) => { setEditingId(selectedId); setEditingCommit(commit); setEditingWorking(false); };
+  const openWorking = () => { setEditingId(selectedId); setEditingCommit(null); setEditingWorking(true); };
+  const closeEditor = () => { setEditingId(null); setEditingCommit(null); setEditingWorking(false); };
   const git = useProjectGit(selectedId);
 
   const { toast } = useToast();
@@ -90,7 +92,9 @@ export function ProjectsView() {
                         <Badge tone="accent"><GitBranch size={11} className="mr-1" aria-hidden />{status.branch}</Badge>
                         {status.clean
                           ? <Badge tone="success"><CheckCircle2 size={11} className="mr-1" aria-hidden />{t.projects.clean}</Badge>
-                          : <Badge tone="warning"><AlertTriangle size={11} className="mr-1" aria-hidden />{t.projects.dirty.replace('{count}', String(status.dirty))}</Badge>}
+                          : <button type="button" onClick={(e) => { e.stopPropagation(); openWorking(); }} title={t.projects.viewChanges} className="transition-opacity hover:opacity-80">
+                              <Badge tone="warning"><AlertTriangle size={11} className="mr-1" aria-hidden />{t.projects.dirty.replace('{count}', String(status.dirty))}</Badge>
+                            </button>}
                         {status.ahead > 0 && <Badge tone="accent"><ArrowUp size={11} className="mr-0.5" aria-hidden />{status.ahead}</Badge>}
                         {status.behind > 0 && <Badge tone="muted"><ArrowDown size={11} className="mr-0.5" aria-hidden />{status.behind}</Badge>}
                       </div>
@@ -108,7 +112,7 @@ export function ProjectsView() {
         </div>
       ) : null}
 
-      {editingId ? <ProjectEditor key={editingCommit ?? 'files'} projectId={editingId} initialCommit={editingCommit} onClose={closeEditor} /> : null}
+      {editingId ? <ProjectEditor key={editingWorking ? 'working' : (editingCommit ?? 'files')} projectId={editingId} initialCommit={editingCommit} initialWorking={editingWorking} onClose={closeEditor} /> : null}
 
       {selectedId && git.data?.isRepo && (git.data.branches.length > 0 || git.data.commits.length > 0) && (
         <div className="mt-5 flex flex-col gap-5 rounded-lg border border-border bg-surface p-4" style={{ boxShadow: 'var(--shadow-card)' }}>
