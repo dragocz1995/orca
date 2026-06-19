@@ -6,6 +6,8 @@ export interface CreateTaskInput { title: string; type?: string; priority?: stri
 export interface UpdateTaskInput { title?: string; type?: string; priority?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[] }
 export interface PlanInput { goal: string; exec?: string; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title: string; type?: string }[] }
 export interface PlanResult { epic: Task; phases: Task[]; mission?: Mission }
+export interface InsertPhasesInput { phases?: { title: string; type?: string }[]; goal?: string; exec?: string; prompt?: string }
+export interface InsertPhasesResult { epic: Task; phases: Task[] }
 export interface EngageInput { epicId: string; autonomy: string; maxSessions: number; clearedGuardrails: string[] }
 export type DerivedSignal = { type: 'working' } | { type: 'complete' } | { type: 'needs_input'; question: string };
 // Wire contract — must mirror the backend canonical definition in src/api/sse.ts

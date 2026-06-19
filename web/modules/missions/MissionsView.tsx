@@ -24,6 +24,7 @@ import { useTranslation } from '../../lib/i18n';
 import { TaskDetailPane } from '../tasks/TaskDetailPane';
 import { DependencyGraph } from './DependencyGraph';
 import { EngageModal } from './EngageModal';
+import { AddPhaseModal } from './AddPhaseModal';
 
 /** Count of a mission's live children and how many are waiting for input. */
 function missionLive(kids: { id: string; status: string; labels?: string[] }[], signals: Record<string, { type: string }>): { live: number; needs: number } {
@@ -216,6 +217,7 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
   const { toast } = useToast();
   const { t } = useTranslation();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [addingPhase, setAddingPhase] = useState(false);
 
   // A different mission resets the selected node.
   useEffect(() => { setSelectedTaskId(null); }, [missionId]);
@@ -261,6 +263,7 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
           <Badge tone="accent">{d.mission.autonomy}</Badge>
           <Badge tone={STATE_TONE(d.mission.state)}>{STATE_LABEL[d.mission.state] ?? d.mission.state}</Badge>
           {d.mission.state !== 'disengaged' ? (() => { const cap = epicCapacity(d.tasks, sessions.data ?? [], d.mission.max_sessions); return <CapacityMeter running={cap.running} max={cap.max} />; })() : null}
+          <Button variant="ghost" icon={Plus} onClick={() => setAddingPhase(true)}>{t.missions.addPhase}</Button>
         </div>
         <p className="text-[11px] text-text-muted" title={t.missions.configSummaryTitle}>{configLine}</p>
         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
@@ -318,9 +321,11 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
             {selectedTaskId ? <TaskDetailPane taskId={selectedTaskId} /> : (
               <p className="py-2 text-center text-sm text-text-muted">{t.missions.selectTaskHint}</p>
             )}
-          </div>
+           </div>
         </aside>
       </div>
+
+      {addingPhase && <AddPhaseModal epicId={d.epic?.id ?? d.mission.epic_id} onClose={() => setAddingPhase(false)} />}
     </div>
   );
 }
