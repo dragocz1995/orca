@@ -3,6 +3,11 @@ import { formatTaskTime } from '../../lib/formatTime';
 
 const ISO = '2026-06-18 10:00:00'; // SQLite UTC format
 const at = (iso: string) => new Date(iso).getTime();
+// The tooltip title is the timestamp rendered in LOCAL time; compute it the same way the
+// helper does so the assertion is timezone-independent.
+const localTitle = (locale?: string) => new Date(at('2026-06-18T10:00:00Z')).toLocaleString(locale, {
+  year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
 
 describe('formatTaskTime', () => {
   it('returns a compact relative label within the last 24h', () => {
@@ -14,11 +19,11 @@ describe('formatTaskTime', () => {
   it('switches to a locale date at/after 24h', () => {
     const r = formatTaskTime(ISO, at('2026-06-20T10:00:00Z'), 'en-US');
     expect(r.label).toMatch(/Jun/);
-    expect(r.title).toBe(ISO);
+    expect(r.title).toBe(localTitle('en-US'));
   });
 
-  it('always returns the full ISO as title', () => {
-    expect(formatTaskTime(ISO, at('2026-06-18T10:05:00Z')).title).toBe(ISO);
+  it('returns the absolute LOCAL time as title (not raw UTC)', () => {
+    expect(formatTaskTime(ISO, at('2026-06-18T10:05:00Z'), 'en-US').title).toBe(localTitle('en-US'));
   });
 
   it('handles null/empty input', () => {

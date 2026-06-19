@@ -36,6 +36,11 @@ describe('taskElapsed', () => {
     expect(taskElapsed(task({ created_at: start }), at('2026-06-18T09:59:00Z'))).toBe('0s');
     expect(taskElapsed(task(), Date.now())).toBeNull();
   });
+  it('freezes the run at closed_at for a finished task (does not keep growing from now)', () => {
+    const closed = task({ created_at: start, closed_at: '2026-06-18 10:03:00', status: 'closed' });
+    // 'now' is hours later, but the run is frozen at the 3-minute close.
+    expect(taskElapsed(closed, at('2026-06-18T15:00:00Z'))).toBe('3m');
+  });
 });
 
 describe('taskBlockers', () => {

@@ -6,6 +6,7 @@ import { taskExec } from '../../lib/taskExec';
 import { taskSessionName } from '../../lib/agentUtils';
 import { parseTs } from '../../lib/agentUtils';
 import { formatTaskTime } from '../../lib/formatTime';
+import { formatDuration } from '../../lib/formatDuration';
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -13,16 +14,6 @@ import { ModelIcon } from '../../components/ui/ModelIcon';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
 import { statusTone } from '../dashboard/statusTone';
 import { useTranslation } from '../../lib/i18n';
-
-/** Format a run duration (ms) as a compact "1h 4m" / "3m 12s" / "8s" label. */
-function formatDuration(ms: number): string {
-  const secs = Math.max(0, Math.floor(ms / 1000));
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ${secs % 60}s`;
-  const hours = Math.floor(mins / 60);
-  return `${hours}h ${mins % 60}m`;
-}
 
 /** Read-only outcome view for a finished (closed/cancelled) task or autopilot agent.
  *  Shown instead of the edit modal when a closed card is clicked — editing a done task

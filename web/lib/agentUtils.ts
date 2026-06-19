@@ -24,10 +24,14 @@ export function parseTs(iso?: string | null): number | null {
 }
 
 /** Compact, language-neutral elapsed time (e.g. "12s", "3m", "5h", "2d") since the task started. */
-export function taskElapsed(task: Pick<Task, 'created_at'>, nowMs: number): string | null {
+export function taskElapsed(task: Pick<Task, 'created_at' | 'closed_at' | 'status'>, nowMs: number): string | null {
   const start = parseTs(task.created_at);
   if (start == null) return null;
-  const secs = Math.max(0, Math.floor((nowMs - start) / 1000));
+  // A finished task's run is frozen at its close time — otherwise the duration keeps growing
+  // from 'now' and reads as if the agent were still working.
+  const finished = task.status === 'closed' || task.status === 'cancelled';
+  const end = finished ? (parseTs(task.closed_at) ?? nowMs) : nowMs;
+  const secs = Math.max(0, Math.floor((end - start) / 1000));
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m`;
