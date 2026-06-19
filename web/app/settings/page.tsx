@@ -411,6 +411,25 @@ export default function SettingsPage() {
             />
             <p className="text-sm text-text-muted">{t.settings.hermesDesc}</p>
 
+            {/* Plugin status — pills up top: red until installed + enabled, then green. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t.settings.hermesStatusLine}</span>
+              {hermesStatus.isLoading ? (
+                <Badge tone="muted">{t.common.loading}</Badge>
+              ) : hermesStatus.isError ? (
+                <Badge tone="warning">{t.settings.hermesStatusError}</Badge>
+              ) : (
+                <>
+                  <Badge tone={hermesStatus.data?.pluginInstalled ? 'success' : 'danger'}>
+                    {hermesStatus.data?.pluginInstalled ? t.settings.hermesStatusInstalled : t.settings.hermesStatusNotInstalled}
+                  </Badge>
+                  <Badge tone={hermesStatus.data?.enabled ? 'success' : 'danger'}>
+                    {hermesStatus.data?.enabled ? t.settings.hermesStatusEnabled : t.settings.hermesStatusDisabled}
+                  </Badge>
+                </>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label={t.settings.hermesHome}>
                 <Input value={hHome} onChange={(e) => setHHome(e.target.value)} className="font-mono text-xs" />
@@ -424,26 +443,9 @@ export default function SettingsPage() {
             </div>
 
             <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <Button variant="accent" disabled={hermesInstall.isPending || !hUrl.trim() || !hToken.trim()} onClick={installHermes}>
-                  {hermesInstall.isPending ? t.settings.hermesInstalling : t.settings.hermesInstall}
-                </Button>
-                <span className="text-sm text-text-muted">{t.settings.hermesStatusLine}:</span>
-                {hermesStatus.isLoading ? (
-                  <Badge tone="muted">{t.common.loading}</Badge>
-                ) : hermesStatus.isError ? (
-                  <Badge tone="warning">{t.settings.hermesStatusError}</Badge>
-                ) : (
-                  <>
-                    <Badge tone={hermesStatus.data?.pluginInstalled ? 'success' : 'muted'}>
-                      {hermesStatus.data?.pluginInstalled ? t.settings.hermesStatusInstalled : t.settings.hermesStatusNotInstalled}
-                    </Badge>
-                    <Badge tone={hermesStatus.data?.enabled ? 'success' : 'muted'}>
-                      {hermesStatus.data?.enabled ? t.settings.hermesStatusEnabled : t.settings.hermesStatusDisabled}
-                    </Badge>
-                  </>
-                )}
-              </div>
+              <Button variant="accent" className="self-start" disabled={hermesInstall.isPending || !hUrl.trim() || !hToken.trim()} onClick={installHermes}>
+                {hermesInstall.isPending ? t.settings.hermesInstalling : t.settings.hermesInstall}
+              </Button>
               <p className="text-xs text-text-muted">{t.settings.hermesRestartNote}</p>
             </div>
           </div>

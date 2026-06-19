@@ -12,9 +12,10 @@ import { useTranslation } from '../../lib/i18n';
 
 /** An autopilot epic in the task list: a collapsible parent whose phases stay tucked away
  *  (collapsed) until expanded, so the list shows the epic rather than every sub-task. */
-export function EpicGroup({ epic, phases, expanded, onToggle, onEdit, onSelect, activeId, blockedBy }: {
+export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, onEdit, onSelect, activeId, blockedBy }: {
   epic: Task;
   phases: Task[];
+  effectiveStatus?: Task['status'];
   expanded: boolean;
   onToggle: () => void;
   onEdit: (t: Task) => void;
@@ -53,7 +54,7 @@ export function EpicGroup({ epic, phases, expanded, onToggle, onEdit, onSelect, 
             <span className="shrink-0 font-mono text-[11px] text-text-muted">{done}/{total} {t.tasks.phasesLabel}</span>
           </div>
         </div>
-        <Badge tone={statusTone(epic.status)}>{STATUS_LABEL[epic.status] ?? epic.status}</Badge>
+        <Badge tone={statusTone(effectiveStatus ?? epic.status)}>{STATUS_LABEL[effectiveStatus ?? epic.status] ?? epic.status}</Badge>
       </button>
 
       {expanded ? (

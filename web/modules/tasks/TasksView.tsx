@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, ListChecks, Search, Archive, Trash2, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Task, TaskStatus } from '../../lib/types';
-import { useTasks, useAllDeps, useSessions, useSessionSignals } from '../../lib/queries';
+import { useTasks, useAllDeps, useSessions, useSessionSignals, useMissions } from '../../lib/queries';
 import { taskBlockers, taskSessionName } from '../../lib/agentUtils';
-import { epicChildren, phaseIds, epicLive } from '../../lib/taskTree';
+import { epicChildren, phaseIds, epicLive, epicEffectiveStatus } from '../../lib/taskTree';
 import { useCloseTask, useDeleteTask } from '../../lib/mutations';
 import { TaskDetailPane } from './TaskDetailPane';
 import { EpicGroup } from './EpicGroup';
@@ -36,6 +36,7 @@ export function TasksView() {
   const deps = useAllDeps();
   const sessions = useSessions();
   const signals = useSessionSignals();
+  const missions = useMissions();
   const close = useCloseTask();
   const del = useDeleteTask();
   const { toast } = useToast();
@@ -126,9 +127,10 @@ export function TasksView() {
           if (kids.length === 0) return false;
           return true;
         }
-        // An epic matches the status filter / search if it or any of its phases matches.
+        // Epics are filtered by their effective status (derived from phases), not their stale 'open'.
         const kids = t.type === 'epic' ? (childMap.get(t.id) ?? []) : [];
-        if (filter !== 'all' && t.status !== filter && !kids.some((k) => k.status === filter)) return false;
+        const effStatus = t.type === 'epic' ? epicEffectiveStatus(t, missions.data ?? [], kids) : t.status;
+        if (filter !== 'all' && effStatus !== filter) return false;
         if (!q) return true;
         return matchText(t) || kids.some(matchText);
       })
@@ -140,7 +142,7 @@ export function TasksView() {
         }
         return taskDayMs(b) - taskDayMs(a); // newest day first
       });
-  }, [tasks.data, query, filter, childMap, phaseSet, sessions.data, signals]);
+  }, [tasks.data, query, filter, childMap, phaseSet, sessions.data, signals, missions.data]);
 
   // Reset to the first page whenever the result set changes shape.
   useEffect(() => { setPage(0); }, [query, filter]);
@@ -200,7 +202,7 @@ export function TasksView() {
                     {g.items.map((task) => {
                       const kids = childMap.get(task.id);
                       if (task.type === 'epic' && kids && kids.length > 0) {
-                        return <EpicGroup key={task.id} epic={task} phases={kids} expanded={expandedEpics.has(task.id)} onToggle={() => toggleEpic(task.id)} onEdit={setEditing} onSelect={(x) => setSelectedId(x.id)} activeId={selectedId} blockedBy={blockedBy} />;
+                        return <EpicGroup key={task.id} epic={task} phases={kids} effectiveStatus={epicEffectiveStatus(task, missions.data ?? [], kids)} expanded={expandedEpics.has(task.id)} onToggle={() => toggleEpic(task.id)} onEdit={setEditing} onSelect={(x) => setSelectedId(x.id)} activeId={selectedId} blockedBy={blockedBy} />;
                       }
                       return <TaskCard key={task.id} task={task} onEdit={setEditing} onSelect={(x) => setSelectedId(x.id)} active={selectedId === task.id} blockers={blockedBy.get(task.id)} selected={selected.has(task.id)} onToggleSelect={toggleSelect} selecting={selected.size > 0} />;
                     })}

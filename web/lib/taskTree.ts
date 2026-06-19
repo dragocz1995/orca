@@ -55,12 +55,16 @@ export function epicCapacity(children: Task[], sessions: string[], maxSessions: 
   return { running: clamped, max, free: Math.max(0, max - clamped) };
 }
 
-/** Effective status of an epic on the kanban board: while a mission is actively engaged
- *  (any state other than 'disengaged'), the epic is shown as 'in_progress' regardless of
- *  its true task status — epics stay 'open' underneath. The true status stays available
- *  separately (e.g. for a title/tooltip). */
-export function epicEffectiveStatus(epic: Task, missions: Mission[]): Task['status'] {
+/** The status an epic should display by, derived from its mission + phases rather than its own
+ *  (often-stale) 'open' task status: an active mission or a running phase reads as in_progress;
+ *  once every phase is closed/cancelled the epic reads as closed; otherwise blocked/open by its
+ *  phases. The true task status stays available separately (e.g. for a title/tooltip). */
+export function epicEffectiveStatus(epic: Task, missions: Mission[], children: Task[] = []): Task['status'] {
   if (epic.type !== 'epic') return epic.status;
-  const active = missions.some((m) => m.epic_id === epic.id && m.state !== 'disengaged');
-  return active ? 'in_progress' : epic.status;
+  if (missions.some((m) => m.epic_id === epic.id && m.state !== 'disengaged')) return 'in_progress';
+  if (children.length === 0) return epic.status;
+  if (children.some((c) => c.status === 'in_progress')) return 'in_progress';
+  if (children.some((c) => c.status === 'blocked')) return 'blocked';
+  if (children.some((c) => c.status === 'open')) return 'open';
+  return 'closed'; // every phase closed/cancelled → the epic is done
 }

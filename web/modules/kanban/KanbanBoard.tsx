@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Circle, LoaderCircle, Ban, CheckCircle2, XCircle, type LucideIcon } from 'lucide-react';
 import type { Task, Mission, TaskStatus } from '../../lib/types';
 import { groupByStatus } from './groupByStatus';
@@ -20,17 +20,36 @@ export function KanbanBoard({ tasks, onMove, onSelect, blockedBy, missions }: { 
   const { t } = useTranslation();
   const STATUS_LABEL: Record<string, string> = { open: t.tasks.statusOpen, in_progress: t.tasks.statusInProgress, blocked: t.tasks.statusBlocked, closed: t.tasks.statusClosed, cancelled: t.tasks.statusCancelled };
   const activeMissions = missions ?? [];
-  // An epic with an active mission renders in the 'In progress' column; its true status is
-  // preserved on the card (title/tooltip) via `effectiveStatus` vs `status`.
-  const groups = groupByStatus(tasks, (task) => (task.type === 'epic' ? epicEffectiveStatus(task, activeMissions) : task.status));
-  const byId = new Map(tasks.map((task) => [task.id, task]));
   const childMap = epicChildren(tasks);
   const phaseSet = phaseIds(tasks);
+  // An epic is placed by its effective status (active mission / running phase → in progress,
+  // all phases done → closed); its true task status is preserved on the card (title/tooltip).
+  const effStatus = (task: Task) => (task.type === 'epic' ? epicEffectiveStatus(task, activeMissions, childMap.get(task.id) ?? []) : task.status);
+  const groups = groupByStatus(tasks, effStatus);
+  const byId = new Map(tasks.map((task) => [task.id, task]));
   const [dragOver, setDragOver] = useState<TaskStatus | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // Autopilot epics start collapsed so their phases don't flood the board.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleEpic = (id: string) => setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const renderCard = (task: Task, isPhase: boolean) => {
+    const blockers = blockedBy?.get(task.id) ?? [];
+    return (
+      <KanbanCard
+        key={task.id}
+        task={task}
+        isPhase={isPhase}
+        blocked={blockers.length > 0}
+        blockers={blockers}
+        dragging={draggingId === task.id}
+        statusLabel={STATUS_LABEL[task.status] ?? task.status}
+        onSelect={onSelect}
+        onDragStart={(e) => { e.dataTransfer.setData('text/plain', task.id); setDraggingId(task.id); }}
+        onDragEnd={() => { setDraggingId(null); setDragOver(null); }}
+      />
+    );
+  };
   return (
     <div className="flex gap-3 overflow-x-auto">
       {COLUMNS.map((col) => {
@@ -52,30 +71,22 @@ export function KanbanBoard({ tasks, onMove, onSelect, blockedBy, missions }: { 
         >
           <header className="flex items-center justify-between px-1 font-mono uppercase tracking-widest text-text-muted" style={{ fontSize: 'var(--text-caption)' }}>
             <span className="flex items-center gap-1.5"><col.icon size={12} style={{ color: col.color }} aria-hidden />{colLabel}</span>
-            <span>{groups[col.status].length}</span>
+            <span>{groups[col.status].filter((task) => !phaseSet.has(task.id)).length}</span>
           </header>
           {groups[col.status].map((task) => {
-            // Autopilot epic → collapsible container; its phases stay hidden until expanded.
+            // Autopilot epic → collapsible container; when expanded its phases nest right
+            // under it (in this column) so they never scatter into other status columns.
             if (task.type === 'epic' && childMap.has(task.id)) {
-              return <KanbanEpicCard key={task.id} epic={task} phases={childMap.get(task.id) ?? []} expanded={expanded.has(task.id)} onToggle={() => toggleEpic(task.id)} effectiveStatus={epicEffectiveStatus(task, activeMissions)} trueStatusLabel={STATUS_LABEL[task.status] ?? task.status} />;
+              const phases = childMap.get(task.id) ?? [];
+              return (
+                <Fragment key={task.id}>
+                  <KanbanEpicCard epic={task} phases={phases} expanded={expanded.has(task.id)} onToggle={() => toggleEpic(task.id)} effectiveStatus={effStatus(task)} trueStatusLabel={STATUS_LABEL[task.status] ?? task.status} />
+                  {expanded.has(task.id) ? phases.map((ph) => renderCard(ph, true)) : null}
+                </Fragment>
+              );
             }
-            const isPhase = phaseSet.has(task.id);
-            if (isPhase && !(task.parent_id && expanded.has(task.parent_id))) return null;
-            const blockers = blockedBy?.get(task.id) ?? [];
-            return (
-              <KanbanCard
-                key={task.id}
-                task={task}
-                isPhase={isPhase}
-                blocked={blockers.length > 0}
-                blockers={blockers}
-                dragging={draggingId === task.id}
-                statusLabel={STATUS_LABEL[task.status] ?? task.status}
-                onSelect={onSelect}
-                onDragStart={(e) => { e.dataTransfer.setData('text/plain', task.id); setDraggingId(task.id); }}
-                onDragEnd={() => { setDraggingId(null); setDragOver(null); }}
-              />
-            );
+            if (phaseSet.has(task.id)) return null; // phases only appear nested under their epic
+            return renderCard(task, false);
           })}
         </div>
       );

@@ -88,4 +88,16 @@ describe('epicEffectiveStatus', () => {
   it('returns the true status for non-epic tasks (no virtual mapping)', () => {
     expect(epicEffectiveStatus(task({ id: 't1', status: 'blocked' }), [mission({ epic_id: 't1', state: 'active' })])).toBe('blocked');
   });
+
+  it('derives status from phases when there is no active mission (stale open epic)', () => {
+    const e = epic({ status: 'open' });
+    // all phases done → the epic is closed, not 'open'
+    expect(epicEffectiveStatus(e, [], [task({ status: 'closed' }), task({ status: 'cancelled' })])).toBe('closed');
+    // a running phase → in_progress
+    expect(epicEffectiveStatus(e, [], [task({ status: 'closed' }), task({ status: 'in_progress' })])).toBe('in_progress');
+    // a blocked phase (none running) → blocked
+    expect(epicEffectiveStatus(e, [], [task({ status: 'closed' }), task({ status: 'blocked' })])).toBe('blocked');
+    // still has open work → open
+    expect(epicEffectiveStatus(e, [], [task({ status: 'closed' }), task({ status: 'open' })])).toBe('open');
+  });
 });
