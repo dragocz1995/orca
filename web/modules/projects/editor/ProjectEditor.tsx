@@ -1,6 +1,6 @@
 'use client';
-import { useMemo, useState } from 'react';
-import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2 } from 'lucide-react';
 import {
   useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff,
   useProjectChanged, useProjectChanges,
@@ -42,6 +42,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<Tab>('edit');
   const [wordWrap, setWordWrap] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -87,6 +88,14 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   };
   const toggle = (p: string) => setExpanded((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
   const expandPath = (dir: string) => setExpanded((s) => { const n = new Set(s); let acc = ''; for (const part of dir.split('/').filter(Boolean)) { acc = acc ? `${acc}/${part}` : part; n.add(acc); } return n; });
+
+  // Esc leaves fullscreen (without closing the editor); ignored while a dialog/menu owns Esc.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dialog && !menu) { e.stopPropagation(); setFullscreen(false); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen, dialog, menu]);
 
   const save = () => {
     if (selected == null) return;
@@ -182,7 +191,12 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     : dialog?.kind === 'duplicate' ? basename(copyName(dialog.target)) : '';
 
   return (
-    <div className="mt-5 flex h-[70vh] flex-col overflow-hidden rounded-lg border border-border bg-surface" style={{ boxShadow: 'var(--shadow-card)' }}>
+    <div
+      className={fullscreen
+        ? 'fixed inset-0 z-50 flex h-screen flex-col overflow-hidden bg-surface'
+        : 'mt-5 flex h-[70vh] flex-col overflow-hidden rounded-lg border border-border bg-surface'}
+      style={fullscreen ? undefined : { boxShadow: 'var(--shadow-card)' }}
+    >
       {/* toolbar */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Code2 size={15} className="text-accent" aria-hidden />
@@ -205,10 +219,24 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* file tree */}
-        <div className="w-64 shrink-0 overflow-auto border-r border-border bg-bg/40 p-1.5">
-          {files.isLoading ? <LoadingState />
-            : <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={selectInTree} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={t.projects.noFiles} treeLabel={t.projects.editorTitle} />}
+        {/* file tree + fullscreen toggle at the bottom of the file menu */}
+        <div className="flex w-64 shrink-0 flex-col border-r border-border bg-bg/40">
+          <div className="min-h-0 flex-1 overflow-auto p-1.5">
+            {files.isLoading ? <LoadingState />
+              : <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={selectInTree} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={t.projects.noFiles} treeLabel={t.projects.editorTitle} />}
+          </div>
+          <div className="shrink-0 border-t border-border p-1.5">
+            <button
+              type="button"
+              onClick={() => setFullscreen((f) => !f)}
+              aria-pressed={fullscreen}
+              title={fullscreen ? t.projects.exitFullscreen : t.projects.fullscreen}
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text"
+            >
+              {fullscreen ? <Minimize2 size={13} aria-hidden /> : <Maximize2 size={13} aria-hidden />}
+              {fullscreen ? t.projects.exitFullscreen : t.projects.fullscreen}
+            </button>
+          </div>
         </div>
 
         {/* editor / diff / preview / commit / working changes */}

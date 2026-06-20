@@ -35,9 +35,25 @@ function sanitizeAgentName(raw: unknown): string | undefined {
   return clean.length > 0 ? clean : undefined;
 }
 
-/** Build the decomposition prompt by substituting the goal into the template ({{goal}} placeholder). */
-export function planPrompt(goal: string, template?: string): string {
-  const tpl = (template ?? defaultPromptTemplate()).trim();
+/** Per-project context fed to the Pilot — the project's saved "Pilot info" notes. */
+export interface PlanProjectContext { notes?: string }
+
+/** Render the project notes into a planning-context block, or '' when there are none. */
+function projectContextBlock(project?: PlanProjectContext): string {
+  const notes = project?.notes?.trim();
+  return notes ? `Project context (use this when planning):\n${notes}` : '';
+}
+
+/**
+ * Build the decomposition prompt: substitute the goal ({{goal}}) and the project's Pilot
+ * notes ({{project}}) into the template. If the template has no {{project}} placeholder, the
+ * context block is prepended so saved templates still pick up the notes.
+ */
+export function planPrompt(goal: string, template?: string, project?: PlanProjectContext): string {
+  let tpl = (template ?? defaultPromptTemplate()).trim();
+  const ctx = projectContextBlock(project);
+  if (tpl.includes('{{project}}')) tpl = tpl.replaceAll('{{project}}', ctx).trim();
+  else if (ctx) tpl = `${ctx}\n\n${tpl}`;
   return tpl.includes('{{goal}}') ? tpl.replaceAll('{{goal}}', goal) : `${tpl}\n\nGoal: ${goal}`;
 }
 
@@ -60,7 +76,7 @@ export function parsePhases(text: string): Phase[] {
 }
 
 /** Run the LLM decomposition for a goal and return validated phases. */
-export async function decompose(inf: InferenceClient, goal: string, template?: string): Promise<Phase[]> {
-  const { text } = await inf.decide(planPrompt(goal, template));
+export async function decompose(inf: InferenceClient, goal: string, template?: string, project?: PlanProjectContext): Promise<Phase[]> {
+  const { text } = await inf.decide(planPrompt(goal, template, project));
   return parsePhases(text);
 }

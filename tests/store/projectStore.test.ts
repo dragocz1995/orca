@@ -18,4 +18,20 @@ describe('ProjectStore', () => {
     expect(p.notes).toBe('');
     expect(() => store.create({ slug: 'a', path: '/b' })).toThrow();
   });
+  it('updates path and notes, leaving the slug immutable', () => {
+    const p = store.create({ slug: 'web', path: '/old', notes: 'old' });
+    const up = store.update(p.id, { path: '/new', notes: 'new' });
+    expect(up).toMatchObject({ id: p.id, slug: 'web', path: '/new', notes: 'new' });
+    expect(store.get(p.id)?.path).toBe('/new');
+  });
+  it('applies a partial update without clobbering other fields', () => {
+    const p = store.create({ slug: 'web', path: '/p', notes: 'keep' });
+    store.update(p.id, { notes: 'changed' });
+    expect(store.get(p.id)).toMatchObject({ path: '/p', notes: 'changed' });
+    store.update(p.id, { path: '/q' });
+    expect(store.get(p.id)).toMatchObject({ path: '/q', notes: 'changed' });
+  });
+  it('returns null when updating a missing project', () => {
+    expect(store.update(999, { notes: 'x' })).toBeNull();
+  });
 });

@@ -53,6 +53,22 @@ describe('planner.planPrompt', () => {
   it('default template contains the {{goal}} placeholder', () => {
     expect(defaultPromptTemplate()).toContain('{{goal}}');
   });
+  it('substitutes the project notes into a {{project}} placeholder', () => {
+    const out = planPrompt('ship it', 'Ctx: {{project}}\nGoal: {{goal}}', { notes: 'monorepo; run pnpm' });
+    expect(out).toContain('monorepo; run pnpm');
+    expect(out).toContain('Goal: ship it');
+    expect(out).not.toContain('{{project}}');
+  });
+  it('prepends the project context when the template has no {{project}} placeholder', () => {
+    const out = planPrompt('ship it', 'Plan: {{goal}}', { notes: 'always use TDD' });
+    expect(out.startsWith('Project context')).toBe(true);
+    expect(out).toContain('always use TDD');
+    expect(out).toContain('Plan: ship it');
+  });
+  it('injects nothing when the project has no notes', () => {
+    expect(planPrompt('ship it', 'Plan: {{goal}}', { notes: '   ' })).toBe('Plan: ship it');
+    expect(planPrompt('ship it', 'Plan: {{goal}}')).toBe('Plan: ship it');
+  });
 });
 
 describe('planner.decompose', () => {

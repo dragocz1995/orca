@@ -114,6 +114,10 @@ export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (v: { slug: string; path: string; notes?: string }) => orcaClient.createProject(v), onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }) });
 }
+export function useUpdateProject() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (v: { id: number; path?: string; notes?: string }) => orcaClient.updateProject(v.id, { path: v.path, notes: v.notes }), onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }) });
+}
 export function useAssignProject() {
   const qc = useQueryClient();
   return useMutation({

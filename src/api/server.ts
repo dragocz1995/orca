@@ -258,6 +258,18 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     try { return c.json(d.projects.create({ slug, path, notes }), 201); }
     catch { return c.json({ error: 'slug taken' }, 409); }
   });
+  // Edit a project's path / Pilot notes (slug stays immutable). Admin-only, like registration.
+  app.patch('/projects/:id', async (c) => {
+    if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
+    if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    const id = Number(c.req.param('id'));
+    if (!d.projects.get(id)) return c.json({ error: 'project not found' }, 404);
+    const b = await c.req.json() as { path?: string; notes?: string };
+    const patch: { path?: string; notes?: string } = {};
+    if (typeof b.path === 'string' && b.path.trim()) patch.path = b.path.trim();
+    if (typeof b.notes === 'string') patch.notes = b.notes;
+    return c.json(d.projects.update(id, patch));
+  });
   app.get('/projects/:id/git', async (c) => {
     if (!d.projects || !d.git) return c.json({ error: 'projects unavailable' }, 400);
     const p = d.projects.get(Number(c.req.param('id')));
@@ -483,7 +495,9 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
       try {
         // A playground request may pass a prompt override to test an unsaved template.
-        phases = await decompose(inf, goal, b.prompt ?? cfg.autopilot.prompt);
+        // The project's saved "Pilot info" notes are fed in as planning context.
+        const notes = d.projects?.get(target.project.id)?.notes;
+        phases = await decompose(inf, goal, b.prompt ?? cfg.autopilot.prompt, { notes });
       } catch {
         return c.json({ error: 'plan_parse_failed' }, 502);
       }
@@ -537,7 +551,8 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       const key = d.config.apiKey();
       if (!key) return c.json({ error: 'autopilot_key_missing' }, 400);
       const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
-      try { phases = await decompose(inf, b.goal!.trim(), b.prompt ?? cfg.autopilot.prompt); }
+      const proj = d.projects?.get(epic.project_id);
+      try { phases = await decompose(inf, b.goal!.trim(), b.prompt ?? cfg.autopilot.prompt, { notes: proj?.notes }); }
       catch { return c.json({ error: 'plan_parse_failed' }, 502); }
     } else {
       return c.json({ error: 'phases or goal required' }, 400);

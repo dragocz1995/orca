@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { FolderGit2, GitBranch, GitCommitHorizontal, Plus, CheckCircle2, AlertTriangle, ArrowUp, ArrowDown, Folder } from 'lucide-react';
 import { useProjects, useProjectGit } from '../../lib/queries';
-import { useCreateProject } from '../../lib/mutations';
+import { useCreateProject, useUpdateProject } from '../../lib/mutations';
+import type { Project } from '../../lib/types';
 import { useToast } from '../../components/ui/Toast';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -12,7 +13,7 @@ import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { useTranslation } from '../../lib/i18n';
-import { Code2 } from 'lucide-react';
+import { Code2, Pencil } from 'lucide-react';
 import { ProjectEditor } from './editor/ProjectEditor';
 
 export function ProjectsView() {
@@ -31,10 +32,17 @@ export function ProjectsView() {
   const { toast } = useToast();
   const { t } = useTranslation();
   const createProject = useCreateProject();
+  const updateProject = useUpdateProject();
 
   const [slug, setSlug] = useState('');
   const [path, setPath] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Edit-project modal: pre-filled from the chosen project; slug stays read-only.
+  const [editProject, setEditProject] = useState<Project | null>(null);
+  const [editPath, setEditPath] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const openEdit = (p: Project) => { setEditProject(p); setEditPath(p.path); setEditNotes(p.notes); };
 
   function handleCreate() {
     createProject.mutate(
@@ -47,6 +55,17 @@ export function ProjectsView() {
           setNotes('');
           toast(t.projects.created);
         },
+        onError: (e) => toast(String(e), 'error'),
+      }
+    );
+  }
+
+  function handleUpdate() {
+    if (!editProject) return;
+    updateProject.mutate(
+      { id: editProject.id, path: editPath, notes: editNotes },
+      {
+        onSuccess: () => { setEditProject(null); toast(t.projects.updated); },
         onError: (e) => toast(String(e), 'error'),
       }
     );
@@ -107,8 +126,9 @@ export function ProjectsView() {
         )}
 
       {selectedId && !editingId ? (
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap gap-2">
           <Button variant="accent" icon={Code2} onClick={() => openEditor(null)}>{t.projects.openEditor}</Button>
+          <Button icon={Pencil} onClick={() => { const p = projects.data?.find((x) => x.id === selectedId); if (p) openEdit(p); }}>{t.projects.editProject}</Button>
         </div>
       ) : null}
 
@@ -176,6 +196,26 @@ export function ProjectsView() {
           <ModalFooter>
             <Button variant="ghost" onClick={() => setCreating(false)}>{t.common.cancel}</Button>
             <Button variant="accent" onClick={handleCreate} disabled={createProject.isPending || !slug.trim() || !path.trim()}>{t.projects.create}</Button>
+          </ModalFooter>
+        </Modal>
+      )}
+
+      {editProject && (
+        <Modal title={t.projects.editProject} onClose={() => setEditProject(null)} size="md" icon={FolderGit2}>
+          <ModalBody gap={4}>
+            <Field label={t.projects.fieldSlug} hint={t.projects.slugImmutable}>
+              <Input value={editProject.slug} disabled className="font-mono text-xs opacity-60" />
+            </Field>
+            <Field label={t.projects.fieldPath} hint={t.projects.pathHint}>
+              <Input value={editPath} onChange={(e) => setEditPath(e.target.value)} className="font-mono text-xs" />
+            </Field>
+            <Field label={t.projects.fieldNotes} hint={t.projects.notesHint}>
+              <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={4} className="w-full resize-none rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none" />
+            </Field>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" onClick={() => setEditProject(null)}>{t.common.cancel}</Button>
+            <Button variant="accent" onClick={handleUpdate} disabled={updateProject.isPending || !editPath.trim()}>{t.common.save}</Button>
           </ModalFooter>
         </Modal>
       )}

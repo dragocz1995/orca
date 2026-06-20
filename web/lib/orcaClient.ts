@@ -68,6 +68,7 @@ export const orcaClient = {
   activity: (opts?: { limit?: number; type?: string }) => req<ActivityEvent[]>(`/activity?${new URLSearchParams({ ...(opts?.limit ? { limit: String(opts.limit) } : {}), ...(opts?.type ? { type: opts.type } : {}) }).toString()}`),
   projects: () => req<Project[]>('/projects'),
   createProject: (v: { slug: string; path: string; notes?: string }) => req<Project>('/projects', json(v)),
+  updateProject: (id: number, patch: { path?: string; notes?: string }) => req<Project>(`/projects/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) }),
   projectGit: (id: number) => req<ProjectGit>(`/projects/${id}/git`),
   projectFiles: (id: number) => req<FileNode[]>(`/projects/${id}/files`),
   projectFile: (id: number, path: string) => req<{ content: string; truncated: boolean }>(`/projects/${id}/file?path=${encodeURIComponent(path)}`),

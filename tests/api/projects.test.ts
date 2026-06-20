@@ -32,6 +32,15 @@ describe('projects api', () => {
     const dup = await app.request('/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug: 'web', path: '/x' }) });
     expect(dup.status).toBe(409);
   });
+  it('PATCH /projects/:id updates path and notes; slug stays immutable; 404 unknown', async () => {
+    const { app } = makeApp();
+    const patched = await app.request('/projects/1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: '/moved', notes: 'pilot ctx', slug: 'hacked' }) });
+    expect(patched.status).toBe(200);
+    const body = await patched.json();
+    expect(body).toMatchObject({ id: 1, slug: 'orca', path: '/moved', notes: 'pilot ctx' });
+    const missing = await app.request('/projects/999', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notes: 'x' }) });
+    expect(missing.status).toBe(404);
+  });
   it('GET /projects/:id/git returns the reader result; 404 unknown', async () => {
     const { app } = makeApp();
     expect((await app.request('/projects/999/git')).status).toBe(404);

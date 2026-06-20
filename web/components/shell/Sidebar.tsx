@@ -9,6 +9,7 @@ import { useHealth, useTasks, useMe } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { NavGroup } from './NavGroup';
 import { OpsStatusBar } from './OpsStatusBar';
+import { NotificationBell } from '../ui/NotificationBell';
 import { Avatar } from '../ui/Avatar';
 
 const RAIL = 56;
@@ -115,7 +116,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
 
       {/* Thin footer: account link (avatar + name + role) with the live daemon-health as a corner
           dot, plus the language toggle — one compact bar instead of a verbose status block. */}
-      <div className={`flex items-center border-t border-border px-3 py-2 ${expanded ? 'gap-2' : 'justify-center'}`}>
+      <div className={`border-t border-border px-3 py-2 ${expanded ? 'flex items-center gap-2' : 'flex flex-col items-center gap-2'}`}>
         <Link
           href="/account"
           className={`flex min-w-0 items-center gap-2 rounded-md py-1 transition-colors hover:bg-elevated ${expanded ? 'flex-1 px-1' : ''}`}
@@ -140,11 +141,12 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
             </span>
           )}
         </Link>
+        <NotificationBell />
         {expanded && (
           <button
             type="button"
             onClick={() => setLocale(locale === 'en' ? 'cs' : 'en')}
-            className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-tiny font-mono uppercase tracking-wide text-text-muted transition-colors hover:border-border-strong hover:text-text"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-tiny font-mono uppercase tracking-wide text-text-muted transition-colors hover:border-border-strong hover:text-text"
             aria-label={t.common.switchLang}
           >
             <Languages size={12} aria-hidden />

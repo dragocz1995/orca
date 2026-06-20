@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { onUnhandledRequest } from '../../msw';
@@ -39,13 +39,15 @@ describe('Sidebar (registry-driven)', () => {
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
   });
 
-  it('shows the ops status bar counts: needs attention, live agents and last outcome', () => {
+  it('shows live agents and last outcome in the ops bar, and a pending-approval count on the notification bell', () => {
     const { wrapper: Wrapper, client } = createWrapper();
     client.setQueryData(['tasks'], [{ id: 'tx', title: 'Refactor', status: 'closed', outcome: 'ok', result_summary: 'passed', closed_at: '2026-06-18 10:00:00' }]);
     client.setQueryData(['sessions'], ['orca-a', 'orca-b']);
     client.setQueryData(['session-signals'], { 'orca-a': { type: 'needs_input', question: 'go?' } });
     render(<Wrapper><Sidebar /></Wrapper>);
-    expect(screen.getByText('1 needs attention')).toBeInTheDocument();
+    // One agent waiting for approval → badge on the notification bell.
+    const bell = screen.getByLabelText('Notifications');
+    expect(within(bell).getByText('1')).toBeInTheDocument();
     expect(screen.getByText('2 live agents')).toBeInTheDocument();
     expect(screen.getByText('Last: Refactor')).toBeInTheDocument();
   });
