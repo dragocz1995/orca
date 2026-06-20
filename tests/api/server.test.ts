@@ -332,14 +332,18 @@ it('POST /tasks/plan decomposes a goal into an epic with sequential phase subtas
     makeInference: () => new FakeInference('[{"title":"Schema","type":"task"},{"title":"API","type":"feature"}]'),
   });
   const res = await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'build app' }) });
-  expect(res.status).toBe(201);
-  const body = await res.json() as { epic: { id: string; type: string; title: string }; phases: { id: string; title: string; parent_id: string }[] };
-  expect(body.epic.type).toBe('epic');
-  expect(body.epic.title).toBe('build app');
-  expect(body.phases.map(p => p.title)).toEqual(['Schema', 'API']);
-  expect(body.phases.every(p => p.parent_id === body.epic.id)).toBe(true);
+  expect(res.status).toBe(202); // autopilot is now an async plan job (relay resolves it inline)
+  const { jobId, epicId } = await res.json() as { jobId: string; epicId: string };
+  const job = await (await app.request(`/plan/${jobId}`)).json() as { status: string };
+  expect(job.status).toBe('done');
+  const epic = tasks.get(epicId)!;
+  expect(epic.type).toBe('epic');
+  expect(epic.title).toBe('build app');
+  const phases = tasks.descendants(epicId);
+  expect(phases.map(p => p.title)).toEqual(['Schema', 'API']);
+  expect(phases.every(p => p.parent_id === epicId)).toBe(true);
   // phase 2 depends on phase 1
-  expect(tasks.depsAmong(body.phases.map(p => p.id))).toEqual([{ task_id: body.phases[1].id, depends_on_id: body.phases[0].id }]);
+  expect(tasks.depsAmong(phases.map(p => p.id))).toEqual([{ task_id: phases[1].id, depends_on_id: phases[0].id }]);
 });
 
 it('POST /tasks/plan stores the model-assigned agent name as a label', async () => {
@@ -353,8 +357,8 @@ it('POST /tasks/plan stores the model-assigned agent name as a label', async () 
     makeInference: () => new FakeInference('[{"title":"Schema","type":"task","agent":"Nova"}]'),
   });
   const res = await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'build app' }) });
-  const body = await res.json() as { phases: { labels: string[] }[] };
-  expect(body.phases[0].labels).toContain('agent:Nova');
+  const { epicId } = await res.json() as { epicId: string };
+  expect(tasks.descendants(epicId)[0].labels).toContain('agent:Nova');
 });
 
 it('POST /tasks/plan with supplied phases skips the LLM and needs no key', async () => {
@@ -384,8 +388,11 @@ it('POST /tasks/plan dryRun returns phases without creating any tasks', async ()
     makeInference: () => new FakeInference('[{"title":"A","type":"task"},{"title":"B"}]'),
   });
   const res = await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'preview me', dryRun: true, prompt: 'custom {{goal}}' }) });
-  expect(res.status).toBe(200);
-  expect((await res.json() as { phases: { title: string }[] }).phases.map(p => p.title)).toEqual(['A', 'B']);
+  expect(res.status).toBe(202);
+  const { jobId } = await res.json() as { jobId: string };
+  const job = await (await app.request(`/plan/${jobId}`)).json() as { status: string; phases: { title: string }[] };
+  expect(job.status).toBe('done');
+  expect(job.phases.map(p => p.title)).toEqual(['A', 'B']);
   expect(await (await app.request('/tasks')).json()).toEqual([]); // nothing persisted
 });
 
@@ -402,10 +409,10 @@ it('POST /tasks/plan with engage=true engages a mission on the epic', async () =
     makeInference: () => new FakeInference('[{"title":"Only phase"}]'),
   });
   const res = await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'ship it', engage: true }) });
-  expect(res.status).toBe(201);
-  const body = await res.json() as { epic: { id: string }; mission: { id: string } };
-  expect(body.mission.id).toBe('m-x');
-  expect(engagedEpic).toBe(body.epic.id);
+  expect(res.status).toBe(202);
+  const { epicId } = await res.json() as { epicId: string };
+  // The relay path finalizes (and engages) inline before responding, so the mission is engaged now.
+  expect(engagedEpic).toBe(epicId);
 });
 
 it('POST /tasks/:epicId/phases inserts a phase chained after the epic\'s current tail', async () => {
@@ -440,11 +447,12 @@ it('POST /tasks/:epicId/phases replans a residual goal into chained phases', asy
   });
   const plan = await (await app.request('/tasks/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'epic', phases: [{ title: 'One' }] }) })).json() as { epic: { id: string }; phases: { id: string }[] };
   const res = await app.request(`/tasks/${plan.epic.id}/phases`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'do more' }) });
-  expect(res.status).toBe(201);
-  const body = await res.json() as { phases: { id: string; title: string }[] };
-  expect(body.phases.map(p => p.title)).toEqual(['R1', 'R2']);
-  expect(tasks.depsFor(body.phases[0].id)).toEqual([plan.phases[0].id]); // R1 after the existing phase
-  expect(tasks.depsFor(body.phases[1].id)).toEqual([body.phases[0].id]); // R2 after R1
+  expect(res.status).toBe(202); // residual replan is now an async plan job (relay resolves inline)
+  const all = tasks.descendants(plan.epic.id);
+  const r1 = all.find(t => t.title === 'R1')!; const r2 = all.find(t => t.title === 'R2')!;
+  expect([r1, r2].map(p => p.title)).toEqual(['R1', 'R2']);
+  expect(tasks.depsFor(r1.id)).toEqual([plan.phases[0].id]); // R1 after the existing phase
+  expect(tasks.depsFor(r2.id)).toEqual([r1.id]); // R2 after R1
 });
 
 it('POST /tasks/:epicId/phases returns 404 for a non-epic id', async () => {
