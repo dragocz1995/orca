@@ -2,6 +2,8 @@
 
 ## Running tests
 
+### Daemon tests (~232 cases)
+
 ```bash
 # All tests
 npm test
@@ -16,9 +18,22 @@ npx vitest tests/store/taskStore.test.ts
 npx vitest --coverage
 ```
 
+### Web frontend tests (~236 cases)
+
+```bash
+cd web
+npm test
+npm run test:watch   # watch mode
+```
+
+Uses:
+- **Vitest** — test runner
+- **Testing Library** — React component tests
+- **MSW** — API mocking (intercepts fetch)
+
 ## Test structure
 
-Tests mirror the `src/` directory structure:
+Daemon tests mirror the `src/` directory structure:
 
 ```
 tests/
@@ -42,7 +57,7 @@ Tests never hit real tmux, real databases (beyond in-memory SQLite), or real LLM
 
 | Interface | Real | Fake |
 |---|---|---|
-| `TmuxDriver` | `RealTmuxDriver` (tmux CLI) | In-memory session simulation |
+| `TmuxDriver` | `RealTmuxDriver` (tmux CLI) | `FakeTmuxDriver` (in-memory session simulation) |
 | `Clock` | `SystemClock` (real time) | `FakeClock` (manual time control) |
 | `InferenceClient` | `RelayClient` (HTTP relay) | `FakeInference` (predictable responses) |
 
@@ -83,18 +98,6 @@ const store = new TaskStore(db);
 
 No temporary files, fast setup/teardown.
 
-## Web frontend tests
-
-```bash
-cd web
-npm test
-```
-
-Uses:
-- **Vitest** — test runner
-- **Testing Library** — React component tests
-- **MSW** — API mocking (intercepts fetch)
-
 ## Writing tests
 
 ### Pattern
@@ -124,21 +127,3 @@ describe('MyService', () => {
 - tmux CLI interactions (tested via `FakeTmuxDriver`)
 - SQLite internals (tested via `better-sqlite3` itself)
 - Network calls (abstracted behind fakes)
-
-## Continuous Integration
-
-```yaml
-# GitHub Actions example
-name: Test
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: npm ci
-      - run: npm test
-      - run: cd web && npm ci && npm test
-```

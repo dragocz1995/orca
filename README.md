@@ -58,19 +58,22 @@ The web UI ships a **Monaco-based code editor** in the Projects page — browse,
 
 ```
 src/
-├── api/          # Hono REST router + SSE event bus
-├── cli/          # orca CLI client
+├── api/          # Hono REST router + SSE event bus + auth middleware
+├── cli/          # orca CLI (ls, ready, sessions, close, plan, overseer)
 ├── daemon/       # Entrypoint + DI bootstrap
-├── deriver/      # Agent terminal monitoring
-├── inference/    # LLM inference relay (reserved)
-├── overseer/     # Mission engine, guardrails, routing
+├── deriver/      # Agent terminal monitoring (5s poll)
+├── git/          # Git integration (status, branches, commits)
+├── inference/    # LLM inference relay (RelayClient + FakeInference)
+├── integrations/ # External integrations (Hermes, CLI detection, project files, usage)
+├── overseer/     # Mission engine, guardrails, routing, scheduler, planner,
+│                 #   stuck detector, decision queue, pilot/overseer agents
 ├── shared/       # Utilities (Clock abstraction)
 ├── spawn/        # Agent launcher (tmux)
-├── store/        # SQLite data layer
+├── store/        # SQLite data layer (tasks, missions, agents, users, projects, events)
 └── tmux/         # tmux driver (real + fake)
-tests/            # Mirrors src/ structure
-web/              # Next.js frontend
-docs/             # Design docs, specs, follow-ups
+tests/            # Mirrors src/ structure (~232 tests)
+web/              # Next.js frontend (~236 tests)
+docs/             # Documentation tree
 ```
 
 ## CLI
@@ -87,6 +90,15 @@ orca sessions
 
 # Close a task with result summary
 orca close <taskId> --summary "what was done" --outcome ok
+
+# Submit a plan (used by the Pilot agent)
+orca plan submit --phases '[...]'
+
+# Overseer: long-poll for a pending decision
+orca overseer poll
+
+# Overseer: submit a verdict
+orca overseer decide --id <id> --approve --confidence 0.85 --rationale "..."
 ```
 
 The CLI auto-starts the daemon if it isn't already running.
@@ -107,44 +119,51 @@ The daemon exposes a Hono server on port 4400:
 | Method | Path | Description |
 |---|---|---|---|
 | `GET` | `/health` | Health check |
+| `GET` | `/setup` | Setup status (onboarding vs login) |
 | `POST` | `/auth/login` | Login (username + password) |
 | `POST` | `/auth/logout` | Revoke token |
 | `GET` | `/auth/me` | Current user |
+| `PATCH` | `/auth/me` | Update profile (name, email, default_exec) |
+| `POST` | `/auth/me/avatar` | Upload avatar image |
 | `GET` | `/users` | List users |
 | `POST` | `/users` | Create user |
+| `PATCH` | `/users/:id` | Edit user (admin: is_admin, allowed_execs) |
 | `DELETE` | `/users/:id` | Delete user |
+| `GET` | `/users/:id/avatar` | User avatar image |
 | `GET` | `/users/:id/projects` | User's assigned projects (admin) |
 | `POST` | `/users/:id/projects` | Assign project to user (admin) |
 | `DELETE` | `/users/:id/projects/:pid` | Unassign project (admin) |
 | `GET` | `/projects` | List projects |
 | `POST` | `/projects` | Create project |
+| `PATCH` | `/projects/:id` | Edit project path/notes (admin) |
 | `GET` | `/projects/:id/git` | Git info for project |
 | `GET` | `/projects/:id/files` | Project file tree |
+| `GET` | `/projects/:id/raw` | Binary file bytes (image preview) |
 | `GET` | `/projects/:id/file` | Read a project file |
 | `PUT` | `/projects/:id/file` | Write a project file |
+| `POST` | `/projects/:id/new-file` | Create a file |
+| `POST` | `/projects/:id/dir` | Create a directory |
+| `POST` | `/projects/:id/rename` | Rename/move file or dir |
+| `POST` | `/projects/:id/copy` | Copy file or dir |
+| `DELETE` | `/projects/:id/entry` | Delete file or dir |
 | `GET` | `/projects/:id/diff` | Per-file working diff |
+| `GET` | `/projects/:id/head` | File content at HEAD |
 | `GET` | `/projects/:id/changed` | Changed files list |
 | `GET` | `/projects/:id/changes` | Full working diff |
 | `GET` | `/projects/:id/commit/:hash` | Commit files + diff |
 | `GET` | `/projects/:id/commit/:hash/diff` | File diff in a commit |
-| `GET` | `/projects/:id/files` | Project file tree (for the editor) |
-| `GET` | `/projects/:id/file?path=` | Read a file's contents |
-| `PUT` | `/projects/:id/file` | Write a file's contents |
-| `GET` | `/projects/:id/diff?path=` | Working-tree diff for a file |
-| `GET` | `/users/:id/projects` | A user's assigned projects (admin only) |
-| `POST` | `/users/:id/projects` | Assign a user to a project (admin only) |
-| `DELETE` | `/users/:id/projects/:pid` | Unassign (admin only) |
-| `GET` | `/tasks/:id/usage` | Token/cost usage for a task's agent run |
 | `GET` | `/tasks` | List tasks |
 | `POST` | `/tasks` | Create task |
 | `GET` | `/tasks/ready` | Tasks with all deps met |
 | `GET` | `/tasks/deps` | All task dependencies |
-| `GET` | `/tasks/:id/usage` | Token/cost usage for a task |
+| `GET` | `/tasks/:id/deps` | Dependencies for a task |
+| `GET` | `/tasks/:id/usage` | Token/cost usage |
 | `PATCH` | `/tasks/:id` | Update task (status, title, deps, exec) |
 | `DELETE` | `/tasks/:id` | Delete task |
-| `GET` | `/tasks/:id/deps` | Dependencies for a task |
 | `POST` | `/tasks/plan` | AI goal decomposition |
-| `POST` | `/tasks/:epicId/phases` | Insert/replan phases on an epic |
+| `GET` | `/plan/:jobId` | Poll async plan job |
+| `POST` | `/plan/:jobId/submit` | Submit plan (Pilot agent) |
+| `POST` | `/tasks/:epicId/phases` | Insert/replan phases |
 | `POST` | `/sessions` | Spawn agent session |
 | `GET` | `/sessions` | List active sessions |
 | `GET` | `/sessions/:name/stream` | SSE terminal stream |
@@ -156,6 +175,8 @@ The daemon exposes a Hono server on port 4400:
 | `POST` | `/missions` | Create mission |
 | `GET` | `/missions/:id` | Mission detail |
 | `PATCH` | `/missions/:id` | Pause / resume mission |
+| `GET` | `/missions/:id/overseer/next` | Overseer long-poll |
+| `POST` | `/missions/:id/overseer/decide` | Overseer verdict |
 | `DELETE` | `/missions/:id` | Disengage mission |
 | `GET` | `/activity` | Activity event log |
 | `GET` | `/config` | Get daemon config |
@@ -200,7 +221,8 @@ cd web && npm install && npm run dev
 ## Docs
 
 | Document | Contents |
-|---|---|
+|---|---|---|
+| [docs/index.md](docs/index.md) | Entry point with full index and cross-links |
 | [CONCEPTS.md](docs/CONCEPTS.md) | Domain model — tasks, missions, autonomy, guardrails, deriver, routing |
 | [API.md](docs/API.md) | Full REST API reference with request/response examples |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module descriptions, data flow, guardrails, autonomy levels |
@@ -211,7 +233,6 @@ cd web && npm install && npm run dev
 | [TESTING.md](docs/TESTING.md) | Test architecture, fakes, writing tests, CI |
 | [SECURITY.md](docs/SECURITY.md) | Auth model, guardrails, decision engine, infrastructure security |
 | [GUIDES.md](docs/GUIDES.md) | Advanced patterns — task binding, autopilot planning, events, ANSI, calendar, toast |
-| [FOLLOWUPS.md](docs/FOLLOWUPS.md) | Deferred features and known limitations |
 
 ## Development
 

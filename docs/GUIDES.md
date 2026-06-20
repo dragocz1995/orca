@@ -52,7 +52,7 @@ The `POST /tasks/plan` endpoint uses an LLM to decompose a goal into ordered pha
 
 ### Planning modes
 
-#### Autopilot (API key configured)
+#### Autopilot — Relay backend (API key configured)
 
 1. Prompt template from `src/overseer/autopilotPrompt.md` is sent to the LLM
 2. LLM returns JSON array of 3–7 phases with title, type, agent name, details
@@ -66,9 +66,13 @@ The `POST /tasks/plan` endpoint uses an LLM to decompose a goal into ordered pha
 - Each phase gets a unique friendly agent name (Nova, Atlas, Iris, ...)
 - Phases ordered so each builds on the previous
 
+#### Autopilot — Agent backend (Pilot)
+
+When `config.autopilot.pilotExec` is set, a **Pilot agent** spawns in the repo instead of using the relay. The Pilot reads the codebase, decomposes the goal, and submits phases via `orca plan submit --phases '<json>'`. Returns `202 Accepted` with a `jobId` that the web UI polls via `GET /plan/:jobId`.
+
 #### Manual fallback (no API key)
 
-The UI shows a fallback where the user can manually type phase titles. Each line becomes a task, sequentially chained.
+Pass `phases: [{title, type?}]` — no LLM, no key needed. Synchronous 201 response.
 
 ### Phase types
 
@@ -78,6 +82,31 @@ The UI shows a fallback where the user can manually type phase titles. Each line
 | `feature` | New feature |
 | `bug` | Bug fix |
 | `chore` | Maintenance, refactoring |
+
+---
+
+## Overseeer (decision gate)
+
+Two decision paths, controlled by `config.autopilot.overseerExec`:
+
+### Relay path (default)
+
+`overseerExec` is empty. Decisions go through `RelayClient` using `config.autopilot.overseerModel`. When the LLM is unavailable, responses default to blanket approve.
+
+### Agent path (parked overseer)
+
+`overseerExec` is set (e.g., `sonnet`). On mission engage, one **Overseer agent** is parked per active mission. It runs a long-poll loop:
+1. `orca overseer poll` — blocks until a decision is needed
+2. Judge the request
+3. `orca overseer decide --id <id> --approve --confidence 0.85 --rationale "..."` — submits the verdict
+
+The local destructive heuristic (computed at enqueue time) is **always authoritative**. The decision queue (`DecisionQueue`) is a per-mission FIFO with three kinds:
+
+| Kind | Source | Context |
+|---|---|---|
+| `task` | Mission engine tick | Task title, description, labels, triggered guardrails |
+| `prompt` | Deriver | Permission prompt question, context, options |
+| `review` | PATCH close handler (post-done) | Task title, outcome, summary |
 
 ---
 
@@ -92,6 +121,7 @@ All state changes are recorded in SQLite `events` table (`src/store/eventStore.t
 | `task` | Created, status changed, deleted | task ID + new status |
 | `mission` | Engaged, paused, resumed, disengaged | mission ID + new state |
 | `signal` | Deriver detected state change | session name + signal type |
+| `plan` | Plan job status (planning, done, failed) | job ID + status |
 
 ### EventStore API
 
@@ -105,13 +135,7 @@ class EventStore {
 
 ### Activity timeline
 
-The web UI Timeline page queries `GET /activity?limit=50` and renders:
-
-- **Axis view**: horizontal timeline, last 12 hours, dots scaled by frequency
-- **Feed view**: chronological list with icons, badges, relative timestamps
-- **Filter**: All / Tasks / Missions / Signals
-
-Events are grouped: identical events within 5 minutes collapse into `×N` to prevent flood from repeated deriver signals.
+The web UI Timeline page queries `GET /activity?limit=50` and renders axis view (horizontal dot plot), swimlanes (per-target tracks), and feed view (collapsible per-target groups). Events within 5 minutes of same type/detail/target collapse into `×N` groups.
 
 ---
 
@@ -131,14 +155,6 @@ export function composeFrame(pane: string): string {
 
 All three sequences are combined into a single `term.write()` call. Xterm.js processes them in one frame, so the user never sees a flash between clear and repaint.
 
-The `nextPane()` deduplication prevents unnecessary React re-renders when the frame hasn't changed:
-
-```typescript
-function nextPane(prev: string, next: string): string {
-  return prev === next ? prev : next; // same reference → React bailout
-}
-```
-
 ---
 
 ## Client-side ANSI parsing
@@ -151,7 +167,6 @@ The `ansi.ts` module parses terminal output with ANSI escape codes into colored 
 - **True color (24-bit)**: `\x1b[38;2;R;G;Bm` — RGB foreground color
 - **CSI stripping**: Non-color sequences (bold, italic, underline, cursor movement) are removed
 - **SGR parser**: State machine parsing color codes
-- **Scope**: Only foreground color — background colors and text styles are intentionally ignored for preview readability
 
 ### Output
 
@@ -164,9 +179,9 @@ Used by `SessionCard` for inline live preview without full Xterm.js.
 
 ---
 
-## Dependency graph
+## Task flow graph
 
-The `DependencyGraph` component (`web/modules/missions/DependencyGraph.tsx`) renders mission task dependencies as an SVG node-link diagram.
+The `TaskFlow` component (`web/modules/missions/TaskFlow.tsx`) renders mission task dependencies as a topological phase layout with SVG edges.
 
 ### Layout algorithm
 
@@ -292,27 +307,11 @@ const EXEC_PRESETS = [
 
 Each preset maps a human-readable label to an `exec:<value>` that the daemon's `resolveExecutor()` understands.
 
-### Provider metadata
-
-The settings providers panel defines:
-
-```typescript
-interface ProviderDef {
-  id: string;       // matches exec value
-  label: string;    // display name
-  color: string;    // accent color
-  bin: string;      // binary hint
-  args: string;     // argument hint
-}
-```
-
-Used to render provider logos, tags, and documentation hints in settings.
-
 ---
 
 ## Inference client interface
 
-The inference layer (`src/inference/types.ts`) defines a minimal interface for LLM backends:
+The inference layer (`src/inference/types.ts`) defines an interface for LLM backends:
 
 ```typescript
 interface InferenceClient {
@@ -324,7 +323,7 @@ interface InferenceClient {
 
 | Implementation | Purpose |
 |---|---|
-| `RelayClient` | Production — relays to MIMO/OpenAI-compatible API |
+| `RelayClient` | Production — relays to OpenAI-compatible API |
 | `FakeInference` | Tests — returns predictable responses |
 
 ### Usage
@@ -369,7 +368,7 @@ export function taskExec(labels: string[]): string | undefined {
 - Labels are a general-purpose key-value store on tasks
 - Avoids schema migration for each new attribute
 - Frontend and backend use the same resolution logic
-- Multiple labels can coexist (exec + exec + agent + guardrail triggers)
+- Multiple labels can coexist (exec + agent + guardrail triggers)
 
 ### Resolution order
 
@@ -399,3 +398,27 @@ const conflicts = tasks.filter(t =>
   t.scheduled_at && Math.abs(new Date(t.scheduled_at) - new Date(newTask.scheduled_at)) < 10 * 60 * 1000
 );
 ```
+
+---
+
+## Post-done review
+
+When `config.autopilot.reviewOnDone` is true and an agent overseer is configured, closing a mission phase triggers a **post-done review**:
+
+1. The close handler enqueues a `review`-kind decision with the task's title, outcome, and summary
+2. The parked overseer judges the result
+3. If the verdict is negative (rejected or destructive), all dependent (next) phases are set `blocked`
+
+This is non-blocking and must never delay the agent's close. Default off.
+
+---
+
+## Async planning jobs
+
+When `POST /tasks/plan` uses the autopilot relay or agent backend, it returns asynchronously:
+
+1. Returns `202 Accepted` with a `jobId`
+2. The web UI polls `GET /plan/:jobId` (every 1s while `planning`)
+3. A `plan` SSE event is emitted on transition `planning → done | failed`
+4. When done, the epic and phases are available via `GET /plan/:jobId`
+5. The Pilot agent path: spawns a Pilot in the repo, which reads the codebase and calls `POST /plan/:jobId/submit`

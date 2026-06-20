@@ -1,12 +1,57 @@
 # API Reference
 
-The Orca daemon exposes a REST API on port 4400. All endpoints return JSON. The API supports CORS for the web frontend.
+The Orca daemon exposes a REST API. All endpoints return JSON. CORS is enabled for the web frontend.
 
 **Base URL:** `http://localhost:4400`
 
 ---
 
-## Health
+## Authentication & access control
+
+### Auth header
+
+Every route except `GET /health` and `POST /auth/login` requires authentication:
+
+```
+Authorization: Bearer <token>
+```
+
+SSE endpoints accept the token as a query parameter (EventSource does not support custom headers):
+
+```
+GET /events?token=<token>
+```
+
+### Executor validation
+
+Config has a global `allowedExecs` list. If an `exec` string is passed on any request, it must be in
+that list or the request is rejected with `400 { "error": "exec not allowed" }`.
+
+Additionally, a **per-user allowlist** may be configured (admin-owned). When a non-admin user has a
+non-empty `allowed_execs`, they may only use exec strings from that list. Violations return
+`403 { "error": "exec not allowed for user" }`.
+
+### Multi-tenancy / access control
+
+Single-user mode (no `userProjects` store) — all authenticated users see everything.
+
+Multi-user mode (with `userProjects` store) adds three gates:
+
+1. **Global gate** — a non-admin user must be assigned to the daemon's home project to access
+   `/tasks`, `/missions`, `/sessions`, `/activity`, or `/events`. Unassigned users get a blanket
+   `403 { "error": "forbidden" }` on those route families.
+
+2. **Per-project gate** — even users who pass the global gate may only see/operate projects they
+   are explicitly assigned to. The admin sees everything.
+
+3. **Per-user exec allowlist** — the non-admin's `allowed_execs` restricts which exec strings they
+   may use. An empty list (or an admin) means unrestricted (subject to the global `allowedExecs`).
+
+---
+
+## Health & setup
+
+### Health check
 
 ```http
 GET /health
@@ -19,6 +64,19 @@ Public — no authentication required.
 { "ok": true }
 ```
 
+### Setup status
+
+```http
+GET /setup
+```
+
+Public — no authentication required. Returns whether the daemon has no users yet (onboarding mode).
+
+**Response `200`**
+```json
+{ "needsSetup": true }
+```
+
 ---
 
 ## Authentication
@@ -29,13 +87,10 @@ Public — no authentication required.
 POST /auth/login
 Content-Type: application/json
 
-{
-  "username": "admin",
-  "password": "secret"
-}
+{ "username": "admin", "password": "secret" }
 ```
 
-Returns a bearer token for subsequent requests. Public — no auth required.
+Returns a bearer token. Public — no auth required.
 
 **Response `200`**
 ```json
@@ -56,7 +111,7 @@ Returns a bearer token for subsequent requests. Public — no auth required.
 POST /auth/logout
 ```
 
-Revokes the current bearer token. Requires `Authorization: Bearer <token>` header.
+Revokes the current bearer token.
 
 **Response `200`**
 ```json
@@ -73,25 +128,92 @@ Returns the authenticated user.
 
 **Response `200`**
 ```json
-{ "user": { "id": 1, "username": "admin", "created_at": "2026-06-17 12:00:00" } }
+{ "user": { "id": 1, "username": "admin", "name": null, "email": null, ... } }
 ```
 
-### Auth header
+### Update profile
 
-All endpoints except `/health` and `POST /auth/login` require authentication:
+```http
+PATCH /auth/me
+Content-Type: application/json
 
-```
-Authorization: Bearer <token>
+{
+  "name": "My Name",
+  "email": "me@example.com",
+  "default_exec": "sonnet"
+}
 ```
 
-Or via query parameter (used by SSE connections):
+Updates the authenticated user's profile. The `default_exec` must be in the daemon's
+`allowedExecs` and the user's own `allowed_execs`.
+
+**Response `200`**
+```json
+{ "name": "My Name", "email": "me@example.com", "default_exec": "sonnet" }
 ```
-GET /events?token=<token>
+
+**Error `400`**
+```json
+{ "error": "exec not allowed" }
 ```
+
+### Upload avatar
+
+```http
+POST /auth/me/avatar
+Content-Type: multipart/form-data
+
+--boundary
+Content-Disposition: form-data; name="avatar"; filename="photo.png"
+Content-Type: image/png
+
+<binary data>
+--boundary--
+```
+
+Uploads a profile avatar. Supported types: PNG, JPEG, WebP, GIF (max 2 MB).
+
+**Response `200`**
+```json
+{ "avatar": "1.png", ... }
+```
+
+**Error `400`**
+```json
+{ "error": "avatars unavailable" }
+```
+
+**Error `400`**
+```json
+{ "error": "avatar file required" }
+```
+
+**Error `413`**
+```json
+{ "error": "image too large (max 2MB)" }
+```
+
+**Error `415`**
+```json
+{ "error": "unsupported image type" }
+```
+
+### Get user avatar
+
+```http
+GET /users/:id/avatar?token=<token>
+```
+
+Serves the avatar image bytes. Auth token passed as query param so it works as an `<img src="">`.
+Returns raw image with correct content-type.
+
+**Response `200`** — binary image data with content-type header.
+
+**Error `404`** — user not found, no avatar, or avatars directory not configured.
 
 ---
 
-## Users
+## Users (admin)
 
 ### List users
 
@@ -102,7 +224,7 @@ GET /users
 **Response `200`**
 ```json
 [
-  { "id": 1, "username": "admin", "created_at": "2026-06-17 12:00:00" }
+  { "id": 1, "username": "admin", "created_at": "2026-06-17 12:00:00", ... }
 ]
 ```
 
@@ -112,10 +234,7 @@ GET /users
 POST /users
 Content-Type: application/json
 
-{
-  "username": "dev",
-  "password": "secure-pass"
-}
+{ "username": "dev", "password": "secure-pass" }
 ```
 
 **Response `201`**
@@ -128,13 +247,48 @@ Content-Type: application/json
 { "error": "username taken" }
 ```
 
+### Edit user
+
+```http
+PATCH /users/:id
+Content-Type: application/json
+
+{
+  "is_admin": true,
+  "allowed_execs": ["sonnet", "codex:gpt-5.4"]
+}
+```
+
+Admin-only. Toggles `is_admin` and/or updates the per-user model allow-list. Cannot demote the last
+admin. `allowed_execs` items not in the global `allowedExecs` are silently dropped.
+
+**Response `200`**
+```json
+{ "id": 2, "username": "dev", "is_admin": true, "allowed_execs": ["sonnet", "codex:gpt-5.4"], ... }
+```
+
+**Error `400`**
+```json
+{ "error": "cannot demote the last admin" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
+**Error `404`**
+```json
+{ "error": "user not found" }
+```
+
 ### Delete user
 
 ```http
 DELETE /users/:id
 ```
 
-Cannot delete the last user.
+Cannot delete the last user or the admin (admin must be transferred first).
 
 **Response `200`**
 ```json
@@ -146,15 +300,74 @@ Cannot delete the last user.
 { "error": "cannot delete the last user" }
 ```
 
+**Error `400`**
+```json
+{ "error": "cannot delete the admin" }
+```
+
+---
+
+## User ↔ Project assignments (admin)
+
+Assignments gate which projects a non-admin user may see/operate. The admin always has full access.
+Only available when `userProjects` store is configured.
+
+### List a user's projects
+
+```http
+GET /users/:id/projects
+```
+
+**Response `200`**
+```json
+[1, 3]
+```
+
+**Error `403`** — caller is not admin.
+
+### Assign a project
+
+```http
+POST /users/:id/projects
+Content-Type: application/json
+
+{ "projectId": 3 }
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "projectId required" }
+```
+
+### Unassign a project
+
+```http
+DELETE /users/:id/projects/:pid
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
 ---
 
 ## Projects
+
+Multi-project mode. When `projectStore` is absent, only the daemon's home project exists.
 
 ### List projects
 
 ```http
 GET /projects
 ```
+
+In multi-user mode, non-admin users see only their assigned projects.
 
 **Response `200`**
 ```json
@@ -176,14 +389,57 @@ Content-Type: application/json
 }
 ```
 
+Admin-only when multi-user auth is on.
+
 **Response `201`**
 ```json
 { "id": 1, "slug": "my-project", "path": "/var/www/my-project", "notes": "Optional pilot info" }
 ```
 
+**Error `400`**
+```json
+{ "error": "projects unavailable" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
 **Error `409`**
 ```json
 { "error": "slug taken" }
+```
+
+### Edit project
+
+```http
+PATCH /projects/:id
+Content-Type: application/json
+
+{ "path": "/var/www/my-project", "notes": "Updated pilot notes" }
+```
+
+Admin-only (when multi-user mode). Updates the path and/or Pilot notes. Slug stays immutable.
+
+**Response `200`**
+```json
+{ "id": 1, "slug": "my-project", "path": "/var/www/my-project", "notes": "Updated pilot notes" }
+```
+
+**Error `400`**
+```json
+{ "error": "projects unavailable" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
+**Error `404`**
+```json
+{ "error": "project not found" }
 ```
 
 ### Git info
@@ -214,15 +470,308 @@ Returns git status, branches, and recent commits for the project path.
 }
 ```
 
+**Error `400`**
+```json
+{ "error": "projects unavailable" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
+**Error `404`**
+```json
+{ "error": "project not found" }
+```
+
+---
+
+## Project file editor
+
+Browse, read, and write files in a project root, plus diffs. All paths are validated to stay inside
+the project root (symlink-escape safe). Every endpoint gated by `canAccessProject`.
+
+All endpoints return:
+- `400` `{ "error": "projects unavailable" }` — project store not configured
+- `403` `{ "error": "forbidden" }` — caller cannot access this project
+- `404` `{ "error": "project not found" }` — unknown project id
+
+### File tree
+
+```http
+GET /projects/:id/files
+```
+
+Flat list of files and directories, skipping `.git`, `node_modules`, `.next`, `dist`, etc.
+
+**Response `200`**
+```json
+[
+  { "path": "src", "type": "dir" },
+  { "path": "src/index.ts", "type": "file" }
+]
+```
+
+### Read a file
+
+```http
+GET /projects/:id/file?path=src/index.ts
+```
+
+Refused for files > 2 MB.
+
+**Response `200`**
+```json
+{ "path": "src/index.ts", "content": "console.log('hello');\n" }
+```
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+```json
+{ "error": "invalid path" }
+```
+
+### Write a file
+
+```http
+PUT /projects/:id/file
+Content-Type: application/json
+
+{ "path": "src/index.ts", "content": "console.log('updated');\n" }
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "path and content required" }
+```
+```json
+{ "error": "invalid path" }
+```
+
+### Binary file (image preview)
+
+```http
+GET /projects/:id/raw?path=src/logo.png
+```
+
+Returns raw file bytes for binary previews. Content-type from extension. Supports PNG, JPEG, WebP,
+GIF, SVG, ICO, BMP, AVIF.
+
+**Response `200`** — binary image data.
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+
+**Error `415`**
+```json
+{ "error": "not previewable" }
+```
+
+### Create file
+
+```http
+POST /projects/:id/new-file
+Content-Type: application/json
+
+{ "path": "src/new.ts" }
+```
+
+Creates an empty file.
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+
+### Create directory
+
+```http
+POST /projects/:id/dir
+Content-Type: application/json
+
+{ "path": "src/components" }
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+
+### Rename / move
+
+```http
+POST /projects/:id/rename
+Content-Type: application/json
+
+{ "from": "src/old.ts", "to": "src/new.ts" }
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "from and to required" }
+```
+
+### Copy
+
+```http
+POST /projects/:id/copy
+Content-Type: application/json
+
+{ "from": "src/original.ts", "to": "src/backup.ts" }
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "from and to required" }
+```
+
+### Delete entry
+
+```http
+DELETE /projects/:id/entry?path=src/old.ts
+```
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+
+### Per-file working diff
+
+```http
+GET /projects/:id/diff?path=src/index.ts
+```
+
+**Response `200`**
+```json
+{ "diff": "diff --git a/src/index.ts b/src/index.ts\n…" }
+```
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+
+### File at HEAD
+
+```http
+GET /projects/:id/head?path=src/index.ts
+```
+
+Content of a file as it exists in the latest commit (before working-tree changes).
+
+**Response `200`**
+```json
+{ "content": "console.log('original');\n" }
+```
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+
+### Changed files
+
+```http
+GET /projects/:id/changed
+```
+
+Returns the list of files changed in the working tree.
+
+**Response `200`**
+```json
+{ "changed": ["src/index.ts", "README.md"] }
+```
+
+### Full working diff
+
+```http
+GET /projects/:id/changes
+```
+
+Combined diff of all unstaged changes.
+
+**Response `200`**
+```json
+{ "diff": "diff --git a/…\n…" }
+```
+
+### Commit files + diff
+
+```http
+GET /projects/:id/commit/:hash
+```
+
+**Response `200`**
+```json
+{ "files": ["src/index.ts"], "diff": "diff --git …" }
+```
+
+### File diff in a commit
+
+```http
+GET /projects/:id/commit/:hash/diff?path=src/index.ts
+```
+
+**Response `200`**
+```json
+{ "diff": "diff --git …" }
+```
+
+**Error `400`**
+```json
+{ "error": "path required" }
+```
+
 ---
 
 ## Tasks
+
+The basic unit of work. Each task belongs to a project and has a `type`, `status`, `priority`, and
+optional parent/child relationships (dependencies).
 
 ### List tasks
 
 ```http
 GET /tasks
 ```
+
+In multi-user mode, returns only tasks belonging to the caller's accessible projects.
 
 **Response `200`**
 ```json
@@ -261,12 +810,14 @@ Content-Type: application/json
   "description": "Add dark mode support to the app",
   "scheduled_at": "2026-06-20T10:00:00Z",
   "autostart": 1,
-  "deps": ["other-task-id"]
+  "deps": ["other-task-id"],
+  "project_id": 1
 }
 ```
 
 Only `title` is required. If `id` is omitted, one is generated as `<project-slug>-<random-hex>`.
-`deps` optionally sets task dependencies immediately.
+`deps` optionally sets task dependencies immediately. `project_id` defaults to the caller's home
+project; arbitrary projects require access.
 
 **Response `201`**
 ```json
@@ -283,6 +834,16 @@ Only `title` is required. If `id` is omitted, one is generated as `<project-slug
 }
 ```
 
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
+**Error `404`**
+```json
+{ "error": "project not found" }
+```
+
 ### Update task
 
 ```http
@@ -293,17 +854,31 @@ Content-Type: application/json
 ```
 
 Supports partial updates:
-- `status` — triggers SSE event
+- `status` — triggers SSE event. Setting `"closed"` also accepts `result_summary` and `outcome`.
 - `exec` — sets executor label (`exec:<program>`)
 - `title`, `type`, `priority`, `description` — updates metadata
 - `scheduled_at` — schedule for future execution
-- `autostart` — auto-launch when scheduled_at arrives (1 or 0)
+- `autostart` — auto-launch when scheduled_at arrives
 - `deps` — replace task dependencies with the given array
-- `result_summary`, `outcome` — set when closing with summary
+
+When a task with a parent (epic child) is closed and the config has `autopilot.reviewOnDone`
++ `autopilot.overseerExec`, a **post-done review** decision is enqueued for the parked Overseer
+agent. If the verdict rejects the result (or flags it destructive), dependent phases are blocked
+until a human intervenes.
 
 **Response `200`**
 ```json
 { "id": "my-project-a1b2c3d4", "status": "in_progress", ... }
+```
+
+**Error `404`**
+```json
+{ "error": "task not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
 ```
 
 ### Delete task
@@ -312,11 +887,21 @@ Supports partial updates:
 DELETE /tasks/:id
 ```
 
-Removes the task and all its dependency rows from the database. Publishes a cancelled SSE event.
+Removes the task, all dependency rows, and history from the database. Publishes a `cancelled` SSE event.
 
 **Response `200`**
 ```json
 { "ok": true }
+```
+
+**Error `404`**
+```json
+{ "error": "task not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
 ```
 
 ### List ready tasks
@@ -325,7 +910,7 @@ Removes the task and all its dependency rows from the database. Publishes a canc
 GET /tasks/ready
 ```
 
-Returns tasks whose dependencies are all fulfilled. Accepts optional `?limit=N` query parameter.
+Returns tasks whose dependencies are all fulfilled. Accepts optional `?limit=N`.
 
 **Response `200`**
 ```json
@@ -340,7 +925,7 @@ Returns tasks whose dependencies are all fulfilled. Accepts optional `?limit=N` 
 GET /tasks/deps
 ```
 
-Returns all task dependency edges.
+All task dependency edges.
 
 **Response `200`**
 ```json
@@ -355,8 +940,6 @@ Returns all task dependency edges.
 GET /tasks/:id/deps
 ```
 
-Returns dependency IDs for a specific task.
-
 **Response `200`**
 ```json
 ["dependency-task-id-1", "dependency-task-id-2"]
@@ -368,7 +951,8 @@ Returns dependency IDs for a specific task.
 GET /tasks/:id/usage
 ```
 
-Returns token/cost usage for the task's agent run, read from the executor CLI's local session storage (opencode / claude / codex). Portable — no relay needed. Returns `null` when no matching session is found.
+Token/cost usage for the task's agent run, read from the executor CLI's local session storage
+(opencode / claude / codex). Portable — no relay needed. `null` when no matching session is found.
 
 **Response `200`**
 ```json
@@ -382,9 +966,23 @@ Returns token/cost usage for the task's agent run, read from the executor CLI's 
 }
 ```
 
-Returns `{ "usage": null }` when no session matches.
+`{ "usage": null }` when no session matches.
 
-### AI plan
+**Error `404`**
+```json
+{ "error": "not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
+---
+
+## Planning (AI plan decomposition)
+
+### Create plan (autopilot + manual)
 
 ```http
 POST /tasks/plan
@@ -398,38 +996,35 @@ Content-Type: application/json
   "engage": true,
   "phases": [],
   "dryRun": false,
-  "prompt": ""
+  "prompt": "",
+  "project_id": 1
 }
 ```
 
-Decomposes a goal into ordered implementation phases. Each phase becomes a task, chained sequentially via dependencies. Optionally engages a mission immediately.
+Decomposes a goal into ordered implementation phases. Each phase becomes a task, chained
+sequentially via dependencies. Optionally engages a mission immediately.
 
-**Autopilot mode is asynchronous** (it may run a relay model or spawn a repo-aware Pilot agent),
-so it returns a **plan job** (`202`) you poll at `GET /plan/:jobId` (or watch via the `plan` SSE
-event). The relay backend resolves the job inline before responding; an agent backend (`pilotExec`
-set) resolves it once the Pilot submits via `orca plan submit`.
+**Autopilot mode** (no `phases` supplied) is **asynchronous** — returns a plan job (`202`) that you
+poll at `GET /plan/:jobId` or watch via the `plan` SSE event. Two backends:
 
-When `phases` is supplied (**manual mode**), the LLM is bypassed and the supplied phases are
-persisted synchronously — that path still returns `201` with `{ epic, phases, mission? }`. When
-`dryRun` is true the job records the phases without persisting (confirm later with
-`POST /plan/:jobId/confirm`). When `prompt` is set, it overrides the saved autopilot prompt template.
+- **Relay backend** (default): the planner LLM decomposes the goal inline before the first async
+  tick resolves the job. API key (`autopilot.apiKey`) must be set.
+- **Agent backend** (`config.autopilot.pilotExec` set): the **Pilot** spawns as a repo-aware CLI
+  agent that submits phases via `POST /plan/:jobId/submit`. No API key needed.
 
-**Response `202`** (autopilot)
+**Manual mode** (`phases` array supplied): bypasses the LLM entirely. Phases are persisted
+synchronously and the endpoint returns `201` immediately.
+
+`dryRun: true` records phases as a preview without persisting (playground). `prompt` overrides the
+saved autopilot prompt template. `project_id` targets a non-home project.
+
+**Response `202`** (autopilot — relay or agent backend)
 ```json
 { "jobId": "pj-1a2b3c", "epicId": "my-project-..." }
 ```
-The `epicId` is present once the job has persisted its epic (relay path); for an agent backend it
-arrives later via the job/SSE. Poll the job:
 
-```http
-GET /plan/:jobId
-```
-```json
-{ "id": "pj-1a2b3c", "epicId": "my-project-...", "goal": "Build a login page...",
-  "status": "done", "phases": [ { "title": "Set up OAuth provider", "type": "feature" } ] }
-```
-`status` is `planning` | `done` | `failed`. Related routes: `POST /plan/:jobId/submit`
-`{ phases }` (used by the Pilot agent) and `POST /plan/:jobId/confirm` (persist a dryRun preview).
+The `epicId` is present immediately for the relay path; for the agent backend it arrives once the
+Pilot submits.
 
 **Response `201`** (manual mode)
 ```json
@@ -449,6 +1044,16 @@ GET /plan/:jobId
 
 **Error `400`**
 ```json
+{ "error": "exec not allowed" }
+```
+
+**Error `403`**
+```json
+{ "error": "exec not allowed for user" }
+```
+
+**Error `400`**
+```json
 { "error": "autopilot_key_missing" }
 ```
 
@@ -457,36 +1062,73 @@ GET /plan/:jobId
 { "error": "plan_parse_failed" }
 ```
 
-### Insert phases (replan)
+### Poll plan job
 
 ```http
-POST /tasks/:epicId/phases
+GET /plan/:jobId
+```
+
+Returns the current state of an async planning job.
+
+**Response `200`**
+```json
+{
+  "id": "pj-1a2b3c",
+  "epicId": "my-project-...",
+  "goal": "Build a login page with OAuth support",
+  "status": "done",
+  "phases": [
+    { "title": "Set up OAuth provider", "type": "feature" }
+  ]
+}
+```
+
+`status` is `planning` | `done` | `failed`.
+
+**Error `404`**
+```json
+{ "error": "not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
+### Submit plan (Pilot agent)
+
+```http
+POST /plan/:jobId/submit
 Content-Type: application/json
 
 {
   "phases": [
-    { "title": "Add tests", "type": "task" },
-    { "title": "Deploy to staging", "type": "chore" }
-  ],
-  "exec": "sonnet"
+    { "title": "Set up database", "type": "chore" },
+    { "title": "Create endpoints", "type": "feature" }
+  ]
 }
 ```
 
-Appends new phases to an existing epic. Accepts either a `phases` array (manual mode, no API key needed) or a `goal` string (decompose residual goal via LLM). New phases chain after the epic's current tail: the first new phase depends on the existing leaf phases, then new phases chain sequentially.
+Used by the **Pilot agent** to submit phases for an async planning job.
 
-When a mission is already active on this epic, triggers an immediate tick so the next ready phase is picked up.
-
-**Response `201`**
+**Response `200`**
 ```json
-{
-  "epic": { "id": "epic-1", "title": "Build login page", ... },
-  "phases": [ { "id": "phase-4", "title": "Add tests", ... } ]
-}
+{ "id": "pj-1a2b3c", "epicId": "my-project-...", "phases": [...], "status": "done" }
+```
+
+**Error `404`**
+```json
+{ "error": "not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
 ```
 
 **Error `400`**
 ```json
-{ "error": "phases or goal required" }
+{ "error": "invalid phases" }
 ```
 
 ### Insert / replan phases on an existing epic
@@ -503,14 +1145,18 @@ Content-Type: application/json
 }
 ```
 
-Appends new phases to an existing epic. Supply `phases` for a manual insert (no LLM,
-no key needed), or `goal` to **replan** — the autopilot LLM decomposes the residual
-goal into ordered phases. New phases are chained to run **after** the epic's current
-tail phase(s) (those nothing else depends on), then sequentially among themselves. If a
-mission is already active on the epic (`m-<epicId>`), it is ticked immediately so the
-newly-ready phase can spawn. `exec`, when given, is set on every new phase.
+Appends new phases to an existing epic. Two modes:
 
-**Response `201`** — same shape as `POST /tasks/plan` minus `mission`:
+- **Manual insert** (supply `phases` array): no LLM, no API key needed. Persisted synchronously.
+  Returns `201`.
+- **Replan** (supply `goal` string): the autopilot decomposes the residual goal. Async path —
+  returns `202` with a `jobId` scoped to this epic. Supports both relay and agent Pilot backends.
+
+New phases are chained to run **after** the epic's current tail phases (leaves that nothing else
+depends on), then sequentially among themselves. If a mission is already active on the epic
+(`m-<epicId>`), it is ticked immediately. `exec`, when given, is set on every new phase.
+
+**Response `201`** (manual insert)
 ```json
 {
   "epic": { "id": "my-project-...", "type": "epic", ... },
@@ -518,13 +1164,46 @@ newly-ready phase can spawn. `exec`, when given, is set on every new phase.
 }
 ```
 
-**Error `404`** `{ "error": "epic not found" }` — the id is missing or not an epic.
-**Error `400`** `{ "error": "phases or goal required" }`, `{ "error": "exec not allowed" }`, or `{ "error": "autopilot_key_missing" }` (replan without a key).
-**Error `502`** `{ "error": "plan_parse_failed" }` — the LLM output could not be parsed.
+**Response `202`** (replan — async)
+```json
+{ "jobId": "pj-1a2b3c", "epicId": "my-project-..." }
+```
+
+**Error `404`**
+```json
+{ "error": "epic not found" }
+```
+
+**Error `400`**
+```json
+{ "error": "phases or goal required" }
+```
+
+**Error `400`**
+```json
+{ "error": "exec not allowed" }
+```
+
+**Error `403`**
+```json
+{ "error": "exec not allowed for user" }
+```
+
+**Error `400`**
+```json
+{ "error": "autopilot_key_missing" }
+```
+
+**Error `502`**
+```json
+{ "error": "plan_parse_failed" }
+```
 
 ---
 
 ## Sessions
+
+Sessions correspond to tmux sessions running a single coding agent on a single task.
 
 ### List sessions
 
@@ -532,7 +1211,7 @@ newly-ready phase can spawn. `exec`, when given, is set on every new phase.
 GET /sessions
 ```
 
-Returns tmux session names from the host.
+Returns tmux session names filtered to the `orca-` prefix.
 
 **Response `200`**
 ```json
@@ -551,7 +1230,9 @@ Content-Type: application/json
 }
 ```
 
-`exec` must be in the configured `allowedExecs` list. Creates a tmux session named `orca-<agentName>`, sets the task status to `in_progress`, and launches the agent.
+Creates a tmux session named `orca-<agentName>`, sets the task `in_progress`, and launches the
+agent. The agent spawns in the task's own project directory. `exec` is validated against the global
+`allowedExecs` and the per-user `allowed_execs`.
 
 **Response `201`**
 ```json
@@ -563,13 +1244,28 @@ Content-Type: application/json
 { "error": "exec not allowed" }
 ```
 
+**Error `403`**
+```json
+{ "error": "exec not allowed for user" }
+```
+
+**Error `404`**
+```json
+{ "error": "task not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
 ### Stream session output
 
 ```http
 GET /sessions/:name/stream
 ```
 
-Server-Sent Events stream of the tmux pane content. Polls every second.
+Server-Sent Events stream of the tmux pane content (ANSI, last 200 lines, polled every second).
 
 ```
 event: pane
@@ -577,6 +1273,56 @@ data: {"pane": "\u001b[0m\u001b[1m>\u001b[0m \u001b[32morca\u001b[0m ..."}
 ```
 
 The stream stays alive even if the session dies (returns empty frames).
+
+### Capture pane
+
+```http
+GET /sessions/:name/pane?ansi=1
+```
+
+Returns the last 60 lines of the session's pane. When `?ansi=1`, ANSI escape codes are preserved.
+
+**Response `200`**
+```json
+{ "pane": "> orca ready\n1. Fix header\n2. Add footer\n" }
+```
+
+### Send keys
+
+```http
+POST /sessions/:name/keys
+Content-Type: application/json
+
+{ "keys": ["y", "Enter"] }
+```
+
+Sends keystrokes to the tmux session (e.g., approve agent prompts, interrupt with `["C-c"]`).
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+### Resize terminal
+
+```http
+POST /sessions/:name/resize
+Content-Type: application/json
+
+{ "cols": 120, "rows": 40 }
+```
+
+Resizes the tmux window (clamped to 20–500 cols, 5–200 rows).
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "cols and rows required" }
+```
 
 ### Kill session
 
@@ -589,60 +1335,20 @@ DELETE /sessions/:name
 { "ok": true }
 ```
 
-### Send keys
-
-```http
-POST /sessions/:name/keys
-Content-Type: application/json
-
-{ "keys": ["y", "Enter"] }
-```
-
-Sends keystrokes to the tmux session (e.g., to approve agent prompts, interrupt with `["C-c"]`).
-
-**Response `200`**
-```json
-{ "ok": true }
-```
-
-### Capture pane
-
-```http
-GET /sessions/:name/pane?ansi=1
-```
-
-Returns the last 60 lines of the session's tmux pane. When `?ansi=1` is set, returns output with ANSI escape codes preserved.
-
-**Response `200`**
-```json
-{ "pane": "> orca ready\n1. Fix header\n2. Add footer\n" }
-```
-
-### Resize terminal
-
-```http
-POST /sessions/:name/resize
-Content-Type: application/json
-
-{ "cols": 120, "rows": 40 }
-```
-
-Resizes the tmux window to the given dimensions (clamped to 20-500 cols, 5-200 rows).
-
-**Response `200`**
-```json
-{ "ok": true }
-```
-
 ---
 
 ## Missions
+
+A mission drives an epic's child tasks through the autopilot loop — picking ready tasks, spawning
+agents, and processing approvals/guardrails. Missions are identified by `m-<epicId>`.
 
 ### List active missions
 
 ```http
 GET /missions
 ```
+
+In multi-user mode, filtered to the caller's accessible projects.
 
 **Response `200`**
 ```json
@@ -652,7 +1358,7 @@ GET /missions
     "epic_id": "epic-1",
     "autonomy": "L2",
     "max_sessions": 1,
-    "cleared_guardrails": "schema,test",
+    "cleared_guardrails": ["schema"],
     "state": "active",
     "started_at": "2026-06-17 12:00:00"
   }
@@ -665,12 +1371,12 @@ GET /missions
 GET /missions/:id
 ```
 
-Returns the mission with its epic, task tree, dependencies, and progress breakdown.
+Returns the mission with its epic, full task tree, dependencies, and progress breakdown.
 
 **Response `200`**
 ```json
 {
-  "mission": { "id": "m-epic-1", "state": "active", ... },
+  "mission": { "id": "m-epic-1", "state": "active", "cleared_guardrails": ["schema"], ... },
   "epic": { "id": "epic-1", "title": "Build login page", ... },
   "tasks": [
     { "id": "...", "title": "Set up OAuth", "status": "closed" },
@@ -684,6 +1390,16 @@ Returns the mission with its epic, task tree, dependencies, and progress breakdo
     "blocked": 0, "closed": 3, "cancelled": 0
   }
 }
+```
+
+**Error `404`**
+```json
+{ "error": "mission not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
 ```
 
 ### Create mission (engage)
@@ -700,7 +1416,7 @@ Content-Type: application/json
 }
 ```
 
-Triggers an immediate `tick` cycle after creation.
+Triggers an immediate tick cycle — picks ready tasks and spawns agents up to `maxSessions`.
 
 **Response `201`**
 ```json
@@ -709,10 +1425,15 @@ Triggers an immediate `tick` cycle after creation.
   "epic_id": "epic-1",
   "autonomy": "L2",
   "max_sessions": 1,
-  "cleared_guardrails": "schema",
+  "cleared_guardrails": ["schema"],
   "state": "active",
   "started_at": "2026-06-17 12:00:00"
 }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
 ```
 
 ### Pause / Resume mission
@@ -726,11 +1447,21 @@ Content-Type: application/json
 
 Actions: `pause` | `resume`
 
-`resume` triggers an immediate tick cycle.
+`pause` kills running agents and reverts their tasks to `open`. `resume` triggers an immediate tick.
 
 **Response `200`**
 ```json
 { "id": "m-epic-1", "state": "paused", ... }
+```
+
+**Error `404`**
+```json
+{ "error": "mission not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
 ```
 
 ### Disengage mission
@@ -746,25 +1477,69 @@ Sets state to `disengaged` and kills all associated agent sessions.
 { "ok": true }
 ```
 
+**Error `404`**
+```json
+{ "error": "mission not found" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
 ### Overseer long-poll (parked agent)
 
-Used by the parked per-mission Overseer agent when `overseerExec` is configured. The agent blocks on
-`next` until a decision is needed (or a heartbeat), then answers via `decide`. No model output is
-parsed — the agent posts a structured verdict; the local destructive heuristic stays authoritative.
+Used by the parked per-mission Overseer agent when `config.autopilot.overseerExec` is set. The agent
+blocks on `next` until a decision is needed (or a heartbeat), then answers via `decide`. No model
+output is parsed — the agent posts a structured verdict; the local destructive heuristic is
+authoritative and applied at enqueue time.
 
 ```http
-GET /missions/:id/overseer/next
+GET /missions/:id/overseer/next?timeoutMs=30000
 ```
-Blocks until a decision is pending, then returns `{ id, kind, context }` (`kind` ∈ `task` | `prompt`
-| `review`); returns `{}` on a heartbeat. `?timeoutMs=<ms>` (capped 30 000) shortens the long-poll.
+
+Blocks until a decision is pending, then returns the decision request. Returns `{}` on a heartbeat
+(nothing pending). `timeoutMs` caps the long-poll (max 30 000).
+
+**Response `200`**
+```json
+{ "id": "d-abc", "kind": "task", "context": { ... } }
+```
+`kind` ∈ `task` | `prompt` | `review`
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
 
 ```http
 POST /missions/:id/overseer/decide
 Content-Type: application/json
 
-{ "id": "<decision id>", "approve": true, "confidence": 0.8, "rationale": "looks safe" }
+{ "id": "d-abc", "approve": true, "confidence": 0.8, "rationale": "looks safe" }
 ```
-Resolves the awaiting decision. **Response `200`** `{ "ok": true }`, or `404` `{ "error": "no such decision" }`.
+
+Resolves the awaiting decision.
+
+**Response `200`**
+```json
+{ "ok": true }
+```
+
+**Error `400`**
+```json
+{ "error": "id required" }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
+```
+
+**Error `404`**
+```json
+{ "error": "no such decision" }
+```
 
 ---
 
@@ -774,12 +1549,12 @@ Resolves the awaiting decision. **Response `200`** `{ "ok": true }`, or `404` `{
 GET /activity
 ```
 
-Returns a time-ordered event log. Optional filters:
+Time-ordered event log.
 
 | Query param | Description |
 |---|---|
 | `limit` | Max events to return |
-| `type` | Filter by event type: `task`, `mission`, `signal` |
+| `type` | Filter: `task`, `mission`, `signal`, `plan` |
 
 **Response `200`**
 ```json
@@ -788,6 +1563,8 @@ Returns a time-ordered event log. Optional filters:
   { "id": 2, "type": "signal", "target": "orca-SwiftLake0", "detail": "working", "ts": "2026-06-17T12:05:00.000Z" }
 ]
 ```
+
+When no event store is configured, returns `[]`.
 
 ---
 
@@ -825,14 +1602,13 @@ GET /config
 }
 ```
 
-Per-role reasoning backends (all default off → unchanged relay behaviour):
+Per-role reasoning backends (all default off — unchanged relay behaviour):
 
-- **`autopilot.pilotExec`** — when set to an exec string (e.g. `claude:opus`), the **Pilot** runs as a
-  repo-aware CLI agent that submits its plan via `orca plan submit`. Empty → the relay model decomposes inline.
-- **`autopilot.overseerExec`** — when set, the **Overseer** runs as a parked per-mission CLI agent that
-  long-polls `GET /missions/:id/overseer/next`. Empty → decisions use the relay (`overseerModel`/`model`).
-- **`autopilot.reviewOnDone`** — when `true` (and an agent Overseer is configured), each closed mission
-  phase enqueues a post-done review for the Overseer to judge. Default `false`.
+| Field | Effect |
+|---|---|
+| `autopilot.pilotExec` | When set (e.g. `claude:opus`), the **Pilot** runs as a repo-aware CLI agent that submits its plan via `orca plan submit`. Empty → relay model decomposes inline. |
+| `autopilot.overseerExec` | When set, the **Overseer** runs as a parked per-mission CLI agent that long-polls `GET /missions/:id/overseer/next`. Empty → decisions use the relay (`overseerModel` / `model`). |
+| `autopilot.reviewOnDone` | When `true` (and `overseerExec` is set), each closed mission phase enqueues a post-done review for the Overseer. Default `false`. |
 
 ### Update config
 
@@ -840,17 +1616,20 @@ Per-role reasoning backends (all default off → unchanged relay behaviour):
 PUT /config
 Content-Type: application/json
 
-{
-  "allowedExecs": ["sonnet"],
-  "autopilot": { "apiKey": "sk-..." }
-}
+{ "allowedExecs": ["sonnet"], "autopilot": { "apiKey": "sk-..." } }
 ```
 
-All fields are partial — only specified fields are updated.
+Admin-only (when users exist). All fields are partial — only specified fields are updated. During
+setup (no users yet) it is open so onboarding can save providers before the first admin exists.
 
 **Response `200`**
 ```json
-{ "allowedExecs": ["sonnet"], "autopilot": { ... } }
+{ "ok": true }
+```
+
+**Error `403`**
+```json
+{ "error": "forbidden" }
 ```
 
 ---
@@ -861,7 +1640,7 @@ All fields are partial — only specified fields are updated.
 GET /events?token=<token>
 ```
 
-Server-Sent Events stream for real-time updates. Events are published by the daemon when state changes occur. Requires auth token as query parameter (since EventSource doesn't support custom headers).
+Server-Sent Events stream for real-time updates. Auth token as query parameter.
 
 ### Event types
 
@@ -883,27 +1662,27 @@ event: signal
 data: {"type": "signal", "session": "orca-Agent0", "signal": {"type": "working"}}
 ```
 
-Signal types: `working`, `needs_input`, `complete` (from the deriver).
+Signal types: `working`, `needs_input`, `complete`.
 
 **plan** (async planning job)
 ```
 event: plan
-data: {"type": "plan", "jobId": "pj-1a2b3c", "status": "done", "epicId": "my-project-...", "phases": [ ... ]}
+data: {"type": "plan", "jobId": "pj-1a2b3c", "status": "done", "epicId": "my-project-...", "phases": [...]}
 ```
-Emitted as a plan job transitions `planning` → `done` | `failed`. The web uses it to render the
-plan as soon as the Pilot (or relay) resolves the job; `GET /plan/:jobId` is the poll fallback.
+
+Emitted as a plan job transitions `planning` → `done` | `failed`.
 
 ---
 
-## Hermes integration
+## Integrations
 
-### Plugin status
+### Hermes plugin status
 
 ```http
 GET /integrations/hermes/status?home=/var/www/.hermes
 ```
 
-Reports whether the orca plugin is installed and enabled in a same-host Hermes instance.
+Reports whether the Orca plugin is installed and enabled in a same-host Hermes instance.
 
 **Response `200`**
 ```json
@@ -916,7 +1695,7 @@ Reports whether the orca plugin is installed and enabled in a same-host Hermes i
 }
 ```
 
-### Install plugin
+### Install Hermes plugin
 
 ```http
 POST /integrations/hermes/install
@@ -929,7 +1708,8 @@ Content-Type: application/json
 }
 ```
 
-Copies the bundled `hermes-plugin/orca/` into the Hermes plugins directory, writes a per-instance config (url + token), and enables the plugin in Hermes's `config.yaml`. Backs up the config first.
+Copies the bundled `hermes-plugin/orca/` into the Hermes plugins directory, writes per-instance
+config (url + token), and enables the plugin in Hermes's `config.yaml`. Backs up the config first.
 
 **Response `201`**
 ```json
@@ -948,171 +1728,14 @@ Copies the bundled `hermes-plugin/orca/` into the Hermes plugins directory, writ
 { "error": "url and token required" }
 ```
 
----
-
-## User ↔ Project assignments (admin only)
-
-Assignments gate which projects a non-admin user may see/operate. The bootstrap admin (users.is_admin) always has full access.
-
-### List a user's projects
-
-```http
-GET /users/:id/projects
-```
-
-**Response `200`**
-```json
-[1, 3]
-```
-
-### Assign a project
-
-```http
-POST /users/:id/projects
-Content-Type: application/json
-
-{ "projectId": 3 }
-```
-
-**Response `200`**
-```json
-{ "ok": true }
-```
-
-### Unassign a project
-
-```http
-DELETE /users/:id/projects/:pid
-```
-
-**Response `200`**
-```json
-{ "ok": true }
-```
-
-All three endpoints return `403 forbidden` when called by a non-admin user.
-
----
-
-## Project file editor
-
-Browse, read, and write files in a project root, plus per-file and per-commit diffs. All paths are validated to stay inside the project root (symlink-escape safe).
-
-### File tree
-
-```http
-GET /projects/:id/files
-```
-
-Returns a flat list of files and directories (relative paths), skipping `.git`, `node_modules`, `.next`, `dist`, etc.
-
-**Response `200`**
-```json
-[
-  { "path": "src", "type": "dir" },
-  { "path": "src/index.ts", "type": "file" }
-]
-```
-
-### Read a file
-
-```http
-GET /projects/:id/file?path=src/index.ts
-```
-
-Returns file content (refused for files > 2 MB).
-
-**Response `200`**
-```json
-{ "path": "src/index.ts", "content": "console.log('hello');\n" }
-```
-
-### Write a file
-
-```http
-PUT /projects/:id/file
-Content-Type: application/json
-
-{ "path": "src/index.ts", "content": "console.log('updated');\n" }
-```
-
-**Response `200`**
-```json
-{ "ok": true }
-```
-
-### Per-file working diff
-
-```http
-GET /projects/:id/diff?path=src/index.ts
-```
-
-**Response `200`**
-```json
-{ "diff": "diff --git a/src/index.ts b/src/index.ts\n…" }
-```
-
-### Changed files
-
-```http
-GET /projects/:id/changed
-```
-
-Returns the list of files changed in the working tree.
-
-**Response `200`**
-```json
-{ "changed": ["src/index.ts", "README.md"] }
-```
-
-### Full working diff
-
-```http
-GET /projects/:id/changes
-```
-
-Returns the combined diff of all unstaged changes.
-
-**Response `200`**
-```json
-{ "diff": "diff --git a/…\n…" }
-```
-
-### Commit files + diff
-
-```http
-GET /projects/:id/commit/:hash
-```
-
-Returns the list of files touched by a commit and the full commit diff.
-
-**Response `200`**
-```json
-{ "files": ["src/index.ts"], "diff": "diff --git …" }
-```
-
-### File diff in a commit
-
-```http
-GET /projects/:id/commit/:hash/diff?path=src/index.ts
-```
-
-Returns the diff for a single file in a specific commit.
-
-**Response `200`**
-```json
-{ "diff": "diff --git …" }
-```
-
----
-
-## CLI detection
+### CLI detection
 
 ```http
 GET /integrations/cli-status
 ```
 
-Detects which agent CLIs (claude, opencode, codex) are installed and usable, and whether the daemon has enough configuration to operate (API key, custom setup, users, projects). Used by the onboarding wizard.
+Detects which agent CLIs (claude, opencode, codex) are installed and usable, and whether the daemon
+has enough configuration to operate. Used by the onboarding wizard.
 
 **Response `200`**
 ```json
@@ -1135,15 +1758,19 @@ Detects which agent CLIs (claude, opencode, codex) are installed and usable, and
 |---|---|
 | `200` | Success |
 | `201` | Created |
-| `400` | Bad request (invalid input, exec not allowed) |
+| `202` | Accepted (async plan job) |
+| `400` | Bad request (invalid input, exec not allowed, missing fields) |
 | `401` | Unauthorized (missing or invalid token) |
+| `403` | Forbidden (not accessible for this user/project, exec not allowed for user) |
 | `404` | Not found |
 | `409` | Conflict (duplicate slug/username) |
+| `413` | Payload too large (avatar exceeds 2 MB) |
+| `415` | Unsupported media type (avatar image type not accepted) |
 | `502` | Bad gateway (AI plan parsing failed) |
 | `500` | Internal error |
 
 ## Error format
 
 ```json
-{ "error": "exec not allowed" }
+{ "error": "descriptive message" }
 ```

@@ -23,6 +23,17 @@ node dist/daemon/index.js
 
 Starts on port 4400. The daemon uses `src/store/schema.sql` (auto-copied to `dist/` during build) to initialize the SQLite database.
 
+### Environment
+
+```bash
+ORCA_PORT=4400 \
+ORCA_DB=/opt/orca/data/orca.db \
+ORCA_PROJECT_PATH=/var/www/orca \
+ORCA_BOOTSTRAP_USER=admin \
+ORCA_BOOTSTRAP_PASS=secure-pass \
+node dist/daemon/index.js
+```
+
 ### systemd service
 
 Create `/etc/systemd/system/orca.service`:
@@ -88,20 +99,18 @@ npm run build
 
 ### Serve
 
-The static output is in `web/out/`. Serve with any static server:
-
-```bash
-npx serve web/out
-```
-
-Or via the Next.js production server:
+Use the Next.js production server (not static export):
 
 ```bash
 cd web
-npm start  # runs on port 3000
+NEXT_PUBLIC_ORCA_URL=http://localhost:4400 npm start  # runs on port 3000
 ```
 
-Set `NEXT_PUBLIC_ORCA_URL` to the daemon URL (e.g., `https://orca.example.com`).
+The web UI is typically served on port 4500:
+
+```bash
+NEXT_PUBLIC_ORCA_URL=http://your-server:4400 npx next start -p 4500
+```
 
 ### Reverse proxy (nginx)
 
@@ -112,13 +121,12 @@ server {
 
     # Web UI
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:4500;
         proxy_http_version 1.1;
     }
 
-    # Daemon API + SSE
+    # Daemon API + SSE (direct, no rewrite prefix)
     location /api/ {
-        rewrite ^/api(/.*)$ $1 break;
         proxy_pass http://127.0.0.1:4400;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -135,7 +143,7 @@ SSE requires `proxy_buffering off` and long `proxy_read_timeout`.
 ## Environment variables
 
 | Variable | Default | Description |
-|---|---|---|---|
+|---|---|---|
 | `ORCA_URL` | `http://localhost:4400` | Daemon URL for CLI |
 | `ORCA_TOKEN` | — | API token for CLI requests |
 | `ORCA_AUTOSTART` | `1` | Let CLI auto-start the daemon |
@@ -160,8 +168,6 @@ SQLite with WAL mode. Default path is `~/.config/orca/orca.db` (configurable via
 ```bash
 sqlite3 /path/to/orca.db ".backup /backup/orca-$(date +%Y%m%d).db"
 ```
-
-WAL mode allows concurrent reads during writes, but for consistent backups use the `.backup` command.
 
 ### Migration
 

@@ -29,7 +29,7 @@ Tokens are never returned after initial issuance. There is no token expiry — r
 
 ### Web UI
 
-Tokens are stored in `localStorage` under `orca.token`. The `LoginGate` wrapper checks for a stored token on mount and shows the `LoginForm` if absent.
+Tokens are stored in `localStorage` under `orca.token`. The `LoginGate` wrapper checks for a stored token on mount and shows the `LoginForm` if absent. SSE endpoints append the token as `?token=<value>` (EventSource limitation).
 
 ---
 
@@ -43,9 +43,9 @@ Guardrails are regex-based safety checks that block agents from performing sensi
 |---|---|---|
 | `schema` | `/\bschema\b/i` | "Update DB schema" |
 | `migration` | `/\bmigrat/i` | "Run migration" |
-| `auth` | `/\b(auth|login|password|token)\b/i` | "Fix login flow" |
-| `payments` | `/\b(payment|billing|stripe|invoice)\b/i` | "Add payment" |
-| `destructive` | `/\b(delete|drop|truncate|rm -rf|destroy)\b/i` | "Drop table" |
+| `auth` | `/\b(auth\|login\|password\|token)\b/i` | "Fix login flow" |
+| `payments` | `/\b(payment\|billing\|stripe\|invoice)\b/i` | "Add payment" |
+| `destructive` | `/\b(delete\|drop\|truncate\|rm -rf\|destroy)\b/i` | "Drop table" |
 
 ### Enforcement
 
@@ -70,6 +70,10 @@ Guardrails are cleared per-mission. The operator decides which guardrails to cle
 ```
 
 This allows schema changes but blocks payments and destructive operations.
+
+### Overseer gate
+
+When an **overseer LLM gate** is configured, a second opinion is consulted for guardrail-triggering tasks before dispatch. A denial or destructive verdict escalates the task to `blocked`. This can run via a relay model or a parked Overseer agent.
 
 ---
 
@@ -102,7 +106,7 @@ If the LLM is unreachable or returns unparseable output, the decision defaults t
 { approve: false, confidence: 0, destructive: <local-heuristic-result>, rationale: 'overseer inference failed' }
 ```
 
-Fail closed — always escalate when uncertain. A local destructive heuristic (`rm -rf`, `DROP TABLE`, `DELETE FROM`, `TRUNCATE`, migration, `.env`, secrets, credentials, passwords, force push, `git reset --hard`, `chmod 777`, piped `curl | sh`) always takes precedence over the LLM, forcing escalation.
+Fail closed — always escalate when uncertain.
 
 ---
 
@@ -110,9 +114,21 @@ Fail closed — always escalate when uncertain. A local destructive heuristic (`
 
 | Operation | Restriction |
 |---|---|
+| List users | `GET /users` — any authenticated user (no sensitive data) |
 | Create user | `POST /users` — any authenticated user |
-| Delete user | `DELETE /users/:id` — cannot delete the last user |
-| List users | `GET /users` — returns all users (no sensitive data) |
+| Edit user | `PATCH /users/:id` — admin only (toggle is_admin, allowed_execs) |
+| Delete user | `DELETE /users/:id` — cannot delete last user or admin |
+| User avatar | `GET /users/:id/avatar` — auth token as query param, returns image bytes |
+
+### Multi-tenancy / RBAC
+
+When `userProjects` store is present, three access gates apply:
+
+1. **Global gate** — non-admin users must be assigned to daemon's home project to access task/mission/session/activity surface (403 otherwise)
+2. **Per-project gate** — users only see/operate projects they're assigned to; admin sees everything
+3. **Per-user exec allowlist** — `allowed_execs` on the user record restricts which exec strings a non-admin may use; empty list = unrestricted (subject to global `allowedExecs`)
+
+Open/single-user mode (no `userProjects`) — all authenticated users pass everything unrestricted.
 
 ---
 
@@ -130,7 +146,7 @@ The `allowedExecs` list controls which AI executors can be spawned via the API:
 ["sonnet", "codex:gpt-5.4", "ollama/deepseek-v4-flash"]
 ```
 
-Requesting an unlisted executor returns 400. This prevents unauthorized model usage.
+Requesting an unlisted executor returns 400. Per-user `allowed_execs` can further restrict non-admins (403 if violated).
 
 ---
 
@@ -143,6 +159,7 @@ Each agent runs in an isolated tmux session. Sessions are:
 - Named `orca-<agentName>` for clear identification
 - Created with `new-session -d` (detached, no direct terminal access)
 - Killable via API or CLI
+- Reasoning agents use reserved naming: `orca-overseer-<missionId>`
 
 ### SQLite
 
