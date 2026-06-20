@@ -79,21 +79,39 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: 'Save defaults' })).toBeTruthy();
   });
 
-  it('renders per-role Pilot/Overseer backend fields and sends them on save', async () => {
+  it('defaults to Relay mode and saves relay fields (execs cleared)', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
 
     fireEvent.click(screen.getByRole('button', { name: 'Autopilot' }));
+    expect(screen.getByText('How autopilot reasons')).toBeTruthy();
+    expect(screen.getByText('Planner model')).toBeTruthy(); // relay fields shown
+    expect(screen.queryByText('Pilot backend')).toBeNull();  // agent fields hidden
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save autopilot' }));
+    await waitFor(() => {
+      const ap = (putBody as { autopilot: { pilotExec: string; overseerExec: string } }).autopilot;
+      expect(ap.pilotExec).toBe(''); // relay mode clears the agent execs
+      expect(ap.overseerExec).toBe('');
+    });
+  });
+
+  it('switching to CLI agents shows the backend pickers and saves execs', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Autopilot' }));
+    fireEvent.click(screen.getByText('CLI agents')); // mode toggle
     expect(screen.getByText('Pilot backend')).toBeTruthy();
     expect(screen.getByText('Overseer backend')).toBeTruthy();
-    expect(screen.getByText('Review on phase completion')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save autopilot' }));
     await waitFor(() => {
       const ap = (putBody as { autopilot: { pilotExec: string; overseerExec: string; reviewOnDone: boolean } }).autopilot;
-      expect(ap.pilotExec).toBe('');
-      expect(ap.overseerExec).toBe('');
+      expect(ap.pilotExec).not.toBe(''); // seeded with a default model on switch
+      expect(ap.overseerExec).not.toBe('');
       expect(ap.reviewOnDone).toBe(false);
     });
   });

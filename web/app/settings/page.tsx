@@ -34,7 +34,7 @@ const PRESET_EXECS = new Set(EXEC_PRESETS.map((p) => p.exec));
 /** Per-role reasoning backend picker: "Relay (model via API)" by default, or a CLI agent model from
  *  the configured list. Mirrors the executor Select used elsewhere, with a live model badge. An
  *  empty value means relay (the role falls back to the planner/overseer relay model). */
-function BackendPicker({ value, onChange, models, relayLabel }: { value: string; onChange: (v: string) => void; models: { label: string; exec: string }[]; relayLabel: string }) {
+function BackendPicker({ value, onChange, models, relayLabel, allowRelay = true }: { value: string; onChange: (v: string) => void; models: { label: string; exec: string }[]; relayLabel: string; allowRelay?: boolean }) {
   const known = new Set(models.map((m) => m.exec));
   return (
     <div className="flex items-center gap-2">
@@ -42,7 +42,7 @@ function BackendPicker({ value, onChange, models, relayLabel }: { value: string;
         {value ? <ModelIcon name={value} size={16} /> : <Radio size={14} className="text-text-muted" />}
       </span>
       <Select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{relayLabel}</option>
+        {allowRelay ? <option value="">{relayLabel}</option> : null}
         {value && !known.has(value) ? <option value={value}>{value}</option> : null}
         {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
       </Select>
@@ -67,6 +67,9 @@ export default function SettingsPage() {
   const [overseerModel, setOverseerModel] = useState('');
   const [pilotExec, setPilotExec] = useState('');
   const [overseerExec, setOverseerExec] = useState('');
+  // Autopilot backend is an either/or: 'relay' (planner+overseer via API) or 'agents' (CLI agents
+  // that read the repo). Derived from whether an exec is set; the picker enforces the exclusivity.
+  const [reasoningMode, setReasoningMode] = useState<'relay' | 'agents'>('relay');
   const [reviewOnDone, setReviewOnDone] = useState(false);
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -130,6 +133,7 @@ export default function SettingsPage() {
       setPilotExec(config.data.autopilot.pilotExec ?? '');
       setOverseerExec(config.data.autopilot.overseerExec ?? '');
       setReviewOnDone(config.data.autopilot.reviewOnDone ?? false);
+      setReasoningMode((config.data.autopilot.pilotExec || config.data.autopilot.overseerExec) ? 'agents' : 'relay');
       setApiUrl(config.data.autopilot.apiUrl);
       setNotes(config.data.autopilot.notes);
       setPrompt(config.data.autopilot.prompt);
@@ -200,9 +204,13 @@ export default function SettingsPage() {
       { onSuccess: () => toast(t.settings.modelsSaved), onError: (e) => toast(String(e), 'error') },
     );
 
+  // Persist only the active mode's fields, and explicitly clear the other backend so the two never
+  // coexist (relay clears the execs; agents leave the relay model/key untouched but unused).
   const saveAutopilot = () =>
     update.mutate(
-      { autopilot: { model, overseerModel, pilotExec, overseerExec, reviewOnDone, apiUrl, notes, prompt, ...(apiKey ? { apiKey } : {}) } },
+      { autopilot: reasoningMode === 'agents'
+        ? { pilotExec, overseerExec, reviewOnDone, notes, prompt }
+        : { model, overseerModel, apiUrl, pilotExec: '', overseerExec: '', notes, prompt, ...(apiKey ? { apiKey } : {}) } },
       { onSuccess: () => { toast(t.settings.autopilotSaved); setApiKey(''); }, onError: (e) => toast(String(e), 'error') },
     );
 
@@ -244,6 +252,18 @@ export default function SettingsPage() {
   const active = category === 'hermes' ? null : saveAction[category];
 
   const models = allModels(customModels, hiddenPresets);
+
+  // Switch the autopilot backend mode. Relay clears the agent execs; agents seed a default model so
+  // the mode can't silently collapse back to relay (an empty exec = relay).
+  const switchReasoning = (m: 'relay' | 'agents') => {
+    setReasoningMode(m);
+    if (m === 'relay') { setPilotExec(''); setOverseerExec(''); }
+    else {
+      const def = models[0]?.exec ?? '';
+      if (!pilotExec) setPilotExec(def);
+      if (!overseerExec) setOverseerExec(def);
+    }
+  };
   const deleteTarget = models.find((m) => m.exec === pendingDelete);
   // Providers the user has actually configured (non-empty binary) — the only ones offered when
   // adding a model, and the source for the executor picker's grouping.
@@ -351,28 +371,53 @@ export default function SettingsPage() {
         )}
 
         {category === 'autopilot' && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <SettingCard title={t.settings.plannerModel} description={t.settings.plannerModelDesc} icon={Bot}>
-                <input value={model} onChange={(e) => setModel(e.target.value)} className={inputClass} placeholder={t.settings.plannerPlaceholder} />
-              </SettingCard>
-              <SettingCard title={t.settings.overseerModel} description={t.settings.overseerModelDesc} icon={Eye}>
-                <input value={overseerModel} onChange={(e) => setOverseerModel(e.target.value)} className={inputClass} placeholder={t.settings.overseerPlaceholder} />
-              </SettingCard>
-              <SettingCard title={t.settings.pilotBackend} description={t.settings.pilotBackendHint} icon={Bot}>
-                <BackendPicker value={pilotExec} onChange={setPilotExec} models={models} relayLabel={t.settings.relayOption} />
-              </SettingCard>
-              <SettingCard title={t.settings.overseerBackend} description={t.settings.overseerBackendHint} icon={Eye}>
-                <BackendPicker value={overseerExec} onChange={setOverseerExec} models={models} relayLabel={t.settings.relayOption} />
-              </SettingCard>
-              <SettingCard title={t.settings.reviewOnDone} description={t.settings.reviewOnDoneHint} icon={Eye}>
-                <Toggle checked={reviewOnDone} onChange={setReviewOnDone} label={t.settings.reviewOnDone} />
-              </SettingCard>
-              <SettingCard title={t.settings.apiUrl} description={t.settings.apiUrlDesc} icon={Link2}>
-                <input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className={inputClass} />
-              </SettingCard>
-              <SettingCard title={t.settings.apiKey} description={apiKeySet ? t.settings.apiKeyDesc : t.settings.apiKeyNotSetDesc} icon={KeyRound}>
-                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeySet ? t.settings.apiKeySetPlaceholder : t.settings.apiKeyPlaceholder} className={inputClass} />
-              </SettingCard>
+            <div className="flex flex-col gap-4">
+              {/* One clear choice: how the planner + overseer reason. Relay (API) OR CLI agents. */}
+              <div className="rounded-lg border border-border bg-surface p-4">
+                <div className="mb-2 flex items-center gap-1.5">
+                  <span className="text-sm font-medium text-text">{t.settings.backendMode}</span>
+                  <HelpTip>{t.settings.backendModeHelp}</HelpTip>
+                </div>
+                <Segmented
+                  value={reasoningMode}
+                  onChange={(v) => switchReasoning(v as 'relay' | 'agents')}
+                  options={[
+                    { value: 'relay', label: t.settings.modeRelay, icon: Radio },
+                    { value: 'agents', label: t.settings.modeAgents, icon: Bot },
+                  ]}
+                />
+                <p className="mt-2 text-xs text-text-muted">{reasoningMode === 'relay' ? t.settings.modeRelayDesc : t.settings.modeAgentsDesc}</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {reasoningMode === 'relay' ? (
+                <>
+                  <SettingCard title={t.settings.plannerModel} description={t.settings.plannerModelDesc} icon={Bot}>
+                    <input value={model} onChange={(e) => setModel(e.target.value)} className={inputClass} placeholder={t.settings.plannerPlaceholder} />
+                  </SettingCard>
+                  <SettingCard title={t.settings.overseerModel} description={t.settings.overseerModelDesc} icon={Eye}>
+                    <input value={overseerModel} onChange={(e) => setOverseerModel(e.target.value)} className={inputClass} placeholder={t.settings.overseerPlaceholder} />
+                  </SettingCard>
+                  <SettingCard title={t.settings.apiUrl} description={t.settings.apiUrlDesc} icon={Link2}>
+                    <input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className={inputClass} />
+                  </SettingCard>
+                  <SettingCard title={t.settings.apiKey} description={apiKeySet ? t.settings.apiKeyDesc : t.settings.apiKeyNotSetDesc} icon={KeyRound}>
+                    <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeySet ? t.settings.apiKeySetPlaceholder : t.settings.apiKeyPlaceholder} className={inputClass} />
+                  </SettingCard>
+                </>
+              ) : (
+                <>
+                  <SettingCard title={t.settings.pilotBackend} description={t.settings.pilotBackendHint} icon={Bot}>
+                    <BackendPicker value={pilotExec} onChange={setPilotExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
+                  </SettingCard>
+                  <SettingCard title={t.settings.overseerBackend} description={t.settings.overseerBackendHint} icon={Eye}>
+                    <BackendPicker value={overseerExec} onChange={setOverseerExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
+                  </SettingCard>
+                  <SettingCard title={t.settings.reviewOnDone} description={t.settings.reviewOnDoneHint} icon={Eye}>
+                    <Toggle checked={reviewOnDone} onChange={setReviewOnDone} label={t.settings.reviewOnDone} />
+                  </SettingCard>
+                </>
+              )}
               <SettingCard title={t.settings.notes} description={t.settings.notesDesc} icon={FileText}>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={`${inputClass} resize-none`} />
               </SettingCard>
@@ -407,6 +452,7 @@ export default function SettingsPage() {
                     </ul>
                   )}
                 </div>
+              </div>
               </div>
             </div>
         )}

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CheckCircle2, XCircle, AlertCircle, Save, Key, Users,
-  Radio, Terminal, HardDrive, UserPlus, ArrowRight,
+  Radio, Terminal, HardDrive, UserPlus, ArrowRight, Bot, Eye,
   type LucideIcon,
 } from 'lucide-react';
 import { ModuleShell } from '../../components/shell/ModuleShell';
@@ -17,6 +17,10 @@ import { useTranslation } from '../../lib/i18n';
 import { useCliStatus, useConfig, useUsers, useHermesStatus } from '../../lib/queries';
 import { useUpdateConfig, useCreateUser, useHermesInstall } from '../../lib/mutations';
 import { PROVIDERS } from '../../modules/settings/providers';
+import { Segmented } from '../../components/ui/Segmented';
+import { Select } from '../../components/ui/Select';
+import { ModelIcon } from '../../components/ui/ModelIcon';
+import { allModels } from '../../lib/execPresets';
 import { getToken, setToken } from '../../lib/token';
 import { orcaClient } from '../../lib/orcaClient';
 import type { CliStatus as CliStatusType } from '../../lib/types';
@@ -78,9 +82,12 @@ export default function OnboardingPage() {
   // Provider form state
   const [providers, setProviders] = useState<Record<string, { bin: string; args: string }>>({});
 
-  // API key form
+  // Autopilot backend: either 'relay' (API key) or 'agents' (CLI agents). One or the other.
+  const [reasoningMode, setReasoningMode] = useState<'relay' | 'agents'>('relay');
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [pilotExec, setPilotExec] = useState('');
+  const [overseerExec, setOverseerExec] = useState('');
 
   // Hermes form
   const [hHome, setHHome] = useState('/var/www/.hermes');
@@ -98,8 +105,24 @@ export default function OnboardingPage() {
     if (config.data) {
       setProviders(config.data.providers ?? {});
       setApiUrl(config.data.autopilot.apiUrl);
+      setPilotExec(config.data.autopilot.pilotExec ?? '');
+      setOverseerExec(config.data.autopilot.overseerExec ?? '');
+      setReasoningMode((config.data.autopilot.pilotExec || config.data.autopilot.overseerExec) ? 'agents' : 'relay');
     }
   }, [config.data]);
+
+  const models = allModels(config.data?.customModels, config.data?.hiddenPresets);
+  const switchReasoning = (m: 'relay' | 'agents') => {
+    setReasoningMode(m);
+    if (m === 'relay') { setPilotExec(''); setOverseerExec(''); }
+    else { const def = models[0]?.exec ?? ''; if (!pilotExec) setPilotExec(def); if (!overseerExec) setOverseerExec(def); }
+  };
+  const handleSaveAgents = () => {
+    updateConfig.mutate(
+      { autopilot: { pilotExec, overseerExec } },
+      { onSuccess: () => toast(t.onboarding.keySaved), onError: (e) => toast(String(e), 'error') },
+    );
+  };
 
   useEffect(() => {
     setHUrl(process.env.NEXT_PUBLIC_ORCA_URL ?? (typeof window !== 'undefined' ? window.location.origin : ''));
@@ -152,7 +175,9 @@ export default function OnboardingPage() {
     );
   };
 
-  const allStepsDone = !isFresh?.noConfigPersisted && !isFresh?.noApiKey && users.data && users.data.length > 0;
+  // The autopilot backend is ready with EITHER a relay API key OR a configured CLI agent.
+  const backendReady = !isFresh?.noApiKey || !!(config.data?.autopilot.pilotExec || config.data?.autopilot.overseerExec);
+  const allStepsDone = !isFresh?.noConfigPersisted && backendReady && users.data && users.data.length > 0;
 
   const agentTools = cliStatus.data?.tools.filter((t) => ['claude', 'codex', 'opencode'].includes(t.name)) ?? [];
   const sysTools = cliStatus.data?.tools.filter((t) => ['node', 'tmux', 'git'].includes(t.name)) ?? [];
@@ -257,26 +282,69 @@ export default function OnboardingPage() {
               </div>
             </SectionCard>
 
-            {/* API Key */}
-            <SectionCard title={t.onboarding.autopilotKey} icon={Key}>
-              <p className="mb-4 text-xs text-text-muted">{t.onboarding.autopilotKeyDesc}</p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label={t.onboarding.fieldApiUrl}>
-                  <Input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className="font-mono text-xs" />
-                </Field>
-                <Field label={t.onboarding.fieldApiKey}>
-                  <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={config.data?.autopilot.apiKeySet ? '•••• set' : ''} className="font-mono text-xs" />
-                </Field>
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-xs text-text-muted">
-                  {config.data?.autopilot.apiKeySet
-                    ? <><CheckCircle2 size={12} className="inline mr-1 text-[var(--color-success)]" />{t.onboarding.keySet}</>
-                    : <><XCircle size={12} className="inline mr-1 text-[var(--color-error)]" />{t.onboarding.keyNotSet}</>}
-                </span>
-                <Button variant="accent" icon={Save} onClick={handleSaveApiKey}>{t.onboarding.saveKey}</Button>
-              </div>
+            {/* Autopilot backend — one choice: Relay (API key) OR CLI agents. */}
+            <SectionCard title={t.onboarding.autopilotBackend} icon={Key}>
+              <p className="mb-3 text-xs text-text-muted">{t.onboarding.autopilotBackendDesc}</p>
+              <Segmented
+                value={reasoningMode}
+                onChange={(v) => switchReasoning(v as 'relay' | 'agents')}
+                options={[
+                  { value: 'relay', label: t.settings.modeRelay, icon: Radio },
+                  { value: 'agents', label: t.settings.modeAgents, icon: Bot },
+                ]}
+              />
+              <p className="mt-2 mb-4 text-xs text-text-muted">{reasoningMode === 'relay' ? t.settings.modeRelayDesc : t.settings.modeAgentsDesc}</p>
+
+              {reasoningMode === 'relay' ? (
+                <>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field label={t.onboarding.fieldApiUrl}>
+                      <Input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className="font-mono text-xs" />
+                    </Field>
+                    <Field label={t.onboarding.fieldApiKey}>
+                      <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+                        placeholder={config.data?.autopilot.apiKeySet ? '•••• set' : ''} className="font-mono text-xs" />
+                    </Field>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between">
+                    <span className="text-xs text-text-muted">
+                      {config.data?.autopilot.apiKeySet
+                        ? <><CheckCircle2 size={12} className="inline mr-1 text-[var(--color-success)]" />{t.onboarding.keySet}</>
+                        : <><XCircle size={12} className="inline mr-1 text-[var(--color-error)]" />{t.onboarding.keyNotSet}</>}
+                    </span>
+                    <Button variant="accent" icon={Save} onClick={handleSaveApiKey}>{t.onboarding.saveKey}</Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field label={t.settings.pilotBackend}>
+                      <div className="flex items-center gap-2">
+                        {pilotExec ? <ModelIcon name={pilotExec} size={16} /> : <Bot size={14} className="text-text-muted" />}
+                        <Select value={pilotExec} onChange={(e) => setPilotExec(e.target.value)}>
+                          {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
+                        </Select>
+                      </div>
+                    </Field>
+                    <Field label={t.settings.overseerBackend}>
+                      <div className="flex items-center gap-2">
+                        {overseerExec ? <ModelIcon name={overseerExec} size={16} /> : <Eye size={14} className="text-text-muted" />}
+                        <Select value={overseerExec} onChange={(e) => setOverseerExec(e.target.value)}>
+                          {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
+                        </Select>
+                      </div>
+                    </Field>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between">
+                    <span className="text-xs text-text-muted">
+                      {(config.data?.autopilot.pilotExec || config.data?.autopilot.overseerExec)
+                        ? <><CheckCircle2 size={12} className="inline mr-1 text-[var(--color-success)]" />{t.onboarding.agentsSet}</>
+                        : <><XCircle size={12} className="inline mr-1 text-[var(--color-error)]" />{t.onboarding.agentsNotSet}</>}
+                    </span>
+                    <Button variant="accent" icon={Save} onClick={handleSaveAgents}>{t.onboarding.saveBackend}</Button>
+                  </div>
+                </>
+              )}
             </SectionCard>
 
             {/* Users */}
