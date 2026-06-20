@@ -8,9 +8,10 @@ describe('buildAgentCommand', () => {
     expect(cmd).toContain('--prompt'); // UI mode: task preloaded into the composer
     expect(cmd).not.toContain('opencode run'); // not headless
   });
-  it('routes a bare model to claude', () => {
+  it('routes a bare model to claude with an autonomous approval bypass', () => {
     const cmd = buildAgentCommand({ program: 'claude-code', model: 'sonnet' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });
     expect(cmd).toContain('--model sonnet');
+    expect(cmd).toContain('--dangerously-skip-permissions');
   });
   it('routes codex with a positional prompt and autonomous approval bypass', () => {
     const cmd = buildAgentCommand({ program: 'codex', model: 'gpt-5.4' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });

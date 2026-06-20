@@ -88,5 +88,7 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     return `${cd} && ${envExport}${bin} --dangerously-bypass-approvals-and-sandbox --model ${spec.model}${extra} ${esc(prompt)}`;
   }
   const bin = ctx.bin || 'claude';
-  return `${cd} && ${envExport}${bin} --model ${spec.model}${extra} ${esc(prompt)}`;
+  // Autonomous approval bypass: orca-spawned agents run unattended in a tmux pane, so an
+  // interactive permission prompt would hang the whole mission. Mirror codex's bypass flag.
+  return `${cd} && ${envExport}${bin} --dangerously-skip-permissions --model ${spec.model}${extra} ${esc(prompt)}`;
 }
