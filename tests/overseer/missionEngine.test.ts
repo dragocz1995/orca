@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { openDb } from '../../src/store/db.js';
 import { TaskStore } from '../../src/store/taskStore.js';
 import { Readiness } from '../../src/store/readiness.js';
@@ -98,7 +98,7 @@ describe('MissionEngine', () => {
 });
 
 describe('MissionEngine overseer gate (decideTask)', () => {
-  function gateSetup(decideTask?: (i: { guardrails: string[] }) => Promise<{ approve: boolean; destructive: boolean }>) {
+  function gateSetup(decideTask?: (missionId: string, i: { guardrails: string[] }) => Promise<{ approve: boolean; destructive: boolean }>, overseer?: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }) {
     const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
@@ -112,6 +112,7 @@ describe('MissionEngine overseer gate (decideTask)', () => {
       projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' },
       nameAgent: () => 'AgentX', clock: new SystemClock(),
       decideTask: decideTask as never,
+      overseer: overseer as never,
     });
     return { tasks, tmux, engine, missions };
   }
@@ -158,6 +159,24 @@ describe('MissionEngine overseer gate (decideTask)', () => {
     await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: ['auth'] });
     expect(tasks.get('g1')!.status).toBe('in_progress');
     expect(await tmux.list()).toContain('orca-AgentX');
+  });
+
+  it('starts the overseer on engage and passes the mission id to decideTask', async () => {
+    const start = vi.fn().mockResolvedValue(undefined);
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const decideTask = vi.fn().mockResolvedValue({ approve: true, destructive: false });
+    const { engine } = gateSetup(decideTask, { start, stop });
+    await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: ['auth'] });
+    expect(start).toHaveBeenCalledWith('m-epic', 1, '/o');
+    expect(decideTask).toHaveBeenCalledWith('m-epic', expect.objectContaining({ title: 'Add auth login flow' }));
+  });
+
+  it('stops the overseer on disengage', async () => {
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const { engine } = gateSetup(vi.fn().mockResolvedValue({ approve: true, destructive: false }), { start: vi.fn().mockResolvedValue(undefined), stop });
+    const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: ['auth'] });
+    await engine.disengage(m.id);
+    expect(stop).toHaveBeenCalledWith(m.id);
   });
 });
 

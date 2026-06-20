@@ -8,6 +8,7 @@ import type { EventBus } from '../api/sse.js';
 import { detectGuardrails, isCleared } from './guardrails.js';
 import { resolveExecutor } from './routing.js';
 import type { TaskContext } from './decision.js';
+import type { OverseerController } from './overseerAgent.js';
 import type { Clock } from '../shared/clock.js';
 
 export interface MissionEngineDeps {
@@ -20,8 +21,12 @@ export interface MissionEngineDeps {
   nameAgent: () => string; clock: Clock;
   /** Optional overseer gate consulted before dispatching a guardrail-triggering task. When it
    *  returns approve=false (or destructive), the task is escalated (set `blocked`) instead of
-   *  spawned. Absent (no relay configured) → unchanged boolean guardrail behaviour. */
-  decideTask?: (input: TaskContext) => Promise<{ approve: boolean; destructive: boolean }>;
+   *  spawned. Absent (no relay configured) → unchanged boolean guardrail behaviour. The `missionId`
+   *  lets a queue-backed implementation route the decision to this mission's parked overseer agent. */
+  decideTask?: (missionId: string, input: TaskContext) => Promise<{ approve: boolean; destructive: boolean }>;
+  /** Optional parked-overseer lifecycle. Started on engage, stopped on pause/disengage. Absent (or
+   *  inert when no overseerExec is configured) → relay-fallback decisions, no parked agent. */
+  overseer?: OverseerController;
 }
 
 export class MissionEngine {
@@ -31,6 +36,11 @@ export class MissionEngine {
     const id = `m-${input.epicId}`;
     const m = this.d.missions.create({ id, epic_id: input.epicId, autonomy: input.autonomy, max_sessions: input.maxSessions, cleared_guardrails: input.clearedGuardrails });
     this.d.bus.publish({ type: 'mission', missionId: m.id, state: 'active' });
+    // Park the per-mission overseer agent (no-op when no overseerExec is configured) so it is ready
+    // to answer decisions before the first guardrail task dispatches.
+    const epic = this.d.tasks.get(input.epicId);
+    const project = epic ? this.d.projects.get(epic.project_id) : null;
+    if (project) await this.d.overseer?.start(id, project.id, project.path);
     await this.tick(id);
     return m;
   }
@@ -61,6 +71,7 @@ export class MissionEngine {
     if (m) await this.stopRunning(m.epic_id);
     this.d.missions.setState(id, 'disengaged');
     this.d.bus.publish({ type: 'mission', missionId: id, state: 'disengaged' });
+    await this.d.overseer?.stop(id); // tear down the parked overseer + drain its decision queue
   }
 
   async pause(id: string): Promise<void> {
@@ -68,6 +79,20 @@ export class MissionEngine {
     if (m) await this.stopRunning(m.epic_id);
     this.d.missions.setState(id, 'paused');
     this.d.bus.publish({ type: 'mission', missionId: id, state: 'paused' });
+    await this.d.overseer?.stop(id); // a paused mission keeps no parked overseer; resume restarts it
+  }
+
+  /** Resume a paused mission: flip active, re-park the overseer (pause stopped it), then tick so it
+   *  re-spawns work. Single source of truth for the resume transition (the API delegates here). */
+  async resume(id: string): Promise<void> {
+    const m = this.d.missions.get(id);
+    if (!m) return;
+    this.d.missions.setState(id, 'active');
+    this.d.bus.publish({ type: 'mission', missionId: id, state: 'active' });
+    const epic = this.d.tasks.get(m.epic_id);
+    const project = epic ? this.d.projects.get(epic.project_id) : null;
+    if (project) await this.d.overseer?.start(id, project.id, project.path);
+    await this.tick(id);
   }
 
   // Epic ids are globally unique, so children resolve by parent_id alone — no project scoping needed.
@@ -106,7 +131,7 @@ export class MissionEngine {
       // `blocked`, excluded from readiness) rather than spawning, halting the mission until a
       // human intervenes. The boolean clearance above is necessary; this is an extra safety net.
       if (triggered.length > 0 && this.d.decideTask) {
-        const verdict = await this.d.decideTask({ title: task.title, description: task.description, labels: task.labels, guardrails: triggered, autonomy: m.autonomy });
+        const verdict = await this.d.decideTask(m.id, { title: task.title, description: task.description, labels: task.labels, guardrails: triggered, autonomy: m.autonomy });
         if (!verdict.approve || verdict.destructive) {
           this.d.tasks.setStatus(task.id, 'blocked');
           this.d.bus.publish({ type: 'task', taskId: task.id, status: 'blocked' });

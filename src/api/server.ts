@@ -777,9 +777,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (action === 'pause') {
       await d.engine.pause(id); // kills running agents + reverts their tasks, then marks paused
     } else if (action === 'resume') {
-      d.missions.setState(id, 'active');
-      d.bus.publish({ type: 'mission', missionId: id, state: 'active' });
-      await d.engine.tick(id);
+      await d.engine.resume(id); // flips active, re-parks the overseer, then ticks
     }
     return c.json(d.missions.get(id));
   });

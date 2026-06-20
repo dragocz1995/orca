@@ -77,7 +77,7 @@ export function buildApp(opts: BuildOpts) {
     fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: uniqueName, clock: new SystemClock(),
     // Overseer LLM gate for guardrail-triggering tasks. No relay → no-op (approve, non-destructive)
     // so the boolean guardrail behaviour is unchanged; with a relay, escalate on deny/low-confidence.
-    decideTask: async (input) => {
+    decideTask: async (_missionId, input) => {
       const inf = overseerClient();
       if (!inf) return { approve: true, destructive: false };
       const d = await decideTask(inf, input);
