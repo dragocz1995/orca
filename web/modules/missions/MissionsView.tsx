@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Rocket, Plus, Pause, Play, Power, GitBranch, ArrowRight, AlertTriangle, ListChecks, CheckCircle2, LoaderCircle, Ban, Cpu, PlayCircle, SkipForward, type LucideIcon } from 'lucide-react';
+import { ModelIcon } from '../../components/ui/ModelIcon';
 import { useMissions, useTasks, useMissionDetail, useSessionSignals, useConfig } from '../../lib/queries';
 import { usePauseMission, useResumeMission, useDisengage } from '../../lib/mutations';
 import type { MissionTask, MissionDeps, Task, DerivedSignal } from '../../lib/types';
@@ -163,6 +164,18 @@ function MissionWorkspace({ missionId }: { missionId: string }) {
           <Button variant="ghost" icon={Plus} onClick={() => setAddingPhase(true)}>{t.missions.addPhase}</Button>
         </div>
         <p className="flex items-center gap-1.5 text-[11px] text-text-muted" title={t.missions.configSummaryTitle}><Cpu size={11} className="shrink-0 text-text-muted" aria-hidden />{configLine}</p>
+        {(config?.autopilot?.pilotExec || config?.autopilot?.overseerExec) && (
+          <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-muted">
+            <span className="inline-flex items-center gap-1">{t.missions.pilotBackendLabel}:&nbsp;
+              {config?.autopilot?.pilotExec
+                ? <span className="inline-flex items-center gap-1 text-text"><ModelIcon name={config.autopilot.pilotExec} size={11} />{t.missions.agentBackend}</span>
+                : <span className="text-text">{t.missions.relayBackend}</span>}</span>
+            <span className="inline-flex items-center gap-1">{t.missions.overseerBackendLabel}:&nbsp;
+              {config?.autopilot?.overseerExec
+                ? <span className="inline-flex items-center gap-1 text-text"><ModelIcon name={config.autopilot.overseerExec} size={11} />{t.missions.agentBackend}</span>
+                : <span className="text-text">{t.missions.relayBackend}</span>}</span>
+          </p>
+        )}
         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
           <Metric label={t.missions.total} value={d.progress.total} icon={ListChecks} />
           <Metric label={t.missions.done} value={d.progress.closed} icon={CheckCircle2} />

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Play, Sparkles, ListChecks, Plus, X, AlertTriangle, Pencil } from 'lucide-react';
+import { Play, Sparkles, ListChecks, Plus, X, AlertTriangle, Pencil, Loader2 } from 'lucide-react';
 import type { Task, PlanResult } from '../../lib/types';
 import { useConfig, useTasks, usePlanJob } from '../../lib/queries';
 import { useCreateTask, useUpdateTask, useSpawn, useSetTaskExec, usePlanTask } from '../../lib/mutations';
@@ -96,6 +96,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
   // Normalized plan outcome shared by the manual (sync) and autopilot (async job) paths.
   const [result, setResult] = useState<PlanOutcome | null>(null);
   const [planJobId, setPlanJobId] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
   const planJob = usePlanJob(planJobId);
   const [manual, setManual] = useState(false);
   const [manualPhases, setManualPhases] = useState<ManualPhase[]>([{ title: '', type: 'task' }]);
@@ -121,6 +122,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
       toast(t.tasks.planCreated.replace('{count}', String(job.phases.length)).replace('{m}', engage ? t.tasks.autopilotStarted : '.'));
       setPlanJobId(null);
     } else if (job.status === 'failed') {
+      setPlanError(job.error ?? t.tasks.planFailed);
       toast(t.tasks.planFailed, 'error');
       setPlanJobId(null);
     }
@@ -145,6 +147,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
 
   async function generate() {
     if (!goal.trim()) return;
+    setPlanError(null);
     try {
       // Autopilot planning is async: the endpoint returns a job; the effect renders it on done.
       const r = await plan.mutateAsync({ goal: goal.trim(), exec: exec || undefined, autonomy, maxSessions, engage });
@@ -323,11 +326,24 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
               </div>
             )}
 
+            {planning && (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2.5 text-sm text-text-muted">
+                <Loader2 size={15} className="shrink-0 animate-spin text-accent" aria-hidden />
+                {t.tasks.planning}
+              </div>
+            )}
+            {planError && !planning && (
+              <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden />
+                <span className="min-w-0 break-words">{t.tasks.planFailed}: {planError}</span>
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
               {manual
                 ? <Button variant="accent" disabled={busy} onClick={createManual}>{t.tasks.createPlan}</Button>
-                : <Button variant="accent" icon={Sparkles} disabled={busy || !goal.trim()} onClick={generate}>{busy ? t.tasks.planning : t.tasks.generatePlan}</Button>}
+                : <Button variant="accent" icon={Sparkles} disabled={busy || !goal.trim()} onClick={generate}>{planning ? t.tasks.planning : t.tasks.generatePlan}</Button>}
             </div>
           </>
         )}

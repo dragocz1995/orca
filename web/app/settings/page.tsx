@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, type LucideIcon } from 'lucide-react';
 import { PROVIDERS, ProviderLogo, ProviderTag } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
+import { Select } from '../../components/ui/Select';
 import { ModelModal } from '../../modules/settings/ModelModal';
 import { execProvider, execModel, type ProviderId } from '../../lib/modelProvider';
 import { useConfig, useHermesStatus, useMe } from '../../lib/queries';
@@ -29,6 +30,25 @@ import { useTranslation } from '../../lib/i18n';
 const inputClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text placeholder:text-text-muted transition-colors focus:border-accent';
 
 const PRESET_EXECS = new Set(EXEC_PRESETS.map((p) => p.exec));
+
+/** Per-role reasoning backend picker: "Relay (model via API)" by default, or a CLI agent model from
+ *  the configured list. Mirrors the executor Select used elsewhere, with a live model badge. An
+ *  empty value means relay (the role falls back to the planner/overseer relay model). */
+function BackendPicker({ value, onChange, models, relayLabel }: { value: string; onChange: (v: string) => void; models: { label: string; exec: string }[]; relayLabel: string }) {
+  const known = new Set(models.map((m) => m.exec));
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-bg" aria-hidden>
+        {value ? <ModelIcon name={value} size={16} /> : <Radio size={14} className="text-text-muted" />}
+      </span>
+      <Select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{relayLabel}</option>
+        {value && !known.has(value) ? <option value={value}>{value}</option> : null}
+        {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
+      </Select>
+    </div>
+  );
+}
 
 type Category = 'models' | 'autopilot' | 'providers' | 'defaults' | 'hermes';
 
@@ -339,10 +359,10 @@ export default function SettingsPage() {
                 <input value={overseerModel} onChange={(e) => setOverseerModel(e.target.value)} className={inputClass} placeholder={t.settings.overseerPlaceholder} />
               </SettingCard>
               <SettingCard title={t.settings.pilotBackend} description={t.settings.pilotBackendHint} icon={Bot}>
-                <input value={pilotExec} onChange={(e) => setPilotExec(e.target.value)} className={inputClass} placeholder={t.settings.relayOption} />
+                <BackendPicker value={pilotExec} onChange={setPilotExec} models={models} relayLabel={t.settings.relayOption} />
               </SettingCard>
               <SettingCard title={t.settings.overseerBackend} description={t.settings.overseerBackendHint} icon={Eye}>
-                <input value={overseerExec} onChange={(e) => setOverseerExec(e.target.value)} className={inputClass} placeholder={t.settings.relayOption} />
+                <BackendPicker value={overseerExec} onChange={setOverseerExec} models={models} relayLabel={t.settings.relayOption} />
               </SettingCard>
               <SettingCard title={t.settings.reviewOnDone} description={t.settings.reviewOnDoneHint} icon={Eye}>
                 <Toggle checked={reviewOnDone} onChange={setReviewOnDone} label={t.settings.reviewOnDone} />
