@@ -15,4 +15,13 @@ export class OrcaClient {
   close(taskId: string, opts?: { summary?: string; outcome?: string }) {
     return this.req(`/tasks/${encodeURIComponent(taskId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'closed', result_summary: opts?.summary, outcome: opts?.outcome }) });
   }
+  planSubmit(jobId: string, phases: unknown) {
+    return this.req(`/plan/${encodeURIComponent(jobId)}/submit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phases }) });
+  }
+  overseerPoll(missionId: string) {
+    return this.req(`/missions/${encodeURIComponent(missionId)}/overseer/next`);
+  }
+  overseerDecide(missionId: string, body: { id: string; approve: boolean; confidence: number; rationale: string }) {
+    return this.req(`/missions/${encodeURIComponent(missionId)}/overseer/decide`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  }
 }
