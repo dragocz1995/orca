@@ -51,7 +51,9 @@ export class DecisionQueue {
     const entry = (this.pending.get(missionId) ?? []).find((e) => e.id === id);
     if (!entry) return false;
     this.remove(missionId, id);
-    entry.settle(result);
+    // The local destructive heuristic (captured at enqueue) is authoritative — never trusted away by
+    // the agent. OR it into the verdict so an agent's `approve` can't dispatch a flagged-destructive action.
+    entry.settle({ ...result, destructive: result.destructive || entry.localDestructive });
     return true;
   }
 

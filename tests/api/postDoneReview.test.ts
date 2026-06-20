@@ -12,6 +12,19 @@ describe('post-done review', () => {
     expect(req?.kind).toBe('review');
   });
 
+  it('a rejected review verdict blocks the dependent open phase', async () => {
+    const { app, token, deps } = await makeTestApp({});
+    await app.request('/config', { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ autopilot: { overseerExec: 'claude:opus', reviewOnDone: true } }) });
+    const { missionId, childId, nextId } = deps.seedMissionWithChain();
+    const poll = deps.decisionQueue.next(missionId, 2000);
+    await app.request(`/tasks/${childId}`, { method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'closed', outcome: 'ok', result_summary: 'sketchy' }) });
+    const req = await poll;
+    // Overseer rejects → the next phase (P2, which depends on P1) must be blocked.
+    deps.decisionQueue.resolve(missionId, req!.id, { approve: false, confidence: 0, destructive: false, rationale: 'bad result' });
+    await new Promise((r) => setTimeout(r, 20)); // let the .then() run
+    expect(deps.tasks.get(nextId)!.status).toBe('blocked');
+  });
+
   it('does not enqueue a review when reviewOnDone is false (default)', async () => {
     const { app, token, deps } = await makeTestApp({});
     await app.request('/config', { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ autopilot: { overseerExec: 'claude:opus' } }) });

@@ -526,14 +526,22 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       d.bus.publish({ type: 'task', taskId: id, status: b.status });
       // Post-done review (opt-in): when a mission phase closes, let the parked overseer judge the
       // outcome. Non-blocking (void) — it must never delay the agent's close. Default off, and only
-      // active with an agent overseer configured.
+      // active with an agent overseer configured. A rejected/destructive verdict blocks the phase(s)
+      // waiting on this one, so a bad result halts the mission for a human instead of rolling on.
       const cfg = d.config.get();
       if (b.status === 'closed' && existing.parent_id && cfg.autopilot.reviewOnDone && cfg.autopilot.overseerExec) {
         const mission = d.missions.active().find((m) => m.epic_id === existing.parent_id);
         if (mission) {
           const localDestructive = isDestructive(`${existing.title} ${b.result_summary ?? ''}`);
           void decisionQueue.enqueue(mission.id, 'review', { title: existing.title, outcome: b.outcome ?? '', summary: b.result_summary ?? '' }, localDestructive)
-            .then(() => { /* verdict is advisory for now; a future change can gate the next phase */ });
+            .then((verdict) => {
+              if (verdict.approve && !verdict.destructive) return;
+              for (const e of d.tasks.allDeps()) {
+                if (e.depends_on_id !== id) continue;
+                const dep = d.tasks.get(e.task_id);
+                if (dep && dep.status === 'open') { d.tasks.setStatus(dep.id, 'blocked'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'blocked' }); }
+              }
+            });
         }
       }
     }
@@ -627,15 +635,6 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json(planJobs.get(job.id));
   });
 
-  app.post('/plan/:jobId/confirm', async (c) => {
-    // Persist a previously-previewed (dryRun) job's phases: flip dryRun off, then finalize.
-    const job = planJobs.get(c.req.param('jobId'));
-    if (!job) return c.json({ error: 'not found' }, 404);
-    if (!canAccessProject(c, job.projectId)) return c.json({ error: 'forbidden' }, 403);
-    job.dryRun = false;
-    await finalizePlanJob(job.id, job.phases);
-    return c.json(planJobs.get(job.id));
-  });
 
   // Insert phases into an existing epic — a manual list of phases, or `goal` to replan
   // (decompose a residual goal). New phases run AFTER the epic's current chain; an active
@@ -806,8 +805,16 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   // is needed or a heartbeat) and answers via `decide`. Decisions are keyed by mission id in the
   // path; both sit behind the bearer middleware. No model output is parsed — the agent posts a
   // structured verdict, and the local destructive heuristic stays authoritative (applied at enqueue).
+  // Gate the overseer routes by the mission's OWN project (not the daemon home project the GATED
+  // middleware checks) so a cross-project user can't read/answer another tenant's decisions. A
+  // non-existent mission id has nothing to leak, so it falls through (harmless heartbeat / no-op).
+  const overseerForbidden = (c: { get: (k: 'user') => User | undefined }, missionId: string): boolean => {
+    const mission = d.missions.get(missionId);
+    return !!mission && !missionAccessible(c, mission.epic_id);
+  };
   app.get('/missions/:id/overseer/next', async (c) => {
     const id = c.req.param('id');
+    if (overseerForbidden(c, id)) return c.json({ error: 'forbidden' }, 403);
     const raw = Number(c.req.query('timeoutMs'));
     const timeoutMs = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 30_000) : undefined;
     const req = await decisionQueue.next(id, timeoutMs);
@@ -815,6 +822,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   });
   app.post('/missions/:id/overseer/decide', async (c) => {
     const id = c.req.param('id');
+    if (overseerForbidden(c, id)) return c.json({ error: 'forbidden' }, 403);
     const b = await c.req.json().catch(() => ({})) as { id?: string; approve?: boolean; confidence?: number; rationale?: string };
     if (!b.id) return c.json({ error: 'id required' }, 400);
     const ok = decisionQueue.resolve(id, b.id, {

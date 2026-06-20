@@ -39,6 +39,15 @@ describe('DecisionQueue', () => {
     vi.useRealTimers();
   });
 
+  it('resolve() keeps the local destructive flag even when the agent approves (authoritative)', async () => {
+    const q = new DecisionQueue();
+    const verdict = q.enqueue('m6', 'task', { title: 'rm -rf' }, true); // local heuristic: destructive
+    const req = await q.next('m6');
+    // Agent answers approve + destructive:false — must NOT override the local flag.
+    q.resolve('m6', req!.id, { approve: true, confidence: 0.9, destructive: false, rationale: 'looks fine' });
+    await expect(verdict).resolves.toMatchObject({ approve: true, destructive: true });
+  });
+
   it('drain() escalates all pending for a mission', async () => {
     const q = new DecisionQueue();
     const a = q.enqueue('m5', 'task', {}, false);

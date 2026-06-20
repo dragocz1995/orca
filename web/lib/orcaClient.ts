@@ -40,7 +40,6 @@ export const orcaClient = {
   planTask: (input: PlanInput) => req<PlanSubmitResult>('/tasks/plan', json(input)),
   planPreview: (input: { goal: string; prompt?: string }) => req<{ jobId: string }>('/tasks/plan', json({ ...input, dryRun: true })),
   getPlanJob: (jobId: string) => req<PlanJob>(`/plan/${encodeURIComponent(jobId)}`),
-  confirmPlanJob: (jobId: string) => req<PlanJob>(`/plan/${encodeURIComponent(jobId)}/confirm`, { method: 'POST' }),
   insertPhases: (epicId: string, input: InsertPhasesInput) => req<InsertPhasesResult>(`/tasks/${encodeURIComponent(epicId)}/phases`, json(input)),
   engage: (input: EngageInput) => req<Mission>('/missions', json(input)),
   spawn: (input: { taskId: string; exec?: string }) => req<{ session: string }>('/sessions', json(input)),

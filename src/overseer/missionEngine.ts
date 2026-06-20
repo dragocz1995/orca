@@ -69,9 +69,16 @@ export class MissionEngine {
   async disengage(id: string): Promise<void> {
     const m = this.d.missions.get(id);
     if (m) await this.stopRunning(m.epic_id);
+    await this.markDisengaged(id);
+  }
+
+  /** The single disengage transition: mark the mission disengaged, announce it, and tear down the
+   *  parked overseer (kill its session + drain its queue). Shared by explicit disengage AND the
+   *  natural-completion branch in tick — otherwise a self-completing mission leaks its overseer. */
+  private async markDisengaged(id: string): Promise<void> {
     this.d.missions.setState(id, 'disengaged');
     this.d.bus.publish({ type: 'mission', missionId: id, state: 'disengaged' });
-    await this.d.overseer?.stop(id); // tear down the parked overseer + drain its decision queue
+    await this.d.overseer?.stop(id);
   }
 
   async pause(id: string): Promise<void> {
@@ -114,7 +121,7 @@ export class MissionEngine {
 
     const kids = this.children(m.epic_id);
     if (kids.length > 0 && kids.every(t => t.status === 'closed' || t.status === 'cancelled')) {
-      this.d.missions.setState(id, 'disengaged'); this.d.bus.publish({ type: 'mission', missionId: id, state: 'disengaged' }); return;
+      await this.markDisengaged(id); return; // also tears down the parked overseer (no leak on self-completion)
     }
 
     // Slots in use = this epic's own in-progress children — NOT all global orca- tmux

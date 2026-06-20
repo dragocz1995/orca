@@ -178,6 +178,16 @@ describe('MissionEngine overseer gate (decideTask)', () => {
     await engine.disengage(m.id);
     expect(stop).toHaveBeenCalledWith(m.id);
   });
+
+  it('stops the overseer when a mission completes on its own (no leak)', async () => {
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const { tasks, engine } = gateSetup(vi.fn().mockResolvedValue({ approve: true, destructive: false }), { start: vi.fn().mockResolvedValue(undefined), stop });
+    const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, clearedGuardrails: ['auth'] });
+    tasks.setStatus('g1', 'closed'); // the only child closes → next tick self-disengages
+    await engine.tick(m.id);
+    expect(engine.isActive(m.id)).toBe(false);
+    expect(stop).toHaveBeenCalledWith(m.id);
+  });
 });
 
 describe('MissionEngine multi-project', () => {

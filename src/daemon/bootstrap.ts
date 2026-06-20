@@ -123,7 +123,10 @@ export function buildApp(opts: BuildOpts) {
   };
   const deriver = new Deriver({
     tmux, agents, tasks, sink: bus, clock: new SystemClock(),
-    sessionTaskId: (session) => taskForSession(session)?.id ?? tasks.list({ status: 'in_progress' })[0]?.id ?? null,
+    // Resolve strictly via the agent:<name> label. No global "first in-progress task" fallback:
+    // the parked Overseer (orca-overseer-<id>) and the Pilot have no task row, and the fallback would
+    // mis-attribute their panes — even pressing accept-keys into the Overseer's TUI. Unresolved → skip.
+    sessionTaskId: (session) => taskForSession(session)?.id ?? null,
     autonomyFor: (session) => {
       const t = taskForSession(session);
       if (!t?.parent_id) return null;
