@@ -407,10 +407,10 @@ export default function SettingsPage() {
                 </>
               ) : (
                 <>
-                  <SettingCard title={t.settings.pilotBackend} description={t.settings.pilotBackendHint} icon={Bot}>
+                  <SettingCard title={t.settings.plannerModel} description={t.settings.plannerModelDesc} icon={Bot}>
                     <BackendPicker value={pilotExec} onChange={setPilotExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
                   </SettingCard>
-                  <SettingCard title={t.settings.overseerBackend} description={t.settings.overseerBackendHint} icon={Eye}>
+                  <SettingCard title={t.settings.overseerModel} description={t.settings.overseerModelDesc} icon={Eye}>
                     <BackendPicker value={overseerExec} onChange={setOverseerExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
                   </SettingCard>
                   <SettingCard title={t.settings.reviewOnDone} description={t.settings.reviewOnDoneHint} icon={Eye}>

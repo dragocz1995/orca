@@ -86,8 +86,7 @@ describe('SettingsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Autopilot' }));
     expect(screen.getByText('How autopilot reasons')).toBeTruthy();
-    expect(screen.getByText('Planner model')).toBeTruthy(); // relay fields shown
-    expect(screen.queryByText('Pilot backend')).toBeNull();  // agent fields hidden
+    expect(screen.getByText('Planner model')).toBeTruthy(); // same role labels in both modes
 
     fireEvent.click(screen.getByRole('button', { name: 'Save autopilot' }));
     await waitFor(() => {
@@ -97,15 +96,14 @@ describe('SettingsPage', () => {
     });
   });
 
-  it('switching to CLI agents shows the backend pickers and saves execs', async () => {
+  it('switching to CLI Tools saves agent execs (same role labels in both modes)', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
 
     fireEvent.click(screen.getByRole('button', { name: 'Autopilot' }));
     fireEvent.click(screen.getByText('CLI Tools')); // mode toggle
-    expect(screen.getByText('Planner (Pilot)')).toBeTruthy();
-    expect(screen.getByText('Overseer')).toBeTruthy();
+    expect(screen.getByText('Planner model')).toBeTruthy(); // unified label, not a separate "Pilot backend"
 
     fireEvent.click(screen.getByRole('button', { name: 'Save autopilot' }));
     await waitFor(() => {

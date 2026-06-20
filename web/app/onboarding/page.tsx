@@ -318,7 +318,7 @@ export default function OnboardingPage() {
               ) : (
                 <>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Field label={t.settings.pilotBackend}>
+                    <Field label={t.settings.plannerModel}>
                       <div className="flex items-center gap-2">
                         {pilotExec ? <ModelIcon name={pilotExec} size={16} /> : <Bot size={14} className="text-text-muted" />}
                         <Select value={pilotExec} onChange={(e) => setPilotExec(e.target.value)}>
@@ -326,7 +326,7 @@ export default function OnboardingPage() {
                         </Select>
                       </div>
                     </Field>
-                    <Field label={t.settings.overseerBackend}>
+                    <Field label={t.settings.overseerModel}>
                       <div className="flex items-center gap-2">
                         {overseerExec ? <ModelIcon name={overseerExec} size={16} /> : <Eye size={14} className="text-text-muted" />}
                         <Select value={overseerExec} onChange={(e) => setOverseerExec(e.target.value)}>
