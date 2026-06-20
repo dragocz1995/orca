@@ -1,9 +1,12 @@
 import type { SignalSink, DerivedSignal } from '../deriver/types.js';
+import type { PlanJobStatus } from '../overseer/planJob.js';
+import type { Phase } from '../overseer/planner.js';
 
 export type OrcaEvent =
   | { type: 'signal'; session: string; signal: DerivedSignal }
   | { type: 'mission'; missionId: string; state: string }
-  | { type: 'task'; taskId: string; status: string };
+  | { type: 'task'; taskId: string; status: string }
+  | { type: 'plan'; jobId: string; status: PlanJobStatus; epicId?: string; phases?: Phase[]; error?: string };
 
 export class EventBus implements SignalSink {
   private subs = new Set<(e: OrcaEvent) => void>();
