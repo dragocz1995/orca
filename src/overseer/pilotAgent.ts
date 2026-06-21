@@ -4,6 +4,7 @@ import type { ProjectStore } from '../store/projectStore.js';
 import type { PlanJob } from './planJob.js';
 import { render } from '../prompts/index.js';
 import { resolveExecutor } from './routing.js';
+import { modelsBlock } from './planner.js';
 
 /** The planning prompt: the Pilot reads the repo, then submits a structured plan via the orca CLI.
  *  It must NOT implement anything and must NOT spawn agents — the engine owns orchestration.
@@ -30,13 +31,14 @@ export function makePilot(deps: { spawn: SpawnService; config: ConfigStore; proj
     const cfg = deps.config.get();
     const spec = resolveExecutor([`exec:${cfg.autopilot.pilotExec}`], { program: 'claude-code', model: 'sonnet' });
     const notes = deps.projects.get(job.projectId)?.notes;
+    const models = job.autoModel ? modelsBlock(cfg.allowedExecs, cfg.modelNotes) : undefined;
     // Structured `pilot-` prefix so the session classifies as the planner (mirrors the overseer's
     // `overseer-` prefix), instead of being indistinguishable from a worker agent.
     const agentName = `pilot-${deps.nameAgent()}`;
     await deps.spawn.launch({
       projectId: job.projectId, projectPath, taskId: job.id, agentName, spec,
       taskTitle: `Plan: ${job.goal}`,
-      rawPrompt: pilotPrompt(job.goal, job.id, notes, deps.cliPath),
+      rawPrompt: pilotPrompt(job.goal, job.id, notes, deps.cliPath, models),
       extraEnv: { ORCA_PLAN_JOB: job.id },
     });
   };

@@ -18,7 +18,7 @@ import type { TmuxDriver } from '../tmux/types.js';
 import type { EventBus } from './sse.js';
 import type { AgentSpec } from '../spawn/commandBuilder.js';
 import { resolveExecutor } from '../overseer/routing.js';
-import { decompose, parsePhases, VALID_TYPES as VALID_PHASE_TYPES, type Phase } from '../overseer/planner.js';
+import { decompose, parsePhases, modelsBlock, VALID_TYPES as VALID_PHASE_TYPES, type Phase } from '../overseer/planner.js';
 import { classifySession } from '../overseer/sessionInfo.js';
 import { isDestructive } from '../overseer/decision.js';
 import { PlanJobStore, type PlanJob } from '../overseer/planJob.js';
@@ -424,6 +424,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   // Single source of truth for both initial planning and replan (DRY with the old inline blocks).
   function persistPlan(job: PlanJob): { epic: Task; phases: Task[] } {
     const path = pathFor(job.projectId);
+    const allowedExecs = d.config.get().allowedExecs;
     const newId = () => `${basename(path)}-${randomBytes(4).toString('hex')}`;
     const epicId = job.epicId ?? newId();
     let epic = d.tasks.get(epicId);
@@ -442,7 +443,11 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       const child = d.tasks.create({ id: newId(), project_id: job.projectId, title: ph.title, type: ph.type, parent_id: epic.id, labels: ph.agent ? [`agent:${ph.agent}`] : [], description: childDesc });
       if (prevId) d.tasks.addDep(child.id, prevId); // chain within the new batch
       else for (const leaf of leaves) d.tasks.addDep(child.id, leaf); // first new phase waits on the tail
-      if (job.exec) d.tasks.setExec(child.id, job.exec);
+      // exec: auto mode takes the planner's per-phase pick, manual mode the job-level choice. Either
+      // way it must be allow-listed — a halucinated/disabled exec is dropped so the child runs with
+      // the configured default (resolveExecutor fallback), never a bogus model.
+      const pickedExec = job.autoModel ? ph.exec : job.exec;
+      if (pickedExec && allowedExecs.includes(pickedExec)) d.tasks.setExec(child.id, pickedExec);
       d.bus.publish({ type: 'task', taskId: child.id, status: child.status });
       created.push(child);
       prevId = child.id;
@@ -765,7 +770,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json({ ok: true, tasks: removed.tasks, missions: removed.missions, events });
   });
   app.post('/tasks/plan', async c => {
-    const b = await c.req.json() as { goal?: string; exec?: string; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title?: string; type?: string }[]; dryRun?: boolean; prompt?: string; project_id?: number };
+    const b = await c.req.json() as { goal?: string; exec?: string; autoModel?: boolean; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title?: string; type?: string }[]; dryRun?: boolean; prompt?: string; project_id?: number };
     const goal = (b.goal ?? '').trim();
     if (!goal) return c.json({ error: 'goal required' }, 400);
     if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
@@ -791,7 +796,9 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     // Autopilot mode: always async via a plan job — one path for the relay and the agent backends.
     const cfg = d.config.get();
     const job = planJobs.create({
-      goal, projectId: target.project.id, epicId: null, dryRun: b.dryRun === true, exec: b.exec,
+      goal, projectId: target.project.id, epicId: null, dryRun: b.dryRun === true,
+      // Auto mode lets the planner pick a model per phase, so no uniform exec rides along.
+      exec: b.autoModel ? undefined : b.exec, autoModel: b.autoModel === true,
       engage: b.engage === true ? { autonomy: b.autonomy ?? 'L3', maxSessions: b.maxSessions ?? 1 } : undefined,
     });
     d.bus.publish({ type: 'plan', jobId: job.id, status: 'planning' });
@@ -807,7 +814,8 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     let phases: Phase[];
     try {
       const notes = d.projects?.get(target.project.id)?.notes;
-      phases = await decompose(inf, goal, b.prompt ?? cfg.autopilot.prompt, { notes });
+      const models = job.autoModel ? modelsBlock(cfg.allowedExecs, cfg.modelNotes) : undefined;
+      phases = await decompose(inf, goal, b.prompt ?? cfg.autopilot.prompt, { notes }, models);
     } catch {
       planJobs.fail(job.id, 'plan_parse_failed');
       d.bus.publish({ type: 'plan', jobId: job.id, status: 'failed', error: 'plan_parse_failed' });

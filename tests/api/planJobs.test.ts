@@ -42,6 +42,32 @@ describe('async plan jobs (relay path)', () => {
     expect(submit.status).toBe(400);
   });
 
+  // Read the resolved exec for a child task by title (exec lives as an `exec:<spec>` label).
+  async function execOf(app: Awaited<ReturnType<typeof makeTestApp>>['app'], token: string, title: string): Promise<string | undefined> {
+    const tasks = await (await app.request('/tasks', { headers: { authorization: `Bearer ${token}` } })).json() as { title: string; labels: string[] }[];
+    const t = tasks.find((x) => x.title === title);
+    return t?.labels.find((l) => l.startsWith('exec:'))?.slice('exec:'.length);
+  }
+  const putConfig = (app: Awaited<ReturnType<typeof makeTestApp>>['app'], token: string, patch: unknown) =>
+    app.request('/config', { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(patch) });
+
+  it('autoModel mode applies a valid per-phase exec and falls back (no label) for an invalid one', async () => {
+    const { app, token } = await makeTestApp({ apiKey: 'k', fakePlan: '[{"title":"A","type":"task","exec":"sonnet"},{"title":"B","type":"task","exec":"deepseek/x"}]' });
+    await putConfig(app, token, { allowedExecs: ['sonnet'], modelNotes: { sonnet: 'coder' }, defaults: { exec: 'sonnet' } });
+    const res = await app.request('/tasks/plan', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'g', autoModel: true }) });
+    expect(res.status).toBe(202);
+    expect(await execOf(app, token, 'A')).toBe('sonnet');       // valid → applied
+    expect(await execOf(app, token, 'B')).toBeUndefined();        // not allowed → unset → runtime default
+  });
+
+  it('manual mode ignores a per-phase exec and applies the chosen job exec uniformly', async () => {
+    const { app, token } = await makeTestApp({ apiKey: 'k', fakePlan: '[{"title":"A","type":"task","exec":"codex:gpt-5.4"}]' });
+    await putConfig(app, token, { allowedExecs: ['sonnet', 'codex:gpt-5.4'] });
+    const res = await app.request('/tasks/plan', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'g', exec: 'sonnet' }) });
+    expect(res.status).toBe(202);
+    expect(await execOf(app, token, 'A')).toBe('sonnet');         // job.exec wins; phase.exec ignored
+  });
+
   it('POST /tasks/plan dryRun (autopilot) returns 202; job resolves done with phases, nothing persisted', async () => {
     const { app, token } = await makeTestApp({ fakePlan: '[{"title":"A","type":"task"},{"title":"B"}]', apiKey: 'k' });
     const { jobId } = await (await app.request('/tasks/plan', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'preview', dryRun: true }) })).json() as { jobId: string };

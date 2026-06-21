@@ -3,7 +3,7 @@ import type { Phase } from './planner.js';
 
 export type PlanJobStatus = 'planning' | 'done' | 'failed';
 export interface PlanJob {
-  id: string; epicId: string | null; goal: string; projectId: number; exec?: string;
+  id: string; epicId: string | null; goal: string; projectId: number; exec?: string; autoModel?: boolean;
   dryRun: boolean; engage?: { autonomy: string; maxSessions: number };
   status: PlanJobStatus; phases: Phase[]; error?: string;
 }
@@ -23,7 +23,7 @@ export class PlanJobStore {
 
   constructor(private now: () => number = Date.now) {}
 
-  create(input: { goal: string; projectId: number; epicId: string | null; dryRun: boolean; exec?: string; engage?: { autonomy: string; maxSessions: number } }): PlanJob {
+  create(input: { goal: string; projectId: number; epicId: string | null; dryRun: boolean; exec?: string; autoModel?: boolean; engage?: { autonomy: string; maxSessions: number } }): PlanJob {
     this.prune();
     const job: PlanJob = { id: `pj-${randomBytes(5).toString('hex')}`, status: 'planning', phases: [], ...input };
     this.jobs.set(job.id, job);

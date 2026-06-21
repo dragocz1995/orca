@@ -43,8 +43,9 @@ function projectContextBlock(project?: PlanProjectContext): string {
  *  so the planner emits no `exec` and tasks fall back to the configured default). */
 export function modelsBlock(allowedExecs: string[], modelNotes: Record<string, string>): string {
   const lines = allowedExecs
-    .filter((e) => modelNotes[e]?.trim())
-    .map((e) => `- ${e}: ${modelNotes[e].trim()}`);
+    .map((e) => ({ e, note: modelNotes[e]?.trim() }))
+    .filter((x): x is { e: string; note: string } => !!x.note)
+    .map((x) => `- ${x.e}: ${x.note}`);
   if (lines.length === 0) return '';
   return [
     'Available models — for each phase additionally include an "exec" field set to the id of the model best suited to that phase, chosen ONLY from this list:',
