@@ -75,8 +75,8 @@ describe('per-user model allow-list enforcement', () => {
     await app.request(`/users/${bob.id}`, patch(adminTok, { allowed_execs: ['sonnet'] }));
     tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
 
-    // 'deepseek/deepseek-v4-flash' is in the GLOBAL allow-list but not in bob's → 403, no spawn.
-    const blocked = await app.request('/sessions', post(bobTok, { taskId: 'orca-1', exec: 'deepseek/deepseek-v4-flash' }));
+    // 'ollama-cloud/deepseek-v4-flash' is in the GLOBAL allow-list but not in bob's → 403, no spawn.
+    const blocked = await app.request('/sessions', post(bobTok, { taskId: 'orca-1', exec: 'ollama-cloud/deepseek-v4-flash' }));
     expect(blocked.status).toBe(403);
     expect(await tmux.list()).toHaveLength(0);
 
@@ -90,9 +90,9 @@ describe('per-user model allow-list enforcement', () => {
     userProjects.assign(bob.id, 1);
     tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
     // bob has no allowed_execs set → any globally-allowed exec works.
-    expect((await app.request('/sessions', post(bobTok, { taskId: 'orca-1', exec: 'deepseek/deepseek-v4-flash' }))).status).toBe(201);
+    expect((await app.request('/sessions', post(bobTok, { taskId: 'orca-1', exec: 'ollama-cloud/deepseek-v4-flash' }))).status).toBe(201);
     tasks.create({ id: 'orca-2', project_id: 1, title: 'Y' });
-    expect((await app.request('/sessions', post(adminTok, { taskId: 'orca-2', exec: 'codex:gpt-5.4' }))).status).toBe(201);
+    expect((await app.request('/sessions', post(adminTok, { taskId: 'orca-2', exec: 'codex:gpt-5.5' }))).status).toBe(201);
   });
 });
 

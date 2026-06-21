@@ -93,7 +93,7 @@ it('POST /sessions launches an agent on a task and marks it in_progress', async 
     engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
-  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'deepseek/deepseek-v4-flash' }) });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
   expect(res.status).toBe(201);
   const body = await res.json();
   expect(body.session).toMatch(/^orca-/);
@@ -101,7 +101,7 @@ it('POST /sessions launches an agent on a task and marks it in_progress', async 
   expect(await tmux.list()).toContain(body.session);
   // spawn tags the task with exec + agent labels so the UI can show its model and link the session
   const t1 = tasks.get('orca-1')!;
-  expect(t1.labels).toContain('exec:deepseek/deepseek-v4-flash');
+  expect(t1.labels).toContain('exec:ollama-cloud/deepseek-v4-flash');
   expect(t1.labels.some((l) => l.startsWith('agent:'))).toBe(true);
 });
 
@@ -115,7 +115,7 @@ it('GET /sessions tags each live session with its project from the agent store',
     engine: null as any, spawn: new SpawnService({ tmux, agents }), tmux, agents,
     project: { id: 7, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
-  await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'deepseek/deepseek-v4-flash' }) });
+  await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
   const sessions = await (await app.request('/sessions')).json();
   expect(sessions).toHaveLength(1);
   // the daemon resolves the session's repo from the agent store (works for every role, not just workers)

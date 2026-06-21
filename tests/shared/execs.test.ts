@@ -3,6 +3,7 @@ import {
   PROGRAM_PREFIXES,
   DEFAULT_BINS,
   KNOWN_EXECS,
+  EXEC_NOTES,
   isWellFormedExec,
   isAllowedExec,
 } from '../../src/shared/execs.js';
@@ -16,8 +17,16 @@ describe('shared/execs', () => {
 
   it('KNOWN_EXECS is the built-in allow-list', () => {
     expect(KNOWN_EXECS).toContain('sonnet');
-    expect(KNOWN_EXECS).toContain('codex:gpt-5.4');
-    expect(KNOWN_EXECS.length).toBe(5);
+    expect(KNOWN_EXECS).toContain('opus');
+    expect(KNOWN_EXECS).toContain('codex:gpt-5.5');
+    expect(KNOWN_EXECS.length).toBe(11);
+  });
+
+  it('EXEC_NOTES describes every built-in exec', () => {
+    for (const exec of KNOWN_EXECS) {
+      expect(typeof EXEC_NOTES[exec]).toBe('string');
+      expect(EXEC_NOTES[exec].length).toBeGreaterThan(0);
+    }
   });
 
   describe('isWellFormedExec', () => {

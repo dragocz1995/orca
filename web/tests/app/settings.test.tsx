@@ -20,10 +20,10 @@ describe('SettingsPage', () => {
     putBody = null;
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
     // Models auto-persist: a toggle PUTs immediately, no separate "Save models" button.
     expect(screen.queryByRole('button', { name: 'Save models' })).toBeNull();
-    fireEvent.click(screen.getByLabelText('Claude Sonnet')); // uncheck sonnet → auto-saves
+    fireEvent.click(screen.getByLabelText('Claude Sonnet 4.5')); // uncheck sonnet → auto-saves
     await waitFor(() => expect((putBody as { allowedExecs: string[] }).allowedExecs).not.toContain('sonnet'));
   });
 
@@ -31,8 +31,8 @@ describe('SettingsPage', () => {
     putBody = null;
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
-    fireEvent.click(screen.getByLabelText('Claude Sonnet')); // any change triggers the PUT
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
+    fireEvent.click(screen.getByLabelText('Claude Sonnet 4.5')); // any change triggers the PUT
     await waitFor(() => expect((putBody as { customModels: unknown }).customModels).toBeDefined());
     expect(Array.isArray((putBody as { customModels: unknown[] }).customModels)).toBe(true);
   });
@@ -41,25 +41,25 @@ describe('SettingsPage', () => {
     putBody = null;
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
-    // Each enabled model card carries an "Add description" affordance; the first is Claude Sonnet.
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
+    // Each model card carries an "Add description" affordance; the first preset is GLM 5.2.
     fireEvent.click(screen.getAllByRole('button', { name: 'Add description' })[0]);
     fireEvent.change(screen.getByLabelText('Model description'), { target: { value: 'Strong at refactoring' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect((putBody as { modelNotes: Record<string, string> }).modelNotes).toMatchObject({ sonnet: 'Strong at refactoring' }));
+    await waitFor(() => expect((putBody as { modelNotes: Record<string, string> }).modelNotes).toMatchObject({ 'ollama-cloud/glm-5.2': 'Strong at refactoring' }));
   });
 
   it('renders the Add model affordance', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
     expect(screen.getByRole('button', { name: 'Add model' })).toBeTruthy();
   });
 
   it('add-model modal opens on click and sends customModels with the new entry on save', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
 
     fireEvent.click(screen.getByRole('button', { name: 'Add model' }));
     // Modal: fill label, pick the "Other" provider, type a raw exec string.
@@ -82,7 +82,7 @@ describe('SettingsPage', () => {
   it('switches categories via the top pills', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
 
     // Models category is active by default; Autopilot save button is hidden
     expect(screen.queryByRole('button', { name: 'Save autopilot' })).toBeNull();
@@ -98,7 +98,7 @@ describe('SettingsPage', () => {
   it('defaults to Relay mode and saves relay fields (execs cleared)', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
 
     fireEvent.click(screen.getByRole('button', { name: 'Autopilot' }));
     expect(screen.getByText('How autopilot reasons')).toBeTruthy();
@@ -115,7 +115,7 @@ describe('SettingsPage', () => {
   it('switching to CLI Tools saves agent execs (same role labels in both modes)', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
 
     fireEvent.click(screen.getByRole('button', { name: 'Autopilot' }));
     fireEvent.click(screen.getByText('CLI Tools')); // mode toggle
@@ -133,7 +133,7 @@ describe('SettingsPage', () => {
   it('shows the Hermes panel with status badges and no header save button', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
 
     fireEvent.click(screen.getByRole('button', { name: 'Hermes' }));
     // Install button present; header Save button hidden for this category

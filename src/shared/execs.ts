@@ -32,14 +32,41 @@ export const DEFAULT_BINS: Readonly<Record<Program, string>> = {
   'codex': 'codex',
 };
 
-/** Built-in exec labels offered/allowed out of the box (the default `allowedExecs`). */
+/** Built-in exec labels offered/allowed out of the box (the default `allowedExecs`). Keep in sync
+ *  with the web preset list (`web/lib/execPresets.ts`) and the default notes below. */
 export const KNOWN_EXECS: readonly string[] = [
+  'ollama-cloud/glm-5.2',
+  'codex:gpt-5.5',
   'sonnet',
-  'deepseek/deepseek-v4-flash',
-  'kimi-for-coding/k2p7',
-  'ollama/minimax-m2.7:cloud',
-  'codex:gpt-5.4',
+  'opus',
+  'ollama-cloud/deepseek-v4-pro',
+  'ollama/kimi-k2.7-code',
+  'ollama-cloud/minimax-m3',
+  'ollama-cloud/deepseek-v4-flash',
+  'ollama-cloud/minimax-m2.7',
+  'ollama-cloud/glm-5.1',
+  'ollama-cloud/qwen3.5',
 ];
+
+/**
+ * Default capability notes for the built-in models, keyed by exec. Seeded into config so a fresh
+ * install ships with sensible descriptions, and merged *under* stored notes (user edits win) so the
+ * autopilot model picker has something to reason about out of the box. Keep keys aligned with
+ * KNOWN_EXECS. Notes are English — they are fed verbatim into the (English) planner prompt.
+ */
+export const EXEC_NOTES: Readonly<Record<string, string>> = {
+  'ollama-cloud/glm-5.2': 'Open frontier model, near Claude Opus on agentic coding; sustains long autonomous tool-use sessions. Strong all-rounder for complex, multi-step work.',
+  'codex:gpt-5.5': "OpenAI's strongest agentic coder (via Codex) — excellent long-horizon planning, debugging, and end-to-end PR work.",
+  'sonnet': 'Claude Sonnet — fast, reliable everyday coder with strong tool use and instruction following. A solid default for most tasks.',
+  'opus': 'Claude Opus — most capable reasoner; best for hard architecture, large multi-file refactors, and tricky debugging.',
+  'ollama-cloud/deepseek-v4-pro': 'Top open-source raw coding; best for whole-codebase refactors and hard SWE-bench-style problems.',
+  'ollama/kimi-k2.7-code': 'Agentic coding specialist — long-horizon tasks with heavy multi-tool and sub-agent orchestration.',
+  'ollama-cloud/minimax-m3': 'Efficient agentic coder — multi-file edits and code-run-fix loops at low cost and high throughput.',
+  'ollama-cloud/deepseek-v4-flash': 'Faster, cheaper DeepSeek V4 — strong coding at low latency, good for quick iterations.',
+  'ollama-cloud/minimax-m2.7': 'Cheap, fast agentic model — routine multi-file edits and test-validated fixes.',
+  'ollama-cloud/glm-5.1': 'Open agentic model for long-running tasks (hours of tool calls); a step below GLM 5.2.',
+  'ollama-cloud/qwen3.5': 'Best-in-class instruction following and function-calling; balanced reasoning and coding agent.',
+};
 
 /**
  * Whether a non-empty exec spec is well-formed: it either carries an explicit program prefix

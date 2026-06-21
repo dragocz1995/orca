@@ -1,6 +1,6 @@
 import type { Db } from './db.js';
 import { defaultPromptTemplate } from '../overseer/planner.js';
-import { DEFAULT_BINS, KNOWN_EXECS, isAllowedExec } from '../shared/execs.js';
+import { DEFAULT_BINS, EXEC_NOTES, KNOWN_EXECS, isAllowedExec } from '../shared/execs.js';
 
 interface ProviderConfig { bin: string; args: string }
 export type Providers = Record<string, ProviderConfig>;
@@ -45,7 +45,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   allowedExecs: [...KNOWN_EXECS],
   customModels: [],
   hiddenPresets: [],
-  modelNotes: {},
+  modelNotes: { ...EXEC_NOTES },
   autopilot: { model: 'gpt-4o-mini', overseerModel: '', apiUrl: 'https://api.openai.com/v1', apiKeySet: false, notes: '', prompt: defaultPromptTemplate(), pilotExec: '', overseerExec: '', reviewOnDone: false },
   providers: { ...DEFAULT_PROVIDERS },
   defaults: { exec: 'sonnet', autonomy: 'L3', maxSessions: 1 },
@@ -68,7 +68,7 @@ const defaultStored = (): Stored => ({
   allowedExecs: [...KNOWN_EXECS],
   customModels: [],
   hiddenPresets: [],
-  modelNotes: {},
+  modelNotes: { ...EXEC_NOTES },
   autopilot: { model: DEFAULT_CONFIG.autopilot.model, overseerModel: '', apiUrl: DEFAULT_CONFIG.autopilot.apiUrl, notes: '', prompt: DEFAULT_CONFIG.autopilot.prompt, pilotExec: '', overseerExec: '', reviewOnDone: false },
   providers: { ...DEFAULT_PROVIDERS },
   apiKey: null,
@@ -103,7 +103,9 @@ export class ConfigStore {
         allowedExecs: Array.isArray(p.allowedExecs) ? p.allowedExecs : d.allowedExecs,
         customModels: Array.isArray(p.customModels) ? p.customModels : [],
         hiddenPresets: Array.isArray(p.hiddenPresets) ? p.hiddenPresets : [],
-        modelNotes: (p.modelNotes && typeof p.modelNotes === 'object' && !Array.isArray(p.modelNotes)) ? p.modelNotes as Record<string, string> : {},
+        // Seed built-in notes under any stored notes so known models always carry a description,
+        // while user edits (including an explicit '' to clear one) take precedence.
+        modelNotes: (p.modelNotes && typeof p.modelNotes === 'object' && !Array.isArray(p.modelNotes)) ? { ...d.modelNotes, ...(p.modelNotes as Record<string, string>) } : { ...d.modelNotes },
         autopilot: { model: p.autopilot?.model ?? d.autopilot.model, overseerModel: p.autopilot?.overseerModel ?? d.autopilot.overseerModel, apiUrl: p.autopilot?.apiUrl ?? d.autopilot.apiUrl, notes: p.autopilot?.notes ?? d.autopilot.notes, prompt: p.autopilot?.prompt ?? d.autopilot.prompt, pilotExec: p.autopilot?.pilotExec ?? d.autopilot.pilotExec, overseerExec: p.autopilot?.overseerExec ?? d.autopilot.overseerExec, reviewOnDone: p.autopilot?.reviewOnDone ?? d.autopilot.reviewOnDone },
         providers: { ...d.providers, ...sanitizeProviders(p.providers) },
         apiKey: typeof p.apiKey === 'string' ? p.apiKey : null,

@@ -11,7 +11,7 @@ describe('ConfigStore', () => {
   it('returns defaults when empty (all execs allowed, key unset, customModels empty)', () => {
     const c = cfg.get();
     expect(c.allowedExecs).toContain('sonnet');
-    expect(c.allowedExecs.length).toBe(5);
+    expect(c.allowedExecs.length).toBe(11);
     expect(c.autopilot.apiKeySet).toBe(false);
     expect(c.customModels).toEqual([]);
   });
@@ -40,14 +40,21 @@ describe('ConfigStore', () => {
     expect(c.autopilot.notes).toBe('be careful');
     expect(c.defaults).toEqual({ exec: 'codex:gpt-5.4', autonomy: 'L3', maxSessions: 3 });
   });
-  it('defaults modelNotes to {} and round-trips an update', () => {
-    expect(cfg.get().modelNotes).toEqual({});
-    cfg.update({ modelNotes: { sonnet: 'Best for coding', 'codex:gpt-5.4': 'Cheap planner' } });
-    expect(cfg.get().modelNotes).toEqual({ sonnet: 'Best for coding', 'codex:gpt-5.4': 'Cheap planner' });
+  it('seeds modelNotes from the built-in defaults and lets user edits win', () => {
+    const seeded = cfg.get().modelNotes;
+    expect(seeded.sonnet).toBeTruthy(); // built-in description present out of the box
+    expect(seeded.opus).toBeTruthy();
+    cfg.update({ modelNotes: { sonnet: 'Best for coding', 'my/custom': 'Cheap planner' } });
+    const after = cfg.get().modelNotes;
+    expect(after.sonnet).toBe('Best for coding'); // user edit overrides the seed
+    expect(after['my/custom']).toBe('Cheap planner');
+    expect(after.opus).toBe(seeded.opus); // untouched defaults stay backfilled
   });
-  it('reads a legacy row without modelNotes as {}', () => {
+  it('backfills built-in notes for a legacy row without modelNotes', () => {
     db.prepare('INSERT INTO settings (id, data) VALUES (1, ?)').run(JSON.stringify({ allowedExecs: ['sonnet'] }));
-    expect(cfg.get().modelNotes).toEqual({});
+    const notes = cfg.get().modelNotes;
+    expect(notes.sonnet).toBeTruthy();
+    expect(notes.opus).toBeTruthy();
   });
   it('defaults security.tokenTtlDays to 30 and updates it', () => {
     expect(cfg.get().security).toEqual({ tokenTtlDays: 30 });
