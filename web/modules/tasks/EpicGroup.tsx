@@ -80,8 +80,11 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
   const onResume = () => resume.mutate(mission!.id, { onSuccess: () => toast(t.missions.resumed), onError: (e) => toast(String(e), 'error') });
   const onDisengage = () => disengage.mutate(mission!.id, { onSuccess: () => toast(t.missions.disengaged), onError: (e) => toast(String(e), 'error') });
 
+  // No overflow-hidden on the card: it would clip the action menu's dropdown (which must overlay
+  // below the card). Corners stay clean because the only child reaching them — the expanded phase
+  // list — is rounded to match below (rounded-b-lg).
   return (
-    <div className="group/epic overflow-hidden rounded-lg border border-accent/30 bg-accent/[0.04]">
+    <div className="group/epic rounded-lg border border-accent/30 bg-accent/[0.04]">
       <div className="relative flex items-stretch">
         <button
           type="button"
@@ -137,7 +140,7 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
       </div>
 
       {expanded ? (
-        <div className="flex flex-col gap-2.5 border-t border-accent/20 bg-bg/30 p-2.5 pl-5">
+        <div className="flex flex-col gap-2.5 rounded-b-lg border-t border-accent/20 bg-bg/30 p-2.5 pl-5">
           {phases.map((p) => (
             <TaskCard key={p.id} task={p} onEdit={onEdit} onSelect={onSelect} active={activeId === p.id} blockers={blockedBy.get(p.id)} />
           ))}
