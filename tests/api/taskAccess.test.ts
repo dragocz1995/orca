@@ -76,4 +76,32 @@ describe('per-resource task/mission access', () => {
     expect((await app.request('/missions/m2', patch(bobTok, { action: 'pause' }))).status).toBe(403);
     expect((await app.request('/missions/m2', del(bobTok))).status).toBe(403);
   });
+
+  // The final-phase agent closes the epic itself right after closing its own leaf. By then its task is
+  // no longer in_progress and the mission has disengaged, so the agent's working set (in_progress agent
+  // tasks + active missions' epics) is empty — its epic-close would 403. The still-open epic, having
+  // hosted agent work, must keep its project reachable to that agent until the epic itself is closed.
+  it('an agent can close its own (still-open) mission epic after its final leaf closed — no 403 race', async () => {
+    const db = openDb(':memory:');
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'home','/o')").run();
+    const users = new UserStore(db);
+    const admin = users.create('admin', 'pw');
+    const userProjects = new UserProjectStore(db); // multi-tenant mode → agent tokens are gated by working set
+    const tasks = new TaskStore(db);
+    tasks.create({ id: 'epic1', project_id: 1, title: 'E1', type: 'epic' });
+    tasks.create({ id: 'p1', project_id: 1, title: 'P1', parent_id: 'epic1' });
+    tasks.setAgent('p1', 'Nova');     // the phase was worked by an agent…
+    tasks.setStatus('p1', 'closed');  // …which already closed its own leaf (and the mission disengaged)
+    const app = createServer({
+      tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+      engine: null as never, spawn: null as never, tmux: null as never,
+      project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
+      clock: new FakeClock(0), config: new ConfigStore(db),
+      users, projects: new ProjectStore(db), userProjects,
+    });
+    const agentTok = users.issueToken(admin.id, 'agent');
+    const res = await app.request('/tasks/epic1', patch(agentTok, { status: 'closed', outcome: 'ok', result_summary: 'all phases done' }));
+    expect(res.status).toBe(200);
+    expect(tasks.get('epic1')!.status).toBe('closed');
+  });
 });

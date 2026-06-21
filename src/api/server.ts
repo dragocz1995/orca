@@ -327,6 +327,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       const epic = d.tasks.get(m.epic_id);
       if (epic) ids.add(epic.project_id);
     }
+    // The final-phase agent closes the epic itself right after closing its own leaf — by then its task
+    // is no longer in_progress and the mission has disengaged, so neither set above covers it and the
+    // epic-close would 403. A still-open epic that hosted agent work keeps its project reachable to that
+    // agent until the epic is actually closed (then it drops out again). No permanent widening.
+    for (const t of d.tasks.list()) {
+      if (!t.parent_id || !t.labels.some((l) => l.startsWith('agent:'))) continue;
+      const epic = d.tasks.get(t.parent_id);
+      if (epic && epic.status !== 'closed' && epic.status !== 'cancelled') ids.add(epic.project_id);
+    }
     return ids;
   };
 
