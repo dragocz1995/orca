@@ -175,6 +175,20 @@ Job storage is in-memory (`PlanJobStore` in `src/overseer/planJob.ts`). Jobs are
 - Interactive users (project access gate)
 - The Pilot agent (via `tokenScope === 'agent'`)
 
+### Live pilot preview (agent-mode only)
+
+After spawning the Pilot, `makePilot` calls `planJobs.setSession(job.id, session)` to record the tmux session name on the `PlanJob` (`src/overseer/pilotAgent.ts`). This requires `planJobs: PlanJobStore` as a dependency, injected in `bootstrap.ts`.
+
+`GET /plan/:jobId` now includes `sessionName` in its response, so `usePlanJob` populates the field. The SSE `plan` handler in `useOrcaEvents` merges it carefully:
+
+```typescript
+sessionName: data.sessionName ?? prev?.sessionName,
+```
+
+A `planning` SSE event carries no `sessionName` (it fires before the Pilot is even spawned); the fallback keeps whatever was written by a prior GET poll. This prevents the live-preview pane from disappearing mid-session.
+
+When `planJob.data?.sessionName` is set, `TaskModal` renders a `LiveTail` component below the planning spinner — the user watches the planner think instead of staring at a static loader. Relay-mode planning is synchronous and has no tmux session, so the pane stays hidden there.
+
 ---
 
 ## Deriver: prompt detection & resolution

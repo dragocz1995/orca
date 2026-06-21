@@ -28,20 +28,20 @@ Blocked tasks are excluded from `readiness.ready()` so the engine tick skips the
 
 Tasks carry string labels used for routing and agent naming:
 
-- `exec:<spec>` — route to a specific agent executor (e.g., `exec:sonnet`, `exec:opencode:ollama/deepseek-v4-flash`, `exec:codex:gpt-4`)
+- `exec:<spec>` — route to a specific agent executor (e.g., `exec:sonnet`, `exec:opencode:ollama-cloud/deepseek-v4-flash`, `exec:codex:gpt-5.5`)
 - `agent:<name>` — pin a specific agent name for this task's session (`orca-<name>`). Named agents let the deriver, janitor, and stuck detector resolve the task from a session without relying on first-in-progress fallback.
 - `started:<epoch-ms>` — precise spawn timestamp for correct usage attribution under concurrency
 - `stuck:<n>` — relaunch counter; incremented each time the stuck detector reverts this task, bounds re-spawns at `maxRelaunch` (2)
 
 ### Readiness
 
-A task is **ready** when all its dependencies (`task_deps`) have status `closed` or `cancelled`. The `Readiness` service computes this at query time from the DAG, scoped to a project.
+A task is **ready** when it is `open`, not an epic, and every one of its dependencies (`task_deps`) is `closed` or `cancelled`. The `Readiness` service computes this at query time with a single `NOT EXISTS` deps check — `ready(projectId)` across a project, or `readyForEpic(epicId)` scoped to one epic's direct children (used by the mission engine so parallel missions don't walk each other's tasks).
 
 ---
 
 ## Missions
 
-A **mission** groups tasks under an epic for autonomous execution. The mission engine (`MissionEngine`) ticks active missions, picks ready tasks, consults the overseer, and spawns agents.
+A **mission** groups tasks under an epic for autonomous execution. The mission engine (`MissionEngine`) ticks active missions, picks each epic's ready tasks, and spawns agents up to `max_sessions`. The Overseer is not consulted at dispatch — it gates the agents' permission prompts (via the Deriver) and optional post-phase reviews; see the Overseer section below.
 
 ### Mission lifecycle
 
@@ -78,7 +78,7 @@ The tick loop (every 90 seconds, one tick per active mission):
 1. Load the mission, its epic, and its project
 2. If all children are `closed`/`cancelled` → auto-disengage
 3. Count running = this epic's own `in_progress` children (not global sessions)
-4. Walk `readiness.ready()` children of this epic; for each, while `running < max_sessions`:
+4. Walk `readiness.readyForEpic(epicId)` — the epic's direct, dependency-cleared children; for each, while `running < max_sessions`:
     - Skip if autonomy is L0 (Recommend — plan only, no spawn)
     - L1–L3: resolve executor from labels, pick an agent name, set `in_progress`, spawn via tmux
 5. Detect stalled: zero running + any blocked child → mark `stalled`; if previously stalled and work resumed → mark `active`
@@ -109,13 +109,13 @@ The **overseer decision gate** (relay LLM or parked agent) still provides a safe
 
 ---
 
-## Overseeer (decision gate)
+## Overseer (decision gate)
 
 Two decision paths, controlled by `config.autopilot.overseerExec`:
 
 ### Relay path (default)
 
-`overseerExec` is empty. Decisions go through `RelayClient` using `config.autopilot.overseerModel` (falls back to planner model). Prompt and task approvals are LLM-based; when the LLM is unavailable or no API key is set, responses default to `{approve: true}` (blanket approve).
+`overseerExec` is empty. Permission-prompt decisions go through `RelayClient` using `config.autopilot.overseerModel` (falls back to the planner model). When no relay is wired at all (no API key, no parked agent), the daemon applies `noOverseerFallback()`: **only L3 waves a non-destructive prompt through**; L0–L2 escalate to a human, and destructive prompts always escalate. There is no blanket auto-approve. Post-done reviews cannot run on the relay path — they require a parked overseer.
 
 All decisions pass through the centralized `gateVerdict()` function in `decision.ts`, which applies the `MIN_CONFIDENCE` (0.6) threshold as a single source of truth — callers no longer re-implement the comparison.
 
@@ -129,13 +129,14 @@ All decisions pass through the centralized `gateVerdict()` function in `decision
 
 The local destructive heuristic (computed at enqueue time) is **always authoritative** — the agent cannot override it. A timeout (120s) or mission disengage conservatively escalates all pending decisions. The heuristic covers: rm -rf, DROP TABLE, DELETE FROM, TRUNCATE, migration, .env, secret/credential/password/private_key, force push, git reset --hard, chmod 777, curl/wget pipes to shell, python/node/perl -e/-c, netcat, bash -c, eval(), os.system, subprocess, and exec().
 
-The decision queue (`DecisionQueue`) is a per-mission FIFO. Three kinds of decisions flow through:
+The decision queue (`DecisionQueue`) is a per-mission FIFO. `DecisionKind` is `'prompt' | 'review'` — task dispatch is **not** gated through the queue:
 
 | Kind | Source | Context |
 |---|---|---|
-| `task` | Mission engine tick | Task title, description, labels |
 | `prompt` | Deriver | Permission prompt question, context, options |
 | `review` | PATCH close handler (post-done) | Task title, outcome, summary |
+
+Every enqueued decision is guaranteed to settle: by the agent's verdict, by the 120 s timeout, or by `drain()` on mission disengage. The `isDestructive()` flag captured at enqueue is OR'd into the agent's verdict on resolve, so an agent's `approve` can never dispatch a flagged-destructive action.
 
 ---
 
@@ -148,7 +149,7 @@ When `config.autopilot.pilotExec` is set, `POST /tasks/plan` spawns a **Pilot** 
 3. Submits the plan via `orca plan submit --phases '<json>'`
 4. Stops — it must not implement anything or spawn agents
 
-The PlanJobStore tracks the async planning job. The daemon supports two backends transparently: the relay path completes synchronously (the response waits for the LLM), while the agent path returns `202 Accepted` with a `jobId` that the web UI polls via `GET /plan/:jobId`.
+The `PlanJobStore` tracks the async planning job. Autopilot mode is **always async** — both the relay and the agent backend return `202 Accepted` with a `jobId` that the web UI polls via `GET /plan/:jobId`. Only manual `phases` mode is synchronous (`201`). Plan jobs are in-memory and ephemeral: a daemon restart drops in-flight jobs (surfaced as `failed`), and a finished job is pruned after a 10-minute TTL.
 
 The Pilot prompt is stored in `prompts/pilot.md` and rendered at runtime via `src/prompts/index.ts` with `{{goal}}` and `{{projectNotes}}` substitution.
 

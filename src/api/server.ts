@@ -21,6 +21,7 @@ import { resolveExecutor } from '../overseer/routing.js';
 import { decompose, parsePhases, modelsBlock, VALID_TYPES as VALID_PHASE_TYPES, type Phase } from '../overseer/planner.js';
 import { classifySession } from '../overseer/sessionInfo.js';
 import { isDestructive } from '../overseer/decision.js';
+import { buildReviewContext } from '../overseer/reviewContext.js';
 import { PlanJobStore, type PlanJob } from '../overseer/planJob.js';
 import { DecisionQueue } from '../overseer/decisionQueue.js';
 import type { Task } from '../store/types.js';
@@ -759,7 +760,14 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
           // resurrect a just-finished phase into an orphaned, mission-less 'open' state. Skip it.
           if (gated.length > 0) {
             const localDestructive = isDestructive(`${existing.title} ${b.result_summary ?? ''}`);
-            void decisionQueue.enqueue(mission.id, 'review', { title: existing.title, outcome: b.outcome ?? '', summary: b.result_summary ?? '' }, localDestructive)
+            // Hand the overseer the REAL evidence — the working-tree changes — not just the agent's
+            // self-reported summary, so the review judges the diff instead of rubber-stamping. Workers
+            // don't commit, so `git diff HEAD` is the phase's actual change set (cumulative across a
+            // sequential mission, which the overseer reads against the phase's stated scope).
+            const reviewPath = d.projects?.get(existing.project_id)?.path ?? d.project.path;
+            const [changedFiles, workingDiff] = await Promise.all([projectChangedFiles(reviewPath), projectWorkingDiff(reviewPath)]);
+            const reviewCtx = buildReviewContext({ title: existing.title, outcome: b.outcome ?? '', summary: b.result_summary ?? '', changedFiles, diff: workingDiff });
+            void decisionQueue.enqueue(mission.id, 'review', reviewCtx, localDestructive)
               .then((verdict) => {
                 // The mission may have torn down while the review was pending (manual disengage, shutdown):
                 // the drain settles the queue with a synthetic reject. Never apply a verdict to a dead

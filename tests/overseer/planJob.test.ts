@@ -26,6 +26,14 @@ describe('PlanJobStore', () => {
     expect(new PlanJobStore().get('nope')).toBeNull();
   });
 
+  it('setSession records the pilot tmux session so the client can live-preview it', () => {
+    const s = new PlanJobStore();
+    const j = s.create({ goal: 'g', projectId: 1, epicId: null, dryRun: false });
+    expect(s.get(j.id)!.sessionName).toBeUndefined();
+    s.setSession(j.id, 'orca-pilot-Nova');
+    expect(s.get(j.id)!.sessionName).toBe('orca-pilot-Nova');
+  });
+
   it('prunes settled jobs older than the TTL on the next create, but keeps in-flight ones (O27)', () => {
     let now = 0;
     const s = new PlanJobStore(() => now);

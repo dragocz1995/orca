@@ -18,6 +18,7 @@ import { Segmented } from '../../components/ui/Segmented';
 import { IconButton } from '../../components/ui/IconButton';
 import { Badge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
+import { LiveTail } from '../../components/terminal/LiveTail';
 import { useTranslation } from '../../lib/i18n';
 import { taskTypeMeta, taskTypeLabel, TASK_TYPES, PRIORITIES } from './taskMeta';
 
@@ -364,9 +365,20 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
             )}
 
             {planning && (
-              <div className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2.5 text-sm text-text-muted">
-                <Loader2 size={15} className="shrink-0 animate-spin text-accent" aria-hidden />
-                {t.tasks.planning}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2.5 text-sm text-text-muted">
+                  <Loader2 size={15} className="shrink-0 animate-spin text-accent" aria-hidden />
+                  {t.tasks.planning}
+                </div>
+                {/* Agent-mode planning runs a repo-aware Pilot in a tmux pane — stream it live under the
+                    loader so the user watches the planner think, not just a spinner. Relay-mode planning
+                    has no session (synchronous), so this stays hidden until a sessionName arrives. */}
+                {planJob.data?.sessionName && (
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium uppercase tracking-wide text-text-muted">{t.tasks.plannerPreview}</span>
+                    <LiveTail name={planJob.data.sessionName} lines={16} heightClass="max-h-56" />
+                  </div>
+                )}
               </div>
             )}
             {planError && !planning && (

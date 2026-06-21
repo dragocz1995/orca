@@ -146,6 +146,7 @@ export const en = {
     addPhase: 'Add phase',
     createPlan: 'Create plan',
     planning: 'Planning…',
+    plannerPreview: 'Planner at work',
     generatePlan: 'Generate plan',
     createdEpic: 'Created epic {id} with {count} phases{m}',
     done: 'Done',

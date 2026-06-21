@@ -11,12 +11,29 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, module descriptions, data flow, timer loops |
 | [CLI.md](CLI.md) | CLI commands (ls, ready, sessions, close, plan submit, overseer poll/decide) |
 | [CONCEPTS.md](CONCEPTS.md) | Domain model: tasks, missions, autonomy levels, overseer, deriver, agent routing, event bus |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Setup guide, conventions, project structure, configuration, adding endpoints |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Production deployment: systemd, Docker, nginx reverse proxy, env vars, troubleshooting |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Setup, npm scripts, conventions, project structure, configuration, adding endpoints |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Production deployment: env block, systemd, Docker, nginx, web frontend, troubleshooting |
 | [GUIDES.md](GUIDES.md) | Advanced patterns: task↔session binding, goal decomposition, overseer gate, deriver prompt detection, scheduled tasks, stuck detector, post-done review, async planning jobs, event store, executor routing |
-| [SECURITY.md](SECURITY.md) | Auth model, decision engine, user management, multi-tenancy RBAC, infrastructure security |
-| [TESTING.md](TESTING.md) | Test architecture, fakes, writing tests, daemon + web test commands |
+| [SECURITY.md](SECURITY.md) | Auth model (scrypt, bearer, scope full/agent, agentProjects), decision engine, user management, multi-tenancy RBAC, login rate limit, infrastructure security |
+| [TESTING.md](TESTING.md) | Test architecture, fakes, MSW, writing tests, daemon + web commands, CI |
 | [WEB.md](WEB.md) | Web UI pages, components, data layer, real-time updates, design system, i18n |
+
+## Screenshots
+
+The Next.js dashboard (`web/`) drives the whole daemon over the HTTP API. See [WEB.md](WEB.md) for the page-by-page reference.
+
+![Dashboard](screenshots/dashboard.png)
+
+| | |
+|---|---|
+| **Tasks** — list + detail with live agent output and token usage. ![Tasks](screenshots/tasks.png) | **Kanban** — open / in-progress / blocked / closed, with mission progress. ![Kanban](screenshots/kanban.png) |
+| **Missions** — phase graph and task flow for an autopilot run (folded into Tasks). ![Missions](screenshots/missions.png) | **Timeline** — a live activity feed across tasks, missions, and signals. ![Timeline](screenshots/timeline.png) |
+| **Sessions** — real-time `tmux` agent previews with one-click intervention. ![Sessions](screenshots/sessions.png) | **Terminal** — the full agent TUI, including human-in-the-loop approvals. ![Terminal](screenshots/terminal.png) |
+| **Projects** — a built-in Monaco editor with the project file tree. ![Projects editor](screenshots/projects-editor.png) | **Settings** — model presets & descriptions, providers, autopilot, and defaults. ![Settings](screenshots/settings.png) |
+
+First-run onboarding walks through creating the admin user and the home project:
+
+![Onboarding](screenshots/onboarding.png)
 
 ## Architecture overview
 
@@ -61,7 +78,7 @@
       └──────────────────────────────────────┘
 ```
 
-Additional parallel loops: **Deriver** (5s), **Scheduler** (30s), **Janitor** (60s), **Stuck detector** (60s), **Overseer watchdog** (60s), **Token purge** (1h).
+Additional parallel loops: **Deriver** (5s), **Scheduler** (30s), **Janitor** (60s), **Stuck detector** (60s), **Overseer watchdog** (60s), **Token purge** (1h), **Event purge** (1h).
 
 ## Key concepts
 
@@ -97,7 +114,7 @@ All LLM prompts are stored as Markdown templates under `prompts/` and rendered a
 ## Timer loops
 
 | Loop | Interval | Purpose |
-|---|---|---|---|
+|---|---|---|
 | Overseer (engine tick) | 90 s | Tick active missions: pick ready tasks, spawn agents |
 | Scheduler | 30 s | Launch due scheduled/autostart tasks |
 | Janitor | 60 s | Kill zombie tmux sessions whose task is already closed/cancelled |
@@ -105,6 +122,7 @@ All LLM prompts are stored as Markdown templates under `prompts/` and rendered a
 | Deriver | 5 s | Poll tmux panes, detect agent state, auto-approve known prompts via overseer gate |
 | Overseer watchdog | 60 s | Re-park missing overseer agents for active/stalled missions (crash recovery) |
 | Token purge | 1 h | Delete expired auth tokens (TTL from `config.security.tokenTtlDays`) |
+| Event purge | 1 h | Drop `events` rows past the 30-day retention window (`eventStore.purgeOlderThan()`) |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for module details.
 
@@ -114,13 +132,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for module details.
 # Daemon
 npm install && npm run build        # compile TS → dist/, copy schema.sql + prompts/
 npm run serve                       # dev mode (direct TS via --experimental-strip-types)
-npm test                            # daemon tests (~418)
+npm test                            # daemon tests (~439)
 node dist/daemon/index.js           # production start
 
 # Web
 cd web && npm install
 npm run dev                         # Next.js dev server (turbopack)
-npm test                            # web tests (~270)
+npm test                            # web tests (~285)
 npm run build && npm start          # production
 ```
 

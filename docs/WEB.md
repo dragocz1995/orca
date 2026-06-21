@@ -52,6 +52,7 @@ Data refreshes via `useTasks` (poll 5 s), `useSessions` (poll 5 s), `useMissions
 - **PlanModal** — `Autopilot · Planning` mode: goal input, autonomy (L0–L3), max sessions, manual phase list, create & engage
   - **Project picker** — same project pills as TaskModal, plumbed as `project_id` into `POST /tasks/plan`
   - **Auto-model toggle** — when enabled (`autoModel`), the executor picker is hidden and the planner picks the best model per phase from the model descriptions in Settings. The toggle is mutually exclusive with the manual executor selector.
+  - **Pilot live preview** — during agent-mode planning the `PlanJob` carries a `sessionName` (the Pilot's tmux session). When `planJob.data?.sessionName` is set, a `LiveTail` pane renders under the spinner so the user watches the planner think in real time. Relay-mode planning is synchronous and has no session, so this pane stays hidden.
 
 Supports deep-links: `?new=1` opens create modal, `?select=<id>` opens detail pane for that task.
 
@@ -272,7 +273,8 @@ Two SSE connections:
    - `task` events → invalidate tasks, mission detail, activity
    - `mission` events → invalidate missions, mission detail, activity
    - `signal` events → update `sessionSignals` cache (derived signals per agent), invalidate sessions, activity
-   - `plan` events → update `plan-job` cache (async plan resolution), invalidate tasks/missions when done
+   - `plan` events → merge into `plan-job` cache; a `planning` event carries no `sessionName` so the handler keeps the existing value (`prev?.sessionName`) to avoid blanking the live-preview pane; a `done` event invalidates tasks/missions
+   - `review` events → invalidate tasks/missions/activity; fire `onReview` callback so an escalation becomes a toast
 
 2. **Pane stream** (`/sessions/:name/stream`) — per-session terminal content for the Xterm.js component (1-second poll via `useSessionStream`)
 
@@ -403,6 +405,7 @@ All animations respect `prefers-reduced-motion`.
 | `states` | `LoadingState`, `ErrorState` (with retry), `EmptyState` |
 | `ModelIcon` | Brand icon for a model, resolved from exec string via lobe-icons SVG set (`public/models/`) |
 | `ProjectPill` | Small muted pill showing project/repo slug (hidden in single-project workspaces by default) |
+| `ProjectFilterPills` | "All projects" + one pill per accessible project; hidden when the workspace has fewer than two projects. Purely presentational — the host owns the selection and passes it via `value`/`onChange`. Used by Tasks and Kanban. |
 | `AgentIdentityStrip` | Agent name, model, task ID in a compact strip |
 | `AgentStatusDot` | Colored live-dot with signal-aware state (working, needs_input, idle, stalled, stuck) |
 | `CapacityMeter` | `{running}/{max}` session usage bar |
@@ -496,6 +499,12 @@ Status-to-tone mapping for task statuses in `modules/dashboard/statusTone.ts`:
 
 `modules/tasks/taskMeta.ts` maps task types (task, bug, feature, epic, chore) to their icons and labels.
 
+### Persistent state and project filter
+
+`usePersistentState<T>` (`lib/usePersistentState.ts`) — SSR-safe `useState` that mirrors its value to `localStorage`. Validates on read against a fixed `allowed` list or a predicate so stale/foreign keys can never poison state. Restores the value inside a `useEffect` (avoids SSR hydration mismatch).
+
+`useProjectFilter(storageKey)` (`lib/useProjectFilter.ts`) — shared project-filter hook used by Tasks and Kanban. Wraps `usePersistentState` with a static shape predicate (`'all'` or a digit string), then clamps to `'all'` once the project list loads if the stored project no longer exists. Returns `{ selectedProject: number | 'all', setProject }`.
+
 ### Session live preview
 
 `SessionCard` (`modules/sessions/SessionCard.tsx`) shows live session output inline:
@@ -527,7 +536,7 @@ npm install
 npm run dev          # Next.js dev server (turbopack)
 npm run build        # production build (next build)
 npm start             # production server (next start -p 4500)
-npm test              # Vitest (~270 cases, RTL + MSW)
+npm test              # Vitest (~285 cases, RTL + MSW)
 npm run test:watch    # watch mode
 ```
 
@@ -537,7 +546,7 @@ Set `NEXT_PUBLIC_ORCA_URL` to the daemon URL (default: `http://localhost:4400`).
 
 ### Test setup
 
-Tests in `web/tests/` (~270 cases) use:
+Tests in `web/tests/` (~285 cases) use:
 - **Vitest** — test runner
 - **MSW** — API mocking
 - **Testing Library** — component rendering and interaction

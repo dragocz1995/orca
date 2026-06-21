@@ -52,12 +52,15 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
     // Plan job updates: push the latest job state into the per-job cache (the usePlanJob poll is the
     // fallback), and refresh tasks/missions when a plan resolves into an epic.
     const planHandler = (e: MessageEvent) => {
-      let data: { jobId?: string; status?: PlanJob['status']; epicId?: string; phases?: PlanJob['phases']; error?: string };
+      let data: { jobId?: string; status?: PlanJob['status']; epicId?: string; phases?: PlanJob['phases']; error?: string; sessionName?: string };
       try { data = JSON.parse(e.data); } catch { return; } // skip malformed, keep the stream alive
       if (!data.jobId || !data.status) return;
       qc.setQueryData<PlanJob>(['plan-job', data.jobId], (prev) => ({
         id: data.jobId!, goal: prev?.goal ?? '', epicId: data.epicId ?? prev?.epicId ?? null,
         status: data.status!, phases: data.phases ?? prev?.phases ?? [], error: data.error,
+        // The Pilot session arrives via the GET poll; keep it across SSE updates so a `planning`
+        // event (which carries no session) can't blank out the live-preview pane.
+        sessionName: data.sessionName ?? prev?.sessionName,
       }));
       if (data.status === 'done') { qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks }); qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }); }
     };

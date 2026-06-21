@@ -77,7 +77,11 @@ orca sessions
 ```
 
 ```json
-["orca-SwiftLake0", "orca-CalmRidge1"]
+[
+  { "name": "orca-SwiftLake0", "role": "agent", "agent": "SwiftLake0" },
+  { "name": "orca-pilot-Aria", "role": "pilot", "agent": "Aria" },
+  { "name": "orca-overseer-m-my-project-a1b2c3d4", "role": "overseer", "agent": "", "missionId": "m-my-project-a1b2c3d4" }
+]
 ```
 
 Calls `GET /sessions`.

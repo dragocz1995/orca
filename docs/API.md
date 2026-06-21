@@ -28,7 +28,7 @@ There are two token scopes:
 
 | Scope | Purpose |
 |---|---|
-| `session` | Interactive user sessions (web UI, CLI). Full access subject to project assignment. |
+| `full` | Interactive user sessions (web UI, CLI). Full access subject to project assignment. |
 | `agent` | Issued to spawned agents (`--dangerously-skip-permissions`). Restricted to a narrow allow-list: `PATCH /tasks/:id` (close), `POST /plan/:jobId/submit`, `GET /plan/:jobId`, `GET /tasks`, `GET /tasks/ready`, `GET /sessions`, `GET /missions/:id/overseer/next`, `POST /missions/:id/overseer/decide`. All other routes return 403. |
 
 Project ownership is still enforced per-row even within the agent allow-list — agents cannot cross tenancy.
@@ -126,6 +126,11 @@ Returns a bearer token. Public — no auth required.
 { "error": "invalid credentials" }
 ```
 
+**Error `429`** — too many failed attempts (10 per 5 minutes per IP):
+```json
+{ "error": "too many login attempts, try again later" }
+```
+
 ### Logout
 
 ```http
@@ -145,7 +150,7 @@ Revokes the current bearer token.
 GET /auth/me
 ```
 
-Returns the authenticated user. Acceptable for `agent` and `session` token scopes.
+Returns the authenticated user. Requires `full` token scope — agent-scoped tokens are blocked.
 
 **Response `200`**
 ```json
@@ -861,9 +866,12 @@ optional parent/child relationships (dependencies).
 
 ```http
 GET /tasks
+GET /tasks?project_id=1
 ```
 
 In multi-user mode, returns only tasks belonging to the caller's accessible projects.
+The optional `?project_id=N` parameter narrows the result to a single project (access-gated —
+a non-admin cannot cross tenancy). Unknown or inaccessible project IDs return `[]`.
 
 **Response `200`**
 ```json
@@ -1567,6 +1575,25 @@ Returns the mission with its epic, full task tree, dependencies, and progress br
 ```json
 {
   "mission": { "id": "m-my-project-a1b2c3d4", "state": "active", "autonomy": "L2", "max_sessions": 1, "started_at": "2026-06-17 12:00:00" },
+  "epic": { "id": "my-project-a1b2c3d4", "title": "Build login page", "type": "epic", "status": "in_progress", ... },
+  "tasks": [
+    { "id": "my-project-b5c6d7e8", "title": "Set up OAuth provider", "status": "closed", ... },
+    { "id": "my-project-c9d0e1f2", "title": "Build login form", "status": "open", ... }
+  ],
+  "deps": [
+    { "taskId": "my-project-c9d0e1f2", "dependsOnId": "my-project-b5c6d7e8" }
+  ],
+  "progress": { "total": 2, "open": 1, "inProgress": 0, "blocked": 0, "closed": 1, "cancelled": 0 }
+}
+```
+
+**Error `404`**
+```json
+{ "error": "mission not found" }
+```
+
+**Error `403`**
+```json
 { "error": "forbidden" }
 ```
 
@@ -1977,6 +2004,7 @@ has enough configuration to operate. Used by the onboarding wizard.
 | `404` | Not found |
 | `409` | Conflict (duplicate slug/username) |
 | `413` | Payload too large (avatar exceeds 2 MB) |
+| `429` | Too many requests (login rate limit: 10 per 5 minutes per IP) |
 | `415` | Unsupported media type (avatar image type not accepted) |
 | `502` | Bad gateway (AI plan parsing failed) |
 | `500` | Internal error (includes spawn failures) |
@@ -2036,23 +2064,23 @@ also include `jobId` and `epicId` where applicable:
 | 35 | `GET` | `/projects/:id/changed` | Bearer | File editor |
 | 36 | `GET` | `/projects/:id/changes` | Bearer | File editor |
 | 37 | `GET` | `/activity` | Bearer | Activity |
-| 38 | `GET` | `/tasks` | Bearer | Tasks |
+| 38 | `GET` | `/tasks` | Bearer (full + agent) | Tasks |
 | 39 | `POST` | `/tasks` | Bearer | Tasks |
-| 40 | `GET` | `/tasks/ready` | Bearer | Tasks |
+| 40 | `GET` | `/tasks/ready` | Bearer (full + agent) | Tasks |
 | 41 | `GET` | `/tasks/deps` | Bearer | Tasks |
 | 42 | `GET` | `/tasks/:id/usage` | Bearer | Tasks |
-| 43 | `PATCH` | `/tasks/:id` | Bearer | Tasks |
+| 43 | `PATCH` | `/tasks/:id` | Bearer (full + agent) | Tasks |
 | 44 | `GET` | `/tasks/:id/deps` | Bearer | Tasks |
 | 45 | `DELETE` | `/tasks/:id` | Bearer | Tasks |
 | 46 | `POST` | `/admin/cleanup` | Bearer (admin) | Admin |
 | 47 | `POST` | `/tasks/plan` | Bearer | Planning |
-| 48 | `GET` | `/plan/:jobId` | Bearer | Planning |
-| 49 | `POST` | `/plan/:jobId/submit` | Bearer | Planning |
+| 48 | `GET` | `/plan/:jobId` | Bearer (full + agent) | Planning |
+| 49 | `POST` | `/plan/:jobId/submit` | Bearer (full + agent) | Planning |
 | 50 | `POST` | `/tasks/:epicId/phases` | Bearer | Planning |
 | 51 | `GET` | `/integrations/hermes/status` | Bearer (admin) | Integrations |
 | 52 | `POST` | `/integrations/hermes/install` | Bearer (admin) | Integrations |
 | 53 | `GET` | `/integrations/cli-status` | Bearer | Integrations |
-| 54 | `GET` | `/sessions` | Bearer | Sessions |
+| 54 | `GET` | `/sessions` | Bearer (full + agent) | Sessions |
 | 55 | `POST` | `/sessions` | Bearer | Sessions |
 | 56 | `DELETE` | `/sessions/:name` | Bearer | Sessions |
 | 57 | `POST` | `/sessions/:name/keys` | Bearer | Sessions |
@@ -2064,8 +2092,8 @@ also include `jobId` and `epicId` where applicable:
 | 63 | `POST` | `/missions` | Bearer | Missions |
 | 64 | `PATCH` | `/missions/:id` | Bearer | Missions |
 | 65 | `DELETE` | `/missions/:id` | Bearer | Missions |
-| 66 | `GET` | `/missions/:id/overseer/next` | Bearer | Missions |
-| 67 | `POST` | `/missions/:id/overseer/decide` | Bearer | Missions |
+| 66 | `GET` | `/missions/:id/overseer/next` | Bearer (full + agent) | Missions |
+| 67 | `POST` | `/missions/:id/overseer/decide` | Bearer (full + agent) | Missions |
 | 68 | `GET` | `/config` | Bearer | Config |
 | 69 | `PUT` | `/config` | Bearer (admin/setup) | Config |
 | 70 | `GET` | `/events` | Bearer (?token) | Events |

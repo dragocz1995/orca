@@ -24,6 +24,26 @@ describe('review escalation + self-heal', () => {
     expect(review).toMatchObject({ type: 'review', taskId: childId, approve: true, rationale: 'looks good' });
   });
 
+  it('hands the overseer the real evidence (changed files + working diff), not just the self-report', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId } = t.deps.seedMissionWithChain();
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId, 'I changed two files');
+    const req = await poll;
+    expect(req!.kind).toBe('review');
+    // Self-report is still there…
+    expect(req!.context).toMatchObject({ summary: 'I changed two files', outcome: 'ok' });
+    // …but now alongside the real evidence the overseer judges (keys always present; empty in a
+    // non-git test workspace, populated against a real repo).
+    expect(req!.context).toHaveProperty('changedFiles');
+    expect(Array.isArray(req!.context.changedFiles)).toBe(true);
+    expect(req!.context).toHaveProperty('diff');
+    expect(req!.context).toHaveProperty('diffTruncated');
+    // Resolve so the pending review doesn't dangle into the next test.
+    t.deps.decisionQueue.resolve(missionId, req!.id, { approve: true, confidence: 0.9, destructive: false, rationale: 'ok' });
+  });
+
   it('publishes a review event with approve=false and the rationale on escalation', async () => {
     const t = await makeTestApp({});
     await enableReview(t, t.token);

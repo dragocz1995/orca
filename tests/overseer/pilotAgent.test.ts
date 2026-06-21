@@ -37,6 +37,7 @@ describe('makePilot', () => {
       spawn: { launch } as never,
       config: { get: () => ({ autopilot: { pilotExec: 'claude:opus', prompt: 'TPL {{goal}}', notes: '' } }), apiKey: () => null } as never,
       projects: { get: () => ({ id: 1, path: '/repo', notes: 'N' }) } as never,
+      planJobs: { setSession: vi.fn() } as never,
       nameAgent: () => 'pilotX',
       cliPath: '/d/cli/index.js',
     });
@@ -47,5 +48,19 @@ describe('makePilot', () => {
     expect(arg.extraEnv).toEqual({ ORCA_PLAN_JOB: 'pj-9' });
     expect(arg.projectPath).toBe('/repo');
     expect(arg.rawPrompt).toContain('node /d/cli/index.js plan submit'); // daemon CLI by absolute path
+  });
+
+  it('records the spawned tmux session on the plan job so the UI can live-preview the planner', async () => {
+    const launch = vi.fn().mockResolvedValue({ session: 'orca-pilotX' });
+    const setSession = vi.fn();
+    const pilot = makePilot({
+      spawn: { launch } as never,
+      config: { get: () => ({ autopilot: { pilotExec: 'claude:opus' } }) } as never,
+      projects: { get: () => ({ id: 1, path: '/repo' }) } as never,
+      nameAgent: () => 'pilotX',
+      planJobs: { setSession } as never,
+    });
+    await pilot({ id: 'pj-9', goal: 'g', projectId: 1, epicId: null, dryRun: false, status: 'planning', phases: [] }, '/repo');
+    expect(setSession).toHaveBeenCalledWith('pj-9', 'orca-pilotX');
   });
 });

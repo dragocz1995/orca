@@ -34,4 +34,24 @@ describe('async autopilot planning in TaskModal', () => {
     await waitFor(() => expect(screen.getByText('Phase A')).toBeTruthy());
     expect(screen.getByText('Phase B')).toBeTruthy();
   });
+
+  it('live-previews the planner pane while the agent-mode job is still planning', async () => {
+    // Agent-mode planning stays `planning` and exposes the Pilot's tmux session; the modal should
+    // render a live preview of that pane under the loader until the plan resolves.
+    server.use(
+      http.get('*/plan/:jobId', ({ params }) => HttpResponse.json({ id: params.jobId, epicId: null, goal: 'g', status: 'planning', phases: [], sessionName: 'orca-pilot-Nova' })),
+      http.get('*/sessions/orca-pilot-Nova/pane', () => HttpResponse.json({ pane: 'reading the repo…' })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><TaskModal onClose={() => {}} /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByText('Autopilot · Planning')).toBeTruthy());
+
+    fireEvent.click(screen.getByText('Autopilot · Planning'));
+    fireEvent.change(screen.getByPlaceholderText('Describe the goal to plan…'), { target: { value: 'build a thing' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate plan' }));
+
+    // The Pilot's pane is streamed live under the planning loader.
+    await waitFor(() => expect(screen.getByText('reading the repo…')).toBeTruthy());
+    expect(screen.getByText('Planner at work')).toBeTruthy();
+  });
 });

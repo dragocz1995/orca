@@ -21,6 +21,9 @@ The daemon starts a set of independent timer loops:
 | Deriver | 5 s | Poll tmux panes, detect agent state (working, needs_input, complete), auto-approve known prompts |
 | Overseer watchdog | 60 s | Re-park missing overseer agents for active/stalled missions (crash recovery) |
 | Token purge | 1 h | Delete expired auth tokens (TTL from `config.security.tokenTtlDays`) |
+| Event purge | 1 h | Drop `events` rows past the 30-day retention window (`eventStore.purgeOlderThan()`) |
+
+Token purge and Event purge also run once on startup, then every hour.
 
 ### Startup reconcile
 
@@ -53,7 +56,7 @@ The agent works in the tmux pane, then calls `node <cli> close <taskId> …` bac
 
 ### `src/api/` — REST API (Hono)
 
-- `server.ts` — route definitions (~1102 lines): tasks, missions, sessions, projects, users, auth, config, integrations, file editor, git surface, planner, plan jobs, overseer decision routes
+- `server.ts` — route definitions (~1213 lines, ~70 routes in one file): tasks, missions, sessions, projects, users, auth, config, integrations, file editor, git surface, planner, plan jobs, overseer decision routes
 - `sse.ts` — `EventBus` for real-time SSE notifications (terminal output, task state changes, plan job status)
 - `auth.ts` — Bearer token middleware, also accepts `?token=` query param for SSE
 
@@ -185,8 +188,8 @@ A **parked Overseer agent** (`config.autopilot.overseerExec`) can replace the re
       └──────┬───────┘      └──────┬───────────┘     └──────────────┘
              │                     │
               │            ┌────────▼────────┐
-              │            │   Routing      │
-              │            │   + Decision    │
+              │            │    Routing      │
+              │            │ (resolveExecutor)│
               │            └────────┬────────┘
              │                     │
              │            ┌────────▼────────┐
@@ -213,6 +216,7 @@ Additional parallel loops (not pictured in the diagram above, see the timer loop
 - **Stuck detector** (60s) — reverts tasks whose agent died without `orca close` (bounded relaunch, escalates to `blocked`)
 - **Overseer watchdog** (60s) — re-parks missing overseer agents for active/stalled missions (crash recovery)
 - **Token purge** (1h) — deletes expired auth tokens
+- **Event purge** (1h) — drops `events` rows past the 30-day retention window
 
 ## Access control / multi-tenancy
 
@@ -233,4 +237,4 @@ Tests use Vitest with fake implementations:
 
 This allows full integration-style tests without real tmux or network dependencies.
 
-Daemon tests: ~418 `it`/`test` cases in `tests/`. Web tests: ~270 cases in `web/tests/` (Vitest + React Testing Library).
+Daemon tests: ~439 `it`/`test` cases in `tests/`. Web tests: ~285 cases in `web/tests/` (Vitest + React Testing Library).

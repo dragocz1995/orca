@@ -146,6 +146,7 @@ export const cs = {
     addPhase: 'Přidat fázi',
     createPlan: 'Vytvořit plán',
     planning: 'Plánování…',
+    plannerPreview: 'Plánovač pracuje',
     generatePlan: 'Generovat plán',
     createdEpic: 'Vytvořeno epic {id} s {count} fázemi{m}',
     done: 'Hotovo',

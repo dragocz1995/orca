@@ -14,33 +14,15 @@ npm install
 npm run build
 ```
 
-## Development workflow
+## npm scripts
 
-### Run the daemon (direct TS, no build)
-
-```bash
-npm run serve
-```
-
-Uses `--experimental-strip-types` for direct TS execution. Starts on `http://localhost:4400`.
-
-### Build + run
-
-```bash
-npm run build
-node dist/daemon/index.js
-```
-
-Compiles TypeScript to `dist/` and copies `src/store/schema.sql` and the entire `prompts/` directory to `dist/`. The CLI binary is at `dist/cli/index.js`.
-
-### Run tests
-
-```bash
-npm test            # single run (~418 daemon tests)
-npm run test:watch  # watch mode
-```
-
-Tests use Vitest with fake implementations for tmux, clock, and inference — no external dependencies.
+| Command | What it does |
+|---|---|
+| `npm run serve` | Run the daemon directly from TS via `--experimental-strip-types` (no build step). Starts on `http://localhost:4400`. |
+| `npm run build` | `tsc -p tsconfig.json` + copy `src/store/schema.sql` → `dist/store/` + copy `prompts/` → `dist/prompts/`. CLI ends up at `dist/cli/index.js`, daemon at `dist/daemon/index.js`. |
+| `npm test` | `vitest run` — single run of the daemon test suite (~439 cases) |
+| `npm run test:watch` | `vitest` — watch mode |
+| `npm run deadcode` | `knip` — detect unused exports, files, and dependencies |
 
 ### CLI (without global link)
 
@@ -49,20 +31,21 @@ node dist/cli/index.js ls
 node dist/cli/index.js ready
 node dist/cli/index.js sessions
 node dist/cli/index.js close <taskId> --summary "..." --outcome ok
+node dist/cli/index.js plan submit --phases '[...]'
+node dist/cli/index.js overseer
 ```
 
-Or link globally: `npm link` then `orca ls`.
-
-The CLI auto-starts the daemon if it isn't running (set `ORCA_AUTOSTART=0` to disable).
+Or link globally: `npm link` then `orca ls`. The CLI auto-starts the daemon if it isn't running (set `ORCA_AUTOSTART=0` to disable).
 
 ### Web frontend
 
 ```bash
 cd web
 npm install
-npm run dev     # Next.js dev server (turbopack)
-npm test        # Vitest (~270 web tests)
-npm run build   # Production build
+npm run dev      # Next.js dev server (turbopack)
+npm test         # Vitest (~285 cases)
+npm run build    # Production build (copies Monaco workers, then next build)
+npm start        # Production server (default port 3000)
 ```
 
 Connects to the daemon at `NEXT_PUBLIC_ORCA_URL` (default `http://localhost:4400`).
@@ -90,8 +73,8 @@ Both jobs run in parallel on `ubuntu-latest` with Node 22. Superseded runs on th
 - **ESM** only — no CommonJS
 - No `any` types
 - No static methods — constructor DI everywhere
-- No comments in source code
-- No dead code, no debug leftovers
+- No comments in source code (rationale lives in commit messages and docs)
+- No dead code, no debug leftovers — `npm run deadcode` (knip) enforces this
 
 ### Architecture
 
@@ -125,6 +108,17 @@ User-facing strings in the web UI use the `useTranslation()` hook with CS and EN
 - No real tmux or network calls in tests
 - Web tests in `web/tests/` use Vitest + React Testing Library + MSW
 
+See [TESTING.md](TESTING.md) for full details.
+
+### Commits — public repo
+
+This repository is **public** (see `CLAUDE.md`). Commits MUST stay clean:
+
+- Conventional Commits style (`feat:`, `fix:`, `docs:`, `chore:` …)
+- No `Claude-Session:` trailer, no `Co-Authored-By: Claude` trailer
+- No internal references (paths like `/var/www`, internal hostnames, credentials, DB dumps, planning/superpowers docs)
+- Verify no secrets, `.env`, or `data/` files are staged before pushing
+
 ---
 
 ## Project structure
@@ -132,7 +126,7 @@ User-facing strings in the web UI use the `useTranslation()` hook with CS and EN
 ```
 src/
 ├── api/              Hono REST router + SSE event bus
-│   ├── server.ts     Route definitions (~1102 lines)
+│   ├── server.ts     Route definitions, auth middleware, rate limiter
 │   ├── auth.ts       Bearer token auth middleware
 │   └── sse.ts        EventBus implementation
 ├── cli/              CLI client
@@ -140,7 +134,7 @@ src/
 │   └── client.ts     HTTP client for the daemon API
 ├── daemon/           Daemon bootstrap
 │   ├── index.ts      HTTP server entrypoint
-│   ├── bootstrap.ts  DI wiring
+│   ├── bootstrap.ts  DI wiring + timer loops
 │   └── uniqueName.ts Agent name generation
 ├── deriver/          Agent terminal monitoring
 │   ├── deriver.ts    5s poll loop, state detection
@@ -158,7 +152,6 @@ src/
 │   └── usage/            Token/cost reader per executor CLI
 ├── overseer/         Orchestration engine
 │   ├── missionEngine.ts  Tick loop, spawn logic
-
 │   ├── routing.ts        Task → agent routing
 │   ├── scheduler.ts      Scheduled task execution
 │   ├── decision.ts       LLM-based prompt decision engine + gateVerdict
@@ -175,7 +168,8 @@ src/
 │   └── index.ts      render(name, vars) + rawTemplate(name)
 ├── shared/           Utilities
 │   ├── clock.ts      Clock interface (system + fake)
-│   └── execs.ts      Executor metadata (PROGRAM_PREFIXES, KNOWN_EXECS, etc.)
+│   ├── execs.ts      Executor metadata (PROGRAM_PREFIXES, KNOWN_EXECS, etc.)
+│   └── logger.ts     File logger (ORCA_LOG_LEVEL / ORCA_LOG_DIR)
 ├── spawn/            Agent launcher
 │   ├── spawn.ts      SpawnService
 │   └── commandBuilder.ts  Agent command construction
@@ -198,8 +192,8 @@ src/
     ├── driver.ts     RealTmuxDriver
     └── fakeDriver.ts In-memory fake for tests
 prompts/              Prompt templates (planner, pilot, overseer, worker, decision)
-tests/                Mirrors src/ structure (~418 tests)
-web/                  Next.js frontend (~270 tests)
+tests/                Mirrors src/ structure (~439 tests)
+web/                  Next.js frontend (~285 tests)
 docs/                 Documentation tree
 ```
 
@@ -219,6 +213,7 @@ Much of the daemon's orchestration runs on periodic intervals. Wired in
 | Deriver | 5 s | Poll tmux panes, detect agent state, auto-approve known prompts via overseer gate |
 | Overseer watchdog | 60 s | Re-park missing overseer agents for active/stalled missions (crash recovery) |
 | Token purge | 1 h | Delete expired auth tokens (TTL from `config.security.tokenTtlDays`) |
+| Event purge | 1 h | Drop `events` rows past the 30-day retention window (`eventStore.purgeOlderThan()`) |
 
 ---
 
@@ -226,7 +221,7 @@ Much of the daemon's orchestration runs on periodic intervals. Wired in
 
 Auth is optional. When the server factory receives a `UserStore`, it enables:
 
-- `POST /auth/login` — public endpoint, returns bearer token
+- `POST /auth/login` — public endpoint, returns bearer token (rate-limited: 10 / 5 min / IP)
 - `POST /auth/logout` — revokes current token
 - `GET /auth/me` — returns current user
 - `PATCH /auth/me` — update profile (name, email, default_exec)
@@ -234,15 +229,16 @@ Auth is optional. When the server factory receives a `UserStore`, it enables:
 - `GET /users`, `POST /users`, `PATCH /users/:id`, `DELETE /users/:id` — user management
 - `authMiddleware` on all other routes (401 if no valid token)
 
-Passwords use scrypt with random 16-byte salt. Tokens are 32-byte hex strings stored in `auth_tokens` table.
+Passwords use scrypt with random 16-byte salt. Tokens are 32-byte hex strings stored in `auth_tokens` table, with a `scope` of `full` (interactive) or `agent` (spawned agent, verb-restricted). See [SECURITY.md](SECURITY.md) for the full model.
 
 ### Multi-tenancy / RBAC
 
-With a `userProjects` store present (multi-user mode), access is gated three ways:
+With a `userProjects` store present (multi-user mode), access is gated four ways:
 
-1. **Global gate** — non-admin users must be assigned to the daemon's home project to access task/mission/session/activity/event routes
-2. **Per-project gate** — users only see/operate projects they're assigned to
-3. **Per-user exec allowlist** — `allowed_execs` restricts which exec strings a non-admin may use
+1. **Agent capability gate** — `agent`-scoped tokens confined to a verb allow-list
+2. **Global gate** — non-admin users must be assigned to the daemon's home project to access task/mission/session/activity/event routes
+3. **Per-project gate** — users only see/operate projects they're assigned to
+4. **Per-user exec allowlist** — `allowed_execs` restricts which exec strings a non-admin may use
 
 Admins and open/single-user mode (no `userProjects`) pass everything unrestricted.
 
@@ -277,7 +273,9 @@ Pass `phases: [{title, type?}]` — no LLM, no key needed. Synchronous 201 respo
 3. Add query/mutation hooks in `web/lib/queries.ts` / `web/lib/mutations.ts`
 4. Add TypeScript types in `web/lib/types.ts` if needed
 5. Wire any new service dependencies through `src/daemon/bootstrap.ts`
-6. Add tests in `tests/`
+6. Add tests in `tests/` (mirror the `src/` path)
+7. If the endpoint is user-facing, add i18n keys in both `web/lib/i18n/dictionaries/cs.ts` and `en.ts`
+8. If the endpoint should be reachable by spawned agents, add it to the `agentAllowed()` allow-list in `server.ts`
 
 ---
 
@@ -300,6 +298,8 @@ Pass `phases: [{title, type?}]` — no LLM, no key needed. Synchronous 201 respo
 | `ORCA_BOOTSTRAP_USER` | — | Initial admin username |
 | `ORCA_BOOTSTRAP_PASS` | — | Initial admin password |
 | `ORCA_ALLOW_OPEN` | — | Allow open (no auth) mode when set to `1` |
+| `ORCA_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `ORCA_LOG_DIR` | `cwd/logs` | Log directory |
 | `NEXT_PUBLIC_ORCA_URL` | `http://localhost:4400` | Daemon URL for web UI |
 
 ### Runtime config
@@ -332,6 +332,8 @@ Stored in SQLite `settings` table. Managed via `GET/PUT /config` API:
 }
 ```
 
+API keys are write-only — `apiKeySet` (boolean) is exposed in `GET /config`, the key value is never returned.
+
 ---
 
 ## Database
@@ -348,12 +350,10 @@ agents    (id, project_id, name, program, model, last_active_ts)
 missions  (id, epic_id, autonomy, max_sessions, state, started_at)
 settings  (id, data)  -- JSON blob for runtime config
 users     (id, username, password_hash, is_admin, allowed_execs, name, email, default_exec, avatar, created_at)
-auth_tokens (token, user_id, created_at)
+auth_tokens (token, user_id, scope, created_at)
 events    (id, ts, type, target, detail)
 user_projects (user_id, project_id)
 ```
-
----
 
 ---
 

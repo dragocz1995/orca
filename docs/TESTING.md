@@ -2,7 +2,7 @@
 
 ## Running tests
 
-### Daemon tests (~418 cases)
+### Daemon tests (~439 cases)
 
 ```bash
 # All tests
@@ -18,7 +18,7 @@ npx vitest tests/store/taskStore.test.ts
 npx vitest --coverage
 ```
 
-### Web frontend tests (~270 cases)
+### Web frontend tests (~285 cases)
 
 ```bash
 cd web
@@ -26,10 +26,11 @@ npm test
 npm run test:watch   # watch mode
 ```
 
-Uses:
-- **Vitest** — test runner
-- **Testing Library** — React component tests
-- **MSW** — API mocking (intercepts fetch)
+### Dead-code check
+
+```bash
+npm run deadcode     # knip — fails on unused exports/files/dependencies
+```
 
 ## Test structure
 
@@ -37,16 +38,33 @@ Daemon tests mirror the `src/` directory structure:
 
 ```
 tests/
-├── api/
-├── cli/
-├── daemon/
-├── deriver/
-├── inference/
-├── overseer/
-├── shared/
-├── spawn/
-├── store/
-└── tmux/
+├── api/           server routes, auth, rate limiter, SSE
+├── cli/           CLI commands + client
+├── daemon/        bootstrap wiring, reasoning agents
+├── deriver/       pane polling, shell prompt detection
+├── helpers/       shared test fixtures
+├── inference/     relay client + fake
+├── integrations/  hermes install, project files, CLI detection, usage
+├── overseer/      mission engine, routing, decision gate, planner, pilot, stuck detector
+├── shared/        clock, execs, logger
+├── spawn/         spawn service + command builder
+├── store/         task/mission/agent/user/project/event stores
+└── tmux/          real + fake driver
+```
+
+Web tests mirror `web/`:
+
+```
+web/tests/
+├── app/                 Next.js route-level tests
+├── components/          React components (ui/, feature modules)
+├── lib/                 orcaClient, queries, mutations, hooks, i18n
+├── modules/             feature-module tests (tasks, timeline, etc.)
+├── globals.test.ts      global setup sanity
+├── smoke.test.tsx       render-the-app smoke test
+├── msw.ts               shared MSW handlers
+├── setup.ts             vitest setup (Testing Library matchers, etc.)
+└── test-utils.tsx       render helpers with providers
 ```
 
 ## Test architecture
@@ -60,6 +78,8 @@ Tests never hit real tmux, real databases (beyond in-memory SQLite), or real LLM
 | `TmuxDriver` | `RealTmuxDriver` (tmux CLI) | `FakeTmuxDriver` (in-memory session simulation) |
 | `Clock` | `SystemClock` (real time) | `FakeClock` (manual time control) |
 | `InferenceClient` | `RelayClient` (HTTP relay) | `FakeInference` (predictable responses) |
+
+The `FakeTmuxDriver` lives in `src/tmux/fakeDriver.ts` (shared with production code as the in-process fake) and is exercised by `tests/tmux/` for its own behaviour. Other test files construct fakes inline.
 
 ### Dependency injection
 
@@ -87,6 +107,8 @@ const engine = new MissionEngine({ clock, ... });
 clock.advance(90000);
 ```
 
+Timer-loop tests use `FakeClock` so the 90 s / 60 s / 30 s / 5 s intervals fire deterministically without real waiting.
+
 ### In-memory SQLite
 
 Database tests use `:memory:` SQLite:
@@ -96,7 +118,11 @@ const db = openDb(':memory:');
 const store = new TaskStore(db);
 ```
 
-No temporary files, fast setup/teardown.
+No temporary files, fast setup/teardown. Schema is applied from `src/store/schema.sql` in test helpers.
+
+### MSW (web)
+
+Web tests use [MSW](https://mswjs.io/) to intercept `fetch` calls to the daemon API. Shared handlers live in `web/tests/msw.ts`; per-test overrides are applied via `renderWithProviders()` from `web/tests/test-utils.tsx`, which wires React Query + i18n + router providers.
 
 ## Writing tests
 
@@ -117,10 +143,11 @@ describe('MyService', () => {
 
 ### What to test
 
-- **Business logic** — task readiness, mission tick decisions
-- **Edge cases** — empty state, cycles in DAG, all tasks closed
-- **State transitions** — task lifecycle, mission lifecycle
-- **Error handling** — daemon unreachable, missing data, corrupt config
+- **Business logic** — task readiness, mission tick decisions, routing resolution
+- **Edge cases** — empty state, cycles in DAG, all tasks closed, last-user/admin deletion
+- **State transitions** — task lifecycle, mission lifecycle, agent token scope
+- **Auth gates** — agent-scope 403 on admin routes, project access, rate limiter
+- **Error handling** — daemon unreachable, missing data, corrupt config, malformed JSON
 
 ### What not to test
 

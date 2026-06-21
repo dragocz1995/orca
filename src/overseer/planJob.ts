@@ -6,6 +6,9 @@ export interface PlanJob {
   id: string; epicId: string | null; goal: string; projectId: number; exec?: string; autoModel?: boolean;
   dryRun: boolean; engage?: { autonomy: string; maxSessions: number };
   status: PlanJobStatus; phases: Phase[]; error?: string;
+  /** tmux session of the Pilot agent in agent-mode planning, so the client can live-preview the
+   *  planner's pane while it works. Unset for relay-mode planning (synchronous, no tmux). */
+  sessionName?: string;
 }
 
 /** In-memory registry of async planning jobs. Ephemeral by design: a daemon restart drops jobs,
@@ -40,6 +43,12 @@ export class PlanJobStore {
     }
   }
   get(id: string): PlanJob | null { return this.jobs.get(id) ?? null; }
+  /** Record the Pilot's tmux session once it's spawned (agent-mode planning only). */
+  setSession(id: string, sessionName: string): PlanJob | null {
+    const j = this.jobs.get(id); if (!j) return null;
+    j.sessionName = sessionName;
+    return j;
+  }
   setPhases(id: string, phases: Phase[]): PlanJob | null {
     const j = this.jobs.get(id); if (!j) return null;
     j.phases = phases; j.status = 'done';

@@ -1,7 +1,7 @@
 import type { SpawnService } from '../spawn/spawn.js';
 import type { ConfigStore } from '../store/configStore.js';
 import type { ProjectStore } from '../store/projectStore.js';
-import type { PlanJob } from './planJob.js';
+import type { PlanJob, PlanJobStore } from './planJob.js';
 import { render } from '../prompts/index.js';
 import { resolveExecutor } from './routing.js';
 import { modelsBlock } from './planner.js';
@@ -26,7 +26,7 @@ export function pilotPrompt(goal: string, jobId: string, projectNotes?: string, 
 /** Build the Pilot spawner: launches a repo-aware planning agent for an agent-mode plan job. The
  *  agent submits its plan back through the orca CLI (`orca plan submit`); the daemon never reads its
  *  stdout. Returns a function matching the `pilot` ServerDep. */
-export function makePilot(deps: { spawn: SpawnService; config: ConfigStore; projects: ProjectStore; nameAgent: () => string; cliPath?: string }): (job: PlanJob, projectPath: string) => Promise<void> {
+export function makePilot(deps: { spawn: SpawnService; config: ConfigStore; projects: ProjectStore; planJobs: PlanJobStore; nameAgent: () => string; cliPath?: string }): (job: PlanJob, projectPath: string) => Promise<void> {
   return async (job, projectPath) => {
     const cfg = deps.config.get();
     const spec = resolveExecutor([`exec:${cfg.autopilot.pilotExec}`], { program: 'claude-code', model: 'sonnet' });
@@ -35,11 +35,13 @@ export function makePilot(deps: { spawn: SpawnService; config: ConfigStore; proj
     // Structured `pilot-` prefix so the session classifies as the planner (mirrors the overseer's
     // `overseer-` prefix), instead of being indistinguishable from a worker agent.
     const agentName = `pilot-${deps.nameAgent()}`;
-    await deps.spawn.launch({
+    const { session } = await deps.spawn.launch({
       projectId: job.projectId, projectPath, taskId: job.id, agentName, spec,
       taskTitle: `Plan: ${job.goal}`,
       rawPrompt: pilotPrompt(job.goal, job.id, notes, deps.cliPath, models),
       extraEnv: { ORCA_PLAN_JOB: job.id },
     });
+    // Expose the live tmux session so the client can preview the planner's pane while it works.
+    deps.planJobs.setSession(job.id, session);
   };
 }

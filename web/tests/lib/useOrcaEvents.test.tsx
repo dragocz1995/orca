@@ -71,6 +71,17 @@ describe('useOrcaEvents', () => {
     expect(first).not.toHaveBeenCalled();
   });
 
+  it('keeps the Pilot sessionName across a later planning SSE update (poll carries it, events do not)', () => {
+    const { client, wrapper } = wrap();
+    // The GET poll seeds the live-preview session…
+    client.setQueryData(['plan-job', 'pj-1'], { id: 'pj-1', goal: 'g', epicId: null, status: 'planning', phases: [], sessionName: 'orca-pilot-Nova' });
+    renderHook(() => useOrcaEvents(), { wrapper });
+    // …a subsequent `planning` SSE event (which carries no session) must NOT blank out the pane.
+    FakeES.last.emit({ type: 'plan', jobId: 'pj-1', status: 'planning' });
+    const job = client.getQueryData(['plan-job', 'pj-1']) as { sessionName?: string };
+    expect(job.sessionName).toBe('orca-pilot-Nova');
+  });
+
   it('closes the source on unmount', () => {
     const { wrapper } = wrap();
     const { unmount } = renderHook(() => useOrcaEvents(), { wrapper });
