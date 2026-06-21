@@ -37,6 +37,18 @@ describe('SettingsPage', () => {
     expect(Array.isArray((putBody as { customModels: unknown[] }).customModels)).toBe(true);
   });
 
+  it('edits a model description and persists it under modelNotes', async () => {
+    putBody = null;
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet')).toBeChecked());
+    // Each enabled model card carries an "Add description" affordance; the first is Claude Sonnet.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add description' })[0]);
+    fireEvent.change(screen.getByLabelText('Model description'), { target: { value: 'Strong at refactoring' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect((putBody as { modelNotes: Record<string, string> }).modelNotes).toMatchObject({ sonnet: 'Strong at refactoring' }));
+  });
+
   it('renders the Add model affordance', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);

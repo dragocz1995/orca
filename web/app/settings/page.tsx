@@ -6,6 +6,7 @@ import { PROVIDERS, ProviderLogo, ProviderTag } from '../../modules/settings/pro
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Select } from '../../components/ui/Select';
 import { ModelModal } from '../../modules/settings/ModelModal';
+import { ModelNoteModal } from '../../modules/settings/ModelNoteModal';
 import { execProvider, execModel, type ProviderId } from '../../lib/modelProvider';
 import { useConfig, useMe, usePlanJob } from '../../lib/queries';
 import { useUpdateConfig, useCleanupAll } from '../../lib/mutations';
@@ -80,6 +81,9 @@ export default function SettingsPage() {
 
   const [allowed, setAllowed] = useState<string[]>([]);
   const [customModels, setCustomModels] = useState<{ label: string; exec: string }[]>([]);
+  const [modelNotes, setModelNotes] = useState<Record<string, string>>({});
+  // The model whose autopilot description is being edited (null = editor closed).
+  const [noteFor, setNoteFor] = useState<{ label: string; exec: string } | null>(null);
   const [model, setModel] = useState('');
   const [overseerModel, setOverseerModel] = useState('');
   const [pilotExec, setPilotExec] = useState('');
@@ -149,6 +153,7 @@ export default function SettingsPage() {
       seeded.current = true;
       setAllowed(config.data.allowedExecs);
       setCustomModels(config.data.customModels ?? []);
+      setModelNotes(config.data.modelNotes ?? {});
       setHiddenPresets(config.data.hiddenPresets ?? []);
       setModel(config.data.autopilot.model);
       setOverseerModel(config.data.autopilot.overseerModel ?? '');
@@ -182,17 +187,27 @@ export default function SettingsPage() {
   // Model changes auto-persist immediately — no separate "save models" step to forget (a two-step
   // add-then-save was a footgun where edits silently vanished on reload). Each handler computes the
   // next state, applies it, and PUTs it in one go. `silent` skips the toast for frequent toggles.
-  const persistModels = (next: { allowed?: string[]; customModels?: { label: string; exec: string }[]; hiddenPresets?: string[] }, silent = false) => {
+  const persistModels = (next: { allowed?: string[]; customModels?: { label: string; exec: string }[]; hiddenPresets?: string[]; modelNotes?: Record<string, string> }, silent = false) => {
     const allowedExecs = next.allowed ?? allowed;
     const cm = next.customModels ?? customModels;
     const hp = next.hiddenPresets ?? hiddenPresets;
+    const mn = next.modelNotes ?? modelNotes;
     setAllowed(allowedExecs);
     setCustomModels(cm);
     setHiddenPresets(hp);
+    setModelNotes(mn);
     update.mutate(
-      { allowedExecs, customModels: cm, hiddenPresets: hp },
+      { allowedExecs, customModels: cm, hiddenPresets: hp, modelNotes: mn },
       { onSuccess: () => { if (!silent) toast(t.settings.modelsSaved); }, onError: (e) => toast(String(e), 'error') },
     );
+  };
+
+  // Save a single model's autopilot description (empty string clears the entry).
+  const saveNote = (exec: string, note: string) => {
+    const next = { ...modelNotes };
+    if (note) next[exec] = note; else delete next[exec];
+    persistModels({ modelNotes: next });
+    setNoteFor(null);
   };
 
   const toggle = (exec: string) =>
@@ -374,6 +389,14 @@ export default function SettingsPage() {
                         <span className="truncate font-mono text-xs text-text-muted">{execModel(p.exec)}</span>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setNoteFor({ label: p.label, exec: p.exec })}
+                      title={t.settings.modelNoteEdit}
+                      className={`line-clamp-2 min-h-[2.25rem] text-left text-xs ${modelNotes[p.exec]?.trim() ? 'text-text-muted hover:text-text' : 'italic text-text-muted/60 hover:text-text-muted'}`}
+                    >
+                      {modelNotes[p.exec]?.trim() || t.settings.modelNoteAdd}
+                    </button>
                     <div className="flex items-center justify-between gap-2">
                       <Toggle checked={allowed.includes(p.exec)} onChange={() => toggle(p.exec)} label={p.label} />
                       <ProviderTag id={execProvider(p.exec)} />
@@ -398,6 +421,16 @@ export default function SettingsPage() {
             activeProviders={activeProviders}
             onClose={resetForm}
             onSave={saveModel}
+          />
+        )}
+
+        {noteFor && (
+          <ModelNoteModal
+            label={noteFor.label}
+            exec={noteFor.exec}
+            initial={modelNotes[noteFor.exec] ?? ''}
+            onClose={() => setNoteFor(null)}
+            onSave={(note) => saveNote(noteFor.exec, note)}
           />
         )}
 

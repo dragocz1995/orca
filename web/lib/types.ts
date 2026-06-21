@@ -13,7 +13,7 @@ type MissionState = 'active' | 'paused' | 'disengaged' | 'stalled';
 export interface Mission { id: string; epic_id: string; autonomy: Autonomy; max_sessions: number; state: MissionState }
 export interface CreateTaskInput { title: string; type?: string; priority?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[]; project_id?: number }
 export interface UpdateTaskInput { title?: string; type?: string; priority?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[] }
-export interface PlanInput { goal: string; exec?: string; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title: string; type?: string }[]; project_id?: number }
+export interface PlanInput { goal: string; exec?: string; autoModel?: boolean; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title: string; type?: string }[]; project_id?: number }
 export interface PlanResult { epic: Task; phases: Task[]; mission?: Mission }
 interface PlanPhase { title: string; type: string; agent?: string; details?: string }
 type PlanJobStatus = 'planning' | 'done' | 'failed';
@@ -28,6 +28,7 @@ export interface OrcaConfig {
   allowedExecs: string[];
   customModels: { label: string; exec: string }[];
   hiddenPresets: string[];
+  modelNotes: Record<string, string>;
   autopilot: { model: string; overseerModel: string; apiUrl: string; apiKeySet: boolean; notes: string; prompt: string; pilotExec: string; overseerExec: string; reviewOnDone: boolean };
   providers: Record<string, { bin: string; args: string }>;
   defaults: { exec: string; autonomy: string; maxSessions: number };
@@ -37,6 +38,7 @@ export interface ConfigPatch {
   allowedExecs?: string[];
   customModels?: { label: string; exec: string }[];
   hiddenPresets?: string[];
+  modelNotes?: Record<string, string>;
   autopilot?: { model?: string; overseerModel?: string; apiUrl?: string; apiKey?: string; notes?: string; prompt?: string; pilotExec?: string; overseerExec?: string; reviewOnDone?: boolean };
   providers?: Record<string, { bin: string; args: string }>;
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
