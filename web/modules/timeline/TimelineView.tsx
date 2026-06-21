@@ -45,6 +45,10 @@ function clock(ms: number): string {
 
 /** Colour a feed badge by its detail (status/signal), not just the event kind. */
 function detailTone(detail: string): Tone {
+  // Review verdicts carry their rationale in the detail string (`escalated: …` / `approved: …`),
+  // so colour them by prefix rather than exact match.
+  if (detail.startsWith('escalated')) return 'danger';
+  if (detail.startsWith('approved')) return 'success';
   switch (detail) {
     case 'complete': case 'open': return 'success';      // green
     case 'working': case 'in_progress': case 'needs_input': return 'warning'; // amber
@@ -234,7 +238,7 @@ export function TimelineView() {
   const tasks = useTasks();
   const sessions = useSessions();
   const { data: config } = useConfig();
-  const [filter, setFilter] = usePersistentState<string>('orca.timeline.filter', 'all', ['all', 'task', 'mission', 'signal']);
+  const [filter, setFilter] = usePersistentState<string>('orca.timeline.filter', 'all', ['all', 'task', 'mission', 'signal', 'review']);
   const [view, setView] = usePersistentState<string>('orca.timeline.view', 'axis', ['axis', 'lanes']);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const type = filter === 'all' ? undefined : filter;
@@ -245,6 +249,7 @@ export function TimelineView() {
     { label: t.timeline.filterTasks, value: 'task' },
     { label: t.timeline.filterMissions, value: 'mission' },
     { label: t.timeline.filterSignals, value: 'signal' },
+    { label: t.timeline.filterReviews, value: 'review' },
   ];
 
   const rawEvents = useMemo<AxisEvent[]>(

@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { makeTestApp } from '../helpers/testApp.js';
 
 describe('post-done review', () => {
-  it('enqueues a review decision when a mission phase closes and reviewOnDone+overseerExec set', async () => {
+  it('enqueues a review decision when a phase with a downstream dependent closes (reviewOnDone+overseerExec set)', async () => {
     const { app, token, deps } = await makeTestApp({});
     await app.request('/config', { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ autopilot: { overseerExec: 'claude:opus', reviewOnDone: true } }) });
-    const { missionId, childId } = deps.seedMissionWithChild();
+    const { missionId, childId } = deps.seedMissionWithChain(); // P1 gates P2 — there is something to hold back
     const poll = deps.decisionQueue.next(missionId, 2000);
     await app.request(`/tasks/${childId}`, { method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'closed', outcome: 'ok', result_summary: 'done' }) });
     const req = await poll;

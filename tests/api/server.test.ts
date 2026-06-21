@@ -41,6 +41,22 @@ describe('api', () => {
     const list = await (await app.request('/tasks')).json();
     expect(list.map((t: { id: string }) => t.id)).toEqual(['orca-1']);
   });
+  it('GET /tasks?project_id=N narrows the list to one project; unknown id yields []', async () => {
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o'),(2,'other','/p')").run();
+    const tasks = new TaskStore(db);
+    const projects = new ProjectStore(db);
+    const app = createServer({ tasks, projects, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(), engine: null as any, spawn: null as any, tmux: null as any, project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db) });
+    await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 't-a', project_id: 1, title: 'A' }) });
+    await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 't-b', project_id: 2, title: 'B' }) });
+    const all = await (await app.request('/tasks')).json() as { id: string }[];
+    const p1 = await (await app.request('/tasks?project_id=1')).json() as { id: string }[];
+    const p2 = await (await app.request('/tasks?project_id=2')).json() as { id: string }[];
+    const p99 = await (await app.request('/tasks?project_id=99')).json() as { id: string }[];
+    expect(all.map((t) => t.id).sort()).toEqual(['t-a', 't-b']);
+    expect(p1.map((t) => t.id)).toEqual(['t-a']);
+    expect(p2.map((t) => t.id)).toEqual(['t-b']);
+    expect(p99).toEqual([]);
+  });
   it('POST /tasks publishes a task SSE event', async () => {
     const { app, bus } = makeApp();
     const events: OrcaEvent[] = [];

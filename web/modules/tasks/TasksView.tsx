@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Plus, ListChecks, Search, Archive, Trash2, X, ChevronLeft, ChevronRight, CalendarDays, List } from 'lucide-react';
+import { Plus, ListChecks, Search, Archive, Trash2, X, ChevronLeft, ChevronRight, CalendarDays, List, FolderGit2 } from 'lucide-react';
 import type { Task, TaskStatus } from '../../lib/types';
-import { useTasks, useAllDeps, useSessions, useSessionSignals, useMissions } from '../../lib/queries';
+import { useTasks, useAllDeps, useSessions, useSessionSignals, useMissions, useProjects } from '../../lib/queries';
 import { taskBlockers, taskSessionName } from '../../lib/agentUtils';
 import { epicChildren, phaseIds, epicLive, epicEffectiveStatus } from '../../lib/taskTree';
 import { useCloseTask, useDeleteTask } from '../../lib/mutations';
@@ -36,7 +36,7 @@ function taskDayMs(task: Task): number {
 const dayKeyMs = (ms: number): string => dayKey(new Date(ms));
 
 export function TasksView() {
-  const tasks = useTasks();
+  const projects = useProjects();
   const deps = useAllDeps();
   const sessions = useSessions();
   const signals = useSessionSignals();
@@ -49,6 +49,11 @@ export function TasksView() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = usePersistentState<Filter>('orca.tasks.filter', 'in_progress', FILTER_VALUES);
+  // Selected project pill — 'all' shows every accessible project; a number narrows the list
+  // (server-side via /tasks?project_id=N). Stored as a string so usePersistentState validates it.
+  const [projectKey, setProjectKey] = usePersistentState<string>('orca.tasks.project', 'all', ['all', ...(projects.data ?? []).map((p) => String(p.id))]);
+  const selectedProject: number | 'all' = projectKey === 'all' ? 'all' : Number(projectKey);
+  const tasks = useTasks(selectedProject === 'all' ? undefined : selectedProject);
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -149,7 +154,7 @@ export function TasksView() {
   }, [tasks.data, query, filter, childMap, phaseSet, sessions.data, signals, missions.data]);
 
   // Reset to the first page whenever the result set changes shape.
-  useEffect(() => { setPage(0); }, [query, filter]);
+  useEffect(() => { setPage(0); }, [query, filter, selectedProject]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pageCount - 1);
   const pageItems = filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
@@ -186,6 +191,36 @@ export function TasksView() {
         <Segmented value={filter} onChange={(v) => setFilter(v as Filter)} options={FILTERS} />
         <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>
       </ModuleHeader>
+
+      {/* Project picker pills — narrow the list to one project (server-side). Hidden when the
+          workspace has fewer than two projects: no choice to make, would be pure noise. */}
+      {(projects.data ?? []).length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setProjectKey('all')}
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${selectedProject === 'all' ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border bg-elevated text-text-muted hover:border-border-strong hover:text-text'}`}
+            style={{ transitionDuration: 'var(--motion-fast)' }}
+          >
+            <FolderGit2 size={13} className="shrink-0" aria-hidden />{t.tasks.filterAllProjects}
+          </button>
+          {(projects.data ?? []).map((p) => {
+            const on = selectedProject === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setProjectKey(String(p.id))}
+                title={p.path}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border bg-elevated text-text-muted hover:border-border-strong hover:text-text'}`}
+                style={{ transitionDuration: 'var(--motion-fast)' }}
+              >
+                <FolderGit2 size={13} className="shrink-0" aria-hidden />{p.slug}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {tasks.isLoading ? <LoadingState variant="cards" />
         : tasks.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => tasks.refetch()} />

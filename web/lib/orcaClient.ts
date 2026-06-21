@@ -42,7 +42,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 export const orcaClient = {
-  tasks: () => req<Task[]>('/tasks'),
+  tasks: (projectId?: number) => req<Task[]>(projectId != null ? `/tasks?project_id=${projectId}` : '/tasks'),
   ready: () => req<Task[]>('/tasks/ready'),
   sessions: () => req<SessionInfo[]>('/sessions'),
   missions: () => req<Mission[]>('/missions'),

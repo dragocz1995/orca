@@ -70,16 +70,18 @@ export async function makeTestApp(opts: TestAppOpts = {}) {
     return { missionId: mission.id, epicId: epic.id, childId: child.id };
   };
 
-  /** Seed an epic with two chained phases (P1 in_progress, P2 open depends on P1) + active mission. */
-  const seedMissionWithChain = () => {
+  /** Seed an epic with two chained phases (P1 in_progress, P2 open depends on P1) + active mission.
+   *  `autonomy` defaults to L3 so the existing self-heal/review tests get full autonomy; pass L1/L2
+   *  to exercise the human-in-the-loop branch (no auto self-heal). */
+  const seedMissionWithChain = (autonomy = 'L3') => {
     const epic = tasks.create({ id: 'orca-ep2', project_id: 1, title: 'Epic2', type: 'epic', description: 'epic' });
     const p1 = tasks.create({ id: 'orca-p1', project_id: 1, title: 'Phase 1', type: 'task', parent_id: epic.id, description: 'p1' });
     const p2 = tasks.create({ id: 'orca-p2', project_id: 1, title: 'Phase 2', type: 'task', parent_id: epic.id, description: 'p2' });
     tasks.addDep(p2.id, p1.id);
     tasks.setStatus(p1.id, 'in_progress');
-    const mission = missions.create({ id: `m-${epic.id}`, epic_id: epic.id, autonomy: 'L3', max_sessions: 1 });
+    const mission = missions.create({ id: `m-${epic.id}`, epic_id: epic.id, autonomy, max_sessions: 1 });
     return { missionId: mission.id, epicId: epic.id, childId: p1.id, nextId: p2.id };
   };
 
-  return { app, token, deps: { tasks, missions, config, planJobs, decisionQueue, seedMissionWithChild, seedMissionWithChain } };
+  return { app, token, deps: { tasks, missions, config, planJobs, decisionQueue, bus, seedMissionWithChild, seedMissionWithChain } };
 }

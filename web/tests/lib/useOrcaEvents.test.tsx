@@ -45,6 +45,15 @@ describe('useOrcaEvents', () => {
     const taskHandlers = fakeHandler.get('task') ?? [];
     expect(() => taskHandlers[0]?.({ data: 'not json' })).not.toThrow();
   });
+  it('invalidates caches and forwards the verdict on a review event', () => {
+    const { spy, wrapper } = wrap();
+    const onReview = vi.fn();
+    renderHook(() => useOrcaEvents({ onReview }), { wrapper });
+    FakeES.last.emit({ type: 'review', missionId: 'm-1', taskId: 'orca-9', approve: false, rationale: 'scope creep' });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['tasks'] });
+    expect(onReview).toHaveBeenCalledWith({ missionId: 'm-1', taskId: 'orca-9', approve: false, rationale: 'scope creep' });
+  });
+
   it('closes the source on unmount', () => {
     const { wrapper } = wrap();
     const { unmount } = renderHook(() => useOrcaEvents(), { wrapper });

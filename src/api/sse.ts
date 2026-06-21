@@ -9,6 +9,7 @@ export type OrcaEvent =
   | { type: 'signal'; session: string; signal: DerivedSignal }
   | { type: 'mission'; missionId: string; state: string }
   | { type: 'task'; taskId: string; status: string }
+  | { type: 'review'; missionId: string; taskId: string; approve: boolean; rationale: string }
   | { type: 'plan'; jobId: string; status: PlanJobStatus; epicId?: string; phases?: Phase[]; error?: string };
 
 export class EventBus implements SignalSink {

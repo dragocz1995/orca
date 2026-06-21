@@ -6,8 +6,14 @@ import { BASE } from './orcaClient';
 import { withToken } from './token';
 import type { DerivedSignal, PlanJob } from './types';
 
-export function useOrcaEvents(): void {
+export interface ReviewEvent { missionId: string; taskId: string; approve: boolean; rationale: string }
+
+/** Subscribe to the daemon SSE bus and keep the React Query cache fresh. `onReview` fires for every
+ *  post-done review verdict (approve or escalate) — the caller (EventBridge) turns escalations into a
+ *  toast. Kept as a callback so the data hook stays testable without a ToastProvider in scope. */
+export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): void {
   const qc = useQueryClient();
+  const onReview = opts?.onReview;
   useEffect(() => {
     const es = new EventSource(withToken(`${BASE}/events`));
 
@@ -51,11 +57,24 @@ export function useOrcaEvents(): void {
       if (data.status === 'done') { qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks }); qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }); }
     };
 
+    // Post-done review verdict: refresh tasks/missions/timeline (a self-heal re-spawn or a gate
+    // release changes them), then hand the verdict to the caller so an escalation becomes a toast.
+    const reviewHandler = (e: MessageEvent) => {
+      let data: ReviewEvent & { type?: string };
+      try { data = JSON.parse(e.data); } catch { return; } // skip malformed, keep the stream alive
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks });
+      qc.invalidateQueries({ queryKey: ['mission'] });
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.missions });
+      qc.invalidateQueries({ queryKey: ['activity'] });
+      if (data.taskId) onReview?.({ missionId: data.missionId, taskId: data.taskId, approve: !!data.approve, rationale: data.rationale ?? '' });
+    };
+
     es.addEventListener('task', taskHandler);
     es.addEventListener('mission', missionHandler);
     es.addEventListener('signal', signalHandler);
     es.addEventListener('plan', planHandler);
+    es.addEventListener('review', reviewHandler);
 
     return () => es.close();
-  }, [qc]);
+  }, [qc, onReview]);
 }

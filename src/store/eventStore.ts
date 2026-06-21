@@ -7,6 +7,7 @@ function toRow(e: OrcaEvent): { type: string; target: string; detail: string } |
   switch (e.type) {
     case 'task': return { type: 'task', target: e.taskId, detail: e.status };
     case 'mission': return { type: 'mission', target: e.missionId, detail: e.state };
+    case 'review': return { type: 'review', target: e.taskId, detail: `${e.approve ? 'approved' : 'escalated'}: ${e.rationale}` };
     case 'signal': return { type: 'signal', target: e.session, detail: e.signal.type };
     case 'plan': return null; // transient job-status ping — not part of the persistent timeline
   }

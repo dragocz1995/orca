@@ -38,6 +38,10 @@ import type { UserProjectStore } from '../store/userProjectStore.js';
 import type { GitReader } from '../git/gitReader.js';
 import { logger } from '../shared/logger.js';
 
+/** How many times an L3 mission auto-re-spawns a phase that the post-done review rejected before it
+ *  gives up and escalates to a human. Mirrors the stuck detector's `maxRelaunch` (2) so the two
+ *  bounded-retry loops behave consistently. */
+const REVIEW_FIX_BUDGET = 2;
 
 export interface ServerDeps {
   tasks: TaskStore; readiness: Readiness; missions: MissionStore;
@@ -669,7 +673,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   app.get('/tasks', c => {
     const allowed = accessibleProjects(c);
     const all = d.tasks.list();
-    return c.json(allowed ? all.filter((t) => allowed.has(t.project_id)) : all);
+    const scoped = allowed ? all.filter((t) => allowed.has(t.project_id)) : all;
+    // Optional `?project_id=N` narrows the list to one project. Applied AFTER the access gate so a
+    // non-admin can't cross tenancy. An unknown/foreign id simply yields [] (no 404 — benevolent).
+    const pidRaw = c.req.query('project_id');
+    if (pidRaw !== undefined && pidRaw !== '') {
+      const pid = Number(pidRaw);
+      if (Number.isFinite(pid)) return c.json(scoped.filter((t) => t.project_id === pid));
+    }
+    return c.json(scoped);
   });
   app.post('/tasks', async c => {
     const b = await c.req.json() as { title: string; type?: string; priority?: string; id?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[]; project_id?: number };
@@ -722,22 +734,51 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
             const dep = d.tasks.get(e.task_id);
             if (dep && dep.status === 'open') { d.tasks.setStatus(dep.id, 'blocked'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'blocked' }); gated.push(dep.id); }
           }
-          const localDestructive = isDestructive(`${existing.title} ${b.result_summary ?? ''}`);
-          void decisionQueue.enqueue(mission.id, 'review', { title: existing.title, outcome: b.outcome ?? '', summary: b.result_summary ?? '' }, localDestructive)
-            .then((verdict) => {
-              // Reject/destructive → leave the gate shut (mission stalls for a human). Approve → release
-              // the gated dependents back to open and tick so the next phase spawns promptly rather than
-              // waiting up to the 90s interval. Re-check 'blocked' so we never override a human's change.
-              if (!verdict.approve || verdict.destructive) return;
-              for (const depId of gated) {
-                const dep = d.tasks.get(depId);
-                if (dep && dep.status === 'blocked') { d.tasks.setStatus(dep.id, 'open'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'open' }); }
-              }
-              void d.engine.tick(mission.id).catch((e) => log.error('post-review tick failed', e));
-            })
-            // Fire-and-forget review must never crash the daemon — the verdict apply (or the enqueue
-            // itself) can throw, so swallow-and-log instead of leaving an unhandled rejection.
-            .catch((e) => log.error('review verdict apply failed', e));
+          // Nothing was gated → nothing downstream to hold back, so there is nothing to review. This is
+          // the terminal/leaf phase: closing it also completes the mission, which drains the queue with a
+          // synthetic 'mission disengaged' verdict. Reviewing it here would let that synthetic reject
+          // resurrect a just-finished phase into an orphaned, mission-less 'open' state. Skip it.
+          if (gated.length > 0) {
+            const localDestructive = isDestructive(`${existing.title} ${b.result_summary ?? ''}`);
+            void decisionQueue.enqueue(mission.id, 'review', { title: existing.title, outcome: b.outcome ?? '', summary: b.result_summary ?? '' }, localDestructive)
+              .then((verdict) => {
+                // The mission may have torn down while the review was pending (manual disengage, shutdown):
+                // the drain settles the queue with a synthetic reject. Never apply a verdict to a dead
+                // mission — releasing or self-healing it would only orphan tasks under a mission that's gone.
+                const live = d.missions.get(mission.id);
+                if (!live || (live.state !== 'active' && live.state !== 'stalled')) return;
+                const approved = verdict.approve && !verdict.destructive;
+                // Surface the verdict to the UI/timeline — otherwise the rationale dies in the overseer
+                // pane and the user only sees an unexplained 'blocked'/'stalled'.
+                d.bus.publish({ type: 'review', missionId: mission.id, taskId: id, approve: approved, rationale: verdict.rationale });
+                if (approved) {
+                  // Gate opens: release the gated dependents and tick so the next phase spawns promptly
+                  // rather than waiting up to the 90s interval. Re-check 'blocked' so a human's manual
+                  // change is never overridden.
+                  for (const depId of gated) {
+                    const dep = d.tasks.get(depId);
+                    if (dep && dep.status === 'blocked') { d.tasks.setStatus(dep.id, 'open'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'open' }); }
+                  }
+                  void d.engine.tick(mission.id).catch((e) => log.error('post-review tick failed', e));
+                  return;
+                }
+                // Rejected/destructive. L3 (full autonomy) self-heals: re-open the phase with the review
+                // feedback so the agent fixes it, up to REVIEW_FIX_BUDGET times before escalating. L1/L2
+                // (human-in-the-loop) leave it — the dependents stay gated for a human to resolve.
+                const fresh = d.tasks.get(id);
+                if (fresh && mission.autonomy === 'L3' && d.tasks.bumpReviewFix(id) <= REVIEW_FIX_BUDGET) {
+                  const feedback = `\n\n[Review rejected — previous attempt was not accepted]: ${verdict.rationale}\nFix the issue and close the task again.`;
+                  d.tasks.update(id, { description: (fresh.description ?? '') + feedback });
+                  d.tasks.setStatus(id, 'open'); // re-open so the engine tick re-spawns it (its deps are already satisfied)
+                  d.bus.publish({ type: 'task', taskId: id, status: 'open' });
+                  void d.engine.tick(mission.id).catch((e) => log.error('post-review self-heal tick failed', e));
+                }
+                // else: escalated — leave the phase closed and the dependents blocked for a human.
+              })
+              // Fire-and-forget review must never crash the daemon — the verdict apply (or the enqueue
+              // itself) can throw, so swallow-and-log instead of leaving an unhandled rejection.
+              .catch((e) => log.error('review verdict apply failed', e));
+          }
         }
       }
     }

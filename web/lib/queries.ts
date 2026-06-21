@@ -31,8 +31,11 @@ export const useSessionSignals = (): Record<string, DerivedSignal> => {
 
 export const useSessionSignal = (name: string): DerivedSignal | undefined => useSessionSignals()[name];
 
-export const useTasks = () =>
-  useQuery({ queryKey: QUERY_KEYS.tasks, queryFn: orcaClient.tasks, refetchInterval: 5000 });
+export const useTasks = (projectId?: number) =>
+  // A bare `useTasks()` keeps the shared `['tasks']` cache key (Kanban/Timeline/Sidebar/… all share
+  // one "all tasks" fetch). A scoped `useTasks(projectId)` gets its own entry so a project-filtered
+  // Tasks view doesn't replace the global cache. Prefix invalidations still hit both.
+  useQuery({ queryKey: projectId == null ? QUERY_KEYS.tasks : ['tasks', projectId], queryFn: () => orcaClient.tasks(projectId), refetchInterval: 5000 });
 
 /** Live session names — the stable handles used for liveness checks, signal keys and ops.
  *  Backed by the same query as useSessionInfos (one fetch); selects just the names. */

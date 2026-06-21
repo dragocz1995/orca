@@ -1,0 +1,114 @@
+import { describe, it, expect } from 'vitest';
+import { makeTestApp } from '../helpers/testApp.js';
+import type { OrcaEvent } from '../../src/api/sse.js';
+
+const enableReview = async (app: ReturnType<typeof makeTestApp> extends Promise<infer T> ? T : never, token: string) =>
+  app.app.request('/config', { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ autopilot: { overseerExec: 'claude:opus', reviewOnDone: true } }) });
+
+const closePhase = (app: ReturnType<typeof makeTestApp> extends Promise<infer T> ? T : never, token: string, id: string, summary = 'done') =>
+  app.app.request(`/tasks/${id}`, { method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'closed', outcome: 'ok', result_summary: summary }) });
+
+describe('review escalation + self-heal', () => {
+  it('publishes a review event on the bus when the verdict approves', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId } = t.deps.seedMissionWithChain();
+    const events: OrcaEvent[] = [];
+    t.deps.bus.subscribe((e) => events.push(e));
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId);
+    const req = await poll;
+    t.deps.decisionQueue.resolve(missionId, req!.id, { approve: true, confidence: 0.9, destructive: false, rationale: 'looks good' });
+    await new Promise((r) => setTimeout(r, 30));
+    const review = events.find((e) => e.type === 'review');
+    expect(review).toMatchObject({ type: 'review', taskId: childId, approve: true, rationale: 'looks good' });
+  });
+
+  it('publishes a review event with approve=false and the rationale on escalation', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId } = t.deps.seedMissionWithChain('L2'); // L2 → no self-heal, pure escalation
+    const events: OrcaEvent[] = [];
+    t.deps.bus.subscribe((e) => events.push(e));
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId);
+    const req = await poll;
+    t.deps.decisionQueue.resolve(missionId, req!.id, { approve: false, confidence: 0, destructive: false, rationale: 'scope creep' });
+    await new Promise((r) => setTimeout(r, 30));
+    const review = events.find((e) => e.type === 'review');
+    expect(review).toMatchObject({ type: 'review', taskId: childId, approve: false, rationale: 'scope creep' });
+  });
+
+  it('L3: a rejected review re-opens the closed phase with feedback and re-spawns it (self-heal)', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId, nextId } = t.deps.seedMissionWithChain('L3');
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId);
+    const req = await poll;
+    t.deps.decisionQueue.resolve(missionId, req!.id, { approve: false, confidence: 0, destructive: false, rationale: 'missing tests' });
+    await new Promise((r) => setTimeout(r, 40)); // verdict .then() re-opens + ticks (re-spawn)
+    const phase = t.deps.tasks.get(childId)!;
+    expect(phase.status).toBe('in_progress'); // re-spawned to fix
+    expect(phase.description).toContain('missing tests'); // review feedback injected for the fixing agent
+    expect(phase.labels.some((l) => l === 'reviewfix:1')).toBe(true); // bounded counter bumped
+    expect(t.deps.tasks.get(nextId)!.status).toBe('blocked'); // next phase still gated
+  });
+
+  it('L3: after the self-heal budget (2) is spent, it escalates instead of re-spawning', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId, nextId } = t.deps.seedMissionWithChain('L3');
+    t.deps.tasks.bumpReviewFix(childId); // pretend two fixes already happened
+    t.deps.tasks.bumpReviewFix(childId);
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId);
+    const req = await poll;
+    t.deps.decisionQueue.resolve(missionId, req!.id, { approve: false, confidence: 0, destructive: false, rationale: 'still wrong' });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(t.deps.tasks.get(childId)!.status).toBe('closed'); // NOT re-spawned — budget spent
+    expect(t.deps.tasks.get(nextId)!.status).toBe('blocked'); // halted for a human
+  });
+
+  it('a terminal phase (no dependents) enqueues no review — there is nothing to gate', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, nextId } = t.deps.seedMissionWithChain('L3'); // nextId is the last phase — nothing depends on it
+    t.deps.tasks.setStatus(nextId, 'in_progress'); // pretend it was spawned and is now finishing
+    const poll = t.deps.decisionQueue.next(missionId, 120); // should TIME OUT: no review is enqueued
+    await closePhase(t, t.token, nextId);
+    const req = await poll;
+    expect(req).toBeNull(); // a phase with no open dependents must not be reviewed
+    expect(t.deps.tasks.get(nextId)!.status).toBe('closed'); // and certainly never resurrected
+  });
+
+  it('a mission that disengages mid-review does not resurrect the closed phase', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId, nextId } = t.deps.seedMissionWithChain('L3');
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId); // review enqueued (nextId is gated)
+    await poll;
+    // The mission tears down while the review is still pending: state flips + the queue drains with the
+    // synthetic 'mission disengaged' verdict. The verdict handler must NOT self-heal a dead mission.
+    t.deps.missions.setState(missionId, 'disengaged');
+    t.deps.decisionQueue.drain(missionId);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(t.deps.tasks.get(childId)!.status).toBe('closed'); // not re-opened by a phantom self-heal
+    expect(t.deps.tasks.get(childId)!.labels.some((l) => l.startsWith('reviewfix:'))).toBe(false); // no fix burned
+    expect(t.deps.tasks.get(nextId)!.status).toBe('blocked'); // left for the (gone) mission, not spawned
+  });
+
+  it('L2: a rejected review does NOT self-heal — the phase stays closed, the next stays blocked', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId, nextId } = t.deps.seedMissionWithChain('L2');
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId);
+    const req = await poll;
+    t.deps.decisionQueue.resolve(missionId, req!.id, { approve: false, confidence: 0, destructive: false, rationale: 'nope' });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(t.deps.tasks.get(childId)!.status).toBe('closed'); // human-in-the-loop: no auto re-spawn
+    expect(t.deps.tasks.get(nextId)!.status).toBe('blocked');
+  });
+});

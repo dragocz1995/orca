@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
-import { Pencil, Play, Square, SquareSlash, Archive, TerminalSquare, Link2, Copy } from 'lucide-react';
+import { Pencil, Play, Square, SquareSlash, Archive, TerminalSquare, Link2, Copy, ShieldCheck, RotateCcw } from 'lucide-react';
 import type { Task } from '../../lib/types';
 import { useTasks, useAllDeps, useSessionSignal, useActivity, useConfig } from '../../lib/queries';
-import { useCloseTask } from '../../lib/mutations';
+import { useCloseTask, useSetTaskStatus, useResumeMission } from '../../lib/mutations';
+import { apiErrorMessage } from '../../lib/orcaClient';
 import { useTaskControls } from '../../lib/useTaskControls';
 import { taskExec } from '../../lib/taskExec';
 import { taskSessionName, taskAgentName } from '../../lib/agentUtils';
@@ -31,6 +32,8 @@ export function TaskDetailPane({ taskId, onEdit }: { taskId: string; onEdit?: (t
   const activity = useActivity('signal');
   const { data: config } = useConfig();
   const close = useCloseTask();
+  const setStatus = useSetTaskStatus();
+  const resume = useResumeMission();
   const { toast } = useToast();
   const [openTerm, setOpenTerm] = useState(false);
 
@@ -59,6 +62,20 @@ export function TaskDetailPane({ taskId, onEdit }: { taskId: string; onEdit?: (t
     } catch {
       toast(t.tasks.idCopyFailed, 'error');
     }
+  };
+
+  // Approve / re-run a mission phase after a review escalation: clear it back to open and nudge its
+  // mission so the engine re-spawns it now instead of waiting out the 90s tick. "Approve & continue"
+  // overrides a blocked next phase; "Re-run" retries the rejected (closed) phase itself.
+  const isPhase = !!task.parent_id;
+  const reopenResume = (doneMsg: string) => {
+    setStatus.mutate({ id: task.id, status: 'open' }, {
+      onSuccess: () => {
+        if (isPhase) resume.mutate(`m-${task.parent_id}`, { onError: () => { /* mission may be idle — open status still lets a later tick pick it up */ } });
+        toast(doneMsg.replace('{id}', task.id));
+      },
+      onError: (e) => toast(apiErrorMessage(e), 'error'),
+    });
   };
 
   return (
@@ -93,7 +110,11 @@ export function TaskDetailPane({ taskId, onEdit }: { taskId: string; onEdit?: (t
         <div className="flex flex-wrap items-center gap-1">
           {running
             ? <><IconButton icon={Square} label={t.tasks.stop} variant="danger" onClick={stop} /><IconButton icon={SquareSlash} label={t.sessions.interrupt} onClick={pause} /></>
-            : <IconButton icon={Play} label={t.tasks.start} onClick={start} />}
+            : task.status === 'blocked' && isPhase
+              ? <IconButton icon={ShieldCheck} label={t.tasks.approveContinue} onClick={() => reopenResume(t.tasks.approved)} />
+              : isClosed && isPhase
+                ? <IconButton icon={RotateCcw} label={t.tasks.rerun} onClick={() => reopenResume(t.tasks.rerunning)} />
+                : <IconButton icon={Play} label={t.tasks.start} onClick={start} />}
           {session ? <IconButton icon={TerminalSquare} label={t.tasks.openTerminal} onClick={() => setOpenTerm(true)} /> : null}
           {onEdit ? <IconButton icon={Pencil} label={t.common.edit} onClick={() => onEdit(task)} /> : null}
           {!isClosed ? <IconButton icon={Archive} label={t.tasks.closeArchive} onClick={() => close.mutate(task.id, { onSuccess: () => toast(t.tasks.closed.replace('{id}', task.id)), onError: (e) => toast(String(e), 'error') })} /> : null}

@@ -191,6 +191,20 @@ export class TaskStore {
     return next;
   }
 
+  /** Increment this task's review-fix counter (a `reviewfix:<n>` label) and return the new value.
+   *  Bounds how many times an L3 mission auto-re-spawns a phase that the post-done review rejected
+   *  before escalating to a human — the review-gate analogue of `bumpStuck`. */
+  bumpReviewFix(id: string): number {
+    const t = this.get(id);
+    if (!t) return 0;
+    const cur = Number(t.labels.find((l) => l.startsWith('reviewfix:'))?.slice('reviewfix:'.length)) || 0;
+    const next = cur + 1;
+    const labels = t.labels.filter((l) => !l.startsWith('reviewfix:'));
+    labels.push(`reviewfix:${next}`);
+    this.db.prepare('UPDATE tasks SET labels = ? WHERE id = ?').run(labels.join(','), id);
+    return next;
+  }
+
   depsAmong(ids: string[]): { task_id: string; depends_on_id: string }[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
