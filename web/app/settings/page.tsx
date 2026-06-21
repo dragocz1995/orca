@@ -7,10 +7,10 @@ import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Select } from '../../components/ui/Select';
 import { ModelModal } from '../../modules/settings/ModelModal';
 import { execProvider, execModel, type ProviderId } from '../../lib/modelProvider';
-import { useConfig, useHermesStatus, useMe, usePlanJob } from '../../lib/queries';
-import { useUpdateConfig, useHermesInstall, useCleanupAll } from '../../lib/mutations';
+import { useConfig, useMe, usePlanJob } from '../../lib/queries';
+import { useUpdateConfig, useCleanupAll } from '../../lib/mutations';
 import { orcaClient, OrcaApiError } from '../../lib/orcaClient';
-import { getToken } from '../../lib/token';
+import { useHermesForm } from '../../modules/settings/useHermesForm';
 import { EXEC_PRESETS, allModels } from '../../lib/execPresets';
 import { useToast } from '../../components/ui/Toast';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
@@ -137,12 +137,8 @@ export default function SettingsPage() {
   // Pending delete (drives the ConfirmDialog)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
-  // Hermes integration form state
-  const [hHome, setHHome] = useState('/var/www/.hermes');
-  const [hUrl, setHUrl] = useState('');
-  const [hToken, setHToken] = useState('');
-  const hermesStatus = useHermesStatus(hHome);
-  const hermesInstall = useHermesInstall();
+  // Hermes integration form — state + status + install shared with Onboarding (useHermesForm).
+  const { home: hHome, setHome: setHHome, url: hUrl, setUrl: setHUrl, token: hToken, setToken: setHToken, status: hermesStatus, install: hermesInstall } = useHermesForm();
 
   // Seed the form from the config ONCE. useConfig is stale-while-revalidate, so it refetches on
   // window focus; re-seeding on every refetch would wipe a model the user just added before they
@@ -170,13 +166,6 @@ export default function SettingsPage() {
       setDefTokenTtl(config.data.security?.tokenTtlDays ?? 30);
     }
   }, [config.data]);
-
-  // Pre-fill Hermes form defaults once on the client.
-  useEffect(() => {
-    setHUrl(process.env.NEXT_PUBLIC_ORCA_URL ?? window.location.origin);
-    const tk = getToken();
-    if (tk) setHToken(tk);
-  }, []);
 
   if (config.isLoading) return <ModuleShell moduleId="settings"><ModuleHeader title={t.page.settings} icon={SlidersHorizontal} /><LoadingState /></ModuleShell>;
   if (config.isError) return <ModuleShell moduleId="settings"><ModuleHeader title={t.page.settings} icon={SlidersHorizontal} /><ErrorState message={t.common.daemonUnreachable} onRetry={() => config.refetch()} /></ModuleShell>;

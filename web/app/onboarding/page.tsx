@@ -15,9 +15,10 @@ import { Badge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { LoadingState } from '../../components/ui/states';
 import { useTranslation } from '../../lib/i18n';
-import { useCliStatus, useConfig, useUsers, useHermesStatus } from '../../lib/queries';
-import { useUpdateConfig, useCreateUser, useHermesInstall } from '../../lib/mutations';
+import { useCliStatus, useConfig, useUsers } from '../../lib/queries';
+import { useUpdateConfig, useCreateUser } from '../../lib/mutations';
 import { PROVIDERS } from '../../modules/settings/providers';
+import { useHermesForm } from '../../modules/settings/useHermesForm';
 import { Segmented } from '../../components/ui/Segmented';
 import { Select } from '../../components/ui/Select';
 import { ModelIcon } from '../../components/ui/ModelIcon';
@@ -90,12 +91,8 @@ export default function OnboardingPage() {
   const [pilotExec, setPilotExec] = useState('');
   const [overseerExec, setOverseerExec] = useState('');
 
-  // Hermes form
-  const [hHome, setHHome] = useState('/var/www/.hermes');
-  const [hUrl, setHUrl] = useState('');
-  const [hToken, setHToken] = useState('');
-  const hermesStatus = useHermesStatus(hHome);
-  const hermesInstall = useHermesInstall();
+  // Hermes form — state + status + install shared with Settings (useHermesForm).
+  const { home: hHome, setHome: setHHome, url: hUrl, setUrl: setHUrl, token: hToken, setToken: setHToken, status: hermesStatus, install: hermesInstall } = useHermesForm();
 
   // User form
   const [newUsername, setNewUsername] = useState('');
@@ -124,12 +121,6 @@ export default function OnboardingPage() {
       { onSuccess: () => toast(t.onboarding.keySaved), onError: (e) => toast(String(e), 'error') },
     );
   };
-
-  useEffect(() => {
-    setHUrl(process.env.NEXT_PUBLIC_ORCA_URL ?? window.location.origin);
-    const tk = getToken();
-    if (tk) setHToken(tk);
-  }, []);
 
   const isLoading = cliStatus.isLoading || config.isLoading || users.isLoading;
   const isFresh = cliStatus.data?.freshInstall;
