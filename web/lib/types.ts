@@ -11,9 +11,9 @@ type Autonomy = 'L0' | 'L1' | 'L2' | 'L3';
 /** Lifecycle state of a mission, set by the daemon (`src/overseer/missionEngine.ts`). */
 type MissionState = 'active' | 'paused' | 'disengaged' | 'stalled';
 export interface Mission { id: string; epic_id: string; autonomy: Autonomy; max_sessions: number; state: MissionState }
-export interface CreateTaskInput { title: string; type?: string; priority?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[] }
+export interface CreateTaskInput { title: string; type?: string; priority?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[]; project_id?: number }
 export interface UpdateTaskInput { title?: string; type?: string; priority?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[] }
-export interface PlanInput { goal: string; exec?: string; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title: string; type?: string }[] }
+export interface PlanInput { goal: string; exec?: string; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title: string; type?: string }[]; project_id?: number }
 export interface PlanResult { epic: Task; phases: Task[]; mission?: Mission }
 interface PlanPhase { title: string; type: string; agent?: string; details?: string }
 type PlanJobStatus = 'planning' | 'done' | 'failed';

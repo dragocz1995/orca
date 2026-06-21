@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Play, Sparkles, ListChecks, Plus, X, AlertTriangle, Pencil, Loader2 } from 'lucide-react';
+import { Play, Sparkles, ListChecks, Plus, X, AlertTriangle, Pencil, Loader2, FolderGit2 } from 'lucide-react';
 import type { Task, PlanResult } from '../../lib/types';
-import { useConfig, useTasks, usePlanJob } from '../../lib/queries';
+import { useConfig, useTasks, usePlanJob, useProjects } from '../../lib/queries';
 import { useCreateTask, useUpdateTask, useSpawn, useSetTaskExec, usePlanTask } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
 import { taskExec } from '../../lib/taskExec';
@@ -56,6 +56,13 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
   const plan = usePlanTask();
 
   const [mode, setMode] = useState<Mode>('single');
+
+  // Which project the task/mission lands in (and the agent runs in). Only offered when the user can
+  // reach more than one project; the daemon defaults to its home project when project_id is omitted.
+  // Picked value overrides; otherwise fall through to the first accessible project (no once-seed bug).
+  const { data: projects } = useProjects();
+  const [pickedProject, setPickedProject] = useState<number | undefined>(undefined);
+  const projectId = pickedProject ?? projects?.[0]?.id;
 
   // Single-task fields
   const [title, setTitle] = useState(task?.title ?? '');
@@ -134,7 +141,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
         if (exec !== taskExec(task!.labels)) await setExecM.mutateAsync({ id: task!.id, exec });
         toast(t.tasks.updated.replace('{id}', task!.id));
       } else {
-        const created = await create.mutateAsync({ title: title.trim(), type, priority, description: description.trim(), scheduled_at: localInputToIso(schedule), autostart: autostart ? 1 : 0, deps });
+        const created = await create.mutateAsync({ title: title.trim(), type, priority, description: description.trim(), scheduled_at: localInputToIso(schedule), autostart: autostart ? 1 : 0, deps, project_id: projectId });
         if (exec) await setExecM.mutateAsync({ id: created.id, exec });
         if (launchNow) await spawn.mutateAsync({ taskId: created.id, exec: exec || undefined });
         toast(launchNow ? t.tasks.createdAndLaunched.replace('{title}', created.title) : t.tasks.created.replace('{title}', created.title));
@@ -148,7 +155,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
     setPlanError(null);
     try {
       // Autopilot planning is async: the endpoint returns a job; the effect renders it on done.
-      const r = await plan.mutateAsync({ goal: goal.trim(), exec: exec || undefined, autonomy, maxSessions, engage });
+      const r = await plan.mutateAsync({ goal: goal.trim(), exec: exec || undefined, autonomy, maxSessions, engage, project_id: projectId });
       if ('jobId' in r) setPlanJobId(r.jobId);
       else finishSync(r);
     } catch (e) {
@@ -163,7 +170,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
     const phases = manualPhases.map((p) => ({ title: p.title.trim(), type: p.type })).filter((p) => p.title);
     if (phases.length === 0) { toast(t.tasks.addAtLeastOnePhase, 'error'); return; }
     try {
-      const r = await plan.mutateAsync({ goal: goal.trim(), phases, exec: exec || undefined, autonomy, maxSessions, engage });
+      const r = await plan.mutateAsync({ goal: goal.trim(), phases, exec: exec || undefined, autonomy, maxSessions, engage, project_id: projectId });
       if ('jobId' in r) setPlanJobId(r.jobId); else finishSync(r); // manual returns a PlanResult synchronously
     } catch (e) { toast(String(e), 'error'); }
   }
@@ -205,6 +212,31 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
                 : t.tasks.autopilotPlanningDesc}
             </p>
           </div>
+        )}
+
+        {/* Project picker (pills): where the task/mission — and so the agent — runs. Only shown when
+            the user can reach more than one project; one project means no choice to make. Not for an
+            existing task (its project is fixed). */}
+        {!editing && projects && projects.length > 1 && (
+          <Field label={t.tasks.fieldProject} hint={t.tasks.fieldProjectHint}>
+            <div className="flex flex-wrap gap-1.5">
+              {projects.map((p) => {
+                const on = projectId === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPickedProject(p.id)}
+                    title={p.path}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border bg-elevated text-text-muted hover:border-border-strong hover:text-text'}`}
+                    style={{ transitionDuration: 'var(--motion-fast)' }}
+                  >
+                    <FolderGit2 size={13} className="shrink-0" aria-hidden />{p.slug}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
         )}
 
         {(editing || mode === 'single') && (

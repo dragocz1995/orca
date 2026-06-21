@@ -115,6 +115,8 @@ export const cs = {
     fieldType: 'Typ',
     fieldPriority: 'Priorita',
     fieldExecutor: 'Vykonavatel',
+    fieldProject: 'Projekt',
+    fieldProjectHint: 'Ve kterém projektu agent poběží.',
     fieldSchedule: 'Plán',
     scheduleHint: 'Volitelné — nastavte datum a čas úkolu.',
     autostart: 'Spustit automaticky v naplánovaný čas',

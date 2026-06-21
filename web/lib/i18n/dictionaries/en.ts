@@ -115,6 +115,8 @@ export const en = {
     fieldType: 'Type',
     fieldPriority: 'Priority',
     fieldExecutor: 'Executor',
+    fieldProject: 'Project',
+    fieldProjectHint: 'Which project the agent runs in.',
     fieldSchedule: 'Schedule',
     scheduleHint: 'Optional — set a date and time for this task.',
     autostart: 'Run automatically at the scheduled time',
