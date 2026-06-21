@@ -132,8 +132,7 @@ Outputs the next pending decision (an object with an `id` field) when one is ava
   "kind": "task",
   "context": {
     "title": "Set up database schema",
-    "labels": ["exec:sonnet", "agent:Atlas0"],
-    "guardrails": ["schema", "migration"]
+    "labels": ["exec:sonnet", "agent:Atlas0"]
   }
 }
 ```

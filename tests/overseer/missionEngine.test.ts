@@ -174,7 +174,7 @@ describe('MissionEngine', () => {
 });
 
 describe('MissionEngine overseer lifecycle', () => {
-  function setup(overseer?: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }) {
+  function setup(overseer?: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; ensure?: ReturnType<typeof vi.fn> }) {
     const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
@@ -186,7 +186,8 @@ describe('MissionEngine overseer lifecycle', () => {
       spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux, bus: new EventBus(),
       projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' },
       nameAgent: () => 'AgentX', clock: new SystemClock(),
-      overseer: overseer as never,
+      // Default a no-op ensure so partial {start,stop} mocks still satisfy the tick watchdog.
+      overseer: overseer ? ({ ensure: vi.fn().mockResolvedValue(undefined), ...overseer } as never) : undefined,
     });
     return { tasks, tmux, engine, missions };
   }
@@ -215,6 +216,27 @@ describe('MissionEngine overseer lifecycle', () => {
     await engine.tick(m.id);
     expect(engine.isActive(m.id)).toBe(false);
     expect(stop).toHaveBeenCalledWith(m.id);
+  });
+
+  it('re-parks the overseer on every tick (watchdog) so a died overseer is restored mid-mission', async () => {
+    // The parked overseer can exit on its own (full context / clean exit per its prompt). Nothing else
+    // re-parks it mid-mission, so its post-phase reviews would silently stop. The tick must keep it alive.
+    const ensure = vi.fn().mockResolvedValue(undefined);
+    const { engine } = setup({ start: vi.fn().mockResolvedValue(undefined), stop: vi.fn().mockResolvedValue(undefined), ensure });
+    const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
+    ensure.mockClear();
+    await engine.tick(m.id);
+    expect(ensure).toHaveBeenCalledWith(m.id, 1, '/o');
+  });
+
+  it('does not re-park the overseer for a mission that completes on this tick (it is being stopped)', async () => {
+    const ensure = vi.fn().mockResolvedValue(undefined);
+    const { tasks, engine } = setup({ start: vi.fn().mockResolvedValue(undefined), stop: vi.fn().mockResolvedValue(undefined), ensure });
+    const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
+    tasks.setStatus('g1', 'closed'); // all kids closed → this tick self-disengages
+    ensure.mockClear();
+    await engine.tick(m.id);
+    expect(ensure).not.toHaveBeenCalled();
   });
 });
 

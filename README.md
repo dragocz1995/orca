@@ -35,9 +35,8 @@ Codex) in isolated `tmux` sessions — with a REST API, a CLI, and a real-time w
   higher autonomy and escalates destructive or uncertain ones to a human.
 - **Live web UI.** Tasks, a kanban board + calendar, missions with progress, a timeline,
   and live `tmux` session previews with one-click agent intervention. EN/CS i18n built in.
-- **Guardrails & self-healing.** Sensitive work (schema, auth, payments, destructive ops) is
-  blocked until cleared, with an optional LLM overseer gate; a stuck-session detector revives
-  agents that die without closing out, and live token/cost usage is shown per run.
+- **Self-healing.** A stuck-session detector revives agents that die without closing out,
+  and live token/cost usage is shown per run.
 - **Multi-user RBAC.** Per-project assignments, per-user model allow-lists, profiles & avatars,
   and a first-run onboarding that needs no login until the first admin is created.
 - **Self-hosted & lightweight.** A single SQLite-backed daemon (Hono) + a Next.js front end.
@@ -56,7 +55,7 @@ Codex) in isolated `tmux` sessions — with a REST API, a CLI, and a real-time w
 | | |
 |---|---|
 | **Tasks** — list + detail with live agent output and token usage. ![Tasks](docs/screenshots/tasks.png) | **Kanban** — open / in-progress / blocked / closed, with mission progress. ![Kanban](docs/screenshots/kanban.png) |
-| **Missions** — phase graph and task flow for an autopilot run. ![Missions](docs/screenshots/missions.png) | **Timeline** — a live activity feed across tasks, missions, and signals. ![Timeline](docs/screenshots/timeline.png) |
+| **Missions** — phase graph and task flow for an autopilot run (folded into Tasks). ![Missions](docs/screenshots/missions.png) | **Timeline** — a live activity feed across tasks, missions, and signals. ![Timeline](docs/screenshots/timeline.png) |
 | **Sessions** — real-time `tmux` agent previews with one-click intervention. ![Sessions](docs/screenshots/sessions.png) | **Terminal** — the full agent TUI, including human-in-the-loop approvals. ![Terminal](docs/screenshots/terminal.png) |
 | **Projects** — a built-in Monaco editor with the project file tree. ![Projects editor](docs/screenshots/projects-editor.png) | **Settings** — model presets & descriptions, providers, autopilot, and defaults. ![Settings](docs/screenshots/settings.png) |
 

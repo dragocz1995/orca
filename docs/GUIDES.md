@@ -60,7 +60,7 @@ The `POST /tasks/plan` endpoint decomposes a goal into ordered phases, creating 
 
 Default path. The planner model (configured via `config.autopilot.model`) receives the prompt template from `prompts/planner.md` (or a user-saved custom template) and returns a JSON array of 3–7 phases:
 
-1. Prompt template with `{{goal}}` and `{{project}}` placeholders is rendered
+1. Prompt template with `{{goal}}`, `{{project}}`, and `{{models}}` placeholders is rendered
 2. LLM returns JSON array of phases — each with `title`, `type`, optional `agent` name, and `details`
 3. Each phase becomes a task, sequentially chained via `task_deps` (phase n depends on n-1)
 4. An epic task titled with the goal wraps all phases
@@ -73,6 +73,14 @@ Requires an API key; returns `autopilot_key_missing` (400) without one.
 - No meta-steps like "specify", "research", "plan", "set up environment"
 - Each phase gets an optional unique friendly agent name (Atlas, Iris, Nova, …)
 - Phases ordered so each builds on the previous
+
+**Auto-model per-phase picking:**
+When `autoModel: true` is passed, the `{{models}}` placeholder is replaced with a block listing
+every enabled model that has a non-empty `modelNotes` description. The planner is instructed to
+pick the best model per phase and include an `exec` field on each phase object. The `modelsBlock()`
+helper in `src/overseer/planner.ts:44` renders the block — only models in `allowedExecs` with a
+non-empty note are listed. When no models qualify, the block is empty and phases fall back to the
+configured default exec. Both relay and Pilot backends support `autoModel`.
 
 #### Pilot backend (CLI Agent)
 
@@ -133,7 +141,7 @@ Per-mission FIFO in `src/overseer/decisionQueue.ts` with three decision kinds:
 
 | Kind | Enqueued by | Context |
 |---|---|---|
-| `task` | Mission engine tick | Task title, description, labels, triggered guardrails |
+| `task` | Mission engine tick | Task title, description, labels |
 | `prompt` | Deriver | Permission prompt question, context, options |
 | `review` | PATCH close handler (post-done) | Task title, outcome, summary |
 
@@ -141,7 +149,7 @@ Every enqueued decision is **guaranteed to settle**: by the agent, by a 120s tim
 
 ### Centralized gate
 
-`gateVerdict()` in `src/overseer/decision.ts:28` applies `MIN_CONFIDENCE` (0.6) centrally for both task and prompt decisions — neither the relay path nor the parked overseer can override the threshold. The local destructive heuristic (`isDestructive()`, applied at enqueue time) is **always authoritative**: even if the overseer approves, a destructive verdict cannot be overridden.
+`gateVerdict()` in `src/overseer/decision.ts:28` applies a configurable confidence threshold (default 0.6) centrally for both task and prompt decisions — neither the relay path nor the parked overseer can override the threshold. The threshold is per-autonomy: L1 (Assist) passes `minConfidence: 0.85` via `minConfidenceFor()`, L2/L3 use the default 0.6. The local destructive heuristic (`isDestructive()`, applied at enqueue time) is **always authoritative**: even if the overseer approves, a destructive verdict cannot be overridden.
 
 ---
 
@@ -155,6 +163,11 @@ When `POST /tasks/plan` uses the autopilot relay or Pilot backend, planning is a
 4. On success, `finalizePlanJob()` persists the epic + phases, emits a `plan` SSE event: `{jobId, status:'done', epicId, phases}`
 5. On failure, emits `{jobId, status:'failed', error}` — the UI shows the error
 6. The Pilot agent path: spawns `pilot-<name>` in the repo → reads codebase → calls `POST /plan/:jobId/submit` → the route calls `parsePhases()` using the same validator as the relay path (DRY) → `finalizePlanJob()`
+
+When `autoModel: true` is set on the plan job, the `{{models}}` block is injected into both the
+relay planner prompt and the Pilot agent prompt. Each phase may carry a per-phase `exec` field
+that the planner chose. On persist, the daemon validates the picked exec against `allowedExecs`
+and silently drops hallucinated models so the task falls back to the configured default.
 
 Job storage is in-memory (`PlanJobStore` in `src/overseer/planJob.ts`). Jobs are scoped to the project of the requesting user and access-gated. The Pilot agent has its own ungessable job ID and `agent` token scope — it never needs project-level access beyond its assigned job.
 
@@ -171,26 +184,28 @@ The deriver (`src/deriver/deriver.ts`) polls every live `orca-*` tmux pane every
 ### Prompt detection (`src/deriver/shellPatterns.ts`)
 
 | Program | Gate detected | Trigger text | Action |
-|---|---|---|---|
-| OpenCode | Permission required | `Permission required` + Allow/Reject buttons | L2/L3: overseer decides; L0/L1: escalate |
+|---|---|---|---|---|
+| OpenCode | Permission required | `Permission required` + Allow/Reject buttons | L1–L3: overseer decides (L1 at 0.85 bar, L2/L3 at 0.6); L0: escalate |
 | Claude Code | Workspace trust | `Yes, I trust this folder` | **Auto-accepted** (autoAccept) — orca only spawns into registered projects |
-| Claude Code | Permission | `Do you want to proceed?` | L2/L3: overseer decides; L0/L1: escalate |
-| Codex | Command approval | `Allow command?` / `Approve this command?` | L2/L3: overseer decides; L0/L1: escalate |
+| Claude Code | Permission | `Do you want to proceed?` | L1–L3: overseer decides (L1 at 0.85 bar, L2/L3 at 0.6); L0: escalate |
+| Codex | Command approval | `Allow command?` / `Approve this command?` | L1–L3: overseer decides (L1 at 0.85 bar, L2/L3 at 0.6); L0: escalate |
 
-`autoAccept` prompts are cleared directly by the deriver under L2+ autonomy without an overseer round-trip — workspace-trust gates just block startup and don't represent a real action risk.
+`autoAccept` prompts are cleared directly by the deriver under L1+ autonomy without an overseer round-trip — workspace-trust gates just block startup and don't represent a real action risk.
 
 ### Resolution flow
 
-For L2/L3 (and manual, mission-less) sessions:
+For L1–L3 (and manual, mission-less) sessions:
 1. Detect prompt via `detectAgentPrompt(output, program)`
 2. If `autoAccept`: send `acceptKeys` (e.g., Enter) directly
-3. Otherwise: send through overseer gate (`decideApproval`):
+3. Otherwise: send through overseer gate (`decideApproval`) with the autonomy level:
    - Agent path: enqueue `prompt` decision → parked overseer judges → settle
-   - Relay path: `decidePrompt()` inline via relay LLM → gate through `gateVerdict()`
+   - Relay path: `decidePrompt()` inline via relay LLM → gate through `gateVerdict()` with per-autonomy `minConfidence`
 4. On approve + non-destructive: send `acceptKeys`; mark status `working`
 5. On deny or destructive: emit `needs_input` signal → human must approve in UI
 
-For L0/L1: always escalate to human (`needs_input` signal).
+The confidence threshold is per-autonomy: L1 (Assist) requires 0.85, L2/L3 use 0.6. This is the single behavioral difference between L1 and L2 — both auto-spawn and both route prompts through the overseer, but L1 holds the bar higher so only clearly-safe steps auto-clear.
+
+For L0: always escalate to human (`needs_input` signal).
 
 ### Signal bus
 
@@ -210,38 +225,13 @@ Each prompt is hashed (question + context) and tracked per session in a `last` M
 
 ## Guardrails
 
-Guardrails are regex-based safety checks that prevent sensitive tasks from auto-running without oversight.
+Guardrails were removed in v1.1.1. The regex-based safety check system (`detectGuardrails`, `isCleared`, `cleared_guardrails`) was eliminated because it caused missions to stall silently when descriptive phase titles triggered false-positive matches. The `cleared_guardrails` column remains in the schema for backward compatibility but is no longer enforced.
 
-### Guardrail categories
-
-| Guardrail | Pattern |
-|---|---|
-| `schema` | `\bschema\b` |
-| `migration` | `\bmigrat` |
-| `auth` | `\b(auth\|login\|password\|token)\b` |
-| `payments` | `\b(payment\|billing\|stripe\|invoice)\b` |
-| `destructive` | `\b(delete\|drop\|truncate\|rm -rf\|destroy)\b` |
-
-### How guardrails are triggered
-
-1. **Mission engine tick**: `detectGuardrails(`${task.title} ${task.labels.join(' ')}`)` — checks task title + labels
-2. **Scheduler tick**: `detectGuardrails(task.title)` — checks task title only
-3. Result: array of triggered guardrail names (e.g., `['schema', 'migration']`)
-
-### Clearance
-
-A task passes when all triggered guardrails are in the mission's `cleared_guardrails` list (`isCleared()`). The clearance check happens before the overseer LLM gate:
-
-1. Guardrails detected → check `isCleared()`
-2. If cleared + L2/L3 → task is permitted to spawn
-3. If the mission has a `decideTask` wired (overseer relay/agent) → extra LLM gate
-4. LLM denial or destructive verdict → task set `blocked`
-
-In the scheduler path (no mission, no autonomy), guardrailed tasks are **skipped entirely** — they stay open and their schedule is not consumed. A human must launch them manually.
+The **overseer decision gate** (relay LLM or parked agent) still provides a safety layer for permission prompts and task dispatch. The decision engine's local destructive heuristic (`isDestructive()`) catches dangerous operations (rm -rf, DROP TABLE, curl | sh, eval, etc.) at enqueue time and is authoritative.
 
 ### Separate destructive check
 
-The overseer decision engine has its own, broader destructive heuristic (`DESTRUCTIVE` regex in `src/overseer/decision.ts:42`) that catches `rm -rf`, `DROP TABLE`, `DELETE FROM`, `TRUNCATE`, `git push -f`, `chmod 777`, `curl | sh`, `eval`, `exec(`, and more. This is applied at decision enqueue time and is authoritative — neither the relay LLM nor the parked overseer can override it.
+The overseer decision engine has its own destructive heuristic (`DESTRUCTIVE` regex in `src/overseer/decision.ts:42`) that catches `rm -rf`, `DROP TABLE`, `DELETE FROM`, `TRUNCATE`, `git push -f`, `chmod 777`, `curl | sh`, `eval`, `exec(`, and more. This is applied at decision enqueue time and is authoritative — neither the relay LLM nor the parked overseer can override it.
 
 ---
 
@@ -256,9 +246,9 @@ Tasks can be scheduled for future execution via the `scheduled_at` ISO-8601 fiel
 3. Schedule is consumed (set to `null`) so it fires exactly once
 4. The schedule is restored on spawn failure so the next tick retries
 
-### Guardrails gate
+### Autonomy gate
 
-Unlike the mission engine, the scheduler has no autonomy level and no overseer in the loop. To prevent unattended sensitive tasks from auto-running, tasks whose title trips a guardrail are **skipped** — they stay `open` and their schedule is not consumed. A human must launch them manually.
+Unlike the mission engine, the scheduler has no autonomy level and no overseer in the loop. Tasks are launched directly when their schedule is due.
 
 ### Per-project burst cap
 
@@ -353,7 +343,7 @@ Tasks store their executor as an `exec:<spec>` label rather than a dedicated DB 
 - Labels are a general-purpose key-value store on tasks
 - Avoids schema migration for each new attribute
 - Frontend and backend use the same resolution logic
-- Multiple labels can coexist (exec + agent + guardrail triggers + stuck counter)
+- Multiple labels can coexist (exec + agent + stuck counter)
 
 ### Single source of truth: `src/shared/execs.ts`
 

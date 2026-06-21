@@ -47,6 +47,30 @@ describe('makeOverseer', () => {
     expect(launch).not.toHaveBeenCalled();
   });
 
+  it('ensure() re-parks the agent when its session has died', async () => {
+    const launch = vi.fn().mockResolvedValue({ session: 'orca-overseer-m1' });
+    const list = vi.fn().mockResolvedValue([]); // session gone
+    const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue(), cliPath: '/d/cli/index.js' });
+    await ctl.ensure('m1', 1, '/repo');
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(launch.mock.calls[0]![0].agentName).toBe('overseer-m1');
+  });
+
+  it('ensure() does not double-spawn when the overseer is already parked', async () => {
+    const launch = vi.fn().mockResolvedValue({ session: 'orca-overseer-m1' });
+    const list = vi.fn().mockResolvedValue(['orca-overseer-m1', 'orca-AgentX']); // still alive
+    const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue() });
+    await ctl.ensure('m1', 1, '/repo');
+    expect(launch).not.toHaveBeenCalled();
+  });
+
+  it('ensure() is inert when overseerExec is empty (relay fallback)', async () => {
+    const launch = vi.fn();
+    const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list: vi.fn().mockResolvedValue([]) } as never, config: cfg(''), queue: new DecisionQueue() });
+    await ctl.ensure('m4', 1, '/repo');
+    expect(launch).not.toHaveBeenCalled();
+  });
+
   it('stop() kills the session and drains the queue', async () => {
     const kill = vi.fn().mockResolvedValue(undefined);
     const queue = new DecisionQueue();

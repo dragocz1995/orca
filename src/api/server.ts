@@ -704,22 +704,36 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       else d.tasks.setStatus(id, b.status);
       d.bus.publish({ type: 'task', taskId: id, status: b.status });
       // Post-done review (opt-in): when a mission phase closes, let the parked overseer judge the
-      // outcome. Non-blocking (void) — it must never delay the agent's close. Default off, and only
-      // active with an agent overseer configured. A rejected/destructive verdict blocks the phase(s)
-      // waiting on this one, so a bad result halts the mission for a human instead of rolling on.
+      // outcome before the next phase may run. This is a HARD sequential gate — the phase's direct
+      // dependents are blocked synchronously at close (so the engine tick can't spawn them mid-review),
+      // and only an approving verdict releases them. A reject/destructive verdict leaves them blocked,
+      // so a bad result halts the mission for a human instead of rolling on. Default off, and only
+      // active with an agent overseer configured.
       const cfg = d.config.get();
       if (b.status === 'closed' && existing.parent_id && cfg.autopilot.reviewOnDone && cfg.autopilot.overseerExec) {
         const mission = d.missions.active().find((m) => m.epic_id === existing.parent_id);
         if (mission) {
+          // Close the gate now: block every open direct dependent so no tick spawns it while the review
+          // is pending. Track exactly which ones we gated — the verdict releases only these, never a
+          // dependent left blocked by a different cause (e.g. an earlier review on another dep).
+          const gated: string[] = [];
+          for (const e of d.tasks.allDeps()) {
+            if (e.depends_on_id !== id) continue;
+            const dep = d.tasks.get(e.task_id);
+            if (dep && dep.status === 'open') { d.tasks.setStatus(dep.id, 'blocked'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'blocked' }); gated.push(dep.id); }
+          }
           const localDestructive = isDestructive(`${existing.title} ${b.result_summary ?? ''}`);
           void decisionQueue.enqueue(mission.id, 'review', { title: existing.title, outcome: b.outcome ?? '', summary: b.result_summary ?? '' }, localDestructive)
             .then((verdict) => {
-              if (verdict.approve && !verdict.destructive) return;
-              for (const e of d.tasks.allDeps()) {
-                if (e.depends_on_id !== id) continue;
-                const dep = d.tasks.get(e.task_id);
-                if (dep && dep.status === 'open') { d.tasks.setStatus(dep.id, 'blocked'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'blocked' }); }
+              // Reject/destructive → leave the gate shut (mission stalls for a human). Approve → release
+              // the gated dependents back to open and tick so the next phase spawns promptly rather than
+              // waiting up to the 90s interval. Re-check 'blocked' so we never override a human's change.
+              if (!verdict.approve || verdict.destructive) return;
+              for (const depId of gated) {
+                const dep = d.tasks.get(depId);
+                if (dep && dep.status === 'blocked') { d.tasks.setStatus(dep.id, 'open'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'open' }); }
               }
+              void d.engine.tick(mission.id).catch((e) => log.error('post-review tick failed', e));
             })
             // Fire-and-forget review must never crash the daemon — the verdict apply (or the enqueue
             // itself) can throw, so swallow-and-log instead of leaving an unhandled rejection.

@@ -12,7 +12,6 @@ Every page is a thin shell in `app/<route>/page.tsx` that renders a `*View` from
 | `/tasks` | `tasks/` | `TasksView` | Operate |
 | `/kanban` | `kanban/` | `KanbanBoard` + `CalendarView` | Operate |
 | `/sessions` | `sessions/` | `SessionsView` | Operate |
-| `/missions` | `missions/` | `MissionsView` | Operate |
 | `/timeline` | `timeline/` | `TimelineView` | Operate |
 | `/projects` | `projects/` | `ProjectsView` | Operate |
 | `/settings` | — | inline (in `app/settings/page.tsx`) | Config |
@@ -43,13 +42,16 @@ Data refreshes via `useTasks` (poll 5 s), `useSessions` (poll 5 s), `useMissions
 
 - **ModuleHeader** — title, search input, segmented filter (Active / Open / Blocked / Closed / Autopilot / All), New task button
 - **Day-grouped task list** — cards grouped by today/yesterday/date, paginated (12 per page)
-- **TaskCard** — shows type icon, title, status badge, dependency blockers, checkbox for bulk select
-- **EpicGroup** — expands to show child phases with `ProgressRibbon`, phase spotlight, `NeedsInputBanner` on fail gate
+- **TaskCard** — compact single-row card: small model-icon bubble, title + id, live dot, status/time/project badges, quick run controls (Start/Stop/Pause), hover action menu (close/delete). Full detail (agent, usage, changes, context) opens in the detail pane on click. Checkbox for bulk select.
+- **EpicGroup** — collapsible epic row that IS the mission: lifecycle pills (Engage / Pause / Resume / Disengage) resolved from the mission state, rolled-up cost (`totalCost` from `['task-usage', id]` cache), `ProgressRibbon`, `done/total` count, `ProjectPill`. Expanded shows child phases as `TaskCard` rows. Action menu: Add phase, Delete mission. No `overflow-hidden` on the card to avoid clipping the action menu dropdown.
 - **Filters** — search by text/id, status filter, persistent in `localStorage`
 - **Bulk actions** — bottom bar with close/delete for selected tasks
 - **TaskDetailPane** — right-side detail drawer: description, phases, dependencies, executor, result summary + `OutcomeBadge`, launch/edit/close actions
 - **TaskModal** — create/edit modal: title, details, type, priority, executor, schedule, autostart, dependencies
+  - **Project picker** — row of project pills (`ProjectPill`-style buttons with `FolderGit2` icon) when the user has access to more than one project. Selection plumbed as `project_id` into `POST /tasks` and `POST /tasks/plan`. Hidden for existing tasks (project is fixed) and single-project workspaces.
 - **PlanModal** — `Autopilot · Planning` mode: goal input, autonomy (L0–L3), max sessions, manual phase list, create & engage
+  - **Project picker** — same project pills as TaskModal, plumbed as `project_id` into `POST /tasks/plan`
+  - **Auto-model toggle** — when enabled (`autoModel`), the executor picker is hidden and the planner picks the best model per phase from the model descriptions in Settings. The toggle is mutually exclusive with the manual executor selector.
 
 Supports deep-links: `?new=1` opens create modal, `?select=<id>` opens detail pane for that task.
 
@@ -75,24 +77,15 @@ Supports deep-links: `?new=1` opens create modal, `?select=<id>` opens detail pa
 - **TerminalModal** — opens full Xterm.js terminal for a session
 - **Empty states** — contextual with "Go to Tasks" action
 
-### Missions `/missions`
+### Missions (folded into Tasks)
 
-`MissionsView` (`modules/missions/MissionsView.tsx`):
+The standalone `/missions` route was removed in v1.1.1. Mission lifecycle is driven directly from the epic row in the Tasks view:
 
-- **ActiveMissionsBar** — horizontal card strip of all missions (active → paused → disengaged), each with `ProgressRibbon`, `CapacityMeter`, live/needs count
-- **Mission workspace** (selected mission):
-  - Header with autonomy badge, state badge, capacity meter, Add phase button
-  - Config summary line (planner + overseer + default autonomy)
-  - Metric strip (total, done, in progress, blocked)
-  - **Phase spotlight** — current phase (with `AgentStatusDot`, agent name) → arrow → next phase; pause/resume/disengage
-  - **Upstream fail banner** — warning when a failed dependency blocks downstream
-  - **NeedsInputBanner** — scoped to this mission's sessions
-  - **TaskFlow** — topological phase layout (replaces old DependencyGraph), SVG edges with cubic bezier curves
-  - **TaskDetailPane** — selected phase details
-- **EngageModal** — epic selector, autonomy (L0–L3), max sessions, cleared guardrails
-- **AddPhaseModal** — insert phases into existing epic: manual list or LLM replan with residual goal
-
-Supports deep-link `?new=1`.
+- **Lifecycle pills** — `ActionPill` buttons on each `EpicGroup`: Engage (one-click with configured autonomy/maxSessions defaults), Pause, Resume, Disengage. A never-engaged epic shows only Engage; a disengaged mission is done.
+- **Rolled-up cost** — each phase's agent cost (`costUsd` from `['task-usage', id]` cache) summed and shown as a green `Coins` pill on the epic row. Shares the cache with expanded phase cards, so no extra fetches.
+- **AddPhaseModal** — moved to `modules/tasks/AddPhaseModal.tsx`, reachable from the epic's action menu alongside Delete mission.
+- **Deleted modules** — `modules/missions/` (MissionsView, TaskFlow, ActiveMissionsBar, EngageModal, layoutPhases, missionUtils, meta) and the `/missions` route + registry entry. All `/missions` links (dashboard, timeline, command palette) repointed to `/tasks`.
+- **API** — mission data still accessible via `GET /missions`, `GET /missions/:id`.
 
 ### Timeline `/timeline`
 
@@ -152,8 +145,9 @@ Admin-only (non-admins see a lock screen with link to My Account). Inline in `ap
 
 - **Models** — grid of executor presets + custom models with toggle switches, edit/delete, add modal
   - `ModelModal` — add/edit model: label, provider (Claude Code / OpenCode / Codex / Other), model ID
+  - `ModelNoteModal` — focused editor for a single model's autopilot description. Keyed by exec, so it applies uniformly to presets and custom models. The description is stored in `config.modelNotes[exec]` and used by the autopilot model picker (`autoModel`) to let the planner choose the best model per phase. Empty descriptions are excluded from the picker. Click the description line on any model card to open the editor.
   - Presets: Claude Sonnet, DeepSeek v4 Flash, Kimi k2.7 Code, Minimax m2.7, Codex gpt-5.4
-  - **Auto-save** — model toggles, adds, edits, and deletes persist immediately via `PUT /config` on every change (no separate save button). Other sections (autopilot, providers, defaults) have explicit save buttons.
+  - **Auto-save** — model toggles, adds, edits, deletes, and description edits persist immediately via `PUT /config` on every change (no separate save button). Other sections (autopilot, providers, defaults) have explicit save buttons.
 - **Autopilot** — backend mode toggle (Relay / CLI Agents):
   - Relay: planner model, overseer model, API URL, API key
   - CLI Agents: pilot exec, overseer exec, review on done
@@ -161,6 +155,11 @@ Admin-only (non-admins see a lock screen with link to My Account). Inline in `ap
   - Test plan button — submits dry-run, polls async plan job, shows preview
 - **Providers** — per-program binary paths and extra CLI args (Claude Code, OpenCode, Codex)
 - **Defaults** — default executor, autonomy level, max sessions
+  - The autonomy selector shows a contextual explainer text below the L0–L3 segmented control that updates in real time as the user switches levels. The texts (from i18n dictionaries) describe each level's behavior:
+    - **L0**: "The Pilot only plans and proposes. Nothing runs until you approve it."
+    - **L1**: "The Pilot runs only clear, safe steps on its own. Anything uncertain or sensitive waits for your approval."
+    - **L2**: "The Pilot runs work and clears agent permission prompts itself. Ambiguous or risky situations are escalated to you."
+    - **L3**: "Full autonomy. The Pilot runs and clears everything itself, reaching out only when it genuinely cannot decide."
 - **Hermes** — one-click plugin install for same-host Hermes integration
   - Hermes home, orca URL and token, plugin status indicator
 

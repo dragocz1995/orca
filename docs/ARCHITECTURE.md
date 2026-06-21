@@ -2,7 +2,7 @@
 
 ## Overview
 
-Orca is a self-hosted AI agent orchestration daemon. It manages a queue of tasks, spawns AI coding agents (Claude Code, OpenCode, Codex) in isolated tmux sessions, monitors their progress, and enforces safety guardrails. A **Next.js dashboard** (`web/`) drives everything over the HTTP API. Daemon code is plain TypeScript (Hono + `better-sqlite3`), no framework magic.
+Orca is a self-hosted AI agent orchestration daemon. It manages a queue of tasks, spawns AI coding agents (Claude Code, OpenCode, Codex) in isolated tmux sessions, and monitors their progress. A **Next.js dashboard** (`web/`) drives everything over the HTTP API. Daemon code is plain TypeScript (Hono + `better-sqlite3`), no framework magic.
 
 ## Core runtime
 
@@ -14,7 +14,7 @@ The daemon starts a set of independent timer loops:
 
 | Loop | Interval | Purpose |
 |---|---|---|
-| Overseer (engine tick) | 90 s | Tick active missions: pick ready tasks, check guardrails, spawn agents |
+| Overseer (engine tick) | 90 s | Tick active missions: pick ready tasks, spawn agents |
 | Scheduler | 30 s | Launch due scheduled/autostart tasks |
 | Janitor | 60 s | Kill zombie tmux sessions whose task is already closed/cancelled |
 | Stuck detector | 60 s | Revert tasks whose agent died without `orca close` (bounded), escalate after 2 relaunch attempts |
@@ -59,7 +59,7 @@ The agent works in the tmux pane, then calls `node <cli> close <taskId> …` bac
 
 ### `src/overseer/` — Orchestration logic
 
-- `missionEngine.ts` — tick loop, session counting, guardrail enforcement, task-to-agent dispatch, engage/pause/resume/disengage, stalled detection
+- `missionEngine.ts` — tick loop, session counting, task-to-agent dispatch, engage/pause/resume/disengage, stalled detection
 
 - `routing.ts` — maps `exec:<spec>` labels to agent programs (claude-code, opencode, codex) via `resolveExecutor()`; imports executor metadata from `shared/execs.ts`
 - `scheduler.ts` — launches due scheduled tasks across all projects (30s poll); uses `Date.parse()` epoch comparison
@@ -81,7 +81,7 @@ The agent works in the tmux pane, then calls `node <cli> close <taskId> …` bac
 
 ### `src/deriver/` — Agent monitoring
 
-- `deriver.ts` — polls tmux panes every 5s, interprets output with `shellPatterns.ts`, detects agent state (working, needs_input, complete), auto-approves known prompts for L2/L3 missions
+- `deriver.ts` — polls tmux panes every 5s, interprets output with `shellPatterns.ts`, detects agent state (working, needs_input, complete), auto-approves known prompts for L1–L3 missions (L1 uses a stricter confidence threshold of 0.85 vs 0.6 for L2/L3)
 - `shellPatterns.ts` — regex patterns for detecting permission prompts per program
 - `types.ts` — `DerivedSignal` type definitions
 
@@ -101,7 +101,7 @@ SQLite with WAL mode (`better-sqlite3`). Tables:
 | `tasks` | Task queue (tree structure via `parent_id`) |
 | `task_deps` | Task dependencies (DAG) |
 | `agents` | Agent session registry (per-project unique names) |
-| `missions` | Mission definitions, autonomy level, guardrail config |
+| `missions` | Mission definitions, autonomy level |
 | `settings` | Daemon configuration (JSON blob) |
 | `users` | User accounts (scrypt password hashes, admin flag, per-user exec allow-list) |
 | `auth_tokens` | Session tokens for bearer auth |
@@ -142,32 +142,16 @@ Commands: `orca ls`, `orca ready`, `orca sessions`, `orca close`, `orca plan sub
 Templates live in the repo-root `prompts/` directory (copied to `dist/prompts/` during build):
 `planner.md`, `planner-fallback.md`, `pilot.md`, `overseer.md`, `worker.md`, `worker-phase.md`, `worker-epic-close.md`, `decision-header.md`, `decision-prompt.md`
 
-## Guardrails
-
-Tasks are blocked if their title or labels match sensitive patterns:
-
-| Guardrail | Matched patterns |
-|---|---|
-| `schema` | `schema` |
-| `migration` | `migrat` |
-| `auth` | `auth`, `login`, `password`, `token` |
-| `payments` | `payment`, `billing`, `stripe`, `invoice` |
-| `destructive` | `delete`, `drop`, `truncate`, `rm -rf`, `destroy` |
-
-Cleared per-mission via `cleared_guardrails` array. Autonomy L2/L3 permits tasks matching cleared guardrails; L0/L1 skips them (tasks stay `open`, can be launched manually).
-
-An additional **overseer LLM gate** (when configured) consults an LLM or parked agent for guardrail-triggering tasks before dispatch. A denial or destructive verdict escalates the task to `blocked`. The decision engine's local DESTRUCTIVE regex is broader than the guardrail patterns — it catches curl/wget pipes to shell, inline interpreter one-liners (python/node/perl -e/-c), netcat, eval, os.system, subprocess, and exec calls.
-
 ## Autonomy levels
 
-| Level | Name | Behavior |
-|---|---|---|
-| L0 | Manual | No auto-spawn; guardrail-triggering tasks skipped by the engine (remain `open`); prompts escalate to human |
-| L1 | Semi-autonomous | Same as L0 — no auto-spawn by the engine |
-| L2 | Autonomous | Engine auto-spawns tasks with cleared guardrails; prompts auto-processed via overseer gate |
-| L3 | Full autonomy | Same as L2 — full auto-spawn, cleared guardrails executed, prompts auto-processed |
+| Level | Name | Auto-spawn | Prompt gate | Confidence bar |
+|---|---|---|---|---|
+| L0 | Recommend | Never | Always escalate to human | — |
+| L1 | Assist | Yes | Overseer gate (stricter) | 0.85 |
+| L2 | Pilot | Yes | Overseer gate (standard) | 0.6 |
+| L3 | Auto | Yes | Overseer gate (standard) | 0.6 |
 
-Tasks with triggered guardrails that are **not** in `cleared_guardrails` are simply skipped during the engine tick — they remain `open` and can be spawned manually via the API. The overseer decision gate (when configured) can further escalate a guardrail-triggering task to `blocked` if the LLM or parked agent denies it.
+L1 differs from L2 not in whether prompts are gated (both route through the overseer), but in the **confidence threshold**: L1 requires 0.85 confidence to auto-clear a prompt, L2/L3 use 0.6. L3 additionally waves non-destructive prompts through when no overseer is configured at all.
 
 ## Autopilot modes
 
@@ -200,11 +184,10 @@ A **parked Overseer agent** (`config.autopilot.overseerExec`) can replace the re
       │  (CRUD)      │      │  (90s tick)      │     │  (SSE push)  │
       └──────┬───────┘      └──────┬───────────┘     └──────────────┘
              │                     │
-             │            ┌────────▼────────┐
-             │            │   Guardrails    │
-             │            │   + Routing     │
-             │            │   + Decision    │
-             │            └────────┬────────┘
+              │            ┌────────▼────────┐
+              │            │   Routing      │
+              │            │   + Decision    │
+              │            └────────┬────────┘
              │                     │
              │            ┌────────▼────────┐
              │            │  SpawnService   │
@@ -250,4 +233,4 @@ Tests use Vitest with fake implementations:
 
 This allows full integration-style tests without real tmux or network dependencies.
 
-Daemon tests: 395 `it`/`test` cases in `tests/`. Web tests: 270 cases in `web/tests/` (Vitest + React Testing Library).
+Daemon tests: ~418 `it`/`test` cases in `tests/`. Web tests: ~270 cases in `web/tests/` (Vitest + React Testing Library).

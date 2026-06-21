@@ -61,45 +61,9 @@ Tokens are stored in `localStorage` under `orca.token`. The `LoginGate` wrapper 
 
 ## Guardrails
 
-Guardrails are regex-based safety checks that block agents from performing sensitive operations without explicit clearance.
+Guardrails were removed in v1.1.1. The regex-based safety check system was eliminated because it caused missions to stall silently when descriptive phase titles triggered false-positive matches. The `cleared_guardrails` column remains in the schema for backward compatibility but is no longer enforced.
 
-### Guardrail patterns
-
-| Guardrail | Pattern | Example trigger |
-|---|---|---|
-| `schema` | `/\bschema\b/i` | "Update DB schema" |
-| `migration` | `/\bmigrat/i` | "Run migration" |
-| `auth` | `/\b(auth\|login\|password\|token)\b/i` | "Fix login flow" |
-| `payments` | `/\b(payment\|billing\|stripe\|invoice)\b/i` | "Add payment" |
-| `destructive` | `/\b(delete\|drop\|truncate\|rm -rf\|destroy)\b/i` | "Drop table" |
-
-### Enforcement
-
-Guardrails are checked in the mission engine tick:
-
-1. Task title + labels are scanned against all guardrail patterns
-2. If any pattern matches, the guardrail is **triggered**
-3. The task is skipped unless:
-   - Mission autonomy is L2 or L3
-   - AND the triggered guardrail is in the mission's `cleared_guardrails`
-
-### Clearance
-
-Guardrails are cleared per-mission. The operator decides which guardrails to clear when engaging a mission:
-
-```json
-{
-  "epicId": "epic-1",
-  "autonomy": "L3",
-  "clearedGuardrails": ["schema", "migration"]
-}
-```
-
-This allows schema changes but blocks payments and destructive operations.
-
-### Overseer gate
-
-When an **overseer LLM gate** is configured, a second opinion is consulted for guardrail-triggering tasks before dispatch. A denial or destructive verdict escalates the task to `blocked`. This can run via a relay model or a parked Overseer agent.
+The **overseer decision gate** (relay LLM or parked agent) still provides a safety layer for permission prompts and task dispatch. The decision engine's local destructive heuristic (`isDestructive()`) catches dangerous operations at enqueue time and is authoritative.
 
 ---
 

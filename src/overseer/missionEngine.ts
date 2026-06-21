@@ -144,6 +144,11 @@ export class MissionEngine {
       await this.markDisengaged(id); return; // also tears down the parked overseer (no leak on self-completion)
     }
 
+    // Watchdog: keep the parked overseer alive. It can exit on its own (full context / clean exit per
+    // its prompt) and nothing else re-parks it mid-mission — without this its post-phase reviews and
+    // prompt decisions silently stop. Idempotent: a no-op while it is still parked (or none configured).
+    await this.d.overseer?.ensure(id, project.id, project.path);
+
     // Slots in use = this epic's own in-progress children — NOT all global orca- tmux
     // sessions (other projects/missions would otherwise starve this one).
     let running = kids.filter(t => t.status === 'in_progress').length;

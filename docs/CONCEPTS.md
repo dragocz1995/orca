@@ -18,7 +18,7 @@ cancelled
 |---|---|
 | `open` | Waiting to be picked up |
 | `in_progress` | Assigned to an agent session |
-| `blocked` | Escalated to human: guardrail denied, stuck detector exceeded relaunch budget, or dependency rejected by post-done review |
+| `blocked` | Escalated to human: stuck detector exceeded relaunch budget, or dependency rejected by post-done review |
 | `closed` | Completed successfully |
 | `cancelled` | Abandoned |
 
@@ -26,13 +26,12 @@ Blocked tasks are excluded from `readiness.ready()` so the engine tick skips the
 
 ### Labels
 
-Tasks carry string labels used for routing, agent naming, and guardrail detection:
+Tasks carry string labels used for routing and agent naming:
 
 - `exec:<spec>` — route to a specific agent executor (e.g., `exec:sonnet`, `exec:opencode:ollama/deepseek-v4-flash`, `exec:codex:gpt-4`)
 - `agent:<name>` — pin a specific agent name for this task's session (`orca-<name>`). Named agents let the deriver, janitor, and stuck detector resolve the task from a session without relying on first-in-progress fallback.
 - `started:<epoch-ms>` — precise spawn timestamp for correct usage attribution under concurrency
 - `stuck:<n>` — relaunch counter; incremented each time the stuck detector reverts this task, bounds re-spawns at `maxRelaunch` (2)
-- Other labels are scanned by guardrail patterns
 
 ### Readiness
 
@@ -42,7 +41,7 @@ A task is **ready** when all its dependencies (`task_deps`) have status `closed`
 
 ## Missions
 
-A **mission** groups tasks under an epic for autonomous execution. The mission engine (`MissionEngine`) ticks active missions, picks ready tasks, checks guardrails, consults the overseer, and spawns agents.
+A **mission** groups tasks under an epic for autonomous execution. The mission engine (`MissionEngine`) ticks active missions, picks ready tasks, consults the overseer, and spawns agents.
 
 ### Mission lifecycle
 
@@ -70,7 +69,7 @@ The `stalled` state is transitional: when the engine tick finds zero running ses
 | `epic_id` | Root task ID that owns this mission |
 | `autonomy` | L0–L3 autonomy level |
 | `max_sessions` | Max concurrent agent sessions for this mission's children |
-| `cleared_guardrails` | Guardrails exempted from blocking (array of strings) |
+| `cleared_guardrails` | *(removed — no longer enforced)* |
 
 ### Engine tick
 
@@ -80,61 +79,33 @@ The tick loop (every 90 seconds, one tick per active mission):
 2. If all children are `closed`/`cancelled` → auto-disengage
 3. Count running = this epic's own `in_progress` children (not global sessions)
 4. Walk `readiness.ready()` children of this epic; for each, while `running < max_sessions`:
-   - Run guardrail detection on `title + labels`
-   - Skip if autonomy doesn't permit or guardrails not cleared
-   - If guardrails triggered and an overseer gate is wired, consult the LLM/agent — denial escalates to `blocked`
-   - Resolve executor from labels, pick an agent name, set `in_progress`, spawn via tmux
+    - Skip if autonomy is L0 (Recommend — plan only, no spawn)
+    - L1–L3: resolve executor from labels, pick an agent name, set `in_progress`, spawn via tmux
 5. Detect stalled: zero running + any blocked child → mark `stalled`; if previously stalled and work resumed → mark `active`
 
 ---
 
 ## Autonomy levels
 
-| Level | Name | Behavior |
-|---|---|---|
-| L0 | Manual | Engine never auto-spawns; guardrail-triggering tasks skipped (remain `open`). Prompts escalate to human. |
-| L1 | Semi-autonomous | Same as L0 — no auto-spawn by the engine |
-| L2 | Autonomous | Engine auto-spawns; guardrail-triggering tasks permitted if in `cleared_guardrails`. Prompts auto-processed via overseer gate. |
-| L3 | Full autonomy | Same as L2 — full auto-spawn, cleared guardrails executed, prompts auto-processed |
+| Level | Name | Auto-spawn | Prompt gate | Confidence bar |
+|---|---|---|---|---|
+| L0 | Recommend | Never | Always escalate to human | — |
+| L1 | Assist | Yes | Overseer gate (stricter) | 0.85 |
+| L2 | Pilot | Yes | Overseer gate (standard) | 0.6 |
+| L3 | Auto | Yes | Overseer gate (standard) | 0.6 |
 
 In the current implementation:
-- **L0–L1**: The engine never auto-spawns. Guardrail-triggering tasks match no `permitted` check (the code requires L2/L3), so they are skipped — the task stays `open` and can be launched manually. The overseer decision gate (when configured) is never reached for these tasks because the guardrail check short-circuits first. The deriver escalates all detected permission prompts to human (`needs_input`), never auto-approving.
-- **L2–L3**: The engine auto-spawns ready tasks. Guardrail-triggering tasks are permitted if every triggered guardrail is in `cleared_guardrails`. The overseer decision gate (relay LLM or parked agent) can still deny dispatch — a denial or destructive verdict sets the task `blocked`. The deriver auto-clears permission prompts via the same overseer gate, escalating only destructive/uncertain ones.
+- **L0**: The engine never auto-spawns. The deriver escalates all detected permission prompts to human (`needs_input`), never auto-approving.
+- **L1**: The engine auto-spawns ready tasks. The deriver routes permission prompts through the overseer gate with a **stricter confidence threshold** (0.85 vs 0.6). Only clearly-safe steps auto-clear; anything below the bar escalates to human. This is the key difference from L2 — not whether prompts are gated, but how strictly.
+- **L2/L3**: The engine auto-spawns ready tasks. The deriver routes permission prompts through the overseer gate with the standard confidence threshold (0.6). L3 additionally waves non-destructive prompts through when no overseer is configured at all (L2 escalates in that case).
 
 ---
 
 ## Guardrails
 
-Guardrails are safety patterns that prevent agents from performing sensitive operations without explicit clearance.
+Guardrails were removed in v1.1.1. The regex-based safety check system (`detectGuardrails`, `isCleared`, `cleared_guardrails`) was eliminated because it caused missions to stall silently when descriptive phase titles triggered false-positive matches. The `cleared_guardrails` column remains in the schema for backward compatibility but is no longer enforced.
 
-### Detection
-
-Guardrails scan task title + labels against regex patterns:
-
-```typescript
-schema:      /\bschema\b/i
-migration:   /\bmigrat/i
-auth:        /\b(auth|login|password|token)\b/i
-payments:    /\b(payment|billing|stripe|invoice)\b/i
-destructive: /\b(delete|drop|truncate|rm -rf|destroy)\b/i
-```
-
-A task matching any pattern triggers that guardrail. The guardrail patterns are intentionally narrower than the decision engine's local DESTRUCTIVE regex (see Overseeer section) — guardrails gate task dispatch, while the decision engine's heuristic gate catches deeper dangerous operations in prompts.
-
-### Clearance
-
-Guardrails are cleared per-mission via `cleared_guardrails` — a string array in the missions table. Example: `["schema","migration"]` allows schema-related tasks but blocks payments and destructive operations.
-
-### Enforcement
-
-```
-triggered = detectGuardrails(task.title + task.labels)
-permitted = autonomy >= L2 && isCleared(triggered, mission.cleared_guardrails)
-```
-
-If not permitted, the task is skipped during the engine tick. It remains `open` and can be spawned manually via the API.
-
-When an **overseer gate** is configured (relay LLM or parked agent), a second opinion is consulted for guardrail-triggering tasks: the overseer can still deny dispatch even when the boolean guardrail check passes. A destructive or low-confidence verdict sets the task `blocked`.
+The **overseer decision gate** (relay LLM or parked agent) still provides a safety layer for permission prompts and task dispatch — see the Overseer section below. The decision engine's local destructive heuristic (`isDestructive()`) catches dangerous operations (rm -rf, DROP TABLE, curl | sh, eval, etc.) at enqueue time and is authoritative.
 
 ---
 
@@ -162,7 +133,7 @@ The decision queue (`DecisionQueue`) is a per-mission FIFO. Three kinds of decis
 
 | Kind | Source | Context |
 |---|---|---|
-| `task` | Mission engine tick | Task title, description, labels, triggered guardrails |
+| `task` | Mission engine tick | Task title, description, labels |
 | `prompt` | Deriver | Permission prompt question, context, options |
 | `review` | PATCH close handler (post-done) | Task title, outcome, summary |
 
@@ -254,6 +225,25 @@ Pass `phases: [{title, type?}]` — no LLM, no key needed. The daemon creates th
 - LLM must return valid JSON (no markdown fences, no prose)
 - On parse failure, returns 502 with `"plan_parse_failed"`
 
+### Per-model descriptions (modelNotes)
+
+`config.modelNotes` is a map of exec → capability description, seeded from `src/shared/execs.ts`
+(`EXEC_NOTES`). Every built-in exec ships with a default note describing its strengths (e.g.
+"fast reliable everyday coder", "best for hard architecture"). User edits in Settings → Models
+persist and merge *under* the built-in defaults so known models always carry a description.
+
+### Auto-model per-phase picking
+
+When `autoModel: true` is passed to `POST /tasks/plan`, the planner receives a `{{models}}` block
+listing every enabled model that has a non-empty note. The planner is instructed to pick the best
+model per phase and include an `exec` field on each phase object. The `modelsBlock()` helper in
+`src/overseer/planner.ts` renders the block — only models in `allowedExecs` with a non-empty note
+are listed. When no models qualify, the block is empty and phases fall back to the configured
+default exec.
+
+Both backends (relay and Pilot agent) support `autoModel`. The Pilot agent receives the same
+`{{models}}` block in its prompt via `modelsBlock()`.
+
 ### Adding phases to an existing epic
 
 `POST /tasks/:epicId/phases` — append manual phases after the current chain, or replan a residual `goal`. New phases depend on the epic's current leaf tasks. An active mission picks up the freshly-ready phase on the next tick (triggered immediately after creation).
@@ -315,7 +305,11 @@ Tasks specify which AI agent should execute them via the `exec:<spec>` label.
 - `exec:deepseek/deepseek-v4-flash` → `{ program: 'opencode', model: 'deepseek/deepseek-v4-flash' }` (contains `/`)
 - No label → uses the configured fallback (default: `claude-code` / `sonnet`)
 
-The executor metadata (program prefixes, default binaries, known execs, well-formedness rules) is centralized in `src/shared/execs.ts`. Both `overseer/routing.ts` (resolution) and `store/configStore.ts` (validation) import from there — adding or changing an executor is a one-line edit in a single file.
+The executor metadata (program prefixes, default binaries, known execs, well-formedness rules, and
+default capability notes) is centralized in `src/shared/execs.ts`. Both `overseer/routing.ts`
+(resolution) and `store/configStore.ts` (validation) import from there — adding or changing an
+executor is a one-line edit in a single file. The `EXEC_NOTES` constant seeds `config.modelNotes`
+on first install so every built-in model ships with a sensible autopilot description.
 
 ### Agent commands
 
@@ -348,11 +342,11 @@ tick():
     if task status not in_progress/open → skip
     capture pane (last 60 lines)
     detectAgentPrompt(program, output)
-    if prompt detected and L2/L3/mission-less:
+    if prompt detected and autonomy !== 'L0':
       autoAccept (workspace-trust) → send accept keys, emit 'working'
-      else → consult overseer → approve? send accept keys + emit 'working'
+      else → consult overseer with autonomy level → approve? send accept keys + emit 'working'
               escalate? emit 'needs_input' with question/options
-    elif prompt detected and L0/L1:
+    elif prompt detected and L0:
       emit 'needs_input' (always escalate)
     else → emit 'working'
 ```
@@ -375,7 +369,13 @@ Implemented for all three supported agent programs (`shellPatterns.ts`):
 - **Claude Code** — workspace-trust gate on first folder entry (auto-accepted directly, no overseer round-trip) and "Do you want to proceed?" permission gate
 - **Codex** — "Allow command?" / "Approve this command?" approval gate
 
-For L2/L3 missions and mission-less sessions: environmental gates (claude workspace-trust) are auto-accepted; other prompts go through the overseer gate — accept keys are sent on approval, else escalate to human. For L0/L1: all prompts escalate to human.
+For L1–L3 missions and mission-less sessions: environmental gates (claude workspace-trust) are auto-accepted; other prompts go through the overseer gate — accept keys are sent on approval, else escalate to human. The overseer applies a **per-autonomy confidence threshold**: L1 (Assist) requires 0.85 confidence to auto-clear, L2/L3 use the standard 0.6. For L0: all prompts escalate to human.
+
+### No-overseer fallback
+
+When no overseer is configured at all (no relay LLM, no parked agent), the daemon applies a conservative fallback:
+- **L3**: non-destructive prompts are waved through; destructive prompts escalate.
+- **L0–L2**: all prompts escalate to human — no blanket approval.
 
 ### Deduplication
 
@@ -434,17 +434,17 @@ const raw = rawTemplate('planner');
 
 The build copies `prompts/` into `dist/prompts/`. Templates are cached after first read; call `_resetPromptCache()` to force re-read (for tests or on-disk edits).
 
-| Template | Used by |
-|---|---|
-| `planner.md` | Autopilot relay: goal → phases decomposition |
-| `planner-fallback.md` | Fallback when no custom template is saved |
-| `pilot.md` | Pilot agent: repo-aware CLI planning |
-| `overseer.md` | Parked overseer agent: per-mission decision loop |
-| `worker.md` | Worker agent: general task execution |
-| `worker-phase.md` | Phase agent: epic child task execution |
-| `worker-epic-close.md` | Final phase: also closes parent epic |
-| `decision-header.md` | Shared overseer decision header |
-| `decision-prompt.md` | Overseer prompt-gate decision body |
+| Template | Used by | Placeholders |
+|---------|---------|-------------|
+| `planner.md` | Autopilot relay: goal → phases decomposition | `{{goal}}`, `{{project}}`, `{{models}}` |
+| `planner-fallback.md` | Fallback when no custom template is saved | `{{goal}}`, `{{models}}` |
+| `pilot.md` | Pilot agent: repo-aware CLI planning | `{{goal}}`, `{{notes}}`, `{{submit}}`, `{{jobId}}`, `{{models}}` |
+| `overseer.md` | Parked overseer agent: per-mission decision loop | — |
+| `worker.md` | Worker agent: general task execution | — |
+| `worker-phase.md` | Phase agent: epic child task execution | — |
+| `worker-epic-close.md` | Final phase: also closes parent epic | — |
+| `decision-header.md` | Shared overseer decision header | — |
+| `decision-prompt.md` | Overseer prompt-gate decision body | — |
 
 
 ## LLM JSON extraction
@@ -535,12 +535,20 @@ On daemon startup, the same `deadAgentTasks` logic runs as a one-shot pass (no g
 
 ---
 
-## Post-done review
+## Post-done review (hard gate)
 
-When `config.autopilot.reviewOnDone` is true and an agent overseer is configured, closing a mission phase triggers a **post-done review**:
+When `config.autopilot.reviewOnDone` is true and an agent overseer is configured, closing a mission phase triggers a **hard sequential gate** before the next phase may run:
 
-1. The close handler enqueues a `review`-kind decision with the task's title, outcome, and summary
-2. The parked overseer judges the result
-3. If the verdict is negative (rejected or destructive), all dependent (next) phases are set `blocked` — the mission halts for a human
+1. **Gate closes synchronously**: the close handler immediately sets all open direct dependents to `blocked` — so no engine tick can spawn them while the review is pending. Only tasks gated by *this* review are tracked; a dependent blocked by a different cause is never touched.
+2. **Review is enqueued**: a `review`-kind decision is sent to the parked overseer with the task's title, outcome, and result summary (plus the local `isDestructive()` verdict).
+3. **Overseer judges**: the parked overseer (or relay fallback) responds with `approve`/`reject`.
+4. **Gate opens on approval**: if the verdict approves and is non-destructive, the gated dependents are released back to `open` and `engine.tick()` fires immediately — so the next phase spawns without waiting for the 90-second interval. The release re-checks current status so a human's manual change is never overridden.
+5. **Gate stays shut on reject**: a negative or destructive verdict leaves the dependents `blocked`, stalling the mission until a human manually unblocks them.
 
-This is non-blocking: it must never delay the agent's close. Default off.
+The review itself is fire-and-forget from the agent's perspective — the agent's `close` call returns immediately; the gating happens in a background promise that must never crash the daemon.
+
+Default off. Requires `overseerExec` to be set (relay fallback cannot drive post-done reviews).
+
+### Overseer watchdog
+
+The mission engine calls `overseer.ensure()` on every tick. If the parked overseer session has exited mid-mission (full context, clean exit per its own prompt), `ensure()` re-parks it automatically — otherwise post-phase reviews and permission decisions would silently stop. The call is idempotent: it is a no-op while the session is still live or when no `overseerExec` is configured.

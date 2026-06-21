@@ -36,7 +36,7 @@ Compiles TypeScript to `dist/` and copies `src/store/schema.sql` and the entire 
 ### Run tests
 
 ```bash
-npm test            # single run (395 daemon tests)
+npm test            # single run (~418 daemon tests)
 npm run test:watch  # watch mode
 ```
 
@@ -61,13 +61,24 @@ The CLI auto-starts the daemon if it isn't running (set `ORCA_AUTOSTART=0` to di
 cd web
 npm install
 npm run dev     # Next.js dev server (turbopack)
-npm test        # Vitest (270 web tests)
+npm test        # Vitest (~270 web tests)
 npm run build   # Production build
 ```
 
 Connects to the daemon at `NEXT_PUBLIC_ORCA_URL` (default `http://localhost:4400`).
 
 **Gotcha:** a stale turbopack dev server on :4500 serves broken CSS chunks. Fix by killing the :4500 pid and running `next start` (not `next dev`).
+
+### CI pipeline
+
+GitHub Actions runs on every push and PR to `main` (see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
+
+| Job | Steps |
+|-----|-------|
+| **Daemon** (build + test) | `npm ci` → `npm run build` → `npm test` (tmux installed via apt) |
+| **Web** (build + test) | `npm ci` → `npm run build` → `npm test` (in `web/`) |
+
+Both jobs run in parallel on `ubuntu-latest` with Node 22. Superseded runs on the same ref are cancelled automatically.
 
 ---
 
@@ -187,8 +198,8 @@ src/
     ├── driver.ts     RealTmuxDriver
     └── fakeDriver.ts In-memory fake for tests
 prompts/              Prompt templates (planner, pilot, overseer, worker, decision)
-tests/                Mirrors src/ structure (395 tests)
-web/                  Next.js frontend (270 tests)
+tests/                Mirrors src/ structure (~418 tests)
+web/                  Next.js frontend (~270 tests)
 docs/                 Documentation tree
 ```
 
@@ -201,7 +212,7 @@ Much of the daemon's orchestration runs on periodic intervals. Wired in
 
 | Loop | Interval | Purpose |
 |---|---|---|
-| Overseer (engine tick) | 90 s | Tick active missions: pick ready tasks, check guardrails, spawn agents |
+| Overseer (engine tick) | 90 s | Tick active missions: pick ready tasks, spawn agents |
 | Scheduler | 30 s | Launch due scheduled/autostart tasks |
 | Janitor | 60 s | Kill zombie tmux sessions whose task is already closed/cancelled |
 | Stuck detector | 60 s | Revert tasks whose agent died without `orca close` (bounded, escalate after 2 relaunch attempts) |
@@ -334,7 +345,7 @@ projects  (id, slug, path, notes)
 tasks     (id, project_id, title, type, status, priority, parent_id, labels, description, scheduled_at, autostart, result_summary, outcome, closed_at, created_at)
 task_deps (task_id, depends_on_id)
 agents    (id, project_id, name, program, model, last_active_ts)
-missions  (id, epic_id, autonomy, max_sessions, cleared_guardrails, state, started_at)
+missions  (id, epic_id, autonomy, max_sessions, state, started_at)
 settings  (id, data)  -- JSON blob for runtime config
 users     (id, username, password_hash, is_admin, allowed_execs, name, email, default_exec, avatar, created_at)
 auth_tokens (token, user_id, created_at)

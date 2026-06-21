@@ -2,7 +2,7 @@
 
 ## Running tests
 
-### Daemon tests (~395 cases)
+### Daemon tests (~418 cases)
 
 ```bash
 # All tests
@@ -117,8 +117,8 @@ describe('MyService', () => {
 
 ### What to test
 
-- **Business logic** — guardrail detection, task readiness, mission tick decisions
-- **Edge cases** — empty state, cycles in DAG, all tasks closed, guardrail boundary matches
+- **Business logic** — task readiness, mission tick decisions
+- **Edge cases** — empty state, cycles in DAG, all tasks closed
 - **State transitions** — task lifecycle, mission lifecycle
 - **Error handling** — daemon unreachable, missing data, corrupt config
 
@@ -127,3 +127,14 @@ describe('MyService', () => {
 - tmux CLI interactions (tested via `FakeTmuxDriver`)
 - SQLite internals (tested via `better-sqlite3` itself)
 - Network calls (abstracted behind fakes)
+
+## CI pipeline
+
+GitHub Actions runs on every push and PR to `main` (see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
+
+| Job | Commands | Notes |
+|-----|----------|-------|
+| **Daemon** | `npm ci` → `npm run build` → `npm test` | tmux installed via `apt` for the real driver test |
+| **Web** | `npm ci` → `npm run build` → `npm test` | runs in `web/` subdirectory |
+
+Both jobs run in parallel on `ubuntu-latest` with Node 22. Superseded runs on the same ref are cancelled automatically.

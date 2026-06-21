@@ -107,6 +107,46 @@ describe('claudeUsage', () => {
     const u = claudeUsage(home, dir, SINCE);
     expect(u?.total).toBe(7);
   });
+
+  it('counts only the top-level message.usage of a real event — not its nested iterations[] — and skips user events', () => {
+    // A faithful copy of a real claude-code assistant event: the usage object carries the canonical
+    // per-turn counts AND a duplicate `iterations[]` plus tool/cache_creation noise. Reading the nested
+    // copy would double-count, so this pins that only the top-level numbers are summed.
+    const enc = DIR.replace(/[/._]/g, '-');
+    const userEvent = JSON.stringify({ type: 'user', timestamp: '2026-06-19T10:00:01Z', message: { role: 'user', content: 'hi' } });
+    const assistant = JSON.stringify({
+      type: 'assistant', timestamp: '2026-06-19T10:00:02Z', requestId: 'req_1', sessionId: 's1', cwd: DIR,
+      message: { usage: {
+        input_tokens: 7107, cache_creation_input_tokens: 4121, cache_read_input_tokens: 15835, output_tokens: 157,
+        server_tool_use: { web_search_requests: 0, web_fetch_requests: 0 }, service_tier: 'standard',
+        cache_creation: { ephemeral_1h_input_tokens: 4121, ephemeral_5m_input_tokens: 0 },
+        iterations: [{ input_tokens: 7107, output_tokens: 157, cache_read_input_tokens: 15835, cache_creation_input_tokens: 4121 }],
+      } },
+    });
+    const next = JSON.stringify({ type: 'assistant', timestamp: '2026-06-19T10:00:06Z', message: { usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 5 } } });
+    write(`.claude/projects/${enc}/real.jsonl`, [userEvent, assistant, next].join('\n'));
+    const u = claudeUsage(home, DIR, SINCE);
+    expect(u).toEqual({ input: 7207, output: 177, cacheRead: 15840, cacheWrite: 4121, total: 27345, costUsd: null });
+  });
+
+  it('returns null when the project transcript dir does not exist (CLI never ran here)', () => {
+    expect(claudeUsage(home, DIR, SINCE)).toBeNull();
+  });
+
+  it('ignores a transcript that started before the spawn window', () => {
+    const enc = DIR.replace(/[/._]/g, '-');
+    write(`.claude/projects/${enc}/old.jsonl`,
+      JSON.stringify({ timestamp: '2026-06-19T09:00:00Z', message: { usage: { input_tokens: 500, output_tokens: 1 } } }));
+    expect(claudeUsage(home, DIR, SINCE)).toBeNull();
+  });
+
+  it('picks the nth transcript by start order so concurrent same-project agents map to distinct sessions', () => {
+    const enc = DIR.replace(/[/._]/g, '-');
+    write(`.claude/projects/${enc}/first.jsonl`, JSON.stringify({ timestamp: '2026-06-19T10:00:01Z', message: { usage: { input_tokens: 10, output_tokens: 1 } } }));
+    write(`.claude/projects/${enc}/second.jsonl`, JSON.stringify({ timestamp: '2026-06-19T10:00:03Z', message: { usage: { input_tokens: 99, output_tokens: 1 } } }));
+    expect(claudeUsage(home, DIR, SINCE, 0)?.input).toBe(10);
+    expect(claudeUsage(home, DIR, SINCE, 1)?.input).toBe(99);
+  });
 });
 
 describe('codexUsage', () => {
@@ -116,6 +156,49 @@ describe('codexUsage', () => {
     write('.codex/sessions/2026/06/19/rollout-2026-06-19T10-00-03-abc.jsonl', `${head}\n${usage}\n`);
     const u = codexUsage(home, DIR, SINCE);
     expect(u).toEqual({ input: 600, output: 150, cacheRead: 400, cacheWrite: 0, total: 1150, costUsd: null });
+  });
+
+  it('finds total_token_usage nested in a real payload event and trusts codex own total', () => {
+    // Real codex rollout shape: { timestamp, type, payload: { … total_token_usage … } }. The reader
+    // must descend into payload (not just a top-level field) and split cached out of input_tokens.
+    const head = JSON.stringify({ timestamp: '2026-06-19T10:00:03Z', type: 'session_meta', payload: {} });
+    const ev = JSON.stringify({ timestamp: '2026-06-19T10:00:30Z', type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 19154, cached_input_tokens: 2432, output_tokens: 662, reasoning_output_tokens: 357, total_tokens: 19816 } } } });
+    write('.codex/sessions/2026/06/19/rollout-2026-06-19T10-00-03-real.jsonl', `${head}\n${ev}\n`);
+    const u = codexUsage(home, DIR, SINCE);
+    expect(u).toEqual({ input: 16722, output: 1019, cacheRead: 2432, cacheWrite: 0, total: 19816, costUsd: null });
+  });
+
+  it('returns null when the codex sessions root does not exist', () => {
+    expect(codexUsage(home, DIR, SINCE)).toBeNull();
+  });
+
+  it('picks the nth rollout by start order (concurrent codex agents disambiguate by start time)', () => {
+    const mk = (t: string, total: number) => `${JSON.stringify({ timestamp: t, type: 'session_meta' })}\n${JSON.stringify({ payload: { total_token_usage: { input_tokens: total, cached_input_tokens: 0, output_tokens: 0, total_tokens: total } } })}\n`;
+    write('.codex/sessions/2026/06/19/rollout-2026-06-19T10-00-01-a.jsonl', mk('2026-06-19T10:00:01Z', 10));
+    write('.codex/sessions/2026/06/19/rollout-2026-06-19T10-00-04-b.jsonl', mk('2026-06-19T10:00:04Z', 99));
+    expect(codexUsage(home, DIR, SINCE, 0)?.total).toBe(10);
+    expect(codexUsage(home, DIR, SINCE, 1)?.total).toBe(99);
+  });
+
+  it('derives the start time from the filename when the first event has no timestamp', () => {
+    // codex names rollouts in LOCAL time (verified against real files), so the filename fallback parses
+    // without a 'Z'. Build the name from `since` in local time so this holds in any server timezone.
+    const d = new Date(SINCE + 5000);
+    const p = (n: number) => String(n).padStart(2, '0');
+    const local = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+    const noTs = JSON.stringify({ type: 'session_meta', payload: {} });
+    const ev = JSON.stringify({ payload: { total_token_usage: { input_tokens: 5, cached_input_tokens: 0, output_tokens: 2, total_tokens: 7 } } });
+    write(`.codex/sessions/2026/06/19/rollout-${local}-x.jsonl`, `${noTs}\n${ev}\n`);
+    expect(codexUsage(home, DIR, SINCE)?.total).toBe(7);
+  });
+
+  it('clamps input to 0 when cached_input_tokens exceeds input_tokens', () => {
+    const head = JSON.stringify({ timestamp: '2026-06-19T10:00:03Z', type: 'session_meta' });
+    const ev = JSON.stringify({ payload: { total_token_usage: { input_tokens: 100, cached_input_tokens: 400, output_tokens: 0, total_tokens: 500 } } });
+    write('.codex/sessions/2026/06/19/rollout-2026-06-19T10-00-03-c.jsonl', `${head}\n${ev}\n`);
+    const u = codexUsage(home, DIR, SINCE);
+    expect(u?.input).toBe(0);
+    expect(u?.cacheRead).toBe(400);
   });
 });
 

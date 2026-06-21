@@ -1084,6 +1084,7 @@ Content-Type: application/json
 {
   "goal": "Build a login page with OAuth support",
   "exec": "sonnet",
+  "autoModel": false,
   "autonomy": "L3",
   "maxSessions": 1,
   "engage": true,
@@ -1096,6 +1097,11 @@ Content-Type: application/json
 
 Decomposes a goal into ordered implementation phases. Each phase becomes a task, chained
 sequentially via dependencies. Optionally engages a mission immediately.
+
+When `autoModel: true`, the planner picks the best model per phase from the configured
+`modelNotes` descriptions — each phase gets its own `exec` field. When `autoModel: false`
+(default), all phases use the uniform `exec` value. `autoModel` and `exec` are mutually
+exclusive: if `autoModel` is true, `exec` is ignored.
 
 **Manual mode** (`phases` array supplied, non-empty): bypasses the LLM entirely. Phases are
 persisted synchronously and the endpoint returns `201` immediately. No API key needed.
@@ -1244,6 +1250,7 @@ Content-Type: application/json
   "phases": [{ "title": "Add rate limiting", "type": "feature" }],
   "goal": "harden the auth flow",
   "exec": "sonnet",
+  "autoModel": false,
   "prompt": ""
 }
 ```
@@ -1257,7 +1264,9 @@ Appends new phases to an existing epic. Two modes:
 
 New phases are chained to run **after** the epic's current tail phases (leaves that nothing else
 depends on), then sequentially among themselves. If a mission is already active on the epic
-(`m-<epicId>`), it is ticked immediately. `exec`, when given, is set on every new phase.
+(`m-<epicId>`), it is ticked immediately. `exec`, when given, is set on every new phase. When
+`autoModel: true`, the planner picks the best model per phase from the configured `modelNotes`
+descriptions — each phase gets its own `exec` field, and the uniform `exec` is ignored.
 
 **Response `201`** (manual insert)
 ```json
@@ -1521,7 +1530,7 @@ errors (client disconnected), the stream stops. Authentication via session-level
 ## Missions
 
 A mission drives an epic's child tasks through the autopilot loop — picking ready tasks, spawning
-agents, and processing approvals/guardrails. Missions are identified by `m-<epicId>`.
+agents, and processing approvals. Missions are identified by `m-<epicId>`.
 
 ### List active missions
 
@@ -1540,7 +1549,6 @@ is accessible).
     "epic_id": "my-project-a1b2c3d4",
     "autonomy": "L2",
     "max_sessions": 1,
-    "cleared_guardrails": ["schema"],
     "state": "active",
     "started_at": "2026-06-17 12:00:00"
   }
@@ -1558,33 +1566,7 @@ Returns the mission with its epic, full task tree, dependencies, and progress br
 **Response `200`**
 ```json
 {
-  "mission": { "id": "m-my-project-a1b2c3d4", "state": "active", "autonomy": "L2", "max_sessions": 1, "cleared_guardrails": ["schema"], "started_at": "2026-06-17 12:00:00" },
-  "epic": { "id": "my-project-a1b2c3d4", "title": "Build login page", "type": "epic", "status": "open", ... },
-  "tasks": [
-    { "id": "my-project-b5c6d7e8", "title": "Set up OAuth", "status": "closed", "parent_id": "my-project-a1b2c3d4", ... },
-    { "id": "my-project-c9d0e1f2", "title": "Create login form", "status": "in_progress", "parent_id": "my-project-a1b2c3d4", ... }
-  ],
-  "deps": [
-    { "task_id": "my-project-c9d0e1f2", "depends_on_id": "my-project-b5c6d7e8" }
-  ],
-  "progress": {
-    "total": 5,
-    "open": 1,
-    "inProgress": 1,
-    "blocked": 0,
-    "closed": 3,
-    "cancelled": 0
-  }
-}
-```
-
-**Error `404`**
-```json
-{ "error": "mission not found" }
-```
-
-**Error `403`**
-```json
+  "mission": { "id": "m-my-project-a1b2c3d4", "state": "active", "autonomy": "L2", "max_sessions": 1, "started_at": "2026-06-17 12:00:00" },
 { "error": "forbidden" }
 ```
 
@@ -1597,14 +1579,12 @@ Content-Type: application/json
 {
   "epicId": "my-project-a1b2c3d4",
   "autonomy": "L2",
-  "maxSessions": 1,
-  "clearedGuardrails": ["schema"]
+  "maxSessions": 1
 }
 ```
 
 Triggers an immediate tick cycle — picks ready tasks and spawns agents up to `maxSessions`.
-Validates the epic exists and is accessible. Defaults `autonomy` to `"L3"`, `maxSessions` to `1`,
-`clearedGuardrails` to `[]`.
+Validates the epic exists and is accessible. Defaults `autonomy` to `"L3"`, `maxSessions` to `1`.
 
 **Response `201`** — the full mission object.
 
@@ -1779,6 +1759,10 @@ The `prompt` field holds the raw custom planner template (empty = use built-in d
   "allowedExecs": ["sonnet", "opencode:deepseek-v4-flash", "codex:gpt-5.4"],
   "customModels": [],
   "hiddenPresets": [],
+  "modelNotes": {
+    "sonnet": "Fast, reliable everyday coder with strong tool use and instruction following.",
+    "opus": "Most capable reasoner; best for hard architecture and tricky debugging."
+  },
   "defaults": { "exec": "sonnet", "autonomy": "L3", "maxSessions": 1 },
   "autopilot": {
     "model": "claude-opus-4-8",
@@ -1799,6 +1783,8 @@ The `prompt` field holds the raw custom planner template (empty = use built-in d
   "security": { "tokenTtlDays": 30 }
 }
 ```
+
+`modelNotes` is a map of exec → capability description. Seeded from `src/shared/execs.ts` (`EXEC_NOTES`) on first install. User edits persist and merge *under* built-in defaults so known models always carry a description. Used by the autopilot model picker (`autoModel`) to let the planner choose the best model per phase.
 
 Per-role reasoning backends:
 
