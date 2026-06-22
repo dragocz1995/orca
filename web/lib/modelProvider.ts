@@ -2,20 +2,28 @@
 // shows and edits the SAME provider the spawn path will actually resolve.
 export type ProviderId = 'claude-code' | 'opencode' | 'codex';
 
+/** Explicit `<prefix>:<model>` spec prefixes, in match order, mapped to their provider. Mirrors the
+ *  daemon's PROGRAM_PREFIXES (src/shared/execs.ts) so the UI parses execs the same way spawn does. */
+const PROVIDER_PREFIXES: readonly [string, ProviderId][] = [
+  ['codex:', 'codex'],
+  ['opencode:', 'opencode'],
+  ['claude:', 'claude-code'],
+];
+
 /** Which program runs this exec string (same heuristic as resolveExecutor). */
 export function execProvider(exec: string): ProviderId {
-  if (exec.startsWith('codex:')) return 'codex';
-  if (exec.startsWith('opencode:')) return 'opencode';
-  if (exec.startsWith('claude:')) return 'claude-code';
+  for (const [prefix, provider] of PROVIDER_PREFIXES) {
+    if (exec.startsWith(prefix)) return provider;
+  }
   if (exec.includes('/')) return 'opencode';
   return 'claude-code';
 }
 
 /** The bare model id with any provider prefix stripped (for display/edit). */
 export function execModel(exec: string): string {
-  if (exec.startsWith('codex:')) return exec.slice('codex:'.length);
-  if (exec.startsWith('opencode:')) return exec.slice('opencode:'.length);
-  if (exec.startsWith('claude:')) return exec.slice('claude:'.length);
+  for (const [prefix] of PROVIDER_PREFIXES) {
+    if (exec.startsWith(prefix)) return exec.slice(prefix.length);
+  }
   return exec; // slash form or bare — the model id is the whole string
 }
 
