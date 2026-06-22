@@ -26,7 +26,7 @@
     "node": ">=22"
   },
   "bin": {
-    "orca": "./dist/cli/index.js"
+    "orca": "dist/cli/index.js"
   },
   "files": [
     "dist/",
