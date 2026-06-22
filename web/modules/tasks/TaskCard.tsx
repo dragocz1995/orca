@@ -56,7 +56,7 @@ export function TaskCard({ task, onEdit, onSelect, active = false, blockers, sel
       tabIndex={0}
       onClick={open}
       onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
-      className={`card-interactive group relative flex cursor-pointer items-center gap-3 rounded-lg border p-2.5 ${selected || active ? 'border-accent bg-accent/[0.06]' : 'border-border bg-surface'}`}
+      className={`card-interactive group relative flex flex-wrap cursor-pointer items-center gap-x-3 gap-y-2 rounded-lg border p-2.5 ${selected || active ? 'border-accent bg-accent/[0.06]' : 'border-border bg-surface'}`}
     >
       {/* model-icon bubble — accent ring while the agent is live */}
       <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 bg-elevated ${running ? 'border-accent' : 'border-border'}`}>
@@ -81,33 +81,37 @@ export function TaskCard({ task, onEdit, onSelect, active = false, blockers, sel
         </div>
       </div>
 
-      {/* status + meta badges */}
-      <div className="flex shrink-0 items-center gap-1.5">
-        {whenFmt ? (
-          <span title={whenFmt.title}><Badge tone="muted">
-            {task.scheduled_at ? (task.autostart ? <Zap size={11} className="mr-1 inline" aria-hidden /> : <Clock size={11} className="mr-1 inline" aria-hidden />) : <Clock size={11} className="mr-1 inline" aria-hidden />}
-            {whenFmt.label}
-          </Badge></span>
-        ) : null}
-        <ProjectPill projectId={task.project_id} />
-        {isClosed ? <OutcomeBadge outcome={task.outcome} /> : null}
-        <Badge tone={statusTone(task.status)}>{statusLabel(t, task.status)}</Badge>
-      </div>
+      {/* badges + run controls — one row alongside the title on desktop; on phones they drop to
+          their own full-width line (badges left, controls right) so nothing clips off the edge */}
+      <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+        {/* status + meta badges */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {whenFmt ? (
+            <span title={whenFmt.title}><Badge tone="muted">
+              {task.scheduled_at ? (task.autostart ? <Zap size={11} className="mr-1 inline" aria-hidden /> : <Clock size={11} className="mr-1 inline" aria-hidden />) : <Clock size={11} className="mr-1 inline" aria-hidden />}
+              {whenFmt.label}
+            </Badge></span>
+          ) : null}
+          <ProjectPill projectId={task.project_id} />
+          {isClosed ? <OutcomeBadge outcome={task.outcome} /> : null}
+          <Badge tone={statusTone(task.status)}>{statusLabel(t, task.status)}</Badge>
+        </div>
 
-      {/* run controls — always visible so the dropdown trigger never vanishes mid-interaction */}
-      <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
-        {running
-          ? <IconButton icon={Square} label={t.tasks.stop} variant="danger" onClick={stop} />
-          : <IconButton icon={Play} label={t.tasks.start} onClick={start} />}
-        {running ? <IconButton icon={Pause} label={t.tasks.pause} onClick={pause} /> : null}
-        <IconButton icon={Pencil} label={t.common.edit} onClick={() => onEdit(task)} />
-        <ActionMenu
-          label={t.tasks.deleteOrClose}
-          items={[
-            { label: t.tasks.closeArchive, icon: Archive, onSelect: () => close.mutate(task.id, { onSuccess: () => toast(t.tasks.closed.replace('{id}', task.id)), onError: (e) => toast(String(e), 'error') }) },
-            { label: t.tasks.deletePermanently, icon: Trash2, tone: 'danger', onSelect: () => setConfirmDelete(true) },
-          ]}
-        />
+        {/* run controls — always visible so the dropdown trigger never vanishes mid-interaction */}
+        <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {running
+            ? <IconButton icon={Square} label={t.tasks.stop} variant="danger" onClick={stop} />
+            : <IconButton icon={Play} label={t.tasks.start} onClick={start} />}
+          {running ? <IconButton icon={Pause} label={t.tasks.pause} onClick={pause} /> : null}
+          <IconButton icon={Pencil} label={t.common.edit} onClick={() => onEdit(task)} />
+          <ActionMenu
+            label={t.tasks.deleteOrClose}
+            items={[
+              { label: t.tasks.closeArchive, icon: Archive, onSelect: () => close.mutate(task.id, { onSuccess: () => toast(t.tasks.closed.replace('{id}', task.id)), onError: (e) => toast(String(e), 'error') }) },
+              { label: t.tasks.deletePermanently, icon: Trash2, tone: 'danger', onSelect: () => setConfirmDelete(true) },
+            ]}
+          />
+        </div>
       </div>
 
       {onToggleSelect ? (

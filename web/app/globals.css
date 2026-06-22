@@ -40,8 +40,11 @@
 .card-interactive { box-shadow: var(--shadow-card); transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
 .card-interactive:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-raised); transform: translateY(-1px); }
 
-/* Scale the whole UI up ~25% via the rem base — all rem-based type & spacing grow together. */
-html { font-size: 125%; }
+/* Scale the whole UI up ~25% via the rem base — all rem-based type & spacing grow together.
+   Phones keep the natural 100% base so the dense operational UI isn't forced 25% larger into a
+   ~390px viewport; the upscale kicks in at the md breakpoint (768px) where there's room for it. */
+html { font-size: 100%; }
+@media (min-width: 768px) { html { font-size: 125%; } }
 html, body {
   height: 100%;
   background: var(--color-bg);
@@ -101,10 +104,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 *::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 .xterm-viewport::-webkit-scrollbar-thumb { background: var(--color-border); }
-/* Opt-out: hide the scrollbar entirely (e.g. the mobile toolbar's horizontal scroll row).
-   Declared here, unlayered, so it overrides the global *::-webkit-scrollbar rule above. */
-.no-scrollbar { scrollbar-width: none; }
-.no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 /* Rendered Markdown preview (Projects editor). Tailwind's preflight strips element styling, so the
    sanitized HTML from `marked` needs its own typography rules. */
