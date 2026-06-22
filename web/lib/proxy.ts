@@ -19,11 +19,21 @@ export function clearCookie(): string {
 
 /** Same-origin guard for mutating requests (CSRF defense-in-depth on top of SameSite=Lax).
  *  A missing Origin header (same-origin GET navigations, some same-origin fetches) is allowed;
- *  a present Origin must equal our own origin. */
+ *  a present Origin must match our host. We compare host, not the full origin, because a
+ *  TLS-terminating reverse proxy makes the app see http:// internally while the browser's Origin
+ *  is https:// — the scheme differs but the host (which is what an attacker can't forge) is what
+ *  matters. The host the browser targeted comes from the forwarded Host header. */
 export function isSameOrigin(req: Request): boolean {
   const origin = req.headers.get('origin');
   if (origin == null) return true;
-  return origin === new URL(req.url).origin;
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return false; // malformed Origin
+  }
+  const host = req.headers.get('host') ?? new URL(req.url).host;
+  return originHost === host;
 }
 
 /** Headers safe to forward from the browser to the daemon. An allow-list (not a deny-list) so a

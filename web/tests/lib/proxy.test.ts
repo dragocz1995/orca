@@ -34,6 +34,15 @@ describe('proxy helpers', () => {
     expect(isSameOrigin(bad)).toBe(false);
   });
 
+  it('isSameOrigin: matches by host across scheme (behind a TLS-terminating proxy)', () => {
+    // nginx terminates TLS and forwards to the app over plain http, so the app sees http://host
+    // internally while the browser's Origin is https://host. The host must still match.
+    const proxied = new Request('http://web.example/api/auth/login', { headers: { Origin: 'https://web.example' } });
+    expect(isSameOrigin(proxied)).toBe(true);
+    const foreign = new Request('http://web.example/api/auth/login', { headers: { Origin: 'https://evil.example' } });
+    expect(isSameOrigin(foreign)).toBe(false);
+  });
+
   it('forwardHeaders strips cookie/host/connection', () => {
     const h = forwardHeaders(new Request('https://web.example/api/x', {
       headers: { cookie: 'orca_session=t', host: 'web.example', 'content-type': 'application/json' },
