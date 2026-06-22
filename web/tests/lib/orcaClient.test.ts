@@ -3,9 +3,10 @@ import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { orcaClient, OrcaApiError, apiErrorMessage } from '../../lib/orcaClient';
 
+// The client now talks to the same-origin /api proxy; handlers match any origin's /api/* path.
 const server = setupServer(
-  http.get('http://localhost:4400/tasks', () => HttpResponse.json([{ id: 'orca-1', title: 'A', status: 'open' }])),
-  http.get('http://localhost:4400/missions', () => new HttpResponse(null, { status: 500 })),
+  http.get('*/api/tasks', () => HttpResponse.json([{ id: 'orca-1', title: 'A', status: 'open' }])),
+  http.get('*/api/missions', () => new HttpResponse(null, { status: 500 })),
 );
 beforeAll(() => server.listen()); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
 
@@ -22,25 +23,25 @@ describe('orcaClient', () => {
   // W1: a 2xx with a non-JSON body (e.g. an HTML proxy page) must surface a typed OrcaApiError,
   // not an opaque SyntaxError leaking from res.json().
   it('throws OrcaApiError (not SyntaxError) on a non-JSON 2xx body', async () => {
-    server.use(http.get('*/tasks', () => new HttpResponse('<html>oops</html>', { status: 200, headers: { 'content-type': 'text/html' } })));
+    server.use(http.get('*/api/tasks', () => new HttpResponse('<html>oops</html>', { status: 200, headers: { 'content-type': 'text/html' } })));
     await expect(orcaClient.tasks()).rejects.toBeInstanceOf(OrcaApiError);
     await expect(orcaClient.tasks()).rejects.toMatchObject({ status: 200 });
   });
   it('returns undefined on a 204 No Content without parsing', async () => {
-    server.use(http.delete('*/tasks/orca-1', () => new HttpResponse(null, { status: 204 })));
+    server.use(http.delete('*/api/tasks/orca-1', () => new HttpResponse(null, { status: 204 })));
     await expect(orcaClient.deleteTask('orca-1')).resolves.toBeUndefined();
   });
 
   // W3: with no opts the activity URL must not carry a dangling trailing '?'.
   it('activity() omits the trailing ? when no options are given', async () => {
     let seen = '';
-    server.use(http.get('*/activity', ({ request }) => { seen = new URL(request.url).search; return HttpResponse.json([]); }));
+    server.use(http.get('*/api/activity', ({ request }) => { seen = new URL(request.url).search; return HttpResponse.json([]); }));
     await orcaClient.activity();
     expect(seen).toBe('');
   });
   it('activity({ limit }) builds a proper query string', async () => {
     let seen = '';
-    server.use(http.get('*/activity', ({ request }) => { seen = new URL(request.url).search; return HttpResponse.json([]); }));
+    server.use(http.get('*/api/activity', ({ request }) => { seen = new URL(request.url).search; return HttpResponse.json([]); }));
     await orcaClient.activity({ limit: 5 });
     expect(seen).toBe('?limit=5');
   });

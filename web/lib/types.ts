@@ -57,7 +57,9 @@ export interface MissionDetail {
 export interface User { id: number; username: string; created_at: string; is_admin: boolean; allowed_execs: string[]; name: string; email: string; avatar: string; default_exec: string }
 export interface UserPatch { is_admin?: boolean; allowed_execs?: string[] }
 export interface ProfilePatch { name?: string; email?: string; default_exec?: string }
-export interface AuthResult { token: string; user: User }
+// Login no longer surfaces a token to the browser — the proxy sets it as an httpOnly cookie and
+// returns only a success flag.
+export type AuthResult = { ok: true };
 export interface ActivityEvent { id: number; ts: string; type: string; target: string; detail: string; project_id: number | null }
 export interface Project { id: number; slug: string; path: string; notes: string }
 interface GitStatus { branch: string; ahead: number; behind: number; dirty: number; clean: boolean }

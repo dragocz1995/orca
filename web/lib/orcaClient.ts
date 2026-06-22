@@ -1,7 +1,9 @@
 import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, AuthResult, ActivityEvent, Project, ProjectGit, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, TokenUsage, FileNode, SessionInfo } from './types';
-import { getToken, clearToken } from './token';
+import { clearToken } from './token';
 
-export const BASE = process.env.NEXT_PUBLIC_ORCA_URL ?? 'http://localhost:4400';
+// Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
+// daemon bearer token server-side from the httpOnly session cookie. No token ever lives in JS.
+export const BASE = '/api';
 
 export class OrcaApiError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); this.name = 'OrcaApiError'; }
@@ -17,10 +19,9 @@ export function apiErrorMessage(e: unknown): string {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getToken();
-  const headers = new Headers(init?.headers);
-  if (token) headers.set('authorization', `Bearer ${token}`);
-  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+  // The httpOnly session cookie rides along automatically with same-origin credentials; the proxy
+  // turns it into the daemon bearer. No Authorization header is set here on purpose.
+  const res = await fetch(`${BASE}${path}`, { ...init, credentials: 'same-origin' });
   if (res.status === 401) { clearToken(); throw new OrcaApiError(`orca 401 on ${path}`, 401); }
   if (!res.ok) {
     let code: string | undefined;
@@ -105,14 +106,11 @@ export const orcaClient = {
   projectFileAtHead: (id: number, path: string) => req<{ content: string }>(`/projects/${id}/head?path=${encodeURIComponent(path)}`),
   projectCommit: (id: number, hash: string) => req<{ diff: string; files: string[] }>(`/projects/${id}/commit/${encodeURIComponent(hash)}`),
   projectCommitFileDiff: (id: number, hash: string, path: string) => req<{ diff: string }>(`/projects/${id}/commit/${encodeURIComponent(hash)}/diff?path=${encodeURIComponent(path)}`),
-  // Authenticated fetch of raw file bytes (image previews) as a Blob. The bearer token goes in the
-  // Authorization header — never the URL query string, which would leak it into proxy/referrer/history
-  // logs (finding W4). The caller wraps the Blob in a short-lived object URL for <img src>.
+  // Authenticated fetch of raw file bytes (image previews) as a Blob. Goes through the same-origin
+  // /api proxy with the httpOnly session cookie (credentials) — the daemon bearer is injected
+  // server-side, never exposed to JS. The caller wraps the Blob in a short-lived object URL for <img src>.
   projectRawBlob: async (id: number, path: string): Promise<Blob> => {
-    const token = getToken();
-    const headers = new Headers();
-    if (token) headers.set('authorization', `Bearer ${token}`);
-    const res = await fetch(`${BASE}/projects/${id}/raw?path=${encodeURIComponent(path)}`, { headers });
+    const res = await fetch(`${BASE}/projects/${id}/raw?path=${encodeURIComponent(path)}`, { credentials: 'same-origin' });
     if (!res.ok) throw new OrcaApiError(`orca ${res.status} on raw ${path}`, res.status);
     return res.blob();
   },
