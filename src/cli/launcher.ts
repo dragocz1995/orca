@@ -74,8 +74,8 @@ export interface StartDeps {
 }
 
 const here = dirname(fileURLToPath(import.meta.url)); // dist/cli at runtime
-const daemonEntry = () => join(here, '..', 'daemon', 'index.js');         // dist/daemon/index.js
-const webServer = () => join(here, '..', '..', 'web-dist', 'web', 'server.js'); // <pkg>/web-dist/web/server.js
+const daemonEntry = () => join(here, '..', 'daemon', 'index.js');    // dist/daemon/index.js
+const webServer = () => join(here, '..', '..', 'web-dist', 'server.js'); // <pkg>/web-dist/server.js (Next standalone)
 
 /** Start daemon + web as detached background processes and record their pids. Idempotent-ish: if both
  *  ports are already healthy it just refreshes the run file rather than double-spawning. */
