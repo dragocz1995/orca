@@ -28,7 +28,9 @@ describe('api', () => {
     const { app } = makeApp();
     const res = await app.request('/health');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    const body = await res.json() as { ok: boolean; version: string };
+    expect(body.ok).toBe(true);
+    expect(typeof body.version).toBe('string'); // surfaced for the web footer
   });
   it('GET /health includes CORS header', async () => {
     const { app } = makeApp();

@@ -1,4 +1,5 @@
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
@@ -75,6 +76,13 @@ export interface ServerDeps {
   pilot?: (job: PlanJob, projectPath: string) => Promise<void>;
 }
 
+/** This package's version, read once from its package.json (two dirs up from dist/api/server.js, and
+ *  likewise from src/api/server.ts in dev/tests). Surfaced on /health so the web UI can show it. */
+const ORCA_VERSION = (() => {
+  try { return (JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0'; }
+  catch { return '0.0.0'; }
+})();
+
 export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }> {
   const log = logger('api');
   // Core reasoning stores are optional in deps for back-compat with existing call sites/tests; the
@@ -91,7 +99,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     log.error('unhandled route error', err);
     return c.json({ error: 'internal error' }, 500);
   });
-  app.get('/health', c => c.json({ ok: true }));
+  app.get('/health', c => c.json({ ok: true, version: ORCA_VERSION }));
   // Public: lets the web decide whether to show onboarding (no users yet) or the login form.
   app.get('/setup', c => c.json({ needsSetup: d.users ? d.users.count() === 0 : false }));
 
@@ -724,6 +732,28 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     }
     return c.json(scoped);
   });
+  /** Release the dependents a phase's review gate was holding: clear this phase's `gatedby:<id>` hold
+   *  and re-open each dependent that no OTHER review still gates (a DAG dependent can be held by several
+   *  predecessors at once). Re-check 'blocked' so a human's manual change is never overridden. Single
+   *  source of truth for both an agent-approved verdict and a human approval, so they behave
+   *  identically. Returns the ids actually re-opened. */
+  function releaseGatedDependents(phaseId: string): string[] {
+    const reopened: string[] = [];
+    for (const e of d.tasks.allDeps()) {
+      if (e.depends_on_id !== phaseId) continue;
+      const dep = d.tasks.get(e.task_id);
+      if (!dep || !dep.labels.includes(`gatedby:${phaseId}`)) continue;
+      d.tasks.removeLabel(dep.id, `gatedby:${phaseId}`);
+      const stillGated = d.tasks.get(dep.id)!.labels.some((l) => l.startsWith('gatedby:'));
+      if (!stillGated && dep.status === 'blocked') {
+        d.tasks.setStatus(dep.id, 'open');
+        d.bus.publish({ type: 'task', taskId: dep.id, status: 'open' });
+        reopened.push(dep.id);
+      }
+    }
+    return reopened;
+  }
+
   app.post('/tasks', async c => {
     const b = await c.req.json() as { title: string; type?: string; priority?: string; id?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[]; project_id?: number };
     const target = resolveTarget(c, b.project_id);
@@ -811,18 +841,8 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
                 d.bus.publish({ type: 'review', missionId: mission.id, taskId: id, approve: approved, rationale: verdict.rationale });
                 if (approved) {
                   // Gate opens: release the gated dependents and tick so the next phase spawns promptly
-                  // rather than waiting up to the 90s interval. Re-check 'blocked' so a human's manual
-                  // change is never overridden.
-                  for (const depId of gated) {
-                    const dep = d.tasks.get(depId);
-                    if (!dep) continue;
-                    d.tasks.removeLabel(depId, `gatedby:${id}`); // clear this review's hold…
-                    // …and re-open only when no OTHER review still gates the dependent (a DAG dependent
-                    // can be held by several predecessors at once). Re-check 'blocked' so a human's
-                    // manual change is never overridden.
-                    const stillGated = d.tasks.get(depId)!.labels.some((l) => l.startsWith('gatedby:'));
-                    if (!stillGated && dep.status === 'blocked') { d.tasks.setStatus(dep.id, 'open'); d.bus.publish({ type: 'task', taskId: dep.id, status: 'open' }); }
-                  }
+                  // rather than waiting up to the 90s interval.
+                  releaseGatedDependents(id);
                   void d.engine.tick(mission.id).catch((e) => log.error('post-review tick failed', e));
                   return;
                 }
@@ -853,6 +873,18 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (Array.isArray(b.deps)) d.tasks.setDeps(id, b.deps);
     return c.json(d.tasks.get(id));
   });
+  // Human approval of an escalated phase: accept its result and release the review gate it holds,
+  // re-opening only the dependents no OTHER predecessor still gates (mirrors the agent-approved
+  // verdict). The escalations inbox calls this instead of blindly opening every blocked dependent.
+  app.post('/tasks/:id/approve-gate', c => {
+    const id = c.req.param('id');
+    const existing = d.tasks.get(id);
+    if (!existing) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, existing.project_id)) return c.json({ error: 'forbidden' }, 403);
+    const released = releaseGatedDependents(id);
+    return c.json({ released });
+  });
+
   app.get('/tasks/:id/deps', c => c.json(d.tasks.depsFor(c.req.param('id'))));
   app.delete('/tasks/:id', async c => {
     const id = c.req.param('id');

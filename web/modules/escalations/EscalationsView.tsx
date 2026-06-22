@@ -2,7 +2,7 @@
 import { ShieldAlert, ShieldCheck, Rocket, Play, RotateCcw, Link2, Clock } from 'lucide-react';
 import type { Escalation } from '../../lib/escalations';
 import { useEscalations } from '../../lib/queries';
-import { useSetTaskStatus, useResumeMission } from '../../lib/mutations';
+import { useSetTaskStatus, useResumeMission, useApproveGate } from '../../lib/mutations';
 import { apiErrorMessage } from '../../lib/orcaClient';
 import { formatTaskTime } from '../../lib/formatTime';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
@@ -18,16 +18,23 @@ export function EscalationsView() {
   const { t, locale } = useTranslation();
   const escalations = useEscalations();
   const setStatus = useSetTaskStatus();
+  const approveGate = useApproveGate();
   const resume = useResumeMission();
   const { toast } = useToast();
 
-  // Accept the rejection: release every phase the engine gated behind it, then nudge the mission so
-  // the engine picks them up now instead of waiting out the 90s tick.
+  // Accept the rejection: ask the daemon to release this phase's review gate. It re-opens only the
+  // dependents no OTHER predecessor still gates (a DAG dependent can be held by several phases), so a
+  // downstream phase never starts while another of its predecessors is still unresolved. Then nudge
+  // the mission so the engine picks the released phases up now instead of waiting out the 90s tick.
   const approve = (e: Escalation) => {
     if (e.blocked.length === 0) return;
-    e.blocked.forEach((b) => setStatus.mutate({ id: b.id, status: 'open' }));
-    if (e.epicId) resume.mutate(`m-${e.epicId}`, { onError: () => { /* mission may be idle — open phases still get picked up on a later tick */ } });
-    toast(t.escalations.approved);
+    approveGate.mutate(e.taskId, {
+      onSuccess: () => {
+        if (e.epicId) resume.mutate(`m-${e.epicId}`, { onError: () => { /* mission may be idle — released phases still get picked up on a later tick */ } });
+        toast(t.escalations.approved);
+      },
+      onError: (err) => toast(apiErrorMessage(err) || t.escalations.actionError, 'error'),
+    });
   };
   // Re-run the rejected phase itself: re-open it so the engine re-spawns its agent.
   const rerun = (e: Escalation) => {
@@ -87,7 +94,7 @@ export function EscalationsView() {
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button variant="ghost" icon={RotateCcw} onClick={() => rerun(e)} disabled={setStatus.isPending}>{t.escalations.rerun}</Button>
-                  <Button variant="accent" icon={Play} onClick={() => approve(e)} disabled={e.blocked.length === 0 || setStatus.isPending}>{t.escalations.approve}</Button>
+                  <Button variant="accent" icon={Play} onClick={() => approve(e)} disabled={e.blocked.length === 0 || approveGate.isPending}>{t.escalations.approve}</Button>
                 </div>
               </article>
             );

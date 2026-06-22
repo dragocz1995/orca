@@ -8,11 +8,13 @@ import { ToastProvider } from '../../../components/ui/Toast';
 import { createWrapper } from '../../test-utils';
 
 let patched: { id: string; body: unknown }[] = [];
+let approvedGates: string[] = [];
 const server = setupServer(
   http.patch('*/api/tasks/:id', async ({ params, request }) => { patched.push({ id: String(params.id), body: await request.json() }); return HttpResponse.json({ ok: true }); }),
+  http.post('*/api/tasks/:id/approve-gate', ({ params }) => { approvedGates.push(String(params.id)); return HttpResponse.json({ released: ['p2'] }); }),
   http.patch('*/api/missions/:id', () => HttpResponse.json({ ok: true })),
 );
-beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => { server.resetHandlers(); patched = []; }); afterAll(() => server.close());
+beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => { server.resetHandlers(); patched = []; approvedGates = []; }); afterAll(() => server.close());
 
 function seed(client: ReturnType<typeof createWrapper>['client']) {
   client.setQueryData(['activity', 'review'], [
@@ -43,12 +45,15 @@ describe('EscalationsView', () => {
     await waitFor(() => expect(patched.some((p) => p.id === 'p1' && (p.body as { status?: string }).status === 'open')).toBe(true));
   });
 
-  it('approve re-opens the blocked dependent', async () => {
+  it('approve releases the gate through the daemon (which re-opens only non-still-gated dependents)', async () => {
     const { wrapper: Wrapper, client } = createWrapper();
     seed(client);
     render(<Wrapper><ToastProvider><EscalationsView /></ToastProvider></Wrapper>);
     fireEvent.click(screen.getByText('Approve & continue'));
-    await waitFor(() => expect(patched.some((p) => p.id === 'p2' && (p.body as { status?: string }).status === 'open')).toBe(true));
+    // The view delegates to POST /tasks/p1/approve-gate (the escalated phase) instead of blindly
+    // PATCHing dependents to 'open' — so a dependent gated by another predecessor isn't force-started.
+    await waitFor(() => expect(approvedGates).toContain('p1'));
+    expect(patched.some((p) => p.id === 'p2')).toBe(false);
   });
 
   it('renders an empty state when nothing is escalated', () => {
