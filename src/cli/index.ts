@@ -9,6 +9,18 @@ import { menu } from './menu.js';
 
 const BASE = process.env.ORCA_URL ?? 'http://localhost:4400';
 
+const USAGE = 'usage: orca [menu] | install | <up|down|status|update> | <ls|ready|sessions|close|plan submit|overseer poll|overseer decide>';
+
+/** Commands that talk to the daemon API — only these justify auto-starting it. Everything else
+ *  (help, unknown verbs) must NOT spawn a daemon: a stray detached daemon squats the port and starves
+ *  the systemd-managed one into a restart loop. */
+const API_COMMANDS = new Set(['ls', 'ready', 'sessions', 'close', 'plan', 'overseer']);
+
+/** True only for verbs that need the daemon API up — the gate for ensureDaemon's auto-spawn. */
+export function needsDaemon(cmd: string | undefined): boolean {
+  return cmd !== undefined && API_COMMANDS.has(cmd);
+}
+
 /** This package's version, read from its package.json (two dirs up from dist/cli/index.js). */
 function pkgVersion(): string {
   try { return (JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0'; }
@@ -85,7 +97,7 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       }
       console.error('usage: orca overseer <poll|decide ...>'); process.exit(1); break;
     }
-    default: console.error('usage: orca [menu] | install | <up|down|status|update> | <ls|ready|sessions|close|plan submit|overseer poll|overseer decide>'); process.exit(1);
+    default: console.error(USAGE); process.exit(1);
   }
 }
 
@@ -95,12 +107,17 @@ async function main() {
   // Bare `orca` in a terminal opens the interactive launcher menu. Piped/non-TTY falls through to the
   // usage error from `run`, so scripts still get deterministic behavior.
   if (argv.length === 0 && process.stdin.isTTY) { await menu(process.env, version); return; }
+  // Help / bare non-TTY invocation: print usage and stop. Must NOT fall through to ensureDaemon.
+  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') { console.log(USAGE); return; }
+  if (argv[0] === '--version' || argv[0] === '-v') { console.log(version); return; }
   // `orca install` is the root provisioning wizard — it sets up systemd, the proxy and the admin
   // itself, so it must run BEFORE ensureDaemon (no auto-spawn) and before the lifecycle commands.
-  if (argv[0] === 'install') { const { install } = await import('./install/index.js'); await install(); return; }
+  if (argv[0] === 'install') { const { install } = await import('./install/index.js'); await install(argv.slice(1)); return; }
   // Install-lifecycle commands manage the daemon/web themselves — handle them BEFORE ensureDaemon so
   // they don't trigger the API-CLI's auto-spawn.
   if (await runLifecycle(argv[0], process.env, defaultLifecycleDeps(version))) return;
+  // Only API commands may auto-start the daemon; an unknown verb errors out without spawning anything.
+  if (!needsDaemon(argv[0])) { console.error(USAGE); process.exit(1); }
   await ensureDaemon();
   const c = new OrcaClient(BASE, process.env.ORCA_TOKEN);
   await run(argv, c, process.env);
