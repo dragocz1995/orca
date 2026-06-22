@@ -2,7 +2,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
-import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { hermesStatus, installHermesPlugin } from '../integrations/hermesInstall.js';
 import { detectClis } from '../integrations/cliDetection.js';
 import { readTaskUsage } from '../integrations/usage/index.js';
@@ -40,6 +40,7 @@ import type { ProjectStore } from '../store/projectStore.js';
 import type { UserProjectStore } from '../store/userProjectStore.js';
 import type { GitReader } from '../git/gitReader.js';
 import { logger } from '../shared/logger.js';
+import { shortId } from '../shared/id.js';
 
 /** How many times an L3 mission auto-re-spawns a phase that the post-done review rejected before it
  *  gives up and escalates to a human. Mirrors the stuck detector's `maxRelaunch` (2) so the two
@@ -462,7 +463,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   function persistPlan(job: PlanJob): { epic: Task; phases: Task[] } {
     const path = pathFor(job.projectId);
     const allowedExecs = d.config.get().allowedExecs;
-    const newId = () => `${basename(path)}-${randomBytes(4).toString('hex')}`;
+    const newId = () => shortId(basename(path));
     const epicId = job.epicId ?? newId();
     let epic = d.tasks.get(epicId);
     if (!epic) {
@@ -758,7 +759,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const b = await c.req.json() as { title: string; type?: string; priority?: string; id?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[]; project_id?: number };
     const target = resolveTarget(c, b.project_id);
     if ('error' in target) return c.json({ error: target.error }, target.status);
-    const id = b.id ?? `${basename(target.project.path)}-${randomBytes(4).toString('hex')}`;
+    const id = b.id ?? shortId(basename(target.project.path));
     const created = d.tasks.create({ id, project_id: target.project.id, title: b.title, type: b.type, priority: b.priority, description: b.description, scheduled_at: b.scheduled_at, autostart: b.autostart });
     if (Array.isArray(b.deps)) d.tasks.setDeps(created.id, b.deps);
     d.bus.publish({ type: 'task', taskId: created.id, status: created.status });
