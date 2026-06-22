@@ -21,3 +21,6 @@ __pycache__/
 
 # Built web bundle (npm package artifact)
 web-dist/
+
+# npm pack artifacts
+*.tgz
