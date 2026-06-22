@@ -212,6 +212,26 @@ it('GET /sessions/:name/stream emits a first pane frame', async () => {
   ctrl.abort(); await reader.cancel();
 });
 
+it('GET /events flushes an initial comment so headers reach the client immediately (no events yet)', async () => {
+  // Through the web BFF proxy, a streamed response sends no HTTP headers until the first body byte.
+  // The event bus is silent on a quiet system, so /events must emit an immediate SSE comment or the
+  // dashboard's live channel never connects. Comments (lines starting with ':') are ignored by EventSource.
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const app = createServer({
+    tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: null as any, tmux: new FakeTmuxDriver(), project: { id: 1, path: '/o' },
+    fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
+  });
+  const ctrl = new AbortController();
+  const res = await app.request('/events', { signal: ctrl.signal });
+  expect(res.status).toBe(200);
+  expect(res.headers.get('content-type')).toContain('text/event-stream');
+  const reader = res.body!.getReader();
+  const { value } = await reader.read(); // resolves only if a byte is written without any publish()
+  expect(new TextDecoder().decode(value).startsWith(':')).toBe(true);
+  ctrl.abort(); await reader.cancel();
+});
+
 it('GET /missions/:id returns 404 for unknown mission', async () => {
   const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
   const app = createServer({

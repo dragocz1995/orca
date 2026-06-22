@@ -1223,7 +1223,16 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   app.get('/events', c => streamSSE(c, async stream => {
     const off = d.bus.subscribe(e => void stream.writeSSE({ data: JSON.stringify(e), event: e.type }));
     c.req.raw.signal.addEventListener('abort', off);
-    while (!c.req.raw.signal.aborted) await stream.sleep(30000);
+    // Flush an immediate comment: a streamed response sends no HTTP headers until the first body byte,
+    // so through the web BFF proxy the live channel would never connect on a quiet system. Comments
+    // (lines starting with ':') are ignored by EventSource. The periodic ping doubles as a keep-alive
+    // that stops reverse proxies from idle-closing the stream.
+    await stream.write(': connected\n\n');
+    while (!c.req.raw.signal.aborted) {
+      await stream.sleep(30000);
+      if (c.req.raw.signal.aborted) break;
+      await stream.write(': ping\n\n');
+    }
   }));
 
   return app;
