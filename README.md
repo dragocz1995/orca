@@ -67,9 +67,33 @@ Codex) in isolated `tmux` sessions — with a REST API, a CLI, and a real-time w
 
 </div>
 
-## Quick start
+## Install
 
-Requires **Node ≥ 22** and **tmux**.
+Install globally from npm — one command brings up the daemon **and** the web UI:
+
+```bash
+npm install -g orcasynth
+orca            # interactive menu: start/stop · first-run setup · update · open web
+```
+
+Prefer it non-interactive? The same actions are plain subcommands:
+
+```bash
+orca up         # start the daemon (:4400) + web UI (:4500) in the background
+orca status     # show what's running
+orca down       # stop everything
+orca update     # update to the latest release from npm
+```
+
+Requires **Node ≥ 22** and **tmux**. On first run, `orca` walks you through a quick
+setup — admin account, LLM provider + API key, default model. Your data (config, the
+SQLite database and logs) lives in **`~/.config/orca/`** and survives every update.
+
+Then open <http://localhost:4500> and sign in.
+
+## Run from source
+
+For development, or to run without a global install. Requires **Node ≥ 22** and **tmux**.
 
 ```bash
 # 1. Daemon (REST API on :4400)
@@ -80,8 +104,8 @@ ORCA_BOOTSTRAP_USER=admin ORCA_BOOTSTRAP_PASS=changeme node dist/daemon/index.js
 # 2. Web UI (on :4500)
 cd web
 npm install
-NEXT_PUBLIC_ORCA_URL=http://localhost:4400 npm run build
-npm start
+npm run build
+npm start -- -p 4500
 ```
 
 Open <http://localhost:4500> and sign in. Configure your LLM provider and models in
