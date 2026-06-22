@@ -287,11 +287,11 @@ Every data-fetching page handles three states consistently:
 
 ## Auth
 
-- **LoginGate** (`components/auth/LoginGate.tsx`) — wraps the entire app, checks for a stored token on mount. If the daemon has no `UserStore`, renders children directly.
+- **LoginGate** (`components/auth/LoginGate.tsx`) — wraps the entire app, probes `/api/auth/me` on mount (the session lives in an httpOnly cookie the browser JS can't read). If the daemon has no `UserStore`, renders children directly.
 - **LoginForm** — centered login with Orca logo, username/password
-- **Token** — stored in `localStorage` under `orca.token`; SSE appends via `?token=<value>` (EventSource limitation)
+- **Token** — **httpOnly session cookie**, never in JS or `localStorage`. The browser talks only to the same-origin `/api` BFF proxy (`lib/orcaClient.ts` sets `BASE = '/api'`, `credentials: 'same-origin'`); the proxy injects the daemon bearer from the cookie on every fetch, including SSE. There is no `?token=` query param and no `localStorage` token.
 - **EventBridge** — only mounted after auth (prevents 401 on SSE). Exported from `providers.tsx`
-- **Logout** — revokes server-side, clears `localStorage`, reloads page
+- **Logout** — `POST /api/auth/logout` expires the cookie server-side and signals the auth gate via the `orca:auth-cleared` event (`lib/token.ts`)
 - **Token helper** — `getToken()`, `setToken()`, `clearToken()`, `withToken()` in `lib/token.ts`
 
 ### Role-based access
@@ -535,14 +535,14 @@ cd web
 npm install
 npm run dev          # Next.js dev server (turbopack)
 npm run build        # production build (next build)
-npm start             # production server (next start -p 4500)
-npm test              # Vitest (~285 cases, RTL + MSW)
-npm run test:watch    # watch mode
+npm start -- -p 4500 # production server (next start, port 4500)
+npm test             # Vitest (~313 cases, RTL + MSW)
+npm run test:watch   # watch mode
 ```
 
-Set `NEXT_PUBLIC_ORCA_URL` to the daemon URL (default: `http://localhost:4400`).
+The web app talks only to its own same-origin `/api` proxy (`lib/orcaClient.ts:6`), which forwards to the daemon using the httpOnly session cookie. Set `ORCA_DAEMON_URL` (server-side, default `http://localhost:4400`) if the daemon is not on localhost — there is no browser-side `NEXT_PUBLIC_ORCA_URL`.
 
-**Gotcha:** a stale turbopack dev server on :4500 serves broken CSS chunks. Fix by killing the :4500 pid and running `next start` (not `next dev`).
+**Gotcha:** a stale turbopack dev server on :4500 serves broken CSS chunks. Fix by killing the :4500 pid and running `npm start -- -p 4500` (not `next dev`).
 
 ### Test setup
 
