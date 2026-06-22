@@ -48,6 +48,25 @@ describe('DecisionQueue', () => {
     await expect(verdict).resolves.toMatchObject({ approve: true, destructive: true });
   });
 
+  it('carries the overseer-picked choice through a question verdict', async () => {
+    const q = new DecisionQueue();
+    const verdict = q.enqueue('mq', 'question', { question: 'which port?', options: [{ id: '1', label: 'a' }, { id: '2', label: 'b' }] }, false);
+    const req = await q.next('mq');
+    expect(req!.kind).toBe('question');
+    q.resolve('mq', req!.id, { approve: false, confidence: 0.9, destructive: false, rationale: 'docs-only', choice: '2' });
+    await expect(verdict).resolves.toMatchObject({ choice: '2', confidence: 0.9 });
+  });
+
+  it('a question that times out carries no choice (⇒ the deriver escalates)', async () => {
+    vi.useFakeTimers();
+    const q = new DecisionQueue();
+    const verdict = q.enqueue('mqt', 'question', { question: '?' }, false, 5000);
+    await vi.advanceTimersByTimeAsync(5000);
+    const v = await verdict;
+    expect(v.choice).toBeUndefined();
+    vi.useRealTimers();
+  });
+
   it('drain() escalates all pending for a mission', async () => {
     const q = new DecisionQueue();
     const a = q.enqueue('m5', 'task', {}, false);

@@ -88,6 +88,14 @@ export function needsInputSessions(sessions: string[], signals: Record<string, D
   return sessions.filter((s) => signals[s]?.type === 'needs_input');
 }
 
+/** Keys that select an option in an agent's multiple-choice list UI. The list opens with option 1
+ *  focused, so the 1-based position id maps to Down × (id-1) then Enter — the same navigation the
+ *  daemon's deriver uses when the overseer picks. Shared by every surface that answers a question. */
+export function keysForOption(id: string): string[] {
+  const steps = Math.max(0, Number(id) - 1);
+  return [...Array<string>(steps).fill('Down'), 'Enter'];
+}
+
 /** The most recently closed task (by closed_at), for the "last outcome" surfaces. */
 export function lastClosedTask(tasks: Task[]): Task | null {
   const closed = tasks.filter((x) => x.status === 'closed');

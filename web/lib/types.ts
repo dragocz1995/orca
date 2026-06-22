@@ -23,7 +23,13 @@ export type PlanSubmitResult = { jobId: string; epicId?: string } | PlanResult;
 export interface InsertPhasesInput { phases?: { title: string; type?: string }[]; goal?: string; exec?: string; prompt?: string }
 export interface InsertPhasesResult { epic: Task; phases: Task[] }
 export interface EngageInput { epicId: string; autonomy: string; maxSessions: number }
-export type DerivedSignal = { type: 'working' } | { type: 'complete' } | { type: 'needs_input'; question: string };
+export type PromptOption = { id: string; label: string };
+export type DerivedSignal =
+  | { type: 'working' }
+  | { type: 'complete' }
+  // `options` is present when the agent asked a multiple-choice question (the overseer escalated it):
+  // the id is the option's 1-based list position, so the UI navigates with Down × (id-1) then Enter.
+  | { type: 'needs_input'; question: string; options?: PromptOption[]; context?: string };
 export interface OrcaConfig {
   allowedExecs: string[];
   customModels: { label: string; exec: string }[];

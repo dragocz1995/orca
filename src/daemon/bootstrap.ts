@@ -9,7 +9,7 @@ import type { SummaryContext } from '../overseer/missionEngine.js';
 import { Scheduler } from '../overseer/scheduler.js';
 import { sweepFinishedSessions } from '../overseer/janitor.js';
 import { sweepStuckTasks, deadAgentTasks } from '../overseer/stuckDetector.js';
-import { decidePrompt, isDestructive, gateVerdict, minConfidenceFor, noOverseerFallback } from '../overseer/decision.js';
+import { decidePrompt, decideChoice, isDestructive, gateVerdict, minConfidenceFor, noOverseerFallback } from '../overseer/decision.js';
 import { PlanJobStore } from '../overseer/planJob.js';
 import { DecisionQueue } from '../overseer/decisionQueue.js';
 import { makePilot } from '../overseer/pilotAgent.js';
@@ -183,6 +183,33 @@ export function buildApp(opts: BuildOpts) {
       if (!inf) return noOverseerFallback(input.autonomy, isDestructive(`${input.question} ${input.context}`));
       const d = await decidePrompt(inf, input);
       return gateVerdict(d, { blockDestructive: false, minConfidence });
+    },
+    // The agent asked the user to pick an option. This routes through the SAME overseer that judges
+    // prompts/reviews: the parked agent via the decision queue when one is configured, else the relay
+    // inference as a fallback. A null choiceId escalates to a human: no overseer, an unknown/absent
+    // option id, below the autonomy confidence bar, or a destructive option.
+    decideQuestion: async (input) => {
+      const minConfidence = minConfidenceFor(input.autonomy);
+      // Gate a raw verdict (parked agent OR relay) into a final choiceId: the picked id must be a real
+      // option, clear the autonomy confidence bar, and not select a destructive action.
+      const gate = (choice: string | undefined, confidence: number) => {
+        const chosen = choice ? input.options.find((o) => o.id === choice) : undefined;
+        if (!chosen || confidence < minConfidence) return { choiceId: null };
+        // Best-effort only: option labels are natural language ("Delete the nginx config"), so this
+        // catches a label that literally embeds a shell/SQL danger token but NOT a destructive intent
+        // phrased in prose. The real guardrail for risky picks is the overseer's judgement + the
+        // confidence bar above; this is a cheap last-ditch net, not the primary defence.
+        if (isDestructive(`${input.question} ${chosen.label}`)) return { choiceId: null };
+        return { choiceId: chosen.id };
+      };
+      if (input.missionId && config.get().autopilot.overseerExec) {
+        const v = await decisionQueue.enqueue(input.missionId, 'question', { question: input.question, context: input.context, options: input.options }, false);
+        return gate(v.choice, v.confidence);
+      }
+      const inf = overseerClient();
+      if (!inf) return { choiceId: null };
+      const v = await decideChoice(inf, input);
+      return gate(v.choice === 'escalate' ? undefined : v.choice, v.confidence);
     },
   });
   // Setup mode: with no users yet the daemon is open so the onboarding page can run before login;

@@ -1221,13 +1221,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   app.post('/missions/:id/overseer/decide', async (c) => {
     const id = c.req.param('id');
     if (overseerForbidden(c, id)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json().catch(() => ({})) as { id?: string; approve?: boolean; confidence?: number; rationale?: string };
+    const b = await c.req.json().catch(() => ({})) as { id?: string; approve?: boolean; confidence?: number; rationale?: string; choice?: string };
     if (!b.id) return c.json({ error: 'id required' }, 400);
     const ok = decisionQueue.resolve(id, b.id, {
       approve: b.approve === true,
       confidence: typeof b.confidence === 'number' ? Math.max(0, Math.min(1, b.confidence)) : 0,
       destructive: false, // never trusted from the agent — the enqueue-time heuristic is authoritative
       rationale: typeof b.rationale === 'string' ? b.rationale : '',
+      // For a 'question' decision: the picked option id. Absent ⇒ the deriver escalates to a human.
+      ...(typeof b.choice === 'string' ? { choice: b.choice } : {}),
     });
     return ok ? c.json({ ok: true }) : c.json({ error: 'no such decision' }, 404);
   });

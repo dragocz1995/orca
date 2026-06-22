@@ -310,6 +310,7 @@ export const en = {
     compact: 'Compact',
     approved: 'Approved {name}',
     rejected: 'Rejected on {name}',
+    answered: 'Answered {name}: {option}',
     sentTo: 'Sent to {name}',
     interrupted: 'Interrupted {name}',
     killed: 'Killed {name}',

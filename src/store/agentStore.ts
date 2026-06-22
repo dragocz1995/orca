@@ -7,8 +7,11 @@ export class AgentStore {
 
   upsert(input: { project_id: number; name: string; program: string; model: string }): Agent {
     this.db.prepare(
+      // Update program too, not just model: agent names come from a fixed pool and get recycled, so a
+      // name first used by one CLI (e.g. opencode) can later run another (e.g. claude-code). Leaving a
+      // stale program made the deriver pick the wrong provider's prompt detector → the agent hung.
       `INSERT INTO agents (project_id,name,program,model) VALUES (@project_id,@name,@program,@model)
-       ON CONFLICT(project_id,name) DO UPDATE SET model=@model, last_active_ts=datetime('now')`
+       ON CONFLICT(project_id,name) DO UPDATE SET program=@program, model=@model, last_active_ts=datetime('now')`
     ).run(input);
     return this.db.prepare('SELECT * FROM agents WHERE project_id=? AND name=?').get(input.project_id, input.name) as Agent;
   }

@@ -1,7 +1,15 @@
 import { randomBytes } from 'node:crypto';
 
-export type DecisionKind = 'prompt' | 'review';
-export interface DecisionResult { approve: boolean; confidence: number; destructive: boolean; rationale: string }
+export type DecisionKind = 'prompt' | 'review' | 'question';
+export interface DecisionResult {
+  approve: boolean;
+  confidence: number;
+  destructive: boolean;
+  rationale: string;
+  /** For a 'question' decision: the option id the overseer picked. Absent ⇒ escalate to a human
+   *  (also the shape of a timeout/drain verdict, which therefore escalates the question). */
+  choice?: string;
+}
 export interface PendingDecision { id: string; kind: DecisionKind; context: Record<string, unknown> }
 
 interface Entry extends PendingDecision { settle: (r: DecisionResult) => void; localDestructive: boolean; timer: NodeJS.Timeout }

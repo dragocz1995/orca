@@ -2,7 +2,7 @@ import type { TmuxDriver } from '../tmux/types.js';
 import type { AgentStore } from '../store/agentStore.js';
 import type { TaskStore } from '../store/taskStore.js';
 import type { Clock } from '../shared/clock.js';
-import { detectAgentPrompt } from './shellPatterns.js';
+import { detectAgentPrompt } from './shellPatterns/index.js';
 import type { SignalSink, DerivedSignal } from './types.js';
 import { logger } from '../shared/logger.js';
 
@@ -23,6 +23,9 @@ export interface DeriverDeps {
   missionFor?: (session: string) => string | null;
   /** Overseer decision for an auto-cleared prompt; escalates when it returns approve=false or destructive=true. */
   decideApproval?: (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null }) => Promise<{ approve: boolean; destructive: boolean }>;
+  /** Overseer choice for an agent question (prompt kind 'choice'): returns the picked option id, or
+   *  null to escalate to a human. The deriver navigates to the id and accepts; null emits needs_input. */
+  decideQuestion?: (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null }) => Promise<{ choiceId: string | null }>;
 }
 
 /** L1–L3 missions (and manual, mission-less launches) route permission prompts through the overseer;
@@ -34,6 +37,9 @@ function autoClears(autonomy: string | null): boolean {
 
 export class Deriver {
   private last = new Map<string, string>();
+  // Sessions with a pending escalation, keyed by session → { prompt key, needs_input signal }. Lets a
+  // persisting escalation be re-emitted every tick so freshly-loaded clients (empty signal cache) see it.
+  private escalated = new Map<string, { key: string; signal: DerivedSignal }>();
   constructor(private d: DeriverDeps) {}
 
   start(): () => void {
@@ -60,6 +66,7 @@ export class Deriver {
     if (task.status === 'closed') {
       this.emitOnce(session, 'complete', { type: 'complete' });
       this.last.delete(session); // finished agent — drop its tracking entry so the Map can't grow unbounded
+      this.escalated.delete(session);
       return;
     }
     if (task.status !== 'in_progress' && task.status !== 'open') return;
@@ -68,9 +75,22 @@ export class Deriver {
     if (prompt) {
       const autonomy = this.d.autonomyFor?.(session) ?? null;
       const key = `prompt:${hash(prompt.question + prompt.context)}`;
-      if (this.last.get(session) === key) return; // already handled this exact prompt
+      if (this.last.get(session) === key) {
+        // Same prompt as last tick — do NOT re-decide (that would re-press keys / re-ask the overseer).
+        // But if it was escalated and is still pending, RE-EMIT the needs_input signal: a client that
+        // loaded after the one-time emit starts with an empty signal cache and would otherwise never
+        // see the prompt (the agent looks online while it's actually blocked → "locked forever").
+        const esc = this.escalated.get(session);
+        if (esc && esc.key === key) this.d.sink.emit(session, esc.signal);
+        return;
+      }
       this.last.set(session, key);
-      const escalate = () => this.d.sink.emit(session, { type: 'needs_input', question: prompt.question, options: prompt.options, context: prompt.context });
+      this.escalated.delete(session); // a new/changed prompt supersedes any prior escalation
+      const escalate = () => {
+        const signal = { type: 'needs_input', question: prompt.question, options: prompt.options, context: prompt.context } as const;
+        this.escalated.set(session, { key, signal }); // remember it so later ticks re-emit for fresh clients
+        this.d.sink.emit(session, signal);
+      };
       // L0 (Recommend) always escalates to a human — nothing is cleared autonomously.
       if (!autoClears(autonomy)) { escalate(); return; }
       // Environmental gates (workspace-trust) just block startup — orca only spawns into the
@@ -78,6 +98,31 @@ export class Deriver {
       if (prompt.autoAccept) {
         await this.d.tmux.sendKeys(session, prompt.acceptKeys);
         this.d.sink.emit(session, { type: 'working' });
+        return;
+      }
+      // A multiple-choice question (the agent's "ask the user" tool): the overseer picks an option id,
+      // or escalates. A null choice (low confidence, destructive, no overseer, or a thrown decision)
+      // hands the question to a human rather than guessing.
+      if (prompt.kind === 'choice') {
+        let choiceId: string | null = null;
+        try {
+          const r = this.d.decideQuestion
+            ? await this.d.decideQuestion({ question: prompt.question, context: prompt.context, options: prompt.options, autonomy: autonomy ?? 'L3', missionId: this.d.missionFor?.(session) ?? null })
+            : { choiceId: null };
+          choiceId = r.choiceId;
+        } catch (e) {
+          log.error('overseer question decision failed, escalating', e);
+          choiceId = null;
+        }
+        const chosen = choiceId ? prompt.options.find((o) => o.id === choiceId) : undefined;
+        if (chosen) {
+          // The list opens with option 1 focused; step down to the chosen position, then accept.
+          const steps = Math.max(0, Number(chosen.id) - 1);
+          await this.d.tmux.sendKeys(session, [...Array<string>(steps).fill('Down'), ...prompt.acceptKeys]);
+          this.d.sink.emit(session, { type: 'working' });
+        } else {
+          escalate();
+        }
         return;
       }
       // L2/L3: the overseer decides; destructive or uncertain prompts still escalate. A decision
@@ -99,6 +144,8 @@ export class Deriver {
       }
       return;
     }
+    // No prompt on screen — the agent is working (or an escalation was just answered and it moved on).
+    this.escalated.delete(session);
     this.last.set(session, 'working');
     this.d.sink.emit(session, { type: 'working' });
   }

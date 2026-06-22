@@ -310,6 +310,7 @@ export const cs = {
     compact: 'Kompaktní',
     approved: 'Schváleno {name}',
     rejected: 'Zamítnuto na {name}',
+    answered: 'Odpovězeno {name}: {option}',
     sentTo: 'Odesláno {name}',
     interrupted: 'Přerušeno {name}',
     killed: 'Ukončeno {name}',

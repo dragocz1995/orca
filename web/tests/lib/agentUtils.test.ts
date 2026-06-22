@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { taskAgentName, taskSessionName, agentDisplayName, taskElapsed, taskStartedMs, taskBlockers, tailSnippet, liveState, needsInputSessions, lastClosedTask, taskForSession, parseTs } from '../../lib/agentUtils';
+import { taskAgentName, taskSessionName, agentDisplayName, taskElapsed, taskStartedMs, taskBlockers, tailSnippet, liveState, needsInputSessions, lastClosedTask, taskForSession, parseTs, keysForOption } from '../../lib/agentUtils';
 import type { Task } from '../../lib/types';
 
 const task = (over: Partial<Task> = {}): Task => ({ id: 't1', title: 'T', status: 'open', ...over });
@@ -161,5 +161,18 @@ describe('tailSnippet', () => {
   it('returns empty string for blank input', () => {
     expect(tailSnippet('')).toBe('');
     expect(tailSnippet('\n  \n')).toBe('');
+  });
+});
+
+describe('keysForOption', () => {
+  it('option 1 (the focused default) needs no navigation — just Enter', () => {
+    expect(keysForOption('1')).toEqual(['Enter']);
+  });
+  it('option N steps down N-1 times before Enter', () => {
+    expect(keysForOption('2')).toEqual(['Down', 'Enter']);
+    expect(keysForOption('4')).toEqual(['Down', 'Down', 'Down', 'Enter']);
+  });
+  it('never produces negative navigation for a bad id', () => {
+    expect(keysForOption('0')).toEqual(['Enter']);
   });
 });

@@ -64,10 +64,13 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       }
       if (arg === 'decide') {
         const id = flag(rest, '--id');
-        if (!id) { console.error('usage: orca overseer decide --id <id> (--approve|--escalate) [--confidence <0..1>] [--rationale "<text>"]'); process.exit(1); }
+        if (!id) { console.error('usage: orca overseer decide --id <id> (--approve|--escalate|--choice <optionId>) [--confidence <0..1>] [--rationale "<text>"]'); process.exit(1); }
+        // A 'question' decision picks an option (--choice <id>); a permission/review decision approves
+        // or escalates (--approve|--escalate). Either way confidence rides along for the autonomy gate.
+        const choice = flag(rest, '--choice');
         const approve = has(rest, '--approve');
-        const confidence = approve ? Number(flag(rest, '--confidence') ?? '0.7') : 0;
-        await c.overseerDecide(missionId, { id, approve, confidence: Number.isFinite(confidence) ? confidence : 0, rationale: flag(rest, '--rationale') ?? '' });
+        const confidence = (approve || choice !== undefined) ? Number(flag(rest, '--confidence') ?? '0.7') : 0;
+        await c.overseerDecide(missionId, { id, approve, confidence: Number.isFinite(confidence) ? confidence : 0, rationale: flag(rest, '--rationale') ?? '', ...(choice !== undefined ? { choice } : {}) });
         console.log(`decided ${id}`); break;
       }
       console.error('usage: orca overseer <poll|decide ...>'); process.exit(1); break;

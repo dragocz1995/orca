@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isDestructive, decisionPrompt, parseDecision, decidePrompt, gateVerdict, minConfidenceFor, noOverseerFallback, MIN_CONFIDENCE, STRICT_CONFIDENCE } from '../../src/overseer/decision.js';
+import { isDestructive, decisionPrompt, parseDecision, decidePrompt, gateVerdict, minConfidenceFor, noOverseerFallback, decideChoice, choicePrompt, parseChoice, MIN_CONFIDENCE, STRICT_CONFIDENCE } from '../../src/overseer/decision.js';
 import { FakeInference } from '../../src/inference/client.js';
 
 describe('decision.gateVerdict', () => {
@@ -85,6 +85,23 @@ describe('decision.parseDecision', () => {
   });
 });
 
+describe('decision.parseChoice', () => {
+  it('parses and clamps the choice JSON', () => {
+    const v = parseChoice('pick: {"choice": "2", "confidence": 1.4, "rationale": "best fit"}');
+    expect(v.choice).toBe('2');
+    expect(v.confidence).toBe(1); // clamped to [0,1]
+    expect(v.rationale).toBe('best fit');
+  });
+  it('defaults missing/invalid fields to escalate + zero confidence', () => {
+    const v = parseChoice('{"rationale": "unsure"}');
+    expect(v.choice).toBe('escalate');
+    expect(v.confidence).toBe(0);
+  });
+  it('throws on no JSON (decideChoice then escalates around it)', () => {
+    expect(() => parseChoice('no json here')).toThrow();
+  });
+});
+
 describe('decision.decidePrompt', () => {
   it('returns the LLM decision and ORs in the local destructive guard', async () => {
     const inf = new FakeInference('{"approve": true, "confidence": 0.9, "destructive": false, "rationale": "safe edit"}');
@@ -102,5 +119,27 @@ describe('decision.decidePrompt', () => {
     const p = decisionPrompt({ question: 'Run build?', context: 'npm run build', options: [{ id: 'yes', label: 'Yes' }], autonomy: 'L2' });
     expect(p).toContain('Run build?');
     expect(p).toContain('yes: Yes');
+  });
+});
+
+describe('decision.decideChoice', () => {
+  const opts = [{ id: '1', label: ':4500 (uprav package.json)' }, { id: '2', label: ':4500 (uprav README)' }];
+  it('returns the picked option id and confidence', async () => {
+    const inf = new FakeInference('{"choice": "2", "confidence": 0.9, "rationale": "docs-only, no runtime change"}');
+    const v = await decideChoice(inf, { question: 'which port?', context: 'docs', options: opts, autonomy: 'L3' });
+    expect(v.choice).toBe('2');
+    expect(v.confidence).toBe(0.9);
+  });
+  it('escalates (choice=escalate, confidence 0) when inference output is unparseable', async () => {
+    const inf = new FakeInference('no json');
+    const v = await decideChoice(inf, { question: 'which port?', context: 'docs', options: opts, autonomy: 'L3' });
+    expect(v.choice).toBe('escalate');
+    expect(v.confidence).toBe(0);
+  });
+  it('choicePrompt lists the option ids/labels and the question', () => {
+    const p = choicePrompt({ question: 'which port?', context: 'docs', options: opts, autonomy: 'L2' });
+    expect(p).toContain('which port?');
+    expect(p).toContain('- 1: :4500 (uprav package.json)');
+    expect(p).toContain('- 2: :4500 (uprav README)');
   });
 });

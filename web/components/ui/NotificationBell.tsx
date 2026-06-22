@@ -100,7 +100,7 @@ export function NotificationBell() {
                 )}
                 {waiting.map((name) => {
                   const signal = signals[name];
-                  return <NeedsInputRow key={name} name={name} question={signal?.type === 'needs_input' ? signal.question : ''} exec={taskExec(taskFor(name)?.labels)} />;
+                  return <NeedsInputRow key={name} name={name} question={signal?.type === 'needs_input' ? signal.question : ''} options={signal?.type === 'needs_input' ? signal.options : undefined} exec={taskExec(taskFor(name)?.labels)} />;
                 })}
               </div>
             )}

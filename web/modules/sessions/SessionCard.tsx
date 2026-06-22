@@ -5,7 +5,7 @@ import { useKillSession, useSendInput } from '../../lib/mutations';
 import { useTasks, useSessionSignal, useConfig } from '../../lib/queries';
 import { taskTypeMeta } from '../tasks/taskMeta';
 import { taskExec } from '../../lib/taskExec';
-import { taskForSession, missionEpicId } from '../../lib/agentUtils';
+import { taskForSession, missionEpicId, keysForOption } from '../../lib/agentUtils';
 import { execModel } from '../../lib/modelProvider';
 import type { SessionInfo } from '../../lib/types';
 import { ModelIcon } from '../../components/ui/ModelIcon';
@@ -93,9 +93,22 @@ export function SessionCard({ info, onOpenTerminal, compact = false }: { info: S
       {needsInput && signal?.type === 'needs_input' && (
         <div className="flex flex-col gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5">
           <p className="text-xs text-text">{signal.question}</p>
-          <div className="flex items-center gap-1.5">
-            <button type="button" onClick={() => send.mutate({ name, keys: ['Enter'] }, { onSuccess: () => toast(t.sessions.approved.replace('{name}', name)), onError: (e) => toast(String(e), 'error') })} className="rounded-md border border-approve/50 bg-approve/10 px-2.5 py-1 text-xs font-medium text-approve transition-colors hover:bg-approve hover:text-white active:scale-95">{t.sessions.allow}</button>
-            <button type="button" onClick={() => send.mutate({ name, keys: ['Escape'] }, { onSuccess: () => toast(t.sessions.rejected.replace('{name}', name)), onError: (e) => toast(String(e), 'error') })} className="rounded-md border border-danger/50 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger hover:text-white active:scale-95">{t.sessions.reject}</button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {signal.options && signal.options.length > 0 ? (
+              <>
+                {/* The agent asked a multiple-choice question — let the human pick the actual option
+                    (navigating the list), not just accept the focused default with a bare Enter. */}
+                {signal.options.map((o) => (
+                  <button key={o.id} type="button" title={o.label} onClick={() => send.mutate({ name, keys: keysForOption(o.id) }, { onSuccess: () => toast(t.sessions.answered.replace('{name}', name).replace('{option}', o.label)), onError: (e) => toast(String(e), 'error') })} className="max-w-full truncate rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent hover:text-white active:scale-95"><span className="opacity-60">{o.id}.</span> {o.label}</button>
+                ))}
+                <button type="button" onClick={() => send.mutate({ name, keys: ['Escape'] }, { onSuccess: () => toast(t.sessions.rejected.replace('{name}', name)), onError: (e) => toast(String(e), 'error') })} className="rounded-md border border-danger/50 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger hover:text-white active:scale-95">{t.sessions.reject}</button>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={() => send.mutate({ name, keys: ['Enter'] }, { onSuccess: () => toast(t.sessions.approved.replace('{name}', name)), onError: (e) => toast(String(e), 'error') })} className="rounded-md border border-approve/50 bg-approve/10 px-2.5 py-1 text-xs font-medium text-approve transition-colors hover:bg-approve hover:text-white active:scale-95">{t.sessions.allow}</button>
+                <button type="button" onClick={() => send.mutate({ name, keys: ['Escape'] }, { onSuccess: () => toast(t.sessions.rejected.replace('{name}', name)), onError: (e) => toast(String(e), 'error') })} className="rounded-md border border-danger/50 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger hover:text-white active:scale-95">{t.sessions.reject}</button>
+              </>
+            )}
           </div>
         </div>
       )}

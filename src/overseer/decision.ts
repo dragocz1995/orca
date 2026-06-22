@@ -109,3 +109,53 @@ export async function decidePrompt(inf: InferenceClient, input: PromptContext): 
     return { approve: false, confidence: 0, destructive: localDestructive, rationale: 'overseer inference failed' };
   }
 }
+
+// --- Multiple-choice questions (the agent's "ask the user" tool) ------------------------------
+// Distinct from a permission gate: instead of approve/reject, the overseer picks ONE of the agent's
+// canned options (or escalates). The chosen id is the option's list position, which the deriver turns
+// into keyboard navigation. Same confidence gate as prompts — a low-confidence pick escalates.
+
+export interface ChoiceContext {
+  question: string;
+  context: string;
+  options: { id: string; label: string }[];
+  autonomy: string;
+}
+
+export interface ChoiceVerdict {
+  /** The picked option id, or 'escalate' to hand the question to a human. */
+  choice: string;
+  /** 0..1 — how sure the overseer is. Below the autonomy bar it escalates. */
+  confidence: number;
+  rationale: string;
+}
+
+export function choicePrompt(input: ChoiceContext): string {
+  const opts = input.options.map((o) => `- ${o.id}: ${o.label}`).join('\n');
+  return render('decision-question', {
+    autonomy: input.autonomy,
+    question: input.question,
+    context: input.context,
+    options: opts,
+  });
+}
+
+export function parseChoice(text: string): ChoiceVerdict {
+  const raw = extractJson(text, '{') as Partial<ChoiceVerdict>; // first balanced object; wrapped in try/catch
+  return {
+    choice: typeof raw.choice === 'string' ? raw.choice : 'escalate',
+    confidence: typeof raw.confidence === 'number' ? Math.max(0, Math.min(1, raw.confidence)) : 0,
+    rationale: typeof raw.rationale === 'string' ? raw.rationale : '',
+  };
+}
+
+/** Ask the overseer to pick one of the agent's options. On any inference/parse failure it escalates
+ *  (choice 'escalate', confidence 0) — the deriver then routes the question to a human. */
+export async function decideChoice(inf: InferenceClient, input: ChoiceContext): Promise<ChoiceVerdict> {
+  try {
+    const { text } = await inf.decide(choicePrompt(input));
+    return parseChoice(text);
+  } catch {
+    return { choice: 'escalate', confidence: 0, rationale: 'overseer inference failed' };
+  }
+}

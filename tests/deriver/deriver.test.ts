@@ -143,3 +143,92 @@ describe('Deriver permission handling', () => {
     err.mockRestore();
   });
 });
+
+const OC_QUESTION = `  ┃  # Questions
+  ┃
+  ┃  Which port is canonical?
+  ┃
+  ┃  1. :4500 (uprav package.json)
+  ┃  2. :4500 (uprav README + WEB.md)
+  ┃  3. :3000 (uprav docs na 3000)
+  ┃  4. Type your own answer
+  ┃  ↑↓ select  enter submit  esc dismiss`;
+
+type QDecider = (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null }) => Promise<{ choiceId: string | null }>;
+
+function setupQuestion(autonomy: string | null, decideQuestion?: QDecider, missionFor?: (s: string) => string | null) {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db); const agents = new AgentStore(db);
+  tasks.create({ id: 'orca-1', project_id: 1, title: 'T' }); tasks.setStatus('orca-1', 'in_progress');
+  agents.upsert({ project_id: 1, name: 'TestAgent', program: 'opencode', model: 'ollama-cloud/deepseek-v4-flash' });
+  const tmux = new FakeTmuxDriver(); tmux.setPane('orca-TestAgent', OC_QUESTION);
+  const emitted: { s: string; sig: { type: string } }[] = [];
+  const deriver = new Deriver({
+    tmux, agents, tasks, sink: { emit: (s, sig) => emitted.push({ s, sig }) },
+    sessionTaskId: () => 'orca-1', autonomyFor: () => autonomy, missionFor, decideQuestion,
+  });
+  return { tmux, deriver, emitted };
+}
+
+describe('Deriver question handling (the agent asks the user to pick an option)', () => {
+  it('navigates to the overseer-picked option (Down × position-1) then accepts, and emits working', async () => {
+    const { tmux, deriver, emitted } = setupQuestion('L3', async () => ({ choiceId: '2' }));
+    await deriver.tick();
+    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Down', 'Enter']]); // option 2 = one step down
+    expect(emitted.at(-1)!.sig.type).toBe('working');
+  });
+
+  it('option 1 needs no navigation — just accept', async () => {
+    const { tmux, deriver } = setupQuestion('L3', async () => ({ choiceId: '1' }));
+    await deriver.tick();
+    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Enter']]);
+  });
+
+  it('escalates to a human when the overseer returns no choice (null)', async () => {
+    const { tmux, deriver, emitted } = setupQuestion('L3', async () => ({ choiceId: null }));
+    await deriver.tick();
+    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]); // nothing pressed
+    expect(emitted.at(-1)!.sig.type).toBe('needs_input');
+  });
+
+  it('L0 escalates the question without ever consulting the overseer', async () => {
+    let consulted = false;
+    const { tmux, deriver, emitted } = setupQuestion('L0', async () => { consulted = true; return { choiceId: '1' }; });
+    await deriver.tick();
+    expect(consulted).toBe(false);
+    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]);
+    expect(emitted.at(-1)!.sig.type).toBe('needs_input');
+  });
+
+  it('a thrown question decision escalates instead of breaking the tick', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { tmux, deriver, emitted } = setupQuestion('L3', async () => { throw new Error('relay down'); });
+    await expect(deriver.tick()).resolves.toBeUndefined();
+    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]);
+    expect(emitted.at(-1)!.sig.type).toBe('needs_input');
+    err.mockRestore();
+  });
+
+  it('with no decider wired at all, escalates (no blind navigation)', async () => {
+    const { tmux, deriver, emitted } = setupQuestion('L3');
+    await deriver.tick();
+    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]);
+    expect(emitted.at(-1)!.sig.type).toBe('needs_input');
+  });
+
+  it('re-emits needs_input every tick while the question stays escalated (a late client must see it)', async () => {
+    const { deriver, emitted } = setupQuestion('L3', async () => ({ choiceId: null }));
+    await deriver.tick(); // escalate
+    await deriver.tick(); // same prompt still on screen → re-emit, not a false 'working'
+    const kinds = emitted.map((e) => e.sig.type);
+    expect(kinds).toEqual(['needs_input', 'needs_input']);
+  });
+
+  it('does NOT re-consult the overseer on repeat ticks of the same question', async () => {
+    let calls = 0;
+    const { deriver } = setupQuestion('L3', async () => { calls += 1; return { choiceId: null }; });
+    await deriver.tick();
+    await deriver.tick();
+    expect(calls).toBe(1); // decided once; later ticks only re-emit the stored signal
+  });
+});
