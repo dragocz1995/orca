@@ -9,14 +9,17 @@ import { useToast } from '../../components/ui/Toast';
 
 class FakeES { onmessage = null; addEventListener() {} close() {} constructor(public url: string) {} }
 (globalThis as unknown as { EventSource: typeof FakeES }).EventSource = FakeES;
-const server = setupServer(http.get('*/api/health', () => HttpResponse.json({ ok: true })));
-beforeAll(() => server.listen({ onUnhandledRequest })); afterAll(() => { localStorage.clear(); server.close(); });
+const server = setupServer(
+  http.get('*/api/health', () => HttpResponse.json({ ok: true })),
+  // A valid session: LoginGate's me() probe resolves → the gate opens and renders children.
+  http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'admin' } })),
+);
+beforeAll(() => server.listen({ onUnhandledRequest })); afterAll(() => server.close());
 
 function Probe() { useToast(); return <span>ok</span>; }
 
 describe('Shell provides ToastProvider', () => {
   it('useToast works inside Shell without throwing', () => {
-    localStorage.setItem('orca.token', 'test-token'); // authed → LoginGate renders children
     expect(() => render(<Shell><Probe /></Shell>)).not.toThrow();
   });
 });

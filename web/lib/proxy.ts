@@ -26,12 +26,16 @@ export function isSameOrigin(req: Request): boolean {
   return origin === new URL(req.url).origin;
 }
 
-/** Copy request headers for forwarding to the daemon, dropping hop-by-hop / identity headers that
- *  must not leak (the browser cookie carries our session, not the daemon's auth). */
+/** Headers safe to forward from the browser to the daemon. An allow-list (not a deny-list) so a
+ *  client can never smuggle its own `authorization` (the proxy injects the real bearer), spoof its
+ *  source IP via `x-forwarded-for`/`x-real-ip`/`forwarded` (defeating daemon rate-limiting/audit),
+ *  or inject hop-by-hop headers. Only content-negotiation headers pass through. */
+const FORWARD_ALLOW = new Set(['content-type', 'accept', 'accept-encoding', 'accept-language']);
+
 export function forwardHeaders(req: Request): Headers {
-  const h = new Headers(req.headers);
-  h.delete('cookie');
-  h.delete('host');
-  h.delete('connection');
+  const h = new Headers();
+  for (const [key, value] of req.headers) {
+    if (FORWARD_ALLOW.has(key.toLowerCase())) h.set(key, value);
+  }
   return h;
 }

@@ -28,6 +28,24 @@ describe('auth login route', () => {
     expect(res.status).toBe(401);
     expect(res.headers.get('set-cookie')).toBeNull();
   });
+
+  it('rejects a cross-origin login (login CSRF) without calling the daemon', async () => {
+    const req = new Request('https://web.test/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.test' },
+      body: JSON.stringify({ username: 'admin', password: 'x' }),
+    });
+    const res = await login(req);
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 (not a crash) when the daemon returns a non-JSON 200', async () => {
+    fetchMock.mockResolvedValue(new Response('<html>gateway</html>', { status: 200 }));
+    const res = await login(post('https://web.test/api/auth/login', { username: 'admin', password: 'x' }));
+    expect(res.status).toBe(502);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
 });
 
 describe('auth logout route', () => {
@@ -36,5 +54,12 @@ describe('auth logout route', () => {
     const req = new Request('https://web.test/api/auth/logout', { method: 'POST', headers: { origin: 'https://web.test', cookie: 'orca_session=secret-tok' } });
     const res = await logout(req);
     expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/);
+  });
+
+  it('rejects a cross-origin logout (logout CSRF)', async () => {
+    const req = new Request('https://web.test/api/auth/logout', { method: 'POST', headers: { origin: 'https://evil.test', cookie: 'orca_session=secret-tok' } });
+    const res = await logout(req);
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

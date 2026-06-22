@@ -40,4 +40,18 @@ describe('proxy catch-all', () => {
     expect(res.status).toBe(401);
     expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/);
   });
+
+  it('rejects a path-traversal segment with 400 without calling the daemon', async () => {
+    const req = new Request('https://web.test/api/tasks', { headers: { cookie: 'orca_session=tok' } });
+    const res = await GET(req, ctx(['..', '..', 'admin']));
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never echoes an upstream Set-Cookie back to the browser', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200, headers: { 'set-cookie': 'daemon_sess=leak; Path=/' } }));
+    const req = new Request('https://web.test/api/tasks', { headers: { cookie: 'orca_session=tok' } });
+    const res = await GET(req, ctx(['tasks']));
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
 });

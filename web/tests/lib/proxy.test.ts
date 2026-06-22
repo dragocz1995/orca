@@ -42,4 +42,24 @@ describe('proxy helpers', () => {
     expect(h.get('host')).toBeNull();
     expect(h.get('content-type')).toBe('application/json');
   });
+
+  it('forwardHeaders drops client-supplied auth and forwarded-for headers (no smuggling/IP spoofing)', () => {
+    const h = forwardHeaders(new Request('https://web.example/api/x', {
+      headers: {
+        authorization: 'Bearer attacker-token',
+        'x-forwarded-for': '1.2.3.4',
+        'x-real-ip': '1.2.3.4',
+        forwarded: 'for=1.2.3.4',
+        'x-forwarded-host': 'evil.example',
+        accept: 'application/json',
+      },
+    }));
+    expect(h.get('authorization')).toBeNull();
+    expect(h.get('x-forwarded-for')).toBeNull();
+    expect(h.get('x-real-ip')).toBeNull();
+    expect(h.get('forwarded')).toBeNull();
+    expect(h.get('x-forwarded-host')).toBeNull();
+    // Legitimate content-negotiation headers still pass through.
+    expect(h.get('accept')).toBe('application/json');
+  });
 });
