@@ -41,6 +41,22 @@ describe('proxy catch-all', () => {
     expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/);
   });
 
+  it('forwards a mutating body as raw bytes (binary-safe avatar upload, not UTF-8 mangled)', async () => {
+    fetchMock.mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
+    // Bytes that are NOT valid UTF-8 — exactly what a JPEG contains. Decoding via req.text() would
+    // replace them with U+FFFD and inflate the body; arrayBuffer() must preserve them exactly.
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x80, 0xfe, 0x42]);
+    const req = new Request('https://web.test/api/auth/me/avatar', {
+      method: 'POST',
+      headers: { cookie: 'orca_session=tok', origin: 'https://web.test', 'content-type': 'multipart/form-data; boundary=x' },
+      body: bytes,
+    });
+    const res = await POST(req, ctx(['auth', 'me', 'avatar']));
+    expect(res.status).toBe(200);
+    const sent = new Uint8Array(fetchMock.mock.calls[0][1].body as ArrayBuffer);
+    expect(Array.from(sent)).toEqual(Array.from(bytes));
+  });
+
   it('rejects a path-traversal segment with 400 without calling the daemon', async () => {
     const req = new Request('https://web.test/api/tasks', { headers: { cookie: 'orca_session=tok' } });
     const res = await GET(req, ctx(['..', '..', 'admin']));

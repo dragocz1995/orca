@@ -37,7 +37,10 @@ async function proxy(req: Request, ctx: Ctx): Promise<Response> {
   const upstream = await fetch(`${daemonUrl()}/${path.join('/')}${search}`, {
     method: req.method,
     headers,
-    body: MUTATING.has(req.method) ? await req.text() : undefined,
+    // Forward the raw bytes, not req.text(): decoding a multipart/form-data (avatar) upload as UTF-8
+    // mangles the binary image, so it reaches the daemon corrupt. arrayBuffer() is binary-safe and
+    // works for JSON bodies too (the forwarded content-type header keeps the daemon parsing correctly).
+    body: MUTATING.has(req.method) ? await req.arrayBuffer() : undefined,
   });
   const resHeaders = new Headers(upstream.headers);
   // Never relay a daemon-set cookie to the browser; the proxy is the sole owner of the session cookie.
