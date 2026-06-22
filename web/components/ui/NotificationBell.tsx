@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell } from 'lucide-react';
+import Link from 'next/link';
+import { Bell, ShieldAlert } from 'lucide-react';
 import type { Task } from '../../lib/types';
-import { useSessions, useSessionSignals, useTasks } from '../../lib/queries';
+import { useSessions, useSessionSignals, useTasks, useEscalations } from '../../lib/queries';
 import { needsInputSessions, taskSessionName } from '../../lib/agentUtils';
 import { taskExec } from '../../lib/taskExec';
 import { NeedsInputRow } from './NeedsInputRow';
@@ -19,7 +20,8 @@ export function NotificationBell() {
   const tasks = useTasks();
 
   const waiting = needsInputSessions(sessions.data ?? [], signals);
-  const count = waiting.length;
+  const escalations = useEscalations();
+  const count = waiting.length + escalations.length;
 
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -82,6 +84,20 @@ export function NotificationBell() {
               <div className="px-3 py-7 text-center text-xs text-text-muted">{t.sidebar.noNotifications}</div>
             ) : (
               <div className="flex max-h-[60vh] flex-col gap-1.5 overflow-auto p-2">
+                {/* Overseer escalations — one row linking to the full inbox, where they're resolved. */}
+                {escalations.length > 0 && (
+                  <Link
+                    href="/escalations"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/[0.06] px-2.5 py-2 transition-colors hover:bg-warning/10"
+                  >
+                    <ShieldAlert size={14} className="shrink-0 text-warning" aria-hidden />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-medium text-text">{t.sidebar.escalations.replace('{count}', String(escalations.length))}</span>
+                      <span className="block truncate text-tiny text-text-muted">{escalations[0]!.title}</span>
+                    </span>
+                  </Link>
+                )}
                 {waiting.map((name) => {
                   const signal = signals[name];
                   return <NeedsInputRow key={name} name={name} question={signal?.type === 'needs_input' ? signal.question : ''} exec={taskExec(taskFor(name)?.labels)} />;

@@ -2,10 +2,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Languages, User } from 'lucide-react';
+import { Languages, User, ShieldAlert } from 'lucide-react';
 import { modulesByGroup } from '../../modules/registry';
 import { useSidebarState } from '../../lib/useSidebarState';
-import { useHealth, useTasks, useMe } from '../../lib/queries';
+import { useHealth, useTasks, useMe, useEscalations } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { NavGroup } from './NavGroup';
 import { OpsStatusBar } from './OpsStatusBar';
@@ -31,6 +31,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
   const working = (tasks.data ?? []).some((t) => t.status === 'in_progress');
   const status: keyof typeof DAEMON_STATUS = !up ? 'fail' : working ? 'busy' : 'ready';
   const nextReady = (tasks.data ?? []).find((t) => t.status === 'open' && t.type !== 'epic');
+  const escalations = useEscalations();
   const dragging = useRef(false);
 
   const { t, locale, setLocale } = useTranslation();
@@ -96,6 +97,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
                   href: m.route,
                   label: t.nav[m.id as keyof typeof t.nav] ?? m.label,
                   icon: m.icon,
+                  badge: m.id === 'escalations' ? escalations.length : undefined,
                 })),
               }}
               pathname={pathname}
@@ -104,6 +106,17 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
           );
         })}
       </div>
+
+      {/* Escalations alert — sits above "next ready" so a rejected phase waiting on a human is the
+          first thing you see. Warning-toned, shows the count and the latest rejected phase. */}
+      {expanded && escalations.length > 0 && (
+        <Link href="/escalations" className="border-t border-warning/30 bg-warning/[0.06] px-4 py-2.5 transition-colors hover:bg-warning/10" title={escalations[0]!.title}>
+          <div className="flex items-center gap-1.5 text-tiny font-semibold uppercase tracking-wide text-warning">
+            <ShieldAlert size={12} aria-hidden />{t.common.escalationsWaiting.replace('{count}', String(escalations.length))}
+          </div>
+          <div className="mt-0.5 truncate text-xs text-text">{escalations[0]!.title}</div>
+        </Link>
+      )}
 
       {expanded && nextReady && (
         <Link href="/tasks" className="border-t border-border px-4 py-2.5 transition-colors hover:bg-elevated" title={nextReady.title}>

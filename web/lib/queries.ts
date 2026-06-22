@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
+import { pendingEscalations, type Escalation } from './escalations';
 import type { DerivedSignal, HermesStatus, CliDetectionResult, PlanJob } from './types';
 
 /** Poll an async plan job until it leaves the 'planning' state. The SSE `plan` handler also pushes
@@ -89,6 +91,19 @@ export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: orcaClien
 
 export const useActivity = (type?: string) =>
   useQuery({ queryKey: ['activity', type ?? 'all'], queryFn: () => orcaClient.activity(type ? { type } : undefined), refetchInterval: 5000 });
+
+/** Pending overseer escalations — phases a post-done review rejected that still need a human, derived
+ *  from the persisted review feed joined to live task/dep state. Shared by the Escalations page, the
+ *  sidebar alert and the notification bell so the count is one source of truth. */
+export const useEscalations = (): Escalation[] => {
+  const reviews = useActivity('review');
+  const tasks = useTasks();
+  const deps = useAllDeps();
+  return useMemo(
+    () => pendingEscalations(reviews.data ?? [], tasks.data ?? [], deps.data ?? []),
+    [reviews.data, tasks.data, deps.data],
+  );
+};
 
 export const useProjects = () =>
   useQuery({ queryKey: ['projects'], queryFn: orcaClient.projects });
