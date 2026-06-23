@@ -18,6 +18,7 @@ beforeEach(() => { (globalThis as unknown as { EventSource: typeof FakeES }).Eve
 import { Terminal } from '../../../components/terminal/Terminal';
 
 const CLEAR = '\x1b[H\x1b[2J';
+const HIDE = '\x1b[?25l';
 
 describe('Terminal', () => {
   it('mounts xterm and writes pane frames atomically (no separate clear)', () => {
@@ -25,7 +26,7 @@ describe('Terminal', () => {
     expect(openSpy).toHaveBeenCalled();
     act(() => FakeES.last.emit('pane', { pane: 'frame-1' }));
     expect(clearSpy).not.toHaveBeenCalled();
-    expect(writeSpy).toHaveBeenCalledWith(`${CLEAR}frame-1`);
+    expect(writeSpy).toHaveBeenCalledWith(`${CLEAR}frame-1${HIDE}`);
   });
 
   it('skips write when pane is unchanged (B1 — idle dedupe guard)', () => {
