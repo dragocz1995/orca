@@ -75,6 +75,8 @@ export interface ServerDeps {
   decisionQueue?: DecisionQueue;
   /** Spawn the Pilot agent for an agent-mode plan job (Task 9). Absent → relay-only planning. */
   pilot?: (job: PlanJob, projectPath: string) => Promise<void>;
+  /** Per-user advisor lifecycle. Absent → advisor feature disabled (routes degrade gracefully). */
+  advisor?: import('../advisor/service.js').AdvisorService;
 }
 
 /** This package's version, read once from its package.json (two dirs up from dist/api/server.js, and
@@ -185,7 +187,9 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       const user = users.verify(body.username, body.password);
       if (!user) return c.json({ error: 'invalid credentials' }, 401);
       loginHits.delete(ip); // a valid login clears the counter so an earlier typo streak can't lock the user out
-      return c.json({ token: users.issueToken(user.id), user });
+      const token = users.issueToken(user.id);
+      void d.advisor?.ensureOnLogin(user.id); // fire-and-forget: bring the user's advisor back up; never block login
+      return c.json({ token, user });
     });
     app.post('/auth/logout', (c) => { const t = c.get('token'); if (t) users.revokeToken(t); return c.json({ ok: true }); });
     app.get('/auth/me', (c) => c.json({ user: c.get('user') }));
@@ -1211,6 +1215,28 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       while (!done && !c.req.raw.signal.aborted) await stream.sleep(1000);
       clear();
     });
+  });
+
+  // Per-user advisor lifecycle. Full-scope (non-agent) callers only — a spawned agent must not be able
+  // to start/stop a human's advisor. Each acts on the caller's own session (`orca-advisor-<userId>`).
+  app.get('/advisor/status', async c => {
+    if (!d.advisor) return c.json({ running: false, exec: '', session: null });
+    if (c.get('tokenScope') === 'agent') return c.json({ error: 'forbidden' }, 403);
+    return c.json(await d.advisor.status(c.get('user').id));
+  });
+  app.post('/advisor/start', async c => {
+    if (!d.advisor) return c.json({ error: 'advisor unavailable' }, 503);
+    if (c.get('tokenScope') === 'agent') return c.json({ error: 'forbidden' }, 403);
+    const { exec } = await c.req.json().catch(() => ({})) as { exec?: unknown };
+    if (typeof exec !== 'string' || !exec) return c.json({ error: 'exec required' }, 400);
+    try { return c.json(await d.advisor.start(c.get('user').id, exec), 201); }
+    catch (e) { return c.json({ error: (e as Error).message }, 403); } // exec not allowed for the user
+  });
+  app.post('/advisor/stop', async c => {
+    if (!d.advisor) return c.json({ ok: true });
+    if (c.get('tokenScope') === 'agent') return c.json({ error: 'forbidden' }, 403);
+    await d.advisor.stop(c.get('user').id);
+    return c.json({ ok: true });
   });
 
   app.get('/missions', c => {
