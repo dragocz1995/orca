@@ -1,5 +1,6 @@
 'use client';
 import { useState, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { Menu } from 'lucide-react';
 import { Providers } from '../../app/providers';
 import { LanguageProvider, useTranslation } from '../../lib/i18n';
@@ -47,13 +48,21 @@ function ShellLayout({ children }: { children: ReactNode }) {
   );
 }
 
+/** Renders the full app chrome (sidebar + dock) for normal routes, but nothing but the page itself for
+ *  the chromeless pop-out terminal window (`/terminal/*`) — still inside the providers + auth gate. */
+function ShellBody({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  if (pathname?.startsWith('/terminal/')) return <>{children}</>;
+  return <ShellLayout>{children}</ShellLayout>;
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <Providers>
       <LanguageProvider>
       <ToastProvider>
         <LoginGate>
-          <ShellLayout>{children}</ShellLayout>
+          <ShellBody>{children}</ShellBody>
         </LoginGate>
       </ToastProvider>
       </LanguageProvider>

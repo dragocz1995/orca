@@ -316,6 +316,7 @@ export const en = {
     allow: 'Allow ⏎',
     reject: 'Reject ⎋',
     terminal: 'Terminal',
+    popOut: 'Open in a new window',
     interrupt: 'Interrupt',
     kill: 'Kill session',
     empty: 'No live sessions',

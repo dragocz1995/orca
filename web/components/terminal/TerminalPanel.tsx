@@ -1,9 +1,12 @@
 'use client';
+import { SquareArrowOutUpRight } from 'lucide-react';
 import { StreamTerminal } from './StreamTerminal';
 import { Button } from '../ui/Button';
+import { IconButton } from '../ui/IconButton';
 import { useKillSession } from '../../lib/mutations';
 import { useToast } from '../ui/Toast';
 import { useTranslation } from '../../lib/i18n';
+import { openTerminalWindow } from '../../lib/openTerminalWindow';
 
 /** The full agent terminal: a single interactive xterm the user types directly into (all keys work),
  *  plus a slim footer carrying only the Kill action. There is no separate input box or key-button bar
@@ -19,7 +22,8 @@ export function TerminalPanel({ name, onKilled }: { name: string; onKilled?: () 
       </div>
       <div className="flex items-center gap-2 border-t border-border bg-surface px-3 py-2">
         <span className="text-xs text-text-muted">{t.sessions.typeHint}</span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <IconButton icon={SquareArrowOutUpRight} label={t.sessions.popOut} onClick={() => openTerminalWindow(name)} />
           <Button
             variant="danger"
             disabled={kill.isPending}

@@ -316,6 +316,7 @@ export const cs = {
     allow: 'Povolit ⏎',
     reject: 'Odmítnout ⎋',
     terminal: 'Terminál',
+    popOut: 'Otevřít v novém okně',
     interrupt: 'Přerušit',
     kill: 'Ukončit relaci',
     empty: 'Žádné živé relace',

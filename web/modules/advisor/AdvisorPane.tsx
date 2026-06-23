@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Bot, X, Square, RotateCcw, MoreVertical, Eye, SquareTerminal } from 'lucide-react';
+import { Bot, X, Square, RotateCcw, MoreVertical, Eye, SquareTerminal, SquareArrowOutUpRight } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { useToast } from '../../components/ui/Toast';
@@ -11,6 +11,7 @@ import { useAdvisorStart, useAdvisorStop } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
 import { apiErrorMessage } from '../../lib/orcaClient';
 import { agentDisplayName } from '../../lib/agentUtils';
+import { openTerminalWindow } from '../../lib/openTerminalWindow';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import type { DockPane } from '../../lib/useDockState';
 
@@ -41,6 +42,15 @@ function SessionPane({ name, onRemove }: { name: string; onRemove?: () => void }
         <Icon size={15} className="text-text-muted" aria-hidden />
         <span className="truncate text-sm font-medium">{agentDisplayName(name)}</span>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => openTerminalWindow(name)}
+          aria-label={t.sessions.popOut}
+          title={t.sessions.popOut}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"
+        >
+          <SquareArrowOutUpRight size={15} aria-hidden />
+        </button>
         <button
           type="button"
           onClick={onRemove}
@@ -98,6 +108,17 @@ function AdvisorLifecyclePane() {
           {running ? t.advisor.running : t.advisor.idle}
         </span>
         <div className="flex-1" />
+        {running && session ? (
+          <button
+            type="button"
+            onClick={() => openTerminalWindow(session)}
+            aria-label={t.sessions.popOut}
+            title={t.sessions.popOut}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"
+          >
+            <SquareArrowOutUpRight size={15} aria-hidden />
+          </button>
+        ) : null}
         {running ? (
           <ActionMenu
             label={t.common.actions}
