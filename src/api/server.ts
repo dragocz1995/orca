@@ -900,15 +900,25 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
                 // Rejected/destructive. L3 (full autonomy) self-heals: re-open the phase with the review
                 // feedback so the agent fixes it, up to REVIEW_FIX_BUDGET times before escalating. L1/L2
                 // (human-in-the-loop) leave it — the dependents stay gated for a human to resolve.
+                // A `escalated` verdict (the overseer never answered — a timeout) is NOT a real reject:
+                // it must wait for a human, never self-heal. Without this guard a slow/absent overseer
+                // turned every phase into an infinite reopen loop. Check it BEFORE bumpReviewFix so a
+                // timeout doesn't burn the self-heal budget either.
                 const fresh = d.tasks.get(id);
-                if (fresh && mission.autonomy === 'L3' && d.tasks.bumpReviewFix(id) <= REVIEW_FIX_BUDGET) {
+                if (fresh && !verdict.escalated && mission.autonomy === 'L3' && d.tasks.bumpReviewFix(id) <= REVIEW_FIX_BUDGET) {
                   const feedback = `\n\n[Review rejected — previous attempt was not accepted]: ${verdict.rationale}\nFix the issue and close the task again.`;
                   d.tasks.update(id, { description: (fresh.description ?? '') + feedback });
                   d.tasks.setStatus(id, 'open'); // re-open so the engine tick re-spawns it (its deps are already satisfied)
                   d.bus.publish({ type: 'task', taskId: id, status: 'open' });
                   void d.engine.tick(mission.id).catch((e) => log.error('post-review self-heal tick failed', e));
+                } else {
+                  // Not self-healed (overseer timeout, L1/L2 human-in-the-loop, or self-heal budget
+                  // spent): leave the phase closed and its dependents blocked for a human. Tick so the
+                  // mission flips to 'stalled' ("needs attention") now instead of reading 'active' until
+                  // the next 90s interval — the escalation must be visible, and the mission waits, never
+                  // disengages, until the human resolves it (approve-gate / re-run on the Escalations page).
+                  void d.engine.tick(mission.id).catch((e) => log.error('post-review escalation tick failed', e));
                 }
-                // else: escalated — leave the phase closed and the dependents blocked for a human.
               })
               // Fire-and-forget review must never crash the daemon — the verdict apply (or the enqueue
               // itself) can throw, so swallow-and-log instead of leaving an unhandled rejection.

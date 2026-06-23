@@ -155,4 +155,21 @@ describe('review escalation + self-heal', () => {
     expect(t.deps.tasks.get(childId)!.status).toBe('closed'); // human-in-the-loop: no auto re-spawn
     expect(t.deps.tasks.get(nextId)!.status).toBe('blocked');
   });
+
+  it('L3: a timeout-escalated review does NOT self-heal — it waits for a human (no reopen livelock)', async () => {
+    const t = await makeTestApp({});
+    await enableReview(t, t.token);
+    const { missionId, childId, nextId } = t.deps.seedMissionWithChain('L3');
+    const poll = t.deps.decisionQueue.next(missionId, 2000);
+    await closePhase(t, t.token, childId);
+    const req = await poll;
+    // The overseer never answered: the queue's timeout produces this shape (`escalated: true`). Even on
+    // L3 (which self-heals real rejects) this must NOT re-open the phase — that synthetic-reject reopen
+    // was the infinite livelock. It stays closed and waits for a human instead.
+    t.deps.decisionQueue.resolve(missionId, req!.id, { approve: false, confidence: 0, destructive: false, rationale: 'overseer timeout', escalated: true });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(t.deps.tasks.get(childId)!.status).toBe('closed'); // NOT re-spawned despite L3
+    expect(t.deps.tasks.get(childId)!.labels.some((l) => l.startsWith('reviewfix:'))).toBe(false); // self-heal budget not burned
+    expect(t.deps.tasks.get(nextId)!.status).toBe('blocked'); // halted for a human
+  });
 });

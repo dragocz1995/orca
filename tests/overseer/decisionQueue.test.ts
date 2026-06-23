@@ -30,12 +30,14 @@ describe('DecisionQueue', () => {
     vi.useRealTimers();
   });
 
-  it('enqueue() resolves to conservative escalate on timeout', async () => {
+  it('enqueue() resolves to an escalate-to-human verdict on timeout (never auto-decides)', async () => {
     vi.useFakeTimers();
     const q = new DecisionQueue();
     const verdict = q.enqueue('m4', 'task', {}, true, 5000);
     await vi.advanceTimersByTimeAsync(5000);
-    await expect(verdict).resolves.toEqual({ approve: false, confidence: 0, destructive: true, rationale: 'overseer timeout' });
+    // `escalated: true` flags "no overseer verdict — hand to a human"; consumers must NOT treat this
+    // like a real reject (e.g. an L3 review must not self-heal/re-run on it).
+    await expect(verdict).resolves.toEqual({ approve: false, confidence: 0, destructive: true, rationale: 'overseer timeout', escalated: true });
     vi.useRealTimers();
   });
 

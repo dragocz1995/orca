@@ -9,6 +9,11 @@ export interface DecisionResult {
   /** For a 'question' decision: the option id the overseer picked. Absent ⇒ escalate to a human
    *  (also the shape of a timeout/drain verdict, which therefore escalates the question). */
   choice?: string;
+  /** True only when the overseer never answered (the decision timed out): there is NO real verdict,
+   *  so the decision must be handed to a human and never auto-acted on. In particular a post-done
+   *  review must NOT self-heal/re-run the phase on this — that turns a slow/absent overseer into an
+   *  infinite reopen loop. A genuine overseer reject leaves this unset. */
+  escalated?: boolean;
 }
 export interface PendingDecision { id: string; kind: DecisionKind; context: Record<string, unknown> }
 
@@ -31,7 +36,10 @@ export class DecisionQueue {
       const id = randomBytes(6).toString('hex');
       const timer = setTimeout(() => {
         this.remove(missionId, id);
-        resolveVerdict({ approve: false, confidence: 0, destructive: localDestructive, rationale: 'overseer timeout' });
+        // Timeout = the overseer never answered. This is NOT a verdict — it escalates to a human and
+        // must never auto-act (see `escalated`). Without this flag a review's L3 self-heal read the
+        // synthetic reject as "overseer rejected" and re-ran the phase forever (livelock).
+        resolveVerdict({ approve: false, confidence: 0, destructive: localDestructive, rationale: 'overseer timeout', escalated: true });
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
       const entry: Entry = { id, kind, context, localDestructive, timer, settle: (r) => { clearTimeout(timer); resolveVerdict(r); } };
