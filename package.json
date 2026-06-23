@@ -43,6 +43,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "depcruise": "depcruise src web --config .dependency-cruiser.cjs",
+    "depgraph": "depcruise src web --config .dependency-cruiser.cjs --output-type dot | dot -T svg -o dependency-graph.svg",
     "deadcode": "knip",
     "serve": "node --experimental-strip-types src/daemon/index.ts"
   },
@@ -63,6 +65,7 @@
     "@next/eslint-plugin-next": "^16.2.9",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
+    "dependency-cruiser": "^17.4.3",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-unused-imports": "^4.4.1",
