@@ -1,5 +1,5 @@
 'use client';
-import { Bot } from 'lucide-react';
+import { SquareTerminal } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { useAdvisorStatus } from '../../lib/queries';
 
@@ -15,9 +15,9 @@ export function AdvisorLauncher({ onOpen }: { onOpen: () => void }) {
       onClick={onOpen}
       aria-label={t.advisor.open}
       title={t.advisor.title}
-      className="fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-accent text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+      className="fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full border border-border-strong bg-elevated text-text-muted shadow-lg transition-colors hover:bg-surface hover:text-text active:scale-95"
     >
-      <Bot size={22} aria-hidden />
+      <SquareTerminal size={22} aria-hidden />
       {running ? <span className="absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-bg bg-green-500" aria-hidden /> : null}
     </button>
   );

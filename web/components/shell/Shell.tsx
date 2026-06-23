@@ -16,12 +16,17 @@ function ShellLayout({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const dock = useDockState();
   const docked = dock.state.open;
+  // When the dock takes the left edge, the sidebar moves to the right edge (mirrored) so the two
+  // never stack on the same side.
+  const dockLeft = docked && dock.state.side === 'left';
+  const sidebar = (
+    <Sidebar mobileOpen={drawerOpen} onMobileClose={() => setDrawerOpen(false)} side={dockLeft ? 'right' : 'left'} />
+  );
 
   return (
     <>
       <div className="flex h-dvh overflow-hidden">
-        <Sidebar mobileOpen={drawerOpen} onMobileClose={() => setDrawerOpen(false)} />
-        {docked && dock.state.side === 'left' && <AdvisorPanel dock={dock} />}
+        {dockLeft ? <AdvisorPanel dock={dock} /> : sidebar}
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
             {/* Mobile top bar — sits at the top of the page and scrolls away with content */}
@@ -34,7 +39,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
             <div className="p-4">{children}</div>
           </main>
         </div>
-        {docked && dock.state.side === 'right' && <AdvisorPanel dock={dock} />}
+        {dockLeft ? sidebar : (docked && dock.state.side === 'right' && <AdvisorPanel dock={dock} />)}
       </div>
       <CommandPalette />
       {!docked && <AdvisorLauncher onOpen={() => dock.setOpen(true)} />}

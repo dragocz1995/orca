@@ -1,6 +1,6 @@
 {
   "name": "orcasynth",
-  "version": "1.4.13",
+  "version": "1.4.14",
   "description": "ORCA — an autonomous coding-agent orchestrator with an autopilot overseer, daemon API and web UI. Install globally and run `orca`.",
   "license": "MIT",
   "type": "module",
@@ -41,6 +41,10 @@
     "prepublishOnly": "npm run build && npm run build:web",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "depcruise": "depcruise src web --config .dependency-cruiser.cjs",
+    "depgraph": "depcruise src web --config .dependency-cruiser.cjs --output-type dot | dot -T svg -o dependency-graph.svg",
     "deadcode": "knip",
     "serve": "node --experimental-strip-types src/daemon/index.ts"
   },
@@ -57,10 +61,17 @@
     "node-pty": "^1.0.0"
   },
   "devDependencies": {
+    "@next/eslint-plugin-next": "^16.2.9",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
+    "dependency-cruiser": "^17.4.3",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.7.0",
     "knip": "^6.17.1",
     "typescript": "^5.6.0",
+    "typescript-eslint": "^8.62.0",
     "vitest": "^2.1.0"
   }
 }
