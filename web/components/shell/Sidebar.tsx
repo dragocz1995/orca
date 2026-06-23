@@ -19,7 +19,7 @@ const DAEMON_STATUS = {
   fail: { color: 'var(--color-error)', ring: 'color-mix(in srgb, var(--color-error) 50%, transparent)' },
 } as const;
 
-export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: boolean; onMobileClose?: () => void }) {
+export function Sidebar({ mobileOpen = false, onMobileClose, side = 'left' }: { mobileOpen?: boolean; onMobileClose?: () => void; side?: 'left' | 'right' }) {
   const pathname = usePathname();
   const { collapsed, width, toggle, setWidth } = useSidebarState();
   const { data } = useHealth();
@@ -56,8 +56,10 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
     (e.target as Element).setPointerCapture?.(e.pointerId);
   }, []);
   const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (dragging.current) setWidth(e.clientX);
-  }, [setWidth]);
+    // When the rail sits on the right edge, width grows as the cursor moves left, so measure from the
+    // viewport's right edge instead of from x=0.
+    if (dragging.current) setWidth(side === 'right' ? window.innerWidth - e.clientX : e.clientX);
+  }, [setWidth, side]);
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     dragging.current = false;
     (e.target as Element).releasePointerCapture?.(e.pointerId);
@@ -76,7 +78,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
       aria-label={t.common.primaryNav}
       className={mobile
         ? `fixed inset-y-0 left-0 z-50 flex h-full w-[264px] flex-col overflow-hidden border-r border-border bg-surface transition-transform duration-200 md:hidden ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`
-        : 'relative hidden h-full shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex'}
+        : `relative hidden h-full shrink-0 flex-col ${side === 'right' ? 'border-l' : 'border-r'} border-border bg-surface transition-[width] duration-200 md:flex`}
       style={mobile ? { transitionTimingFunction: 'var(--ease-out)' } : { width: expanded ? width : RAIL, transitionTimingFunction: 'var(--ease-out)' }}
     >
       <div className="flex items-center justify-center border-b border-border px-3 py-3 overflow-hidden">
@@ -189,7 +191,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
           type="button"
           aria-label={t.common.toggleSidebar}
           onClick={toggle}
-          className="group absolute -right-2 top-1/2 z-10 flex h-14 w-4 -translate-y-1/2 items-center justify-center"
+          className={`group absolute ${side === 'right' ? '-left-2' : '-right-2'} top-1/2 z-10 flex h-14 w-4 -translate-y-1/2 items-center justify-center`}
         >
           <span className="h-9 w-1 rounded-full bg-border transition-all duration-200 group-hover:h-12 group-hover:bg-text-muted" />
         </button>
@@ -202,7 +204,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={() => setWidth(224)}
-          className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
+          className={`absolute ${side === 'right' ? 'left-0' : 'right-0'} top-0 h-full w-1 cursor-col-resize`}
         />
       )}
     </nav>
