@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Bot, X, Square, RotateCcw } from 'lucide-react';
+import { Bot, X, Square, RotateCcw, MoreVertical } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { useAdvisorStatus, useConfig, useMe } from '../../lib/queries';
@@ -74,10 +75,16 @@ export function AdvisorDock() {
         </span>
         <div className="flex-1" />
         {running ? (
-          <>
-            <Button variant="ghost" icon={RotateCcw} onClick={() => { stop.mutate(undefined, { onSuccess: () => doStart(chosen) }); }} disabled={stop.isPending || start.isPending}>{t.advisor.restart}</Button>
-            <Button variant="danger" icon={Square} onClick={doStop} disabled={stop.isPending}>{t.advisor.stop}</Button>
-          </>
+          <ActionMenu
+            label={t.common.actions}
+            align="right"
+            triggerClassName="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"
+            trigger={<MoreVertical size={18} aria-hidden />}
+            items={[
+              { label: t.advisor.restart, icon: RotateCcw, onSelect: () => { stop.mutate(undefined, { onSuccess: () => doStart(chosen) }); } },
+              { label: t.advisor.stop, icon: Square, tone: 'danger', onSelect: doStop },
+            ]}
+          />
         ) : null}
         <button type="button" onClick={() => setOpen(false)} aria-label={t.advisor.close} className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text">
           <X size={18} aria-hidden />

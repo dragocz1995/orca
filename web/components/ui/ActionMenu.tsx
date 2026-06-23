@@ -17,10 +17,12 @@ export interface ActionMenuItem {
  * a gapless dropdown means moving down onto an item never dismisses it early.
  * Default trigger is a red trash icon. Reusable across destructive/contextual actions.
  */
-export function ActionMenu({ items, label, trigger, align = 'right' }: {
+export function ActionMenu({ items, label, trigger, triggerClassName, align = 'right' }: {
   items: ActionMenuItem[];
   label?: string;
   trigger?: ReactNode;
+  /** Override the trigger button styling. Defaults to the red destructive-action look. */
+  triggerClassName?: string;
   align?: 'left' | 'right';
 }) {
   const [open, setOpen] = useState(false);
@@ -88,7 +90,7 @@ export function ActionMenu({ items, label, trigger, align = 'right' }: {
         aria-expanded={open}
         title={resolvedLabel}
         onClick={() => (open ? setOpen(false) : openMenu())}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-danger/60 text-danger transition-colors hover:bg-danger hover:text-white"
+        className={triggerClassName ?? 'inline-flex h-8 w-8 items-center justify-center rounded-md border border-danger/60 text-danger transition-colors hover:bg-danger hover:text-white'}
         style={{ transitionDuration: 'var(--motion-fast)' }}
       >
         {trigger ?? <Trash2 size={15} aria-hidden />}
