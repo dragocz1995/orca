@@ -1,6 +1,6 @@
 {
   "name": "orcasynth",
-  "version": "1.4.13",
+  "version": "1.4.14",
   "description": "ORCA — an autonomous coding-agent orchestrator with an autopilot overseer, daemon API and web UI. Install globally and run `orca`.",
   "license": "MIT",
   "type": "module",
@@ -61,7 +61,6 @@
     "node-pty": "^1.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
     "@next/eslint-plugin-next": "^16.2.9",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
