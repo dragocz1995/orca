@@ -1,136 +1,158 @@
-import { cpSync, existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Installing the orca plugin into a (same-host) Hermes instance: copy the plugin dir,
- *  write its per-instance config, and enable it in Hermes's config.yaml — all without
- *  rewriting that YAML (we edit it as text so comments/formatting survive). */
+/** Registering orca as an MCP server in a (same-host) Hermes instance: write the orca bearer token
+ *  into Hermes's `.env` and add an `orca` entry under `mcp_servers:` in its `config.yaml`. We edit
+ *  both as text (so comments/formatting survive) — this mirrors exactly what `hermes mcp add` does
+ *  internally, but deterministically and non-interactively (that CLI is built for a human at a TTY). */
 
-const PLUGIN_NAME = 'orca';
+const MCP_NAME = 'orca';
+const ENV_KEY = 'MCP_ORCA_API_KEY';
 
 export interface HermesStatus {
   home: string;
   exists: boolean;
-  pluginsDir: boolean;
-  pluginInstalled: boolean;
+  /** `orca` is present under `mcp_servers:` in config.yaml. */
+  registered: boolean;
+  /** The orca server isn't disabled (`enabled: false`); absent key counts as enabled. */
   enabled: boolean;
 }
 
 export interface HermesInstallInput {
-  home: string;        // Hermes home (contains plugins/ and config.yaml), e.g. ~/.hermes
-  pluginSrc: string;   // path to the plugin source dir (…/hermes-plugin/orca)
-  url: string;         // orca API base URL to bake into the plugin config
-  token: string;       // orca bearer token
-  timeout?: number;
+  home: string;        // Hermes home (contains config.yaml + .env), e.g. ~/.hermes
+  url: string;         // orca base URL; the MCP endpoint `<url>/mcp` is derived from it
+  token: string;       // orca bearer token (stored in .env, referenced via ${MCP_ORCA_API_KEY})
 }
 
 export interface HermesInstallResult {
-  pluginDir: string;
-  copied: boolean;
-  alreadyEnabled: boolean;
+  mcpUrl: string;
+  registered: boolean;
   enabled: boolean;
+  envWritten: boolean;
   backedUp: boolean;
 }
 
-/** Plugin names listed under `plugins.enabled:` in a Hermes config.yaml (text-parsed,
- *  so we never have to round-trip the whole document). */
-export function enabledPlugins(text: string): string[] {
-  const out: string[] = [];
-  let inPlugins = false;
-  let inEnabled = false;
-  for (const line of text.split('\n')) {
-    if (/^plugins:\s*$/.test(line)) { inPlugins = true; inEnabled = false; continue; }
-    if (!inPlugins) continue;
-    if (line.trim() === '') continue;
-    const indent = (line.match(/^(\s*)/)?.[1] ?? '').length;
-    if (indent === 0) { inPlugins = false; inEnabled = false; continue; } // next top-level key
-    const key = line.match(/^\s*([A-Za-z0-9_-]+):\s*$/);
-    if (key) { inEnabled = key[1] === 'enabled'; continue; }
-    if (inEnabled) {
-      const item = line.match(/^\s*-\s*(\S+)/);
-      if (item?.[1]) out.push(item[1]);
-    }
-  }
-  return out;
+/** The MCP endpoint for an orca base URL — append `/mcp` unless it's already there. */
+export function mcpEndpoint(url: string): string {
+  const base = url.trim().replace(/\/+$/, '');
+  return base.endsWith('/mcp') ? base : `${base}/mcp`;
 }
 
-/** Insert `- <name>` into the plugins.enabled list, preserving the rest of the file.
- *  Returns the original text unchanged if already present (or if there's no enabled list). */
-export function enableInConfig(text: string, name = PLUGIN_NAME): { text: string; changed: boolean; already: boolean } {
-  if (enabledPlugins(text).includes(name)) return { text, changed: false, already: true };
+/** Parse whether `orca` is configured under `mcp_servers:` and whether it's enabled. Text-scanned so
+ *  we never round-trip the whole document. `enabled` defaults to true unless an `enabled: false` line
+ *  appears inside the orca block. */
+export function orcaServerState(text: string): { registered: boolean; enabled: boolean } {
   const lines = text.split('\n');
-  let inPlugins = false;
+  let inServers = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
-    if (/^plugins:\s*$/.test(line)) { inPlugins = true; continue; }
-    if (!inPlugins) continue;
+    if (/^mcp_servers:\s*$/.test(line)) { inServers = true; continue; }
+    if (!inServers) continue;
     const indent = (line.match(/^(\s*)/)?.[1] ?? '').length;
-    if (line.trim() !== '' && indent === 0) break; // left the plugins block without finding enabled
-    if (/^\s*enabled:\s*$/.test(line)) {
-      // Match the existing item indentation (look at the following list item), else enabled's indent.
-      const enabledIndent = line.match(/^(\s*)/)?.[1] ?? '';
-      const next = (lines[i + 1] ?? '').match(/^(\s*)-\s/);
-      const itemIndent = next?.[1] ?? enabledIndent;
-      lines.splice(i + 1, 0, `${itemIndent}- ${name}`);
-      return { text: lines.join('\n'), changed: true, already: false };
+    if (line.trim() !== '' && indent === 0) break; // left the mcp_servers block
+    if (/^\s{2}orca:\s*$/.test(line)) {
+      // Scan the orca block (lines indented deeper than the key) for `enabled: false`.
+      let enabled = true;
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j] ?? '';
+        const ind = (l.match(/^(\s*)/)?.[1] ?? '').length;
+        if (l.trim() !== '' && ind <= 2) break; // end of the orca block
+        if (/^\s*enabled:\s*false\s*$/.test(l)) enabled = false;
+      }
+      return { registered: true, enabled };
     }
   }
-  return { text, changed: false, already: false }; // no enabled list to extend
+  return { registered: false, enabled: false };
 }
 
-/** Render the plugin's per-instance config.yaml (small fixed shape — no YAML lib needed). */
-export function renderPluginConfig(url: string, token: string, timeout = 30): string {
-  const esc = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+/** The orca server block (2-space indent under `mcp_servers:`). */
+function renderOrcaServer(mcpUrl: string): string[] {
   return [
-    '# Written by orca — Settings → Hermes → Install plugin.',
-    'orca:',
-    `  url: ${esc(url)}`,
-    `  token: ${esc(token)}`,
-    `  timeout: ${Number.isFinite(timeout) ? timeout : 30}`,
-    '',
-  ].join('\n');
+    `  ${MCP_NAME}:`,
+    `    url: "${mcpUrl}"`,
+    '    headers:',
+    `      Authorization: "Bearer \${${ENV_KEY}}"`,
+    '    enabled: true',
+  ];
+}
+
+/** Insert or replace the `orca` server under `mcp_servers:`, preserving the rest of the file. Creates
+ *  the `mcp_servers:` section at end-of-file if it's missing. */
+export function upsertOrcaServer(text: string, mcpUrl: string): string {
+  const block = renderOrcaServer(mcpUrl);
+  const lines = text.split('\n');
+  const serversIdx = lines.findIndex((l) => /^mcp_servers:\s*$/.test(l));
+
+  if (serversIdx === -1) {
+    // No section yet — append one. Keep exactly one blank separator from prior content.
+    const body = text.replace(/\n+$/, '');
+    return `${body ? `${body}\n` : ''}mcp_servers:\n${block.join('\n')}\n`;
+  }
+
+  // Find an existing `  orca:` within the section.
+  let orcaIdx = -1;
+  for (let i = serversIdx + 1; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    const indent = (line.match(/^(\s*)/)?.[1] ?? '').length;
+    if (line.trim() !== '' && indent === 0) break; // left the section
+    if (/^\s{2}orca:\s*$/.test(line)) { orcaIdx = i; break; }
+  }
+
+  if (orcaIdx === -1) {
+    lines.splice(serversIdx + 1, 0, ...block); // insert as the first server
+    return lines.join('\n');
+  }
+
+  // Replace the existing orca block (its key line + all deeper-indented lines).
+  let end = orcaIdx + 1;
+  while (end < lines.length) {
+    const l = lines[end] ?? '';
+    const ind = (l.match(/^(\s*)/)?.[1] ?? '').length;
+    if (l.trim() !== '' && ind <= 2) break;
+    end++;
+  }
+  lines.splice(orcaIdx, end - orcaIdx, ...block);
+  return lines.join('\n');
+}
+
+/** Insert or replace a `KEY=value` line in a .env file, preserving the rest. */
+export function upsertEnvVar(text: string, key: string, value: string): string {
+  const lines = text.split('\n');
+  const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
+  if (idx !== -1) { lines[idx] = `${key}=${value}`; return lines.join('\n'); }
+  const body = text.replace(/\n+$/, '');
+  return `${body ? `${body}\n` : ''}${key}=${value}\n`;
 }
 
 export function hermesStatus(home: string): HermesStatus {
-  const pluginDir = join(home, 'plugins', PLUGIN_NAME);
   const cfgPath = join(home, 'config.yaml');
-  let enabled = false;
-  try { if (existsSync(cfgPath)) enabled = enabledPlugins(readFileSync(cfgPath, 'utf8')).includes(PLUGIN_NAME); } catch { /* ignore */ }
-  return {
-    home,
-    exists: existsSync(home) && safeIsDir(home),
-    pluginsDir: existsSync(join(home, 'plugins')),
-    pluginInstalled: existsSync(pluginDir),
-    enabled,
-  };
+  let registered = false; let enabled = false;
+  try {
+    if (existsSync(cfgPath)) ({ registered, enabled } = orcaServerState(readFileSync(cfgPath, 'utf8')));
+  } catch { /* ignore unreadable config */ }
+  return { home, exists: existsSync(home) && safeIsDir(home), registered, enabled };
 }
 
-export function installHermesPlugin(input: HermesInstallInput): HermesInstallResult {
-  const { home, pluginSrc, url, token } = input;
+export function installOrcaMcp(input: HermesInstallInput): HermesInstallResult {
+  const { home, url, token } = input;
   if (!existsSync(home) || !safeIsDir(home)) throw new Error('hermes home not found');
-  const pluginsDir = join(home, 'plugins');
-  if (!existsSync(pluginsDir)) throw new Error('hermes plugins dir not found');
-  if (!existsSync(pluginSrc)) throw new Error('plugin source not found');
-
-  // Copy the plugin (skip Python caches), overwriting any prior install.
-  const pluginDir = join(pluginsDir, PLUGIN_NAME);
-  cpSync(pluginSrc, pluginDir, { recursive: true, filter: (src) => !src.includes('__pycache__') && !src.endsWith('.pyc') });
-
-  // Per-instance config with the orca url + token.
-  writeFileSync(join(pluginDir, 'config.yaml'), renderPluginConfig(url, token, input.timeout), 'utf8');
-
-  // Enable it in Hermes config.yaml (text-edit, backing up first).
   const cfgPath = join(home, 'config.yaml');
-  let alreadyEnabled = false; let changed = false; let backedUp = false;
-  if (existsSync(cfgPath)) {
-    const original = readFileSync(cfgPath, 'utf8');
-    const res = enableInConfig(original);
-    alreadyEnabled = res.already;
-    if (res.changed) {
-      writeFileSync(`${cfgPath}.orca-bak`, original, 'utf8'); backedUp = true;
-      writeFileSync(cfgPath, res.text, 'utf8'); changed = true;
-    }
-  }
-  return { pluginDir, copied: true, alreadyEnabled, enabled: alreadyEnabled || changed, backedUp };
+  if (!existsSync(cfgPath)) throw new Error('hermes config.yaml not found');
+
+  const mcpUrl = mcpEndpoint(url);
+
+  // 1) Token → .env (mode 0600; an existing file keeps its mode, a new one is locked down).
+  const envPath = join(home, '.env');
+  const envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+  writeFileSync(envPath, upsertEnvVar(envText, ENV_KEY, token), { mode: 0o600 });
+
+  // 2) orca server → config.yaml (back up the original first).
+  const original = readFileSync(cfgPath, 'utf8');
+  writeFileSync(`${cfgPath}.orca-bak`, original, 'utf8');
+  writeFileSync(cfgPath, upsertOrcaServer(original, mcpUrl), 'utf8');
+
+  const state = orcaServerState(readFileSync(cfgPath, 'utf8'));
+  return { mcpUrl, registered: state.registered, enabled: state.enabled, envWritten: true, backedUp: true };
 }
 
 function safeIsDir(p: string): boolean {

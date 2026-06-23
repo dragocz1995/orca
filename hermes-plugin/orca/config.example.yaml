@@ -1,9 +1,0 @@
-# orca Hermes plugin config — deployed to ~/.hermes/plugins/orca/config.yaml
-# Every value can be overridden by an environment variable (ORCA_URL / ORCA_TOKEN / ORCA_TIMEOUT).
-orca:
-  # Base URL of the orca daemon's HTTP API.
-  url: "http://localhost:4400"
-  # Bearer token (orca login token). Required.
-  token: ""
-  # Per-request timeout in seconds.
-  timeout: 30

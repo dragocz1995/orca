@@ -1,59 +1,90 @@
 import { describe, it, expect } from 'vitest';
-import { enabledPlugins, enableInConfig, renderPluginConfig } from '../../src/integrations/hermesInstall.js';
+import { mcpEndpoint, orcaServerState, upsertOrcaServer, upsertEnvVar } from '../../src/integrations/hermesInstall.js';
 
 const CONFIG = `# Hermes config
 gateway:
   port: 8080
+mcp_servers:
+  chrome-devtools:
+    command: npx
+    args:
+    - -y
+    - chrome-devtools-mcp@latest
+    timeout: 120
 plugins:
   enabled:
   - coresynth-tools
-  - instagram-agent
-  disabled:
-  - spotify
-memory:
-  backend: mem0
 `;
 
-describe('enabledPlugins', () => {
-  it('extracts only the enabled list (not disabled or other keys)', () => {
-    expect(enabledPlugins(CONFIG)).toEqual(['coresynth-tools', 'instagram-agent']);
+describe('mcpEndpoint', () => {
+  it('appends /mcp to a base url', () => {
+    expect(mcpEndpoint('https://orca.example')).toBe('https://orca.example/mcp');
   });
-  it('returns [] when there is no plugins block', () => {
-    expect(enabledPlugins('gateway:\n  port: 8080\n')).toEqual([]);
+  it('strips trailing slashes before appending', () => {
+    expect(mcpEndpoint('https://orca.example/')).toBe('https://orca.example/mcp');
+  });
+  it('leaves an url that already ends in /mcp untouched', () => {
+    expect(mcpEndpoint('https://orca.example/mcp')).toBe('https://orca.example/mcp');
   });
 });
 
-describe('enableInConfig', () => {
-  it('inserts the plugin into the enabled list, preserving the rest', () => {
-    const { text, changed, already } = enableInConfig(CONFIG);
-    expect(changed).toBe(true);
-    expect(already).toBe(false);
-    expect(enabledPlugins(text)).toContain('orca');
-    expect(enabledPlugins(text)).toContain('coresynth-tools'); // others kept
+describe('orcaServerState', () => {
+  it('reports not registered when orca is absent', () => {
+    expect(orcaServerState(CONFIG)).toEqual({ registered: false, enabled: false });
+  });
+  it('reports registered + enabled once orca is present', () => {
+    const state = orcaServerState(upsertOrcaServer(CONFIG, 'https://h/mcp'));
+    expect(state).toEqual({ registered: true, enabled: true });
+  });
+  it('reports disabled when the orca block has enabled: false', () => {
+    const text = `mcp_servers:\n  orca:\n    url: "https://h/mcp"\n    enabled: false\n`;
+    expect(orcaServerState(text)).toEqual({ registered: true, enabled: false });
+  });
+});
+
+describe('upsertOrcaServer', () => {
+  it('inserts orca under mcp_servers, preserving the rest', () => {
+    const text = upsertOrcaServer(CONFIG, 'https://h:4400/mcp');
+    expect(text).toContain('  orca:');
+    expect(text).toContain('    url: "https://h:4400/mcp"');
+    expect(text).toContain('      Authorization: "Bearer ${MCP_ORCA_API_KEY}"');
+    expect(text).toContain('chrome-devtools:'); // sibling server kept
     expect(text).toContain('# Hermes config'); // comments survive
-    expect(text).toContain('disabled:'); // untouched
-    expect(text).toContain('backend: mem0');
+    expect(text).toContain('coresynth-tools'); // unrelated section untouched
+    expect(orcaServerState(text)).toEqual({ registered: true, enabled: true });
   });
-  it('is idempotent when already enabled', () => {
-    const once = enableInConfig(CONFIG).text;
-    const twice = enableInConfig(once);
-    expect(twice.changed).toBe(false);
-    expect(twice.already).toBe(true);
-    expect(twice.text).toBe(once);
+
+  it('is idempotent — replacing keeps a single orca block', () => {
+    const once = upsertOrcaServer(CONFIG, 'https://h/mcp');
+    const twice = upsertOrcaServer(once, 'https://new/mcp');
+    expect(twice.match(/^\s{2}orca:\s*$/gm)?.length).toBe(1);
+    expect(twice).toContain('    url: "https://new/mcp"'); // url updated
+    expect(twice).not.toContain('https://h/mcp');          // old url gone
+    expect(twice).toContain('chrome-devtools:');            // sibling still there
   });
-  it('matches the existing item indentation', () => {
-    const indented = `plugins:\n  enabled:\n    - foo\n`;
-    const { text } = enableInConfig(indented);
-    expect(text).toContain('    - orca'); // 4-space indent matched
+
+  it('creates the mcp_servers section when missing', () => {
+    const text = upsertOrcaServer('gateway:\n  port: 8080\n', 'https://h/mcp');
+    expect(text).toContain('mcp_servers:');
+    expect(orcaServerState(text)).toEqual({ registered: true, enabled: true });
+    expect(text).toContain('port: 8080'); // prior content kept
   });
 });
 
-describe('renderPluginConfig', () => {
-  it('renders the orca section with escaped url/token', () => {
-    const out = renderPluginConfig('http://h:4400', 'tok"en', 45);
-    expect(out).toContain('orca:');
-    expect(out).toContain('url: "http://h:4400"');
-    expect(out).toContain('token: "tok\\"en"');
-    expect(out).toContain('timeout: 45');
+describe('upsertEnvVar', () => {
+  it('appends a new key to an env file', () => {
+    const out = upsertEnvVar('FOO=1\n', 'MCP_ORCA_API_KEY', 'tok');
+    expect(out).toContain('FOO=1');
+    expect(out).toContain('MCP_ORCA_API_KEY=tok');
+  });
+  it('replaces an existing key in place', () => {
+    const out = upsertEnvVar('A=1\nMCP_ORCA_API_KEY=old\nB=2\n', 'MCP_ORCA_API_KEY', 'new');
+    expect(out).toContain('MCP_ORCA_API_KEY=new');
+    expect(out).not.toContain('old');
+    expect(out).toContain('A=1');
+    expect(out).toContain('B=2');
+  });
+  it('handles an empty env file', () => {
+    expect(upsertEnvVar('', 'MCP_ORCA_API_KEY', 'tok')).toBe('MCP_ORCA_API_KEY=tok\n');
   });
 });

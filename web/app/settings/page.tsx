@@ -604,7 +604,7 @@ export default function SettingsPage() {
             />
             <p className="text-sm text-text-muted">{t.settings.hermesDesc}</p>
 
-            {/* Plugin status — pills up top: red until installed + enabled, then green. */}
+            {/* MCP status — pills up top: red until registered + enabled, then green. */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t.settings.hermesStatusLine}</span>
               {hermesStatus.isLoading ? (
@@ -613,8 +613,8 @@ export default function SettingsPage() {
                 <Badge tone="warning">{t.settings.hermesStatusError}</Badge>
               ) : (
                 <>
-                  <Badge tone={hermesStatus.data?.pluginInstalled ? 'success' : 'danger'}>
-                    {hermesStatus.data?.pluginInstalled ? t.settings.hermesStatusInstalled : t.settings.hermesStatusNotInstalled}
+                  <Badge tone={hermesStatus.data?.registered ? 'success' : 'danger'}>
+                    {hermesStatus.data?.registered ? t.settings.hermesStatusInstalled : t.settings.hermesStatusNotInstalled}
                   </Badge>
                   <Badge tone={hermesStatus.data?.enabled ? 'success' : 'danger'}>
                     {hermesStatus.data?.enabled ? t.settings.hermesStatusEnabled : t.settings.hermesStatusDisabled}

@@ -78,16 +78,15 @@ export interface CommitLogEntry { hash: string; subject: string; author: string;
 export interface HermesStatus {
   home: string;
   exists: boolean;
-  pluginsDir: boolean;
-  pluginInstalled: boolean;
+  registered: boolean;
   enabled: boolean;
 }
-export interface HermesInstallInput { home?: string; url: string; token: string; timeout?: number }
+export interface HermesInstallInput { home?: string; url: string; token: string }
 export interface HermesInstallResult {
-  pluginDir: string;
-  copied: boolean;
-  alreadyEnabled: boolean;
+  mcpUrl: string;
+  registered: boolean;
   enabled: boolean;
+  envWritten: boolean;
   backedUp: boolean;
   status: HermesStatus;
 }

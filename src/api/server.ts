@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { hermesStatus, installHermesPlugin } from '../integrations/hermesInstall.js';
+import { hermesStatus, installOrcaMcp } from '../integrations/hermesInstall.js';
 import { detectClis } from '../integrations/cliDetection.js';
 import { readTaskUsage } from '../integrations/usage/index.js';
 import { listProjectFiles, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, projectReviewDiff, isProjectImage } from '../integrations/projectFiles.js';
@@ -1075,7 +1075,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json({ jobId: job.id, epicId }, 202);
   });
 
-  // Hermes integration — install the bundled orca plugin into a same-host Hermes instance.
+  // Hermes integration — register orca as an MCP server in a same-host Hermes instance.
   const hermesRoot = process.env.HERMES_HOME || join(homedir(), '.hermes');
   // Resolve the Hermes home. An `home` override is constrained to live under the configured root so a
   // crafted path can't read/write arbitrary filesystem locations (path-traversal / fs enumeration).
@@ -1094,18 +1094,17 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json(hermesStatus(home));
   });
   app.post('/integrations/hermes/install', async c => {
-    // Admin-only: this writes a plugin + credentials into a host path. Without the gate any
+    // Admin-only: this writes credentials + config into a host path. Without the gate any
     // authenticated user could point Hermes at an attacker URL/token.
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json().catch(() => ({})) as { home?: string; url?: string; token?: string; timeout?: number };
+    const b = await c.req.json().catch(() => ({})) as { home?: string; url?: string; token?: string };
     const url = (b.url ?? '').trim();
     const token = (b.token ?? '').trim();
     if (!url || !token) return c.json({ error: 'url and token required' }, 400);
     const home = hermesHome(b.home);
     if (!home) return c.json({ error: 'home must be under the Hermes root' }, 400);
-    const pluginSrc = join(d.project.path, 'hermes-plugin', 'orca');
     try {
-      const result = installHermesPlugin({ home, pluginSrc, url, token, timeout: b.timeout });
+      const result = installOrcaMcp({ home, url, token });
       return c.json({ ...result, status: hermesStatus(home) }, 201);
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);

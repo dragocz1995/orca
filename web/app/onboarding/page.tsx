@@ -406,8 +406,8 @@ export default function OnboardingPage() {
                   <Badge tone="warning">{t.onboarding.statusUnknown}</Badge>
                 ) : (
                   <>
-                    <Badge tone={hermesStatus.data?.pluginInstalled ? 'success' : 'danger'}>
-                      {hermesStatus.data?.pluginInstalled ? t.onboarding.statusInstalled : t.onboarding.statusNotInstalled}
+                    <Badge tone={hermesStatus.data?.registered ? 'success' : 'danger'}>
+                      {hermesStatus.data?.registered ? t.onboarding.statusInstalled : t.onboarding.statusNotInstalled}
                     </Badge>
                     <Badge tone={hermesStatus.data?.enabled ? 'success' : 'danger'}>
                       {hermesStatus.data?.enabled ? t.onboarding.statusEnabled : t.onboarding.statusDisabled}
