@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { detectClis } from '../../src/integrations/cliDetection.js';
 import { createServer } from '../../src/api/server.js';
 import { openDb } from '../../src/store/db.js';
