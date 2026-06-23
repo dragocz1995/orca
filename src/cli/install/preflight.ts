@@ -7,6 +7,10 @@ export interface PreflightResult {
   pkgManager: 'apt' | null;
   node: { ok: boolean; version: string };
   tmux: boolean;
+  /** C toolchain + python3 present — node-pty's native addon builds from source without them only via
+   *  a prebuilt binary. NOT a blocker: absent → the installer apt-installs them, and if that fails the
+   *  terminal stream simply degrades to the snapshot mirror. */
+  buildTools: boolean;
 }
 
 const MIN_NODE_MAJOR = 22;
@@ -21,6 +25,7 @@ export async function preflight(r: Runner): Promise<PreflightResult> {
     pkgManager: (await r.which('apt-get')) ? 'apt' : null,
     node: { ok: major >= MIN_NODE_MAJOR, version },
     tmux: (await r.which('tmux')) !== null,
+    buildTools: (await r.which('cc')) !== null && (await r.which('python3')) !== null,
   };
 }
 

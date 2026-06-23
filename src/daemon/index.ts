@@ -1,5 +1,8 @@
 import { serve } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
 import { buildApp } from './bootstrap.js';
+import { terminalWsHandler } from '../terminal/wsHandler.js';
+import { loadPty } from '../terminal/ptyLoader.js';
 import { logger, LOG_DIR } from '../shared/logger.js';
 
 const log = logger('daemon');
@@ -10,19 +13,28 @@ const log = logger('daemon');
 process.on('unhandledRejection', (e) => log.error('unhandledRejection', e));
 process.on('uncaughtException', (e) => log.error('uncaughtException', e));
 
-const { app, startLoops } = buildApp({
+const { app, startLoops, tickets } = buildApp({
   dbPath: process.env.ORCA_DB ?? `${process.env.HOME}/.config/orca/orca.db`,
   project: { id: 1, slug: process.env.ORCA_PROJECT ?? 'orca', path: process.env.ORCA_PROJECT_PATH ?? process.cwd() },
   relay: process.env.ORCA_RELAY_URL ? { baseUrl: process.env.ORCA_RELAY_URL, apiKey: process.env.ORCA_RELAY_KEY ?? '', model: process.env.ORCA_RELAY_MODEL ?? 'gpt-4o-mini' } : null,
   bootstrap: process.env.ORCA_BOOTSTRAP_USER && process.env.ORCA_BOOTSTRAP_PASS ? { username: process.env.ORCA_BOOTSTRAP_USER, password: process.env.ORCA_BOOTSTRAP_PASS } : null,
   allowOpen: process.env.ORCA_ALLOW_OPEN === '1',
 });
+
+// Real-PTY terminal stream: the browser opens wss://…/ws/terminal?ticket=… straight at the daemon
+// (nginx proxies /ws/ here), the handler redeems the single-use ticket and bridges a tmux-attached PTY
+// to the socket. node-ws must inject into the same http server `serve()` returns, below.
+const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+app.get('/ws/terminal', upgradeWebSocket(terminalWsHandler({ tickets, loadPty })));
+
 startLoops();
 // Bind to localhost by default: a daemon token can spawn agents (effectively RCE), so the daemon
 // must not be publicly reachable. Front it with the web app's BFF proxy (or a reverse proxy). Set
 // ORCA_HOST=0.0.0.0 to expose it deliberately (e.g. web app on a separate host).
 const host = process.env.ORCA_HOST ?? '127.0.0.1';
 const server = serve({ fetch: app.fetch, port: Number(process.env.ORCA_PORT ?? 4400), hostname: host }, info => log.info(`orca serve on ${host}:${info.port} — logs → ${LOG_DIR}`));
+// Attach the WebSocket upgrade listener to the same server (node-ws needs the raw http.Server).
+injectWebSocket(server);
 // Without an error handler an EADDRINUSE (zombie daemon still holding the port) crashes with a bare
 // stack trace; give it a clear exit message instead.
 server.on('error', (e: NodeJS.ErrnoException) => {

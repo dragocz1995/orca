@@ -8,7 +8,7 @@ import SessionsPage from '../../app/sessions/page';
 import { ToastProvider } from '../../components/ui/Toast';
 import { createWrapper } from '../test-utils';
 
-vi.mock('../../components/terminal/Terminal', () => ({ Terminal: ({ name }: { name: string }) => <div data-testid="term">{name}</div> }));
+vi.mock('../../components/terminal/StreamTerminal', () => ({ StreamTerminal: ({ name }: { name: string }) => <div data-testid="term">{name}</div> }));
 
 // SessionsView reads/writes the ?filter param; stub the app-router hooks it depends on.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: () => {} }), useSearchParams: () => new URLSearchParams() }));

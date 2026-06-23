@@ -36,6 +36,7 @@ import { assembleMissionDetail } from '../store/missionDetail.js';
 import type { UserStore, User, TokenScope } from '../store/userStore.js';
 import { authMiddleware } from './auth.js';
 import { handleMcpRequest } from '../mcp/server.js';
+import { createTicketStore, type TicketStore } from '../terminal/ticketStore.js';
 import type { EventStore } from '../store/eventStore.js';
 import type { ProjectStore } from '../store/projectStore.js';
 import type { UserProjectStore } from '../store/userProjectStore.js';
@@ -78,6 +79,9 @@ export interface ServerDeps {
   pilot?: (job: PlanJob, projectPath: string) => Promise<void>;
   /** Per-user advisor lifecycle. Absent → advisor feature disabled (routes degrade gracefully). */
   advisor?: import('../advisor/service.js').AdvisorService;
+  /** Single-use ticket store backing the terminal WebSocket stream. Shared with the daemon's
+   *  `/ws/terminal` handler so a ticket minted here is redeemable there. Defaulted when absent. */
+  tickets?: TicketStore;
 }
 
 /** This package's version, read once from its package.json (two dirs up from dist/api/server.js, and
@@ -96,6 +100,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   // daemon (bootstrap) injects shared instances. Default here so every route has a working store.
   const planJobs = d.planJobs ?? new PlanJobStore();
   const decisionQueue = d.decisionQueue ?? new DecisionQueue();
+  const tickets = d.tickets ?? createTicketStore();
   const app = new Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }>();
   app.use('*', cors());
   // Single source of truth for malformed-body handling: most POST/PATCH routes call `c.req.json()`
@@ -1218,6 +1223,16 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       while (!done && !c.req.raw.signal.aborted) await stream.sleep(1000);
       clear();
     });
+  });
+
+  // Mint a single-use ticket to open the terminal WebSocket stream for this session. Authenticated
+  // here (via the BFF cookie) and ownership-gated by the same access check as every session route; the
+  // unauthenticated `/ws/terminal` upgrade then redeems the ticket. The attach is interactive.
+  app.post('/sessions/:name/ws-ticket', async (c) => {
+    const name = c.req.param('name');
+    if (!sessionAccessible(c, name)) return c.json({ error: 'forbidden' }, 403);
+    const ticket = tickets.issue({ session: name, userId: c.get('user')?.id ?? null });
+    return c.json({ ticket });
   });
 
   // Per-user advisor lifecycle. Full-scope (non-agent) callers only — a spawned agent must not be able

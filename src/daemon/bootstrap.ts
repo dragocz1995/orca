@@ -18,6 +18,7 @@ import { RelayClient } from '../inference/client.js';
 import { Deriver } from '../deriver/deriver.js';
 import { EventBus } from '../api/sse.js';
 import { createServer } from '../api/server.js';
+import { createTicketStore } from '../terminal/ticketStore.js';
 import { RealTmuxDriver } from '../tmux/driver.js';
 import { SystemClock } from '../shared/clock.js';
 import { ConfigStore } from '../store/configStore.js';
@@ -238,7 +239,10 @@ export function buildApp(opts: BuildOpts) {
     advisorDir: (id) => { const p = join(dirname(opts.dbPath), 'advisor', String(id)); mkdirSync(p, { recursive: true }); return p; },
     prepareMcp: (program, cwd, token) => writeMcpConfig(program, cwd, token, mcpUrl),
   });
-  const app = createServer({ tasks, readiness, missions, engine, spawn, tmux, bus, events, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users, projects, userProjects, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor });
+  // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
+  // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
+  const tickets = createTicketStore();
+  const app = createServer({ tasks, readiness, missions, engine, spawn, tmux, bus, events, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users, projects, userProjects, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace
@@ -311,7 +315,9 @@ export function buildApp(opts: BuildOpts) {
     const purgeEvents = () => { try { events.purgeOlderThan(); } catch (e) { log.error('event purge failed', e); } };
     purgeEvents();
     const stopEventPurge = clock.setInterval(purgeEvents, 3_600_000);
-    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopTokenPurge(); stopEventPurge(); };
+    // Sweep expired terminal-WS tickets so a burst of unredeemed tickets can't grow the map unbounded.
+    const stopTicketSweep = clock.setInterval(() => tickets.sweep(clock.now()), 60_000);
+    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); };
   };
-  return { app, startLoops };
+  return { app, startLoops, tickets };
 }

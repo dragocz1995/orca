@@ -1533,6 +1533,38 @@ errors (client disconnected), the stream stops. Authentication via session-level
 { "error": "forbidden" }
 ```
 
+### Mint a terminal-stream ticket
+
+```http
+POST /sessions/:name/ws-ticket
+```
+
+Issues a single-use, short-TTL ticket to open the real-PTY terminal WebSocket (below). Authenticated
+(Bearer/cookie) and ownership-gated by the same session access gate. The resulting stream is fully
+interactive (keystrokes reach the pane).
+
+```json
+{ "ticket": "a1b2c3…" }
+```
+
+**Error `403`** — `{ "error": "forbidden" }` when the caller can't access the session.
+
+### Terminal PTY stream (WebSocket)
+
+```http
+GET /ws/terminal?ticket=<ticket>
+```
+
+WebSocket upgrade served by the **daemon directly** (nginx proxies its `/ws/` location to :4400; the
+Next.js BFF can't proxy a WS upgrade). It carries no token — the single-use ticket is the capability,
+redeemed at upgrade. The daemon then bridges a `tmux attach` PTY (`node-pty`) to the socket:
+
+- **server → client:** raw terminal bytes (the PTY's stdout)
+- **client → server:** raw input bytes, or a JSON control frame `{"type":"resize","cols":N,"rows":M}`
+
+When the ticket is invalid or `node-pty` is unavailable, the socket is closed with application code
+**`4001`** (and no data frame), signalling the browser to fall back to the snapshot `/stream` mirror.
+
 ---
 
 ## Missions

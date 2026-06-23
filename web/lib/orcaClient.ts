@@ -5,6 +5,13 @@ import { clearToken } from './token';
 // daemon bearer token server-side from the httpOnly session cookie. No token ever lives in JS.
 export const BASE = '/api';
 
+/** Same-origin WebSocket URL for the terminal PTY stream. The browser opens it straight at nginx's
+ *  `/ws/` location (proxied to the daemon), carrying only the single-use ticket — never the token. */
+export function terminalWsUrl(ticket: string): string {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}/ws/terminal?ticket=${encodeURIComponent(ticket)}`;
+}
+
 export class OrcaApiError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); this.name = 'OrcaApiError'; }
 }
@@ -76,6 +83,8 @@ export const orcaClient = {
   resizeSession: (name: string, cols: number, rows: number) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}/resize`, json({ cols, rows })),
   /** Forward raw xterm `onData` bytes to a session's pane (interactive terminal — see AdvisorDock). */
   sessionInput: (name: string, data: string) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}/input`, json({ data })),
+  /** Mint a single-use ticket to open the terminal WebSocket stream for a session (PTY stream). */
+  wsTicket: (name: string) => req<{ ticket: string }>(`/sessions/${encodeURIComponent(name)}/ws-ticket`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   advisorStatus: () => req<{ running: boolean; exec: string; session: string | null }>('/advisor/status'),
   advisorStart: (exec: string) => req<{ session: string }>('/advisor/start', json({ exec })),
   advisorStop: () => req<{ ok: boolean }>('/advisor/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),

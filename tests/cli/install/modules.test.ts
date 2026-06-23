@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENT_CLIS, detectAgentClis, installCommand } from '../../../src/cli/install/agentClis.js';
 import { preflight, preflightBlockers } from '../../../src/cli/install/preflight.js';
 import { userHome, ensureServiceUser } from '../../../src/cli/install/serviceUser.js';
-import { isIpAddress } from '../../../src/cli/install/index.js';
+import { isIpAddress, ensureTerminalStreaming } from '../../../src/cli/install/index.js';
 import type { Runner, ExecResult } from '../../../src/cli/install/runner.js';
 
 function runner(over: Partial<Runner> = {}): Runner {
@@ -49,7 +49,15 @@ describe('install/preflight', () => {
     expect(p.pkgManager).toBe('apt');
     expect(p.node.ok).toBe(true);
     expect(p.tmux).toBe(true);
-    expect(preflightBlockers(p)).toEqual([]);
+    expect(p.buildTools).toBe(false); // cc/python3 not on the fake box
+    expect(preflightBlockers(p)).toEqual([]); // buildTools is informational, never a blocker
+  });
+  it('reports buildTools when cc and python3 are present', async () => {
+    const withTools = runner({
+      exec: async (cmd) => (cmd === 'id' ? { code: 0, stdout: '0\n', stderr: '' } : cmd === 'node' ? { code: 0, stdout: 'v22.0.0\n', stderr: '' } : { code: 0, stdout: '', stderr: '' }),
+      which: async (cmd) => (['cc', 'python3', 'apt-get'].includes(cmd) ? `/usr/bin/${cmd}` : null),
+    });
+    expect((await preflight(withTools)).buildTools).toBe(true);
   });
   it('blocks when not root and node is too old', async () => {
     const bad = runner({
@@ -62,6 +70,35 @@ describe('install/preflight', () => {
     expect(blockers.join(' ')).toMatch(/root/i);
     expect(blockers.join(' ')).toMatch(/Node/i);
     expect(blockers.join(' ')).toMatch(/apt/i);
+  });
+});
+
+describe('install/ensureTerminalStreaming', () => {
+  function recordingRunner(present: string[]) {
+    const calls: { cmd: string; args: string[] }[] = [];
+    const r: Runner = {
+      exec: async (cmd, args) => { calls.push({ cmd, args }); return { code: 0, stdout: '', stderr: '' }; },
+      which: async (cmd) => (present.includes(cmd) ? `/usr/bin/${cmd}` : null),
+      writeFile: async () => {},
+      exists: async () => false,
+    };
+    return { r, calls };
+  }
+
+  it('apt-installs the toolchain when missing, then installs node-pty into the package', async () => {
+    const { r, calls } = recordingRunner([]); // no cc/python3
+    await ensureTerminalStreaming(r);
+    const flat = calls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
+    expect(flat.some((s) => s.includes('apt-get install -y python3 make g++'))).toBe(true);
+    expect(flat.some((s) => s.startsWith('bash -lc') && s.includes('npm install') && s.includes('node-pty@'))).toBe(true);
+  });
+
+  it('skips the toolchain install when cc and python3 are already present', async () => {
+    const { r, calls } = recordingRunner(['cc', 'python3']);
+    await ensureTerminalStreaming(r);
+    const flat = calls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
+    expect(flat.some((s) => s.includes('apt-get'))).toBe(false);
+    expect(flat.some((s) => s.includes('node-pty@'))).toBe(true);
   });
 });
 

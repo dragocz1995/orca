@@ -25,11 +25,19 @@ describe('install/proxy.detectProxy', () => {
 
 describe('install/proxy vhost renderers', () => {
   it('nginx vhost proxies the domain to the web port and disables buffering for SSE', () => {
-    const v = nginxVhost('orca.example.com', 4500);
+    const v = nginxVhost('orca.example.com', 4500, 4400);
     expect(v).toContain('server_name orca.example.com;');
     expect(v).toContain('proxy_pass http://127.0.0.1:4500;');
     expect(v).toMatch(/proxy_buffering off;/);
     expect(v).toMatch(/listen 80;/);
+  });
+  it('nginx vhost adds a /ws/ location upgrading to the daemon for the terminal stream', () => {
+    const v = nginxVhost('orca.example.com', 4500, 4400);
+    expect(v).toContain('location /ws/ {');
+    expect(v).toContain('proxy_pass http://127.0.0.1:4400;'); // daemon, not web
+    expect(v).toContain('proxy_set_header Connection "upgrade";');
+    // /ws/ must be declared before the catch-all / so nginx prefix-matches it first.
+    expect(v.indexOf('location /ws/ {')).toBeLessThan(v.indexOf('location / {'));
   });
   it('apache vhost reverse-proxies with preserved host', () => {
     const v = apacheVhost('orca.example.com', 4500);

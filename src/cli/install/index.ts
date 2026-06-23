@@ -131,6 +131,16 @@ async function aptInstall(r: Runner, ...pkgs: string[]): Promise<void> {
   await must(r, 'apt-get', ['install', '-y', ...pkgs]);
 }
 
+/** Best-effort: enable the real-PTY terminal stream. node-pty (an optional dependency) needs a C
+ *  toolchain to compile its native addon when no prebuilt binary matches, so ensure python3/make/g++,
+ *  then install node-pty into the globally-installed orcasynth package where the daemon loads it from.
+ *  A failure here is non-fatal — the terminal degrades to the snapshot mirror. */
+export async function ensureTerminalStreaming(r: Runner): Promise<void> {
+  if (!(await r.which('cc')) || !(await r.which('python3'))) await aptInstall(r, 'python3', 'make', 'g++');
+  const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  await must(r, 'bash', ['-lc', `cd '${pkgRoot}' && npm install --no-save --no-audit --no-fund node-pty@1.0.0`]);
+}
+
 /** Write + enable the two systemd units and verify they came active. */
 async function provisionSystemd(r: Runner, user: string, home: string, webHost: string): Promise<void> {
   const { daemonEntry, webServer } = packagePaths();
@@ -165,7 +175,7 @@ async function resolveProxy(r: Runner, preference: ProxyKind): Promise<ProxyKind
 /** Render the vhost for the domain and make the proxy serve it. */
 async function configureVhost(r: Runner, kind: ProxyKind, domain: string): Promise<void> {
   if (kind === 'nginx') {
-    await r.writeFile('/etc/nginx/sites-available/orca.conf', nginxVhost(domain, WEB_PORT));
+    await r.writeFile('/etc/nginx/sites-available/orca.conf', nginxVhost(domain, WEB_PORT, DAEMON_PORT));
     await must(r, 'ln', ['-sf', '/etc/nginx/sites-available/orca.conf', '/etc/nginx/sites-enabled/orca.conf']);
     await must(r, 'nginx', ['-t']);
     await must(r, 'systemctl', ['reload', 'nginx']);
@@ -205,6 +215,11 @@ async function execute(r: Runner, plan: InstallPlan): Promise<{ tls: boolean }> 
     const { cmd, args } = installCommand({ id, bin: id, pkg: agentPkg(id) });
     await step(`Installing ${id}`, () => must(r, cmd, args));
   }
+
+  // Provision node-pty before the daemon boots, so it can load it on the first terminal WS. Non-fatal:
+  // the daemon falls back to the snapshot mirror if this fails.
+  await step('Enabling terminal streaming', () => ensureTerminalStreaming(r))
+    .catch((e) => p.log.warn(`Terminal streaming unavailable (snapshot fallback stays active): ${(e as Error).message}`));
 
   await step('Configuring systemd services', () => provisionSystemd(r, plan.user.username, home, plan.deploy.webHost));
 

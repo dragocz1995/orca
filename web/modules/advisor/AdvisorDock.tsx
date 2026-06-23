@@ -12,7 +12,8 @@ import { allModels } from '../../lib/execPresets';
 import { apiErrorMessage } from '../../lib/orcaClient';
 
 // xterm references browser-only `self`; skip SSR so the always-mounted dock doesn't break prerender.
-const Terminal = dynamic(() => import('../../components/terminal/Terminal').then((m) => m.Terminal), { ssr: false });
+// Real-PTY stream (read-write — this is the user's own advisor), with a snapshot fallback built in.
+const Terminal = dynamic(() => import('../../components/terminal/StreamTerminal').then((m) => m.StreamTerminal), { ssr: false });
 
 /** Floating per-user advisor dock: a 🐋 button bottom-right opens a panel with the user's persistent
  *  advisor agent in a fully interactive terminal. When no session is live it shows an agent picker
@@ -136,7 +137,7 @@ export function AdvisorDock() {
 
       <div className="min-h-0 flex-1">
         {running && session ? (
-          <Terminal name={session} interactive />
+          <Terminal name={session} />
         ) : (
           <div className="flex h-full flex-col gap-4 p-5">
             {models.length === 0 ? (

@@ -5,6 +5,10 @@
 - **Node.js** ≥22 (ESM)
 - **tmux** ≥3.x (for running agents)
 - **npm**
+- **node-pty** is an **optional dependency** powering the real-PTY terminal stream. Its native addon
+  needs a C toolchain (`python3`, `make`, `g++`) to build when no prebuilt binary matches. If it can't
+  install, the terminals degrade to the snapshot mirror — everything else still works. `orca install`
+  provisions the toolchain and node-pty automatically (best-effort).
 
 ## Setup
 

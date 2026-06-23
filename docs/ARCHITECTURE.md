@@ -58,7 +58,19 @@ The agent works in the tmux pane, then calls `node <cli> close <taskId> …` bac
 
 - `server.ts` — route definitions (~1213 lines, ~70 routes in one file): tasks, missions, sessions, projects, users, auth, config, integrations, file editor, git surface, planner, plan jobs, overseer decision routes
 - `sse.ts` — `EventBus` for real-time SSE notifications (terminal output, task state changes, plan job status)
-- `auth.ts` — Bearer token middleware, also accepts `?token=` query param for SSE
+- `auth.ts` — Bearer token middleware, also accepts `?token=` query param for SSE. `/ws/terminal` is public here — the terminal-WS ticket is its capability
+
+### `src/terminal/` — Real-PTY terminal streaming
+
+Streams a true PTY (a `tmux attach` via `node-pty`) over a WebSocket to the browser's xterm, for the advisor and enlarged-modal terminals (grid previews stay on the snapshot mirror). The WS reaches the daemon directly (nginx `/ws/` → :4400), so it carries no session cookie — a short-lived single-use ticket is the capability.
+
+- `ticketStore.ts` — in-memory single-use tickets (issue/consume/TTL sweep)
+- `ptyLoader.ts` — lazy, cached `import('node-pty')` with availability detection; null → snapshot fallback (`node-pty` is an **optional dependency**)
+- `ptySession.ts` — `tmux attach -t <session>` PTY client (fully interactive — the ownership gate is enforced at ticket-mint time)
+- `bridge.ts` — pure full-duplex PTY↔WS logic (PTY out → ws.send; ws messages → input bytes / `{type:'resize'}` control frame)
+- `wsHandler.ts` — `@hono/node-ws` upgrade handler: consume ticket → load pty → attach → bridge → kill on close. Closes with code `4001` when unsupported
+
+The ticket is minted by the authenticated `POST /sessions/:name/ws-ticket` (ownership-gated by the same session access check) and shared with the daemon's `/ws/terminal` handler via the `ticketStore`. node-ws injects into the same http server (`injectWebSocket` after `serve()` in `daemon/index.ts`).
 
 ### `src/overseer/` — Orchestration logic
 
