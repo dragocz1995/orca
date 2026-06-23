@@ -7,26 +7,37 @@ import { DashboardView } from '../../../modules/dashboard/DashboardView';
 import { ToastProvider } from '../../../components/ui/Toast';
 import { createWrapper } from '../../test-utils';
 
+const config = {
+  models: [], customModels: [], hiddenPresets: [], modelNotes: {},
+  autopilot: { model: '', overseerModel: '', apiUrl: '', apiKeySet: false, notes: '', prompt: '', pilotExec: 'claude:sonnet', overseerExec: '', reviewOnDone: true },
+  providers: {}, defaults: { exec: 'claude:sonnet', autonomy: 'L3', maxSessions: 1 }, security: { tokenTtlDays: 30 },
+};
+
 const server = setupServer(
   http.get('*/api/tasks', () => HttpResponse.json([
     { id: 't1', title: 'Alpha', status: 'open' },
     { id: 't2', title: 'Beta', status: 'blocked' },
   ])),
   http.get('*/api/sessions', () => HttpResponse.json([{ name: 'orca-x', role: 'agent', agent: 'x' }])),
-  http.get('*/api/missions', () => HttpResponse.json([{ id: 'm1', epic_id: 'e', autonomy: 'low', max_sessions: 1, state: 'active' }])),
+  http.get('*/api/missions', () => HttpResponse.json([{ id: 'm1', epic_id: 'e', autonomy: 'L3', max_sessions: 1, state: 'active' }])),
+  http.get('*/api/config', () => HttpResponse.json(config)),
+  http.get('*/api/projects', () => HttpResponse.json([{ id: 1, name: 'demo', path: '/tmp/demo' }])),
 );
 beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
 
 describe('DashboardView', () => {
-  it('renders metric cards and a task row with a status badge', async () => {
+  it('renders the airy overview: system-overview stat cards and the configuration row', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><DashboardView /></ToastProvider></Wrapper>);
-    expect(await screen.findByText('Alpha')).toBeTruthy();
-    // metric labels present
-    expect(screen.getAllByText(/Open/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Blocked/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Live sessions/i)).toBeTruthy();
-    expect(screen.getByText(/Active missions/i)).toBeTruthy();
+    // System overview section + its stat labels.
+    expect(await screen.findByText('System overview')).toBeTruthy();
+    expect(screen.getByText('Projects')).toBeTruthy();
+    expect(screen.getByText('Active missions')).toBeTruthy();
+    expect(screen.getByText('Agents')).toBeTruthy();
+    // Configuration row reflects the daemon config (autonomy + review-on-done) — awaited because the
+    // pill values depend on the /config query resolving.
+    expect(screen.getByText('Configuration')).toBeTruthy();
+    expect(await screen.findByText('L3')).toBeTruthy();
   });
 
   it('shows the needs-input banner when an agent is waiting', async () => {

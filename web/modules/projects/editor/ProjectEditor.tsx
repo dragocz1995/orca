@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft } from 'lucide-react';
 import {
   useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff,
@@ -29,6 +29,13 @@ type Dialog =
   | { kind: 'newFile' | 'newFolder'; dir: string }
   | { kind: 'rename' | 'duplicate' | 'delete'; target: string };
 
+// Embedded (non-fullscreen) editor height, persisted per device. The user drags the full bottom edge
+// (see the resize handle below); Monaco reflows itself via `automaticLayout`.
+const EDITOR_H_KEY = 'orca:editor:height';
+const MIN_EDITOR_H = 320;
+const clampEditorH = (px: number) =>
+  Math.max(MIN_EDITOR_H, Math.min(typeof window !== 'undefined' ? window.innerHeight * 0.96 : 4000, px));
+
 /** Full project code editor: file tree with a right-click file-manager (new/rename/duplicate/delete),
  *  open-file tabs, Monaco editor (Cmd+S save), side-by-side working diff, Markdown/image previews,
  *  plus read-only commit-diff views when opened from the git log. */
@@ -44,6 +51,9 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const [tab, setTab] = useState<Tab>('edit');
   const [wordWrap, setWordWrap] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  // Embedded height (px), hydrated from localStorage on mount; defaults to ~70vh.
+  const [editorH, setEditorH] = useState(560);
+  const dragY = useRef<number | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -52,6 +62,19 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   // viewport); a toggle surfaces it as an overlay. On desktop the tree is always visible.
   const mobile = useMobile();
   const [showTree, setShowTree] = useState(false);
+
+  // Hydrate the saved embedded height (or fall back to ~70vh) once on mount, then persist on change.
+  useEffect(() => {
+    let stored: number | null = null;
+    try {
+      const raw = localStorage.getItem(EDITOR_H_KEY);
+      if (raw) { const n = Number(raw); if (Number.isFinite(n)) stored = n; }
+    } catch { /* localStorage unavailable (private mode / SSR) */ }
+    setEditorH(clampEditorH(stored ?? window.innerHeight * 0.7));
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(EDITOR_H_KEY, String(editorH)); } catch { /* ignore */ }
+  }, [editorH]);
 
   const commitData = useProjectCommit(projectId, commit);
   const changesData = useProjectChanges(projectId, working);
@@ -207,8 +230,8 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     <div
       className={fullscreen
         ? 'fixed inset-0 z-50 flex h-screen flex-col overflow-hidden bg-surface'
-        : 'mt-5 flex h-[70vh] min-h-[320px] max-h-[95vh] resize-y flex-col overflow-hidden rounded-lg border border-border bg-surface'}
-      style={fullscreen ? undefined : { boxShadow: 'var(--shadow-card)' }}
+        : 'mt-5 flex flex-col overflow-hidden rounded-lg border border-border bg-surface'}
+      style={fullscreen ? undefined : { boxShadow: 'var(--shadow-card)', height: editorH }}
     >
       {/* toolbar */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -286,6 +309,24 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
           </div>
         </div>
       </div>
+
+      {/* Full-width bottom drag edge: grab anywhere along it to resize the embedded editor. The centered
+          pill hints at the affordance (same visual language as the sidebar handle). */}
+      {!fullscreen ? (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={t.projects.resizeEditor}
+          title={t.projects.resizeEditor}
+          onPointerDown={(e) => { e.preventDefault(); dragY.current = e.clientY; e.currentTarget.setPointerCapture?.(e.pointerId); }}
+          onPointerMove={(e) => { if (dragY.current === null) return; const dy = e.clientY - dragY.current; dragY.current = e.clientY; setEditorH((h) => clampEditorH(h + dy)); }}
+          onPointerUp={(e) => { if (dragY.current === null) return; dragY.current = null; e.currentTarget.releasePointerCapture?.(e.pointerId); }}
+          onLostPointerCapture={() => { dragY.current = null; }}
+          className="group flex h-3.5 shrink-0 cursor-row-resize items-center justify-center border-t border-border bg-bg/40 transition-colors hover:bg-elevated"
+        >
+          <span className="h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-text-muted" />
+        </div>
+      ) : null}
 
       {menu ? <ContextMenu state={menu} onClose={() => setMenu(null)} /> : null}
       {dialog && dialog.kind === 'delete'

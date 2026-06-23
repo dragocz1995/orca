@@ -81,7 +81,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose, side = 'left' }: { 
         : `relative hidden h-full shrink-0 flex-col ${side === 'right' ? 'border-l' : 'border-r'} border-border bg-surface transition-[width] duration-200 md:flex`}
       style={mobile ? { transitionTimingFunction: 'var(--ease-out)' } : { width: expanded ? width : RAIL, transitionTimingFunction: 'var(--ease-out)' }}
     >
-      <div className="flex items-center justify-center border-b border-border px-3 py-3 overflow-hidden">
+      <div className="flex h-14 items-center justify-center border-b border-border px-3 overflow-hidden">
         {expanded
           ? <img src="/orca-logo.png" alt={t.common.appName} className="h-9 w-auto" />
           : <img src="/icon.png" alt={t.common.appName} className="h-7 w-7 rounded-md" />}

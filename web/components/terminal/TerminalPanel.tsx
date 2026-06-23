@@ -21,7 +21,6 @@ export function TerminalPanel({ name, onKilled }: { name: string; onKilled?: () 
         <StreamTerminal name={name} />
       </div>
       <div className="flex items-center gap-2 border-t border-border bg-surface px-3 py-2">
-        <span className="text-xs text-text-muted">{t.sessions.typeHint}</span>
         <div className="ml-auto flex items-center gap-2">
           <IconButton icon={SquareArrowOutUpRight} label={t.sessions.popOut} onClick={() => openTerminalWindow(name)} />
           <Button

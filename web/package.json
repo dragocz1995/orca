@@ -23,6 +23,7 @@
     "marked": "^14.1.4",
     "monaco-editor": "0.55.1",
     "next": "^16.0.0",
+    "postcss-import": "^16.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

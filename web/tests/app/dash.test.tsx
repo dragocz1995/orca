@@ -6,20 +6,29 @@ import DashPage from '../../app/dash/page';
 import { ToastProvider } from '../../components/ui/Toast';
 import { createWrapper } from '../test-utils';
 
+const config = {
+  models: [], customModels: [], hiddenPresets: [], modelNotes: {},
+  autopilot: { model: '', overseerModel: '', apiUrl: '', apiKeySet: false, notes: '', prompt: '', pilotExec: '', overseerExec: '', reviewOnDone: false },
+  providers: {}, defaults: { exec: 'claude:sonnet', autonomy: 'L2', maxSessions: 2 }, security: { tokenTtlDays: 30 },
+};
+
 const server = setupServer(
   http.get('*/api/tasks', () => HttpResponse.json([{ id: 'orca-1', title: 'Build', status: 'open' }])),
   http.get('*/api/sessions', () => HttpResponse.json([{ name: 'orca-SwiftLake', role: 'agent', agent: 'SwiftLake' }])),
   http.get('*/api/missions', () => HttpResponse.json([])),
   http.get('*/api/sessions/:name/pane', () => HttpResponse.json({ pane: '' })),
+  http.get('*/api/config', () => HttpResponse.json(config)),
+  http.get('*/api/projects', () => HttpResponse.json([])),
 );
 beforeAll(() => server.listen()); afterAll(() => server.close());
 
 describe('DashPage', () => {
-  it('renders live tasks and sessions, empty missions', async () => {
+  it('renders the live agent lane and an empty autopilot section', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><DashPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByText('Build')).toBeInTheDocument());
-    expect(screen.getByText('orca-SwiftLake')).toBeInTheDocument();
+    // The live agent shows up in its lane…
+    await waitFor(() => expect(screen.getByText('orca-SwiftLake')).toBeInTheDocument());
+    // …and the autopilot section renders its empty state.
     expect(screen.getAllByText(/no active missions/i).length).toBeGreaterThan(0);
   });
 });

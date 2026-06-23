@@ -1,0 +1,36 @@
+/* Scale the whole UI up ~25% via the rem base — all rem-based type & spacing grow together.
+   Phones keep the natural 100% base so the dense operational UI isn't forced 25% larger into a
+   ~390px viewport; the upscale kicks in at the md breakpoint (768px) where there's room for it. */
+html { font-size: 100%; }
+@media (min-width: 768px) { html { font-size: 125%; } }
+
+html, body {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* App shell owns scrolling (in <main>); keep the page itself from scrolling/rubber-banding
+   so the mobile top bar stays put on iOS instead of moving with elastic overscroll. */
+body { overflow: hidden; overscroll-behavior: none; }
+
+/* Always-visible keyboard focus on interactive elements: a 2-tone accent ring that hugs
+   rounded corners (outer + inset), OLED-safe — no outer glow. */
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [role="switch"]:focus-visible, [role="radio"]:focus-visible, [role="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--color-accent), inset 0 0 0 1px var(--color-accent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+.xterm-viewport::-webkit-scrollbar-thumb { background: var(--color-border); }

@@ -123,9 +123,3 @@ export interface TokenUsage {
   total: number;
   costUsd: number | null;
 }
-
-/** Total token usage aggregated for one model (exec spec) — the dashboard's per-model column. */
-export interface ModelUsage {
-  exec: string;
-  usage: TokenUsage;
-}
