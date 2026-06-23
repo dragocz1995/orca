@@ -7,7 +7,7 @@ import { useSessionStream } from '../../lib/useSessionStream';
 import { orcaClient } from '../../lib/orcaClient';
 import { composeFrame } from './frame';
 
-export function Terminal({ name }: { name: string }) {
+export function Terminal({ name, interactive = false }: { name: string; interactive?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -18,12 +18,17 @@ export function Terminal({ name }: { name: string }) {
 
   useEffect(() => {
     if (!ref.current) return;
-    const term = new XTerm({ convertEol: true, cursorBlink: false, fontSize: 12, theme: { background: '#000000' } });
+    const term = new XTerm({ convertEol: true, cursorBlink: interactive, fontSize: 12, theme: { background: '#000000' } });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(ref.current);
     termRef.current = term;
     fitRef.current = fit;
+
+    // Interactive mode (advisor dock): forward EVERY keystroke verbatim. xterm `onData` yields the
+    // exact terminal bytes (printable chars, control codes, ESC sequences); the daemon replays them
+    // with `send-keys -l`, so arrows/Ctrl/Enter all reach the agent like in a real terminal.
+    const dataSub = interactive ? term.onData((data) => { void orcaClient.sessionInput(name, data).catch(() => {}); }) : null;
 
     // Push xterm's fitted dimensions to the tmux pane so the running agent — especially
     // full-screen TUIs like opencode — redraws at exactly our width instead of wrapping.
@@ -56,12 +61,13 @@ export function Terminal({ name }: { name: string }) {
     return () => {
       cancelAnimationFrame(rafId);
       if (resizeTimer.current) clearTimeout(resizeTimer.current);
+      dataSub?.dispose();
       ro.disconnect();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [name]);
+  }, [name, interactive]);
 
   useEffect(() => {
     const term = termRef.current;

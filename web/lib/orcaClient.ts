@@ -74,6 +74,11 @@ export const orcaClient = {
   killSession: (name: string) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   sendKeys: (name: string, keys: string[]) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}/keys`, json({ keys })),
   resizeSession: (name: string, cols: number, rows: number) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}/resize`, json({ cols, rows })),
+  /** Forward raw xterm `onData` bytes to a session's pane (interactive terminal — see AdvisorDock). */
+  sessionInput: (name: string, data: string) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}/input`, json({ data })),
+  advisorStatus: () => req<{ running: boolean; exec: string; session: string | null }>('/advisor/status'),
+  advisorStart: (exec: string) => req<{ session: string }>('/advisor/start', json({ exec })),
+  advisorStop: () => req<{ ok: boolean }>('/advisor/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   pauseMission: (id: string) => req<Mission>(`/missions/${id}`, json({ action: 'pause' }, 'PATCH')),
   resumeMission: (id: string) => req<Mission>(`/missions/${id}`, json({ action: 'resume' }, 'PATCH')),
   disengageMission: (id: string) => req<{ ok: boolean }>(`/missions/${id}`, { method: 'DELETE' }),

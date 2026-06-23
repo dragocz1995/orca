@@ -7,6 +7,7 @@ import { ToastProvider } from '../ui/Toast';
 import { LoginGate } from '../auth/LoginGate';
 import { Sidebar } from './Sidebar';
 import { CommandPalette } from './CommandPalette';
+import { AdvisorDock } from '../../modules/advisor/AdvisorDock';
 
 function ShellLayout({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -30,6 +31,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
       <CommandPalette />
+      <AdvisorDock />
     </>
   );
 }

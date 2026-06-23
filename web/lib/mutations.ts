@@ -200,6 +200,20 @@ export function useDeleteProjectEntry() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (v: { id: number; path: string }) => orcaClient.deleteProjectEntry(v.id, v.path), onSuccess: (_r, v) => invalidateProjectTree(qc, v.id) });
 }
+export function useAdvisorStart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (exec: string) => orcaClient.advisorStart(exec),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEYS.advisorStatus }); qc.invalidateQueries({ queryKey: QUERY_KEYS.sessions }); },
+  });
+}
+export function useAdvisorStop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => orcaClient.advisorStop(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEYS.advisorStatus }); qc.invalidateQueries({ queryKey: QUERY_KEYS.sessions }); },
+  });
+}
 export function useHermesInstall() {
   const qc = useQueryClient();
   return useMutation({

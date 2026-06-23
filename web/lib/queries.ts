@@ -23,7 +23,12 @@ export const QUERY_KEYS = {
   config: ['config'] as const,
   sessionSignals: ['session-signals'] as const,
   hermesStatus: ['hermes-status'] as const,
+  advisorStatus: ['advisor-status'] as const,
 };
+
+/** The current user's advisor session state, polled so the dock reflects start/stop/crash. */
+export const useAdvisorStatus = () =>
+  useQuery({ queryKey: QUERY_KEYS.advisorStatus, queryFn: orcaClient.advisorStatus, refetchInterval: 5000 });
 
 /** Latest derived signal per session, populated by the SSE stream (see useOrcaEvents). */
 export const useSessionSignals = (): Record<string, DerivedSignal> => {
