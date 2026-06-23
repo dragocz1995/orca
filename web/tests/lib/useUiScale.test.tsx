@@ -19,11 +19,12 @@ describe('useUiScale', () => {
     expect(setSpy).toHaveBeenCalledWith('zoom', '1');
   });
 
-  it('setScale updates state, zoom and localStorage', () => {
+  it('setScale updates state, zoom, the --ui-scale var and localStorage', () => {
     render(<UiScaleProvider><Probe /></UiScaleProvider>);
     fireEvent.click(screen.getByText('scale:1'));
     expect(screen.getByText('scale:1.2')).toBeTruthy();
     expect(setSpy).toHaveBeenCalledWith('zoom', '1.2');
+    expect(setSpy).toHaveBeenCalledWith('--ui-scale', '1.2'); // full-height layout divides by this
     expect(localStorage.getItem('orca:ui-scale')).toBe('1.2');
   });
 

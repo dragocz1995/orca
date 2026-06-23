@@ -207,7 +207,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     <div
       className={fullscreen
         ? 'fixed inset-0 z-50 flex h-screen flex-col overflow-hidden bg-surface'
-        : 'mt-5 flex h-[70vh] flex-col overflow-hidden rounded-lg border border-border bg-surface'}
+        : 'mt-5 flex h-[70vh] min-h-[320px] max-h-[95vh] resize-y flex-col overflow-hidden rounded-lg border border-border bg-surface'}
       style={fullscreen ? undefined : { boxShadow: 'var(--shadow-card)' }}
     >
       {/* toolbar */}

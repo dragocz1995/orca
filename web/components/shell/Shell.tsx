@@ -27,7 +27,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <div className="flex h-dvh overflow-hidden">
+      <div className="flex overflow-hidden" style={{ height: 'calc(100dvh / var(--ui-scale, 1))' }}>
         {dockLeft ? <AdvisorPanel dock={dock} /> : sidebar}
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">

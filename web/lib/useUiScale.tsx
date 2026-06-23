@@ -30,9 +30,15 @@ export function UiScaleProvider({ children }: { children: ReactNode }) {
   const [scale, setScaleState] = useState(DEFAULT_SCALE);
 
   // Hydrate from storage after mount (SSR-safe — server renders the default), then keep the document
-  // root's zoom in lockstep with the value on every change.
+  // root's zoom in lockstep with the value on every change. The `--ui-scale` var is published too so
+  // viewport-height layout (e.g. the shell's full-height column) can divide by it: a `100dvh` box under
+  // `zoom: z` renders at z×viewport, so full-height containers must size to `100dvh / z` to still fill.
   useEffect(() => { setScaleState(read()); }, []);
-  useEffect(() => { document.documentElement.style.setProperty('zoom', String(scale)); }, [scale]);
+  useEffect(() => {
+    const root = document.documentElement.style;
+    root.setProperty('zoom', String(scale));
+    root.setProperty('--ui-scale', String(scale));
+  }, [scale]);
 
   const setScale = useCallback((n: number) => {
     const c = clamp(n);
