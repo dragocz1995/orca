@@ -1,5 +1,27 @@
 import { start as realStart, stop as realStop, status as realStatus, type RunState, type SvcStatus } from './launcher.js';
 import { update as realUpdate, type UpdateResult } from './update.js';
+import { callOrcaApi } from '../shared/apiClient.js';
+
+/** `orca api <METHOD> <path> [jsonBody]` — generic authenticated REST passthrough. Reads
+ *  ORCA_URL/ORCA_TOKEN from the env the daemon injects into every spawned agent, so an agent can
+ *  drive ANY endpoint without a per-endpoint CLI command (and a new endpoint needs zero CLI edits).
+ *  Injectable for tests; returns a process exit code. */
+export async function runApiCommand(
+  args: string[], env: NodeJS.ProcessEnv,
+  deps: { call: typeof callOrcaApi; out: (s: string) => void; err: (s: string) => void },
+): Promise<number> {
+  const [method, path, rawBody] = args;
+  if (!method || !path) { deps.err('usage: orca api <METHOD> <path> [jsonBody]'); return 2; }
+  let body: unknown;
+  if (rawBody !== undefined) {
+    try { body = JSON.parse(rawBody); } catch { deps.err('api: body must be valid JSON'); return 2; }
+  }
+  const url = env.ORCA_URL ?? 'http://localhost:4400';
+  const token = env.ORCA_TOKEN ?? '';
+  const res = await deps.call(method, path, body, { url, token });
+  deps.out(res.data !== undefined ? JSON.stringify(res.data, null, 2) : res.text);
+  return res.ok ? 0 : 1;
+}
 
 /** Lifecycle command dependencies — injectable so dispatch is unit-testable without spawning. */
 export interface LifecycleDeps {

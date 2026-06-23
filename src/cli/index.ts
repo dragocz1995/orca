@@ -4,7 +4,8 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { OrcaClient } from './client.js';
-import { defaultLifecycleDeps, runLifecycle } from './commands.js';
+import { defaultLifecycleDeps, runLifecycle, runApiCommand } from './commands.js';
+import { callOrcaApi } from '../shared/apiClient.js';
 import { menu } from './menu.js';
 
 const BASE = process.env.ORCA_URL ?? 'http://localhost:4400';
@@ -38,6 +39,7 @@ TASKS
                                     --outcome ok|fail         record the outcome
 
 AGENT-FACING                      (invoked by running agents — rarely needed by hand)
+  api <METHOD> <path> [body]      generic authenticated REST call (needs ORCA_URL/ORCA_TOKEN)
   plan submit --phases '<json>'   submit an autopilot plan        (needs ORCA_PLAN_JOB)
   overseer poll                   wait for the next decision       (needs ORCA_MISSION)
   overseer decide --id <id> …     resolve a decision: --approve | --escalate | --choice <optionId>
@@ -53,7 +55,7 @@ Docs & issues: https://github.com/dragocz1995/orcasynth`;
 /** Commands that talk to the daemon API — only these justify auto-starting it. Everything else
  *  (help, unknown verbs) must NOT spawn a daemon: a stray detached daemon squats the port and starves
  *  the systemd-managed one into a restart loop. */
-const API_COMMANDS = new Set(['ls', 'ready', 'sessions', 'close', 'plan', 'overseer']);
+const API_COMMANDS = new Set(['ls', 'ready', 'sessions', 'close', 'plan', 'overseer', 'api']);
 
 /** True only for verbs that need the daemon API up — the gate for ensureDaemon's auto-spawn. */
 export function needsDaemon(cmd: string | undefined): boolean {
@@ -88,6 +90,11 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
     case 'ls': console.log(JSON.stringify(await c.tasks(), null, 2)); break;
     case 'ready': console.log(JSON.stringify(await c.ready(), null, 2)); break;
     case 'sessions': console.log(JSON.stringify(await c.sessions(), null, 2)); break;
+    case 'api': {
+      const code = await runApiCommand(argv.slice(1), env, { call: callOrcaApi, out: (s) => console.log(s), err: (s) => console.error(s) });
+      process.exit(code);
+      break;
+    }
     case 'close': {
       if (!arg) { console.error('usage: orca close <taskId> [--summary "<text>"] [--outcome ok|fail]'); process.exit(1); }
       const outcome = flag(rest, '--outcome');
