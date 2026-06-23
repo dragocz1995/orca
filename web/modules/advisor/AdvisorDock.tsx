@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Bot, X, Square, RotateCcw } from 'lucide-react';
-import { Terminal } from '../../components/terminal/Terminal';
 import { Button } from '../../components/ui/Button';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -9,6 +9,9 @@ import { useAdvisorStatus, useConfig, useMe } from '../../lib/queries';
 import { useAdvisorStart, useAdvisorStop } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
 import { apiErrorMessage } from '../../lib/orcaClient';
+
+// xterm references browser-only `self`; skip SSR so the always-mounted dock doesn't break prerender.
+const Terminal = dynamic(() => import('../../components/terminal/Terminal').then((m) => m.Terminal), { ssr: false });
 
 /** Floating per-user advisor dock: a 🐋 button bottom-right opens a panel with the user's persistent
  *  advisor agent in a fully interactive terminal. When no session is live it shows an agent picker
