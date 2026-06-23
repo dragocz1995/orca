@@ -11,6 +11,7 @@ import { useAdvisorStart, useAdvisorStop } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
 import { apiErrorMessage } from '../../lib/orcaClient';
 import { agentDisplayName } from '../../lib/agentUtils';
+import { ModelIcon } from '../../components/ui/ModelIcon';
 import type { DockPane } from '../../lib/useDockState';
 
 // xterm references browser-only `self`; skip SSR so the docked panel doesn't break prerender.
@@ -130,10 +131,13 @@ function AdvisorLifecyclePane() {
                         type="button"
                         onClick={() => setSelected(m.exec)}
                         aria-pressed={on}
-                        className={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${on ? 'border-accent bg-accent/[0.08]' : 'border-border bg-bg hover:border-border-strong hover:bg-elevated'}`}
+                        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${on ? 'border-accent bg-accent/[0.08]' : 'border-border bg-bg hover:border-border-strong hover:bg-elevated'}`}
                       >
-                        <span className="block font-medium">{m.label}</span>
-                        <span className="block font-mono text-[11px] text-text-muted">{m.exec}</span>
+                        <ModelIcon name={m.exec} size={20} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{m.label}</span>
+                          <span className="block truncate font-mono text-[11px] text-text-muted">{m.exec}</span>
+                        </span>
                       </button>
                     );
                   })}

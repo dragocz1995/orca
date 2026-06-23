@@ -25,6 +25,19 @@ describe('MissionFlow', () => {
     expect(screen.getByText('Juno')).toBeTruthy();
   });
 
+  it('shows the mission result summary below the graph when the epic is closed', () => {
+    const { wrapper: Wrapper } = createWrapper();
+    const closedEpic: Task = { ...epic, status: 'closed', outcome: 'ok', result_summary: 'Shipped the dashboard and wired the UI.' };
+    render(<Wrapper><MissionFlow epic={closedEpic} phases={phases} onSelectPhase={() => {}} /></Wrapper>);
+    expect(screen.getByText('Shipped the dashboard and wired the UI.')).toBeTruthy();
+  });
+
+  it('omits the summary while the mission is still in progress', () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><MissionFlow epic={epic} phases={phases} onSelectPhase={() => {}} /></Wrapper>);
+    expect(screen.queryByText(/result|summary|výsledek|shrnutí/i)).toBeNull();
+  });
+
   it('calls onSelectPhase with the phase id when a phase node is clicked', () => {
     const onSelectPhase = vi.fn();
     const { wrapper: Wrapper } = createWrapper();

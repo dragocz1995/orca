@@ -11,6 +11,7 @@ import { AgentStatusDot } from '../../components/ui/AgentStatusDot';
 import { Badge } from '../../components/ui/Badge';
 import { statusTone } from '../dashboard/statusTone';
 import { statusLabel } from './taskMeta';
+import { ResultSummary } from './ResultSummary';
 import { useTranslation } from '../../lib/i18n';
 
 /** Mission Flow — a vertical node-graph of an autopilot epic and its sequential phases. Each phase
@@ -102,6 +103,9 @@ export function MissionFlow({ epic, phases, activeId, onSelectPhase }: {
           </Fragment>
         );
       })}
+
+      {/* The mission's own result summary, mirroring the single-task detail — shown below the graph. */}
+      <ResultSummary task={epic} className="mt-5" />
     </div>
   );
 }
