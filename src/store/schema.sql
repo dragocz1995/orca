@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL DEFAULT '',
   email TEXT NOT NULL DEFAULT '',
   avatar TEXT NOT NULL DEFAULT '',
-  default_exec TEXT NOT NULL DEFAULT ''
+  default_exec TEXT NOT NULL DEFAULT '',
+  advisor_exec TEXT NOT NULL DEFAULT '',
+  advisor_autostart INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS auth_tokens (
   token TEXT PRIMARY KEY, user_id INTEGER NOT NULL,

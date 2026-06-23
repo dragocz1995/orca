@@ -41,6 +41,10 @@ export function openDb(path: string): Db {
   addColumn(db, 'users', 'email', "TEXT NOT NULL DEFAULT ''");
   addColumn(db, 'users', 'avatar', "TEXT NOT NULL DEFAULT ''");
   addColumn(db, 'users', 'default_exec', "TEXT NOT NULL DEFAULT ''");
+  // Per-user advisor: the remembered agent exec (empty = not set up yet) and whether it auto-starts
+  // on login. Additive so existing DBs gain them with sensible defaults (autostart on once chosen).
+  addColumn(db, 'users', 'advisor_exec', "TEXT NOT NULL DEFAULT ''");
+  addColumn(db, 'users', 'advisor_autostart', 'INTEGER NOT NULL DEFAULT 1');
   // Token scope: spawned agents get a 'agent'-scoped token (worker/overseer/pilot verbs only),
   // never the admin's full token. Pre-existing rows default to 'full' (interactive user sessions).
   addColumn(db, 'auth_tokens', 'scope', "TEXT NOT NULL DEFAULT 'full'");

@@ -60,7 +60,7 @@ export interface MissionDetail {
   deps: MissionDeps[];
   progress: MissionProgress;
 }
-export interface User { id: number; username: string; created_at: string; is_admin: boolean; allowed_execs: string[]; name: string; email: string; avatar: string; default_exec: string }
+export interface User { id: number; username: string; created_at: string; is_admin: boolean; allowed_execs: string[]; name: string; email: string; avatar: string; default_exec: string; advisor_exec: string; advisor_autostart: boolean }
 export interface UserPatch { is_admin?: boolean; allowed_execs?: string[] }
 export interface ProfilePatch { name?: string; email?: string; default_exec?: string }
 // Login no longer surfaces a token to the browser — the proxy sets it as an httpOnly cookie and

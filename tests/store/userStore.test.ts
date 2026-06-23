@@ -98,4 +98,14 @@ describe('UserStore', () => {
     expect(store.userForToken(t)).toBeNull();
     expect(db.prepare('SELECT COUNT(*) c FROM user_projects WHERE user_id = ?').get(u.id)).toEqual({ c: 0 });
   });
+
+  it('advisor config: defaults, set exec, toggle autostart', () => {
+    const u = users.create('amy', 'pw');
+    expect(u.advisor_exec).toBe('');
+    expect(u.advisor_autostart).toBe(true);
+    expect(users.setAdvisorExec(u.id, 'sonnet')?.advisor_exec).toBe('sonnet');
+    expect(users.setAdvisorAutostart(u.id, false)?.advisor_autostart).toBe(false);
+    expect(users.get(u.id)?.advisor_exec).toBe('sonnet');
+    expect(users.get(u.id)?.advisor_autostart).toBe(false);
+  });
 });
