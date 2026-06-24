@@ -41,11 +41,11 @@ export class AdvisorService {
     return u.allowed_execs.includes(exec);
   }
 
-  async status(userId: number): Promise<{ running: boolean; exec: string; session: string | null }> {
+  async status(userId: number): Promise<{ running: boolean; exec: string; session: string | null; autostart: boolean }> {
     const u = this.d.users.get(userId);
     const name = this.session(userId);
     const running = (await this.d.tmux.list()).includes(name);
-    return { running, exec: u?.advisor_exec ?? '', session: running ? name : null };
+    return { running, exec: u?.advisor_exec ?? '', session: running ? name : null, autostart: u?.advisor_autostart ?? false };
   }
 
   async start(userId: number, exec: string): Promise<{ session: string }> {
@@ -53,6 +53,7 @@ export class AdvisorService {
     const name = this.session(userId);
     if ((await this.d.tmux.list()).includes(name)) return { session: name }; // already live — idempotent
     this.d.users.setAdvisorExec(userId, exec); // remember the choice for autostart
+    this.d.users.setAdvisorAutostart(userId, true); // an explicit start re-arms login autostart
     const spec = resolveExecutor([`exec:${exec}`], this.d.fallback);
     const token = this.d.users.ensureAdvisorToken(userId); // full-scope, reused across restarts
     const cwd = this.d.advisorDir(userId);
@@ -76,6 +77,9 @@ export class AdvisorService {
   }
 
   async stop(userId: number): Promise<void> {
+    // Turn autostart OFF so the advisor stays down: ensureOnLogin would otherwise bring it back on the
+    // next login (the "advisor re-enables itself after I turned it off" bug). An explicit start re-arms it.
+    this.d.users.setAdvisorAutostart(userId, false);
     await this.d.tmux.kill(this.session(userId));
   }
 

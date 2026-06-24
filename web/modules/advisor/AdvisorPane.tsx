@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Bot, X, Square, RotateCcw, MoreVertical, Eye, SquareTerminal, SquareArrowOutUpRight } from 'lucide-react';
+import { Bot, BotOff, X, Square, RotateCcw, MoreVertical, Eye, SquareTerminal, SquareArrowOutUpRight, Power } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { useToast } from '../../components/ui/Toast';
@@ -78,6 +78,10 @@ function AdvisorLifecyclePane() {
 
   const running = status.data?.running ?? false;
   const session = status.data?.session ?? null;
+  // Whether the user wants an advisor at all. Off (autostart false, not running) collapses the pane to a
+  // compact "turn it on" card instead of pushing the model picker on someone who only wants agent panes.
+  const autostart = status.data?.autostart ?? false;
+  const [picking, setPicking] = useState(false);
 
   // Models the user may run an advisor as: their admin allow-list, or all globally-allowed when they
   // have no per-user restriction — intersected with the global allow-list either way.
@@ -95,6 +99,11 @@ function AdvisorLifecyclePane() {
   });
   const doStop = () => stop.mutate(undefined, {
     onSuccess: () => toast(t.advisor.stopped),
+    onError: (e) => toast(apiErrorMessage(e), 'error'),
+  });
+  // "Run without an assistant": persist the off intent (stop disables autostart) and collapse the picker.
+  const doDisable = () => stop.mutate(undefined, {
+    onSuccess: () => { setPicking(false); toast(t.advisor.stopped); },
     onError: (e) => toast(apiErrorMessage(e), 'error'),
   });
 
@@ -136,6 +145,13 @@ function AdvisorLifecyclePane() {
       <div className="min-h-0 flex-1">
         {running && session ? (
           <Terminal name={session} />
+        ) : !autostart && !picking ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+            <BotOff size={28} className="text-text-muted" aria-hidden />
+            <p className="text-sm font-medium">{t.advisor.offTitle}</p>
+            <p className="max-w-[16rem] text-xs text-text-muted">{t.advisor.offHint}</p>
+            <Button variant="accent" icon={Power} onClick={() => setPicking(true)}>{t.advisor.enable}</Button>
+          </div>
         ) : (
           <div className="flex h-full flex-col gap-4 p-5">
             {models.length === 0 ? (
@@ -167,7 +183,14 @@ function AdvisorLifecyclePane() {
                 <Button variant="accent" icon={Bot} onClick={() => doStart(chosen)} disabled={!chosen || start.isPending}>
                   {start.isPending ? t.advisor.starting : t.advisor.start}
                 </Button>
-                <p className="text-center text-[11px] text-text-muted">{t.advisor.hint}</p>
+                <button
+                  type="button"
+                  onClick={doDisable}
+                  disabled={stop.isPending}
+                  className="text-center text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline disabled:opacity-50"
+                >
+                  {t.advisor.runWithout}
+                </button>
               </>
             )}
           </div>

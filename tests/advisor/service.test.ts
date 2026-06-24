@@ -47,32 +47,42 @@ describe('AdvisorService', () => {
     await expect(svc.start(u.id, 'opus')).rejects.toThrow(/not allowed/);
   });
 
-  it('status reflects running state and remembered exec', async () => {
+  it('status reflects running state, remembered exec and autostart', async () => {
     const { svc, u } = makeAdvisor({ allowed: ['sonnet'] });
-    expect(await svc.status(u.id)).toEqual({ running: false, exec: '', session: null });
+    expect(await svc.status(u.id)).toEqual({ running: false, exec: '', session: null, autostart: true });
     await svc.start(u.id, 'sonnet');
-    expect(await svc.status(u.id)).toEqual({ running: true, exec: 'sonnet', session: `orca-advisor-${u.id}` });
+    expect(await svc.status(u.id)).toEqual({ running: true, exec: 'sonnet', session: `orca-advisor-${u.id}`, autostart: true });
   });
 
-  it('stop kills the session but keeps the remembered exec', async () => {
-    const { svc, u } = makeAdvisor({ allowed: ['sonnet'] });
+  it('stop kills the session, keeps the exec, and turns autostart OFF (stays off)', async () => {
+    const { svc, users, u } = makeAdvisor({ allowed: ['sonnet'] });
     await svc.start(u.id, 'sonnet');
     await svc.stop(u.id);
     const s = await svc.status(u.id);
     expect(s.running).toBe(false);
-    expect(s.exec).toBe('sonnet'); // remembered for next autostart
+    expect(s.exec).toBe('sonnet'); // remembered for a future explicit start
+    expect(s.autostart).toBe(false); // explicit stop means "don't bring it back on login"
+    expect(users.get(u.id)?.advisor_autostart).toBe(false);
   });
 
-  it('ensureOnLogin starts only when an exec is set and autostart is on', async () => {
+  it('start (re-)enables autostart so a later login brings the advisor back', async () => {
+    const { svc, users, u } = makeAdvisor({ allowed: ['sonnet'] });
+    await svc.start(u.id, 'sonnet');
+    await svc.stop(u.id); // autostart off
+    expect(users.get(u.id)?.advisor_autostart).toBe(false);
+    await svc.start(u.id, 'sonnet'); // explicit restart re-arms autostart
+    expect(users.get(u.id)?.advisor_autostart).toBe(true);
+  });
+
+  it('ensureOnLogin does not restart after an explicit stop (the auto-enable bug)', async () => {
     const { svc, spawnCalls, users, u } = makeAdvisor({ allowed: ['sonnet'] });
     await svc.ensureOnLogin(u.id);
     expect(spawnCalls).toHaveLength(0); // no remembered exec yet
     users.setAdvisorExec(u.id, 'sonnet');
     await svc.ensureOnLogin(u.id);
     expect(spawnCalls).toHaveLength(1);
-    await svc.stop(u.id);
-    users.setAdvisorAutostart(u.id, false);
+    await svc.stop(u.id); // stop alone must disable autostart now
     await svc.ensureOnLogin(u.id);
-    expect(spawnCalls).toHaveLength(1); // autostart off → not restarted
+    expect(spawnCalls).toHaveLength(1); // not restarted — stop stuck
   });
 });

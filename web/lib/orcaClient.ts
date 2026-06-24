@@ -85,7 +85,7 @@ export const orcaClient = {
   sessionInput: (name: string, data: string) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}/input`, json({ data })),
   /** Mint a single-use ticket to open the terminal WebSocket stream for a session (PTY stream). */
   wsTicket: (name: string) => req<{ ticket: string }>(`/sessions/${encodeURIComponent(name)}/ws-ticket`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
-  advisorStatus: () => req<{ running: boolean; exec: string; session: string | null }>('/advisor/status'),
+  advisorStatus: () => req<{ running: boolean; exec: string; session: string | null; autostart: boolean }>('/advisor/status'),
   advisorStart: (exec: string) => req<{ session: string }>('/advisor/start', json({ exec })),
   advisorStop: () => req<{ ok: boolean }>('/advisor/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   pauseMission: (id: string) => req<Mission>(`/missions/${id}`, json({ action: 'pause' }, 'PATCH')),
