@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPR, readPRReviews } from '../../src/integrations/github/pr.js';
+import { createPR, readPRReviews, mergePR } from '../../src/integrations/github/pr.js';
 
 // A fake `gh` on PATH lets us assert createPR's parsing/fallback without touching the network. Each
 // test writes a shell stub that mimics the relevant `gh` behaviour.
@@ -92,5 +92,53 @@ fi`);
     fakeGh(`if [ "$1" = "pr" ]; then exit 1; fi`);
     const st = await readPRReviews({ dir: binDir, number: 2, token: 't' });
     expect(st).toBeNull();
+  });
+});
+
+describe('mergePR', () => {
+  it('squash-merges a clean, open PR with green checks', async () => {
+    const marker = join(binDir, 'merged.flag');
+    fakeGh(`
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}'; fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then echo "ok" > "${marker}"; fi`);
+    const res = await mergePR({ dir: binDir, number: 2, token: 't' });
+    expect(res.ok).toBe(true);
+    expect(existsSync(marker)).toBe(true); // gh pr merge actually ran
+  });
+
+  it('refuses (no merge) while checks are still running', async () => {
+    const marker = join(binDir, 'merged.flag');
+    fakeGh(`
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[{"status":"IN_PROGRESS"}]}'; fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then echo "ok" > "${marker}"; fi`);
+    const res = await mergePR({ dir: binDir, number: 2, token: 't' });
+    expect(res).toEqual({ ok: false, reason: expect.stringContaining('running') });
+    expect(existsSync(marker)).toBe(false); // never attempted the merge
+  });
+
+  it('refuses when a check is failing', async () => {
+    fakeGh(`if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[{"status":"COMPLETED","conclusion":"FAILURE"}]}'; fi`);
+    const res = await mergePR({ dir: binDir, number: 2, token: 't' });
+    expect(res).toEqual({ ok: false, reason: expect.stringContaining('failing') });
+  });
+
+  it('refuses when the PR conflicts with the base branch', async () => {
+    fakeGh(`if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"CONFLICTING","statusCheckRollup":[]}'; fi`);
+    const res = await mergePR({ dir: binDir, number: 2, token: 't' });
+    expect(res).toEqual({ ok: false, reason: expect.stringContaining('conflict') });
+  });
+
+  it('refuses when the PR is not open', async () => {
+    fakeGh(`if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"MERGED","mergeable":"UNKNOWN","statusCheckRollup":[]}'; fi`);
+    const res = await mergePR({ dir: binDir, number: 2, token: 't' });
+    expect(res.ok).toBe(false);
+  });
+
+  it('reports failure when gh pr merge itself errors', async () => {
+    fakeGh(`
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[]}'; fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then echo "boom" >&2; exit 1; fi`);
+    const res = await mergePR({ dir: binDir, number: 2, token: 't' });
+    expect(res.ok).toBe(false);
   });
 });

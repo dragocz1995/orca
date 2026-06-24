@@ -93,6 +93,9 @@ export const orcaClient = {
   disengageMission: (id: string) => req<{ ok: boolean }>(`/missions/${id}`, { method: 'DELETE' }),
   /** Manually open the PR for a PR-native mission (auto-open off). Returns the PR url + number. */
   openMissionPr: (id: string) => req<{ url: string; number: number }>(`/missions/${id}/pr`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
+  /** Squash-merge a PR-native mission's PR into the base branch. Resolves on success; rejects with the
+   *  gate reason (PR not open / conflicts / CI not green) so the UI can show why it was refused. */
+  mergeMissionPr: (id: string) => req<{ ok: boolean }>(`/missions/${id}/merge-pr`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   getConfig: () => req<OrcaConfig>('/config'),
   updateConfig: (patch: ConfigPatch) => req<OrcaConfig>('/config', json(patch, 'PUT')),
   login: (username: string, password: string) => req<AuthResult>('/auth/login', json({ username, password })),

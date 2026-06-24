@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { ChevronRight, Trash2, Play, Pause, Power, Rocket, Plus, Coins, GitPullRequest } from 'lucide-react';
+import { ChevronRight, Trash2, Play, Pause, Power, Rocket, Plus, Coins, GitPullRequest, GitMerge } from 'lucide-react';
 import type { Task } from '../../lib/types';
 import { Badge } from '../../components/ui/Badge';
 import { ProgressRibbon } from '../../components/ui/ProgressRibbon';
@@ -10,7 +10,7 @@ import { ActionMenu } from '../../components/ui/ActionMenu';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useToast } from '../../components/ui/Toast';
 import { orcaClient } from '../../lib/orcaClient';
-import { useDeleteMission, useEngage, usePauseMission, useResumeMission, useDisengage, useOpenMissionPr } from '../../lib/mutations';
+import { useDeleteMission, useEngage, usePauseMission, useResumeMission, useDisengage, useOpenMissionPr, useMergeMissionPr } from '../../lib/mutations';
 import { useSessions, useSessionSignals, useMissions, useConfig } from '../../lib/queries';
 import { TaskCard } from './TaskCard';
 import { AddPhaseModal } from './AddPhaseModal';
@@ -47,7 +47,9 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
   const resume = useResumeMission();
   const disengage = useDisengage();
   const openPr = useOpenMissionPr();
+  const mergePr = useMergeMissionPr();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmMerge, setConfirmMerge] = useState(false);
   const [addingPhase, setAddingPhase] = useState(false);
   const { done, total } = epicProgress(phases);
   const { running, needsInput } = epicLive(phases, sessions.data ?? [], signals);
@@ -82,6 +84,11 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
   const onResume = () => resume.mutate(mission!.id, { onSuccess: () => toast(t.missions.resumed), onError: (e) => toast(String(e), 'error') });
   const onDisengage = () => disengage.mutate(mission!.id, { onSuccess: () => toast(t.missions.disengaged), onError: (e) => toast(String(e), 'error') });
   const onOpenPr = () => openPr.mutate(mission!.id, { onSuccess: (r) => toast(t.missions.prOpened.replace('{n}', String(r.number))), onError: (e) => toast(String(e), 'error') });
+  const onContinue = () => engage.mutate(
+    { epicId: epic.id, autonomy: config?.defaults?.autonomy ?? 'L3', maxSessions: config?.defaults?.maxSessions ?? 1 },
+    { onSuccess: () => toast(t.missions.continued), onError: (e) => toast(String(e), 'error') },
+  );
+  const onMerge = () => mergePr.mutate(mission!.id, { onSuccess: () => toast(t.missions.mergePrDone), onError: (e) => toast(String(e), 'error') });
   // PR-native surfacing: a pr record with a url → link out; one without (verified, waiting) → "Open PR".
   const pr = mission?.pr ?? null;
 
@@ -135,8 +142,14 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
           ) : pr && pr.prState !== 'verify_failed' ? (
             <ActionPill icon={GitPullRequest} label={t.missions.openPr} tone="accent" onClick={onOpenPr} disabled={openPr.isPending} />
           ) : null}
+          {pr?.prState === 'open' ? (
+            <ActionPill icon={GitMerge} label={t.missions.mergePr} tone="accent" onClick={() => setConfirmMerge(true)} disabled={mergePr.isPending} />
+          ) : null}
           {!live && !epicClosed && !mission ? (
             <ActionPill icon={Rocket} label={t.missions.engage} tone="accent" onClick={onEngage} disabled={engage.isPending} />
+          ) : null}
+          {!live && !epicClosed && mission ? (
+            <ActionPill icon={Play} label={t.missions.continueMission} tone="accent" onClick={onContinue} disabled={engage.isPending} />
           ) : null}
           {live ? (
             <>
@@ -175,6 +188,15 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
         confirmLabel={t.tasks.deleteMission}
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => { setConfirmDelete(false); deleteMission.mutate(epic.id, { onSuccess: () => toast(t.tasks.missionDeleted.replace('{id}', epic.id)), onError: (e) => toast(String(e), 'error') }); }}
+      />
+
+      <ConfirmDialog
+        open={confirmMerge}
+        title={t.missions.mergePrConfirmTitle}
+        description={t.missions.mergePrConfirmDesc}
+        confirmLabel={t.missions.mergePr}
+        onClose={() => setConfirmMerge(false)}
+        onConfirm={() => { setConfirmMerge(false); onMerge(); }}
       />
     </div>
   );

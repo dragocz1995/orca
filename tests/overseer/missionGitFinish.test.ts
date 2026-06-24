@@ -93,6 +93,30 @@ describe('MissionGit.finishMission (Stage 4)', () => {
     expect(prs.get('m-epic')!.pr_state).toBe('open');
   });
 
+  it('mergePr squash-merges an open PR and records it merged + clears the budget', async () => {
+    fakeGh(`
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}'; fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit 0; fi`);
+    const { missionGit, prs } = build({ prAutoOpen: false, verify: '' });
+    await missionGit.onEngage('m-epic', 'epic');
+    prs.setPr('m-epic', { number: 8, url: 'https://github.com/o/r/pull/8', state: 'open' });
+    prs.bumpFixRounds('m-epic'); // simulate a prior fix round
+
+    const res = await missionGit.mergePr('m-epic');
+    expect(res.ok).toBe(true);
+    expect(prs.get('m-epic')!.pr_state).toBe('merged');
+    expect(prs.get('m-epic')!.fix_rounds).toBe(0);
+  });
+
+  it('mergePr refuses (no state change) when the PR has no open record', async () => {
+    fakeGh(`exit 0`);
+    const { missionGit, prs } = build({ prAutoOpen: false, verify: '' });
+    await missionGit.onEngage('m-epic', 'epic'); // worktree exists, but no PR opened
+    const res = await missionGit.mergePr('m-epic');
+    expect(res.ok).toBe(false);
+    expect(prs.get('m-epic')!.pr_state).toBeNull();
+  });
+
   it('auto-pushes a fix round onto an already-open PR even in manual mode', async () => {
     // gh create fails ("already exists") → falls back to gh pr view → the existing PR is re-read; the
     // point is finishMission must PUSH (not return ready) once a PR is open, so the fix reaches the PR.

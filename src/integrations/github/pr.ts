@@ -95,6 +95,57 @@ async function readLineComments(dir: string, number: number, env: NodeJS.Process
   }
 }
 
+export type MergeResult = { ok: true } | { ok: false; reason: string };
+
+/** Squash-merge a PR via `gh pr merge --squash --delete-branch`, but only after a pre-flight gate so the
+ *  UI can show a clear reason instead of gh's cryptic refusal: the PR must be OPEN, free of base-branch
+ *  conflicts, and have all status checks green (none pending or failing). Returns the reason on refusal.
+ *  The branch is deleted on success. */
+export async function mergePR(input: { dir: string; number: number; token: string }): Promise<MergeResult> {
+  const env = ghEnv(input.token);
+  let view: { state?: unknown; mergeable?: unknown; statusCheckRollup?: unknown };
+  try {
+    const { stdout } = await run('gh', ['pr', 'view', String(input.number), '--json', 'state,mergeable,statusCheckRollup'], { cwd: input.dir, env });
+    view = JSON.parse(stdout) as typeof view;
+  } catch (e) {
+    log.error(`gh pr view (merge gate) failed for #${input.number}`, e);
+    return { ok: false, reason: 'could not read PR status' };
+  }
+  if (String(view.state) !== 'OPEN') return { ok: false, reason: `PR is ${String(view.state ?? 'unknown').toLowerCase()}` };
+  if (String(view.mergeable) === 'CONFLICTING') return { ok: false, reason: 'merge conflicts with the base branch' };
+  const checks = checksState(view.statusCheckRollup);
+  if (checks === 'pending') return { ok: false, reason: 'CI checks are still running' };
+  if (checks === 'failing') return { ok: false, reason: 'CI checks are failing' };
+  try {
+    await run('gh', ['pr', 'merge', String(input.number), '--squash', '--delete-branch'], { cwd: input.dir, env });
+    return { ok: true };
+  } catch (e) {
+    log.error(`gh pr merge failed for #${input.number}`, e);
+    return { ok: false, reason: 'gh refused the merge' };
+  }
+}
+
+/** Roll a PR's status checks up into pending / failing / passing. Handles both shapes gh returns:
+ *  CheckRun (`status` COMPLETED + `conclusion`) and StatusContext (`state`). Unknown entries are ignored
+ *  so one odd shape can't wedge the gate; an empty rollup is passing (nothing to wait on). */
+function checksState(rollup: unknown): 'pending' | 'failing' | 'passing' {
+  if (!Array.isArray(rollup)) return 'passing';
+  let pending = false;
+  for (const c of rollup) {
+    const o = c as { status?: unknown; conclusion?: unknown; state?: unknown };
+    if (o.state !== undefined) { // StatusContext (commit status): SUCCESS | PENDING | EXPECTED | FAILURE | ERROR
+      const s = String(o.state);
+      if (s === 'FAILURE' || s === 'ERROR') return 'failing';
+      if (s === 'PENDING' || s === 'EXPECTED') pending = true;
+    } else { // CheckRun: must be COMPLETED with a non-failing conclusion
+      if (String(o.status ?? '') !== 'COMPLETED') { pending = true; continue; }
+      const concl = String(o.conclusion ?? '');
+      if (['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'STALE'].includes(concl)) return 'failing';
+    }
+  }
+  return pending ? 'pending' : 'passing';
+}
+
 /** The last non-empty line of `gh pr create` output is the PR URL; pull the number out of `/pull/<n>`. */
 function parsePrUrl(out: string): PrRef | null {
   const url = out.split('\n').map((s) => s.trim()).filter(Boolean).pop() ?? '';

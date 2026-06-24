@@ -101,6 +101,10 @@ export function useOpenMissionPr() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (id: string) => orcaClient.openMissionPr(id), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }) });
 }
+export function useMergeMissionPr() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => orcaClient.mergeMissionPr(id), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.missions }) });
+}
 export function useUpdateConfig() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (patch: ConfigPatch) => orcaClient.updateConfig(patch), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.config }) });

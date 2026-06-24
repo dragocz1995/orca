@@ -1399,6 +1399,17 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       default: return c.json({ error: 'PR workflow not enabled for this mission' }, 400);
     }
   });
+  // Squash-merge a PR-native mission's PR into the base branch (the "Merge to main" affordance). The
+  // open/conflict/CI gate lives in mergePR; a refusal returns 422 with a human reason for the UI toast.
+  app.post('/missions/:id/merge-pr', async c => {
+    const id = c.req.param('id');
+    const mission = d.missions.get(id);
+    if (!mission) return c.json({ error: 'mission not found' }, 404);
+    if (!missionAccessible(c, mission.epic_id)) return c.json({ error: 'forbidden' }, 403);
+    if (!d.missionGit) return c.json({ error: 'PR workflow not enabled' }, 400);
+    const res = await d.missionGit.mergePr(id);
+    return res.ok ? c.json({ ok: true }) : c.json({ error: res.reason }, 422);
+  });
   // Overseer long-poll: the parked per-mission overseer agent polls `next` (blocks until a decision
   // is needed or a heartbeat) and answers via `decide`. Decisions are keyed by mission id in the
   // path; both sit behind the bearer middleware. No model output is parsed — the agent posts a

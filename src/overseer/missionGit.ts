@@ -6,7 +6,7 @@ import type { ConfigStore } from '../store/configStore.js';
 import type { TaskStore } from '../store/taskStore.js';
 import { logger } from '../shared/logger.js';
 import { createMissionWorktree, removeWorktree, commitAll, pushBranch, detectBaseBranch } from '../integrations/git/worktree.js';
-import { createPR, readPRReviews } from '../integrations/github/pr.js';
+import { createPR, readPRReviews, mergePR, type MergeResult } from '../integrations/github/pr.js';
 
 const run = promisify(execFile);
 const log = logger('mission-git');
@@ -109,6 +109,22 @@ export class MissionGit {
    *  mission keeps showing its branch/PR affordance in the UI even after it has disengaged. */
   pendingPrMissionIds(): string[] {
     return this.d.prs.pending().map((r) => r.mission_id);
+  }
+
+  /** Squash-merge the mission's open PR into the base branch (the manual "Merge to main" affordance).
+   *  Delegates the open/conflict/CI gate to `mergePR` and, on success, records the PR as merged and
+   *  clears the fix budget. Returns the refusal reason so the UI can explain a blocked merge. */
+  async mergePr(missionId: string): Promise<MergeResult> {
+    if (!this.prEnabled()) return { ok: false, reason: 'PR workflow not enabled' };
+    const rec = this.d.prs.get(missionId);
+    if (!rec || rec.pr_number == null || rec.pr_state !== 'open') return { ok: false, reason: 'no open PR for this mission' };
+    const res = await mergePR({ dir: rec.worktree, number: rec.pr_number, token: this.d.config.ghToken() ?? '' });
+    if (res.ok) {
+      this.d.prs.setPrState(missionId, 'merged');
+      this.d.prs.resetFixRounds(missionId);
+      log.info(`PR mode: mission ${missionId} PR #${rec.pr_number} merged`);
+    }
+    return res;
   }
 
   /** Finalise a mission at epic-done: run the verify gate, then (when auto-open is on) push the branch
