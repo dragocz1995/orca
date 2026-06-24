@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef } from 'react';
-import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, Server, Package, type LucideIcon } from 'lucide-react';
+import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, Server, type LucideIcon } from 'lucide-react';
 import { PROVIDERS, ProviderLogo, ProviderTag } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Select } from '../../components/ui/Select';
@@ -655,42 +655,52 @@ export default function SettingsPage() {
         )}
 
         {category === 'system' && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <SettingCard title={t.settings.version} description={t.settings.versionDesc} icon={Package}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-sm text-text">{system.data?.version ?? '—'}</span>
-                  {system.data?.updateAvailable
-                    ? <Badge tone="warning">{t.settings.updateAvailable.replace('{v}', system.data.latest ?? '')}</Badge>
-                    : system.data?.latest ? <Badge tone="success">{t.settings.upToDate}</Badge> : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => systemUpdate.mutate(undefined, {
-                    onSuccess: () => toast(t.settings.updateStarted),
-                    onError: (e) => toast(e instanceof OrcaApiError && e.code === 'mission_running' ? t.settings.updateBlockedMission : String(e), 'error'),
-                  })}
-                  disabled={systemUpdate.isPending || !system.data?.updateAvailable}
-                  className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-elevated px-3 text-xs font-medium text-text transition-colors hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <RefreshCw size={14} className={systemUpdate.isPending ? 'animate-spin' : ''} />
-                  {systemUpdate.isPending ? t.settings.updating : t.settings.updateNow}
-                </button>
-              </SettingCard>
-              <SettingCard title={t.settings.autoUpdate} description={t.settings.autoUpdateDesc} icon={RefreshCw}>
-                <Toggle checked={autoUpdate} onChange={(v) => { setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onSuccess: () => toast(t.settings.autoUpdateSaved), onError: (e) => toast(String(e), 'error') }); }} label={t.settings.autoUpdate} />
-              </SettingCard>
-              <SettingCard title={t.settings.services} description={t.settings.servicesDesc} icon={Server}>
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-text">{t.settings.serviceDaemon} <span className="text-text-muted">:4400</span></span>
-                    <Badge tone={system.isError ? 'danger' : 'success'}>{system.isError ? t.settings.serviceDown : t.settings.serviceUp}</Badge>
+            <div className="flex flex-col items-center gap-5">
+              {/* Hero — Orca identity, current version and the update affordance, on a softly back-lit
+                  tile. The blurred accent orb behind the logo is the "lehké podsvícení". */}
+              <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface px-6 py-9 text-center" style={{ boxShadow: 'var(--shadow-raised)' }}>
+                <div aria-hidden className="pointer-events-none absolute left-1/2 top-0 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/25 blur-3xl" />
+                <div className="relative flex flex-col items-center gap-5">
+                  <img src="/orca-logo.png" alt={t.common.appName} className="h-12 w-auto" />
+                  <div className="flex flex-col items-center gap-2.5">
+                    <span className="font-mono text-3xl font-semibold tracking-tight text-text">{system.data?.version ?? '—'}</span>
+                    {system.data?.updateAvailable
+                      ? <Badge tone="warning">{t.settings.updateAvailable.replace('{v}', system.data.latest ?? '')}</Badge>
+                      : system.data?.latest ? <Badge tone="success">{t.settings.upToDate}</Badge> : null}
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-text">{t.settings.serviceWeb} <span className="text-text-muted">:4500</span></span>
-                    <Badge tone="success">{t.settings.serviceUp}</Badge>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => systemUpdate.mutate(undefined, {
+                      onSuccess: () => toast(t.settings.updateStarted),
+                      onError: (e) => toast(e instanceof OrcaApiError && e.code === 'mission_running' ? t.settings.updateBlockedMission : String(e), 'error'),
+                    })}
+                    disabled={systemUpdate.isPending || !system.data?.updateAvailable}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-accent bg-accent px-4 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:opacity-60"
+                  >
+                    <RefreshCw size={14} className={systemUpdate.isPending ? 'animate-spin' : ''} />
+                    {systemUpdate.isPending ? t.settings.updating : t.settings.updateNow}
+                  </button>
                 </div>
-              </SettingCard>
+              </div>
+
+              {/* Tiles — Orca-specific switches and live service health. */}
+              <div className="grid w-full max-w-lg grid-cols-1 gap-4 sm:grid-cols-2">
+                <SettingCard title={t.settings.autoUpdate} description={t.settings.autoUpdateDesc} icon={RefreshCw}>
+                  <Toggle checked={autoUpdate} onChange={(v) => { setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onSuccess: () => toast(t.settings.autoUpdateSaved), onError: (e) => toast(String(e), 'error') }); }} label={t.settings.autoUpdate} />
+                </SettingCard>
+                <SettingCard title={t.settings.services} description={t.settings.servicesDesc} icon={Server}>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-text">{t.settings.serviceDaemon} <span className="text-text-muted">:4400</span></span>
+                      <Badge tone={system.isError ? 'danger' : 'success'}>{system.isError ? t.settings.serviceDown : t.settings.serviceUp}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-text">{t.settings.serviceWeb} <span className="text-text-muted">:4500</span></span>
+                      <Badge tone="success">{t.settings.serviceUp}</Badge>
+                    </div>
+                  </div>
+                </SettingCard>
+              </div>
             </div>
         )}
 
