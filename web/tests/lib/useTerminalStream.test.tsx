@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 const wsTicket = vi.fn(() => Promise.resolve({ ticket: 'T1' }));
+const wsConfig = vi.fn(() => Promise.resolve({ directPort: null as number | null }));
 vi.mock('../../lib/orcaClient', () => ({
-  orcaClient: { wsTicket: (...a: unknown[]) => wsTicket(...(a as [])) },
-  terminalWsUrl: (t: string) => `ws://host/ws/terminal?ticket=${t}`,
+  orcaClient: { wsTicket: (...a: unknown[]) => wsTicket(...(a as [])), wsConfig: () => wsConfig() },
+  terminalWsUrl: (t: string, directPort?: number | null) => `ws://${directPort ? `host:${directPort}` : 'host'}/ws/terminal?ticket=${t}`,
 }));
 
 class FakeWS {
@@ -25,6 +26,7 @@ class FakeWS {
 beforeEach(() => {
   wsTicket.mockClear();
   wsTicket.mockResolvedValue({ ticket: 'T1' });
+  wsConfig.mockClear();
   (globalThis as unknown as { WebSocket: typeof FakeWS }).WebSocket = FakeWS;
 });
 

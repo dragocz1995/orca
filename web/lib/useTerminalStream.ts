@@ -8,6 +8,14 @@ type StreamStatus = 'connecting' | 'open' | 'unsupported' | 'closed';
  *  missing). Must match `UNSUPPORTED_CLOSE` in `src/terminal/wsHandler.ts`. */
 const UNSUPPORTED_CLOSE = 4001;
 
+/** The WS reachability config is stable per deployment, so fetch it once and share the promise across
+ *  every terminal. A failed fetch degrades to same-origin (directPort null) — the proxy/localhost path. */
+let wsConfigPromise: Promise<{ directPort: number | null }> | null = null;
+function getWsConfig(): Promise<{ directPort: number | null }> {
+  if (!wsConfigPromise) wsConfigPromise = orcaClient.wsConfig().catch(() => ({ directPort: null }));
+  return wsConfigPromise;
+}
+
 export interface TerminalStream {
   status: StreamStatus;
   send: (data: string) => void;
@@ -29,10 +37,10 @@ export function useTerminalStream(name: string, enabled: boolean, onData: (bytes
     let cancelled = false;
     let ws: WebSocket | null = null;
     setStatus('connecting');
-    orcaClient.wsTicket(name)
-      .then(({ ticket }) => {
+    Promise.all([orcaClient.wsTicket(name), getWsConfig()])
+      .then(([{ ticket }, { directPort }]) => {
         if (cancelled) return;
-        ws = new WebSocket(terminalWsUrl(ticket));
+        ws = new WebSocket(terminalWsUrl(ticket, directPort));
         wsRef.current = ws;
         ws.onopen = () => { if (!cancelled) setStatus('open'); };
         ws.onmessage = (e: MessageEvent) => { if (typeof e.data === 'string') onDataRef.current(e.data); };
