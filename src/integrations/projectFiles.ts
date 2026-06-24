@@ -78,6 +78,23 @@ export function listProjectFiles(root: string, maxDepth = 8): FileNode[] {
   return out;
 }
 
+export interface DirListing { path: string; parent: string | null; entries: { name: string; path: string }[] }
+
+/** Shallow-list the sub-directories of an absolute server path — backs the new-project directory picker
+ *  (you can't list a project's files before the project exists). Returns the resolved path, its parent
+ *  (null at the filesystem root) and the immediate child directories, sorted, with the usual build noise
+ *  (`.git`, `node_modules`, …) filtered out. Throws when the path isn't a readable directory, which the
+ *  route turns into a 400. Read-only and directory-only: never exposes file contents. */
+export function listDirs(input: string): DirListing {
+  const path = realpathSync(resolve(input || '/'));
+  const entries = readdirSync(path, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !IGNORE.has(d.name))
+    .map((d) => ({ name: d.name, path: join(path, d.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const parent = dirname(path);
+  return { path, parent: parent === path ? null : parent, entries };
+}
+
 /** Read a project file as UTF-8 text. `truncated` is true (with empty content) when it exceeds the
  *  size cap or isn't a regular file — the editor shows a notice instead of choking on a binary. */
 export function readProjectFile(root: string, rel: string): { content: string; truncated: boolean } {

@@ -17,6 +17,7 @@ import { Code2, Pencil, Trash2, ImageIcon } from 'lucide-react';
 import { ProjectEditor } from './editor/ProjectEditor';
 import { ProjectIcon } from '../../components/ui/ProjectIcon';
 import { ProjectIconPicker } from './ProjectIconPicker';
+import { DirectoryPicker } from './DirectoryPicker';
 
 export function ProjectsView() {
   const projects = useProjects();
@@ -43,6 +44,8 @@ export function ProjectsView() {
   const [slug, setSlug] = useState('');
   const [path, setPath] = useState('');
   const [notes, setNotes] = useState('');
+  // Server-side folder picker for the new-project path (opens over the create modal).
+  const [browsing, setBrowsing] = useState(false);
 
   // Edit-project modal: pre-filled from the chosen project; slug stays read-only.
   const [editProject, setEditProject] = useState<Project | null>(null);
@@ -58,12 +61,15 @@ export function ProjectsView() {
     createProject.mutate(
       { slug, path, notes },
       {
-        onSuccess: () => {
+        onSuccess: (created) => {
           setCreating(false);
           setSlug('');
           setPath('');
           setNotes('');
           toast(t.projects.created);
+          // Offer the icon picker right away (it browses the new project's own images, so it needs the
+          // project to exist first) — same flow as editing a project.
+          setIconFor(created);
         },
         onError: (e) => toast(String(e), 'error'),
       }
@@ -210,7 +216,10 @@ export function ProjectsView() {
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={t.projects.slugPlaceholder} autoFocus />
             </Field>
             <Field label={t.projects.fieldPath} hint={t.projects.pathHint}>
-              <Input value={path} onChange={(e) => setPath(e.target.value)} placeholder={t.projects.pathPlaceholder} className="font-mono text-xs" />
+              <div className="flex items-center gap-2">
+                <Input value={path} onChange={(e) => setPath(e.target.value)} placeholder={t.projects.pathPlaceholder} className="flex-1 font-mono text-xs" />
+                <Button icon={Folder} variant="default" onClick={() => setBrowsing(true)}>{t.projects.browse}</Button>
+              </div>
             </Field>
             <Field label={t.projects.fieldNotes} hint={t.projects.notesHint}>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} className="w-full resize-none rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none" />
@@ -276,6 +285,14 @@ export function ProjectsView() {
             <Button variant="accent" onClick={handleUpdate} disabled={updateProject.isPending || !editPath.trim()}>{t.common.save}</Button>
           </ModalFooter>
         </Modal>
+      )}
+
+      {browsing && (
+        <DirectoryPicker
+          initialPath={path}
+          onSelect={(p) => { setPath(p); setBrowsing(false); }}
+          onClose={() => setBrowsing(false)}
+        />
       )}
 
       {iconFor && <ProjectIconPicker project={iconFor} onClose={() => setIconFor(null)} />}

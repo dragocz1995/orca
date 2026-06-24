@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { listProjectFiles, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, isProjectImage } from '../../src/integrations/projectFiles.js';
+import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, isProjectImage } from '../../src/integrations/projectFiles.js';
 
 let root: string;
 const w = (rel: string, body: string) => { const p = join(root, rel); mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, body); };
@@ -25,6 +25,24 @@ describe('listProjectFiles', () => {
     expect(paths).toContain('README.md');
     expect(paths.some((p) => p.includes('node_modules'))).toBe(false);
     expect(paths.some((p) => p.includes('.git'))).toBe(false);
+  });
+});
+
+describe('listDirs', () => {
+  it('shallow-lists only sub-directories (no files), skipping build noise, with a parent', () => {
+    mkdirSync(join(root, 'apps'));
+    const res = listDirs(root);
+    const names = res.entries.map((e) => e.name);
+    expect(names).toContain('src');
+    expect(names).toContain('apps');
+    expect(names).not.toContain('README.md'); // files are never listed
+    expect(names.some((n) => n === 'node_modules' || n === '.git')).toBe(false); // noise filtered
+    expect(res.entries.every((e) => e.path.startsWith(root))).toBe(true);
+    expect(res.parent).not.toBeNull(); // a tmp dir always has a parent
+  });
+
+  it('throws on a path that is not a readable directory (route turns it into a 400)', () => {
+    expect(() => listDirs(join(root, 'does-not-exist'))).toThrow();
   });
 });
 

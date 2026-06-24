@@ -115,6 +115,8 @@ export interface CliDetectionResult {
 
 /** One entry in a project's file tree. */
 export interface FileNode { path: string; type: 'file' | 'dir' }
+/** A shallow directory listing for the new-project path picker (server-side filesystem browse). */
+export interface DirListing { path: string; parent: string | null; entries: { name: string; path: string }[] }
 
 /** Token/cost usage for a task's agent run, read from the executor CLI's local session storage. */
 export interface TokenUsage {

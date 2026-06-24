@@ -78,6 +78,32 @@ describe('projects api', () => {
     expect(home.status).toBe(400);
     expect((await (await app.request('/projects')).json()).some((p: { id: number }) => p.id === 1)).toBe(true);
   });
+  it('PATCH /projects/:id round-trips the tri-state pr_enabled override', async () => {
+    const { app } = makeApp();
+    const on = await app.request('/projects/1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pr_enabled: true }) });
+    expect((await on.json()).pr_enabled).toBe(true);
+    const off = await app.request('/projects/1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pr_enabled: false }) });
+    expect((await off.json()).pr_enabled).toBe(false);
+    const inherit = await app.request('/projects/1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pr_enabled: null }) });
+    expect((await inherit.json()).pr_enabled).toBeNull();
+  });
+  it('GET /fs/dirs lists sub-directories of a server path and 400s on a bad path', async () => {
+    const { app } = makeApp();
+    const root = mkdtempSync(join(tmpdir(), 'orca-fsdirs-'));
+    mkdirSync(join(root, 'apps')); mkdirSync(join(root, 'libs')); writeFileSync(join(root, 'README.md'), '#');
+    try {
+      const res = await app.request(`/fs/dirs?path=${encodeURIComponent(root)}`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { entries: { name: string }[]; parent: string | null };
+      const names = body.entries.map((e) => e.name);
+      expect(names).toContain('apps');
+      expect(names).toContain('libs');
+      expect(names).not.toContain('README.md'); // directories only
+      expect(body.parent).not.toBeNull();
+      const bad = await app.request(`/fs/dirs?path=${encodeURIComponent(join(root, 'nope'))}`);
+      expect(bad.status).toBe(400);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it('GET /projects/:id/git returns the reader result; 404 unknown', async () => {
     const { app } = makeApp();
     expect((await app.request('/projects/999/git')).status).toBe(404);

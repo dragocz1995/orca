@@ -7,7 +7,7 @@ import { hermesStatus, installOrcaMcp } from '../integrations/hermesInstall.js';
 import { detectClis } from '../integrations/cliDetection.js';
 import { readTaskUsage } from '../integrations/usage/index.js';
 import { aggregateUsageByExec } from '../integrations/usage/byModel.js';
-import { listProjectFiles, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, projectReviewDiff, isProjectImage } from '../integrations/projectFiles.js';
+import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, projectReviewDiff, isProjectImage } from '../integrations/projectFiles.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
@@ -571,6 +571,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (u && d.userProjects.isAdmin(u.id)) return c.json(all);
     const allowed = u ? new Set(d.userProjects.forUser(u.id)) : new Set<number>();
     return c.json(all.filter((p) => allowed.has(p.id)));
+  });
+  // Browse the server's directory tree to pick a new project's path (the new-project file manager).
+  // Admin-only — it lists directory names outside any project root, so it sits behind the same gate as
+  // project registration. Read-only and directory-only: never returns file contents.
+  app.get('/fs/dirs', (c) => {
+    if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    const q = c.req.query('path');
+    try { return c.json(listDirs(q && q.trim() ? q : homedir())); }
+    catch { return c.json({ error: 'cannot read directory' }, 400); }
   });
   app.post('/projects', async (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
