@@ -3,10 +3,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { MissionPrStore } from '../store/missionPrStore.js';
 import type { ConfigStore } from '../store/configStore.js';
-import type { Task } from '../store/types.js';
+import type { TaskStore } from '../store/taskStore.js';
 import { logger } from '../shared/logger.js';
 import { createMissionWorktree, removeWorktree, commitAll, pushBranch, detectBaseBranch } from '../integrations/git/worktree.js';
-import { createPR } from '../integrations/github/pr.js';
+import { createPR, readPRReviews } from '../integrations/github/pr.js';
 
 const run = promisify(execFile);
 const log = logger('mission-git');
@@ -24,8 +24,14 @@ export interface MissionGitDeps {
   prs: MissionPrStore;
   config: ConfigStore;
   projects: { get(id: number): { id: number; slug: string; path: string } | null };
-  tasks: { get(id: string): Task | null };
+  tasks: TaskStore;
 }
+
+/** Outcome of polling a PR for new review feedback. */
+export type IngestResult =
+  | { action: 'none' }                              // no PR / no new changes-requested review
+  | { action: 'closed' }                            // PR merged/closed → stop watching
+  | { action: 'fix-created'; taskId: string };      // a fix phase was appended → re-engage the mission
 
 /** Single source of truth for what happens to git across a mission's lifecycle: branch + worktree on
  *  engage, commit per approved phase, and worktree cleanup on pause/disengage. PR opening and feedback
@@ -150,6 +156,47 @@ export class MissionGit {
       const out = `${(e as { stdout?: string }).stdout ?? ''}${(e as { stderr?: string }).stderr ?? ''}`;
       return { ok: false, output: (out || String(e)).slice(-4000) };
     }
+  }
+
+  /** Poll the mission's open PR for new "changes requested" feedback. A merged/closed PR stops the
+   *  watch. A new changes-requested review (newer than the last one ingested) appends a single "fix"
+   *  phase under the epic — depending on the latest phase so it runs last — carrying the aggregated
+   *  reviewer feedback; the caller then re-engages the mission so an agent applies it in the worktree
+   *  and the next commit/push updates the PR. Dedup is by `last_review_ts`. No-op when PR mode is off. */
+  async ingestReviews(missionId: string): Promise<IngestResult> {
+    if (!this.prEnabled()) return { action: 'none' };
+    const rec = this.d.prs.get(missionId);
+    if (!rec || rec.pr_number == null || rec.pr_state !== 'open') return { action: 'none' };
+    const project = this.projectFor(missionId);
+    if (!project) return { action: 'none' };
+    const status = await readPRReviews({ dir: rec.worktree, number: rec.pr_number, token: this.d.config.ghToken() ?? '' });
+    if (!status) return { action: 'none' };
+    if (status.state === 'MERGED' || status.state === 'CLOSED') {
+      this.d.prs.setPrState(missionId, status.state.toLowerCase());
+      log.info(`PR mode: mission ${missionId} PR is ${status.state.toLowerCase()} — no longer watching`);
+      return { action: 'closed' };
+    }
+    const since = rec.last_review_ts ? Date.parse(rec.last_review_ts) : 0;
+    const fresh = status.reviews.filter((r) => r.state === 'CHANGES_REQUESTED' && (Date.parse(r.submittedAt) || 0) > since);
+    if (fresh.length === 0) return { action: 'none' };
+    const newestTs = fresh.reduce((mx, r) => Math.max(mx, Date.parse(r.submittedAt) || 0), since);
+    const feedback = [
+      ...fresh.map((r) => `- ${r.author || 'reviewer'}: ${r.body || '(no summary)'}`),
+      ...status.comments.filter((c) => (Date.parse(c.createdAt) || 0) > since).map((c) => `- ${c.author || 'reviewer'}: ${c.body}`),
+    ].join('\n');
+    const epicId = missionId.replace(/^m-/, '');
+    const epicChildren = this.d.tasks.list({ project_id: project.id }).filter((t) => t.parent_id === epicId);
+    const lastPhase = epicChildren[epicChildren.length - 1] ?? null; // list is created_at ASC → newest last
+    const fixId = `${epicId}-prfix-${newestTs}`;
+    if (this.d.tasks.get(fixId)) return { action: 'none' }; // already created for this review batch
+    this.d.tasks.create({
+      id: fixId, project_id: project.id, title: 'Address PR review feedback', parent_id: epicId,
+      description: `A reviewer requested changes on the open pull request. Apply the requested fixes in the working tree (do not touch git/branches — Orca commits and pushes for you):\n\n${feedback}`,
+    });
+    if (lastPhase) this.d.tasks.addDep(fixId, lastPhase.id);
+    this.d.prs.setLastReviewTs(missionId, new Date(newestTs).toISOString());
+    log.info(`PR mode: mission ${missionId} got changes-requested → fix phase ${fixId}`);
+    return { action: 'fix-created', taskId: fixId };
   }
 
   /** On pause/disengage: tear down the mission's worktree (the branch is kept so an open PR survives).

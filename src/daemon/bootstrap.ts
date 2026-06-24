@@ -10,6 +10,7 @@ import { MissionGit } from '../overseer/missionGit.js';
 import type { SummaryContext } from '../overseer/missionEngine.js';
 import { Scheduler } from '../overseer/scheduler.js';
 import { sweepFinishedSessions } from '../overseer/janitor.js';
+import { sweepPrFeedback } from '../overseer/prFeedback.js';
 import { sweepStuckTasks, deadAgentTasks } from '../overseer/stuckDetector.js';
 import { decidePrompt, decideChoice, isDestructive, gateVerdict, minConfidenceFor, noOverseerFallback } from '../overseer/decision.js';
 import { PlanJobStore } from '../overseer/planJob.js';
@@ -324,7 +325,14 @@ export function buildApp(opts: BuildOpts) {
     const stopEventPurge = clock.setInterval(purgeEvents, 3_600_000);
     // Sweep expired terminal-WS tickets so a burst of unredeemed tickets can't grow the map unbounded.
     const stopTicketSweep = clock.setInterval(() => tickets.sweep(clock.now()), 60_000);
-    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); };
+    // PR feedback loop (no-op unless PR mode + open PRs): poll each open PR for "changes requested"
+    // reviews, turn them into a fix phase and re-engage the mission so an agent applies them.
+    const stopPrFeedback = clock.setInterval(() => {
+      void sweepPrFeedback({ prs: missionPrs, missions, missionGit, engage: (i) => engine.engage(i) })
+        .then((ids) => { if (ids.length) log.info(`PR feedback re-engaged ${ids.length} mission(s): ${ids.join(', ')}`); })
+        .catch((e) => log.error('PR feedback sweep failed', e));
+    }, 60_000);
+    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); stopPrFeedback(); };
   };
   return { app, startLoops, tickets, tmux };
 }

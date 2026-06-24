@@ -32,6 +32,33 @@ export async function createPR(input: { dir: string; base: string; head: string;
   return null;
 }
 
+interface PrReview { state: string; body: string; author: string; submittedAt: string }
+interface PrComment { body: string; author: string; createdAt: string }
+export interface PrStatus { state: string; reviews: PrReview[]; comments: PrComment[] }
+
+/** Read a PR's lifecycle state, reviews and conversation comments via `gh pr view --json`. Used by the
+ *  feedback poller to turn a "changes requested" review into a fix phase. Returns null when gh is
+ *  missing/unauthenticated or the JSON can't be read — the poller treats that as "no new feedback". */
+export async function readPRReviews(input: { dir: string; number: number; token: string }): Promise<PrStatus | null> {
+  const env = { ...process.env, GH_TOKEN: input.token, GH_PROMPT_DISABLED: '1' };
+  try {
+    const { stdout } = await run('gh', ['pr', 'view', String(input.number), '--json', 'state,reviews,comments'], { cwd: input.dir, env });
+    const j = JSON.parse(stdout) as { state?: unknown; reviews?: unknown; comments?: unknown };
+    const reviews: PrReview[] = Array.isArray(j.reviews) ? j.reviews.map((r) => {
+      const o = r as { state?: unknown; body?: unknown; submittedAt?: unknown; author?: { login?: unknown } };
+      return { state: String(o.state ?? ''), body: String(o.body ?? ''), author: String(o.author?.login ?? ''), submittedAt: String(o.submittedAt ?? '') };
+    }) : [];
+    const comments: PrComment[] = Array.isArray(j.comments) ? j.comments.map((c) => {
+      const o = c as { body?: unknown; createdAt?: unknown; author?: { login?: unknown } };
+      return { body: String(o.body ?? ''), author: String(o.author?.login ?? ''), createdAt: String(o.createdAt ?? '') };
+    }) : [];
+    return { state: String(j.state ?? ''), reviews, comments };
+  } catch (e) {
+    log.error(`gh pr view (reviews) failed for #${input.number}`, e);
+    return null;
+  }
+}
+
 /** The last non-empty line of `gh pr create` output is the PR URL; pull the number out of `/pull/<n>`. */
 function parsePrUrl(out: string): PrRef | null {
   const url = out.split('\n').map((s) => s.trim()).filter(Boolean).pop() ?? '';
