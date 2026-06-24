@@ -663,7 +663,7 @@ export default function SettingsPage() {
                 <div className="relative flex flex-col items-center gap-5">
                   <img src="/orca-logo.png" alt={t.common.appName} className="h-12 w-auto" />
                   <div className="flex flex-col items-center gap-2.5">
-                    <span className="font-mono text-3xl font-semibold tracking-tight text-text">{system.data?.version ?? '—'}</span>
+                    <span className="bg-gradient-to-b from-text to-text-muted bg-clip-text font-mono text-4xl font-bold tracking-tight text-transparent">{system.data?.version ?? '—'}</span>
                     {system.data?.updateAvailable
                       ? <Badge tone="warning">{t.settings.updateAvailable.replace('{v}', system.data.latest ?? '')}</Badge>
                       : system.data?.latest ? <Badge tone="success">{t.settings.upToDate}</Badge> : null}
@@ -683,23 +683,53 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Tiles — Orca-specific switches and live service health. */}
+              {/* Tiles — Orca-specific controls, sized to breathe and read at a glance. */}
               <div className="grid w-full max-w-lg grid-cols-1 gap-4 sm:grid-cols-2">
-                <SettingCard title={t.settings.autoUpdate} description={t.settings.autoUpdateDesc} icon={RefreshCw}>
-                  <Toggle checked={autoUpdate} onChange={(v) => { setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onSuccess: () => toast(t.settings.autoUpdateSaved), onError: (e) => toast(String(e), 'error') }); }} label={t.settings.autoUpdate} />
-                </SettingCard>
-                <SettingCard title={t.settings.services} description={t.settings.servicesDesc} icon={Server}>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-text">{t.settings.serviceDaemon} <span className="text-text-muted">:4400</span></span>
-                      <Badge tone={system.isError ? 'danger' : 'success'}>{system.isError ? t.settings.serviceDown : t.settings.serviceUp}</Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-text">{t.settings.serviceWeb} <span className="text-text-muted">:4500</span></span>
-                      <Badge tone="success">{t.settings.serviceUp}</Badge>
-                    </div>
+                {/* Auto-update — a full-size pill switch, no fine print. */}
+                <div className="card-interactive flex min-h-[150px] flex-col gap-4 rounded-xl border border-border bg-surface p-6">
+                  <div className="flex items-center gap-2.5">
+                    <RefreshCw size={16} className="text-text-muted" aria-hidden />
+                    <span className="text-sm font-medium text-text">{t.settings.autoUpdate}</span>
                   </div>
-                </SettingCard>
+                  <div className="flex flex-1 items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={autoUpdate}
+                      aria-label={t.settings.autoUpdate}
+                      onClick={() => { const v = !autoUpdate; setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onSuccess: () => toast(t.settings.autoUpdateSaved), onError: (e) => toast(String(e), 'error') }); }}
+                      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border transition-colors ${autoUpdate ? 'border-accent bg-accent' : 'border-border bg-elevated'}`}
+                      style={{ transitionDuration: 'var(--motion-fast)' }}
+                    >
+                      <span
+                        className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-sm ${autoUpdate ? 'translate-x-[22px]' : 'translate-x-[3px]'}`}
+                        style={{ transition: 'transform var(--motion-base) var(--ease-spring)' }}
+                      />
+                    </button>
+                    <span className={`text-sm font-medium ${autoUpdate ? 'text-text' : 'text-text-muted'}`}>{autoUpdate ? t.settings.on : t.settings.off}</span>
+                  </div>
+                </div>
+                {/* Services — live health with a pulsing dot. */}
+                <div className="card-interactive flex min-h-[150px] flex-col gap-4 rounded-xl border border-border bg-surface p-6">
+                  <div className="flex items-center gap-2.5">
+                    <Server size={16} className="text-text-muted" aria-hidden />
+                    <span className="text-sm font-medium text-text">{t.settings.services}</span>
+                  </div>
+                  <div className="flex flex-1 flex-col justify-center gap-3.5">
+                    {[
+                      { name: t.settings.serviceDaemon, port: ':4400', up: !system.isError },
+                      { name: t.settings.serviceWeb, port: ':4500', up: true },
+                    ].map((s) => (
+                      <div key={s.port} className="flex items-center justify-between">
+                        <span className="flex items-center gap-2.5 text-sm text-text">
+                          <span className={s.up ? 'live-dot inline-block h-2.5 w-2.5 rounded-full bg-success' : 'inline-block h-2.5 w-2.5 rounded-full bg-danger'} />
+                          {s.name} <span className="font-mono text-xs text-text-muted">{s.port}</span>
+                        </span>
+                        <span className={`text-xs font-medium ${s.up ? 'text-success' : 'text-danger'}`}>{s.up ? t.settings.serviceUp : t.settings.serviceDown}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
         )}
