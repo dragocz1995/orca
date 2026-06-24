@@ -157,6 +157,13 @@ describe('keysForOption', () => {
   it('never produces negative navigation for a bad id', () => {
     expect(keysForOption('0')).toEqual(['Enter']);
   });
+  it('falls back to Enter on a non-numeric id instead of crashing (Array(NaN) RangeError)', () => {
+    // opencode-style options can carry non-numeric ids ("Allow once"); Math.max(0, NaN) is NaN,
+    // and Array(NaN) throws "Invalid array length" — guard it.
+    expect(() => keysForOption('Allow once')).not.toThrow();
+    expect(keysForOption('Allow once')).toEqual(['Enter']);
+    expect(keysForOption('')).toEqual(['Enter']);
+  });
 });
 
 describe('taskExec', () => {

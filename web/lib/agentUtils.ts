@@ -83,7 +83,10 @@ export function needsInputSessions(sessions: string[], signals: Record<string, D
  *  focused, so the 1-based position id maps to Down × (id-1) then Enter — the same navigation the
  *  daemon's deriver uses when the overseer picks. Shared by every surface that answers a question. */
 export function keysForOption(id: string): string[] {
-  const steps = Math.max(0, Number(id) - 1);
+  // A non-numeric id (e.g. opencode's "Allow once") makes Number(id) NaN; Math.max(0, NaN) is NaN,
+  // and Array(NaN) throws "Invalid array length" — fall back to the focused default (just Enter).
+  const n = Number(id);
+  const steps = Number.isFinite(n) ? Math.max(0, n - 1) : 0;
   return [...Array<string>(steps).fill('Down'), 'Enter'];
 }
 
