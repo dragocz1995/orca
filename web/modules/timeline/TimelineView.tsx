@@ -18,6 +18,8 @@ import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states
 import type { Tone } from '../../components/ui/tone';
 import { useTranslation } from '../../lib/i18n';
 import { usePersistentState } from '../../lib/usePersistentState';
+import { useProjectFilter } from '../../lib/useProjectFilter';
+import { ProjectFilterPills } from '../../components/ui/ProjectFilterPills';
 import { DateRangeFilter } from './DateRangeFilter';
 import { DEFAULT_RANGE, parseRange, serializeRange, isStoredRange, inRange, rangeWindowCapHours } from './dateRange';
 
@@ -240,6 +242,7 @@ export function TimelineView() {
   const [rangeRaw, setRangeRaw] = usePersistentState('orca.timeline.range', serializeRange(DEFAULT_RANGE), isStoredRange);
   const range = useMemo(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
   const [picked, setPicked] = useState<AxisPoint | null>(null);
+  const { selectedProject, setProject } = useProjectFilter('orca.timeline.project');
   const type = filter === 'all' ? undefined : filter;
   const q = useActivity(type);
   const tasks = useTasks();
@@ -283,8 +286,14 @@ export function TimelineView() {
   );
 
   const filteredEvents = useMemo(
-    () => { const now = Date.now(); return rawEvents.filter((e) => inRange(e.timestamp, range, now)); },
-    [rawEvents, range],
+    () => {
+      const now = Date.now();
+      return rawEvents.filter((e) => {
+        if (selectedProject !== 'all' && e.projectId !== selectedProject) return false;
+        return inRange(e.timestamp, range, now);
+      });
+    },
+    [rawEvents, range, selectedProject],
   );
 
   // Window = the available data span, capped by the active range. Falls back to 12h when empty,
@@ -350,6 +359,9 @@ export function TimelineView() {
         <Segmented options={[{ label: t.timeline.axis, value: 'axis', icon: Activity }, { label: t.timeline.lanes, value: 'lanes', icon: Columns3 }]} value={view} onChange={setView} />
         <Segmented options={FILTER_OPTIONS} value={filter} onChange={setFilter} />
       </ModuleHeader>
+
+      {/* Project picker pills — narrow the timeline to one project. Hidden when the workspace has fewer than two projects. */}
+      <ProjectFilterPills value={selectedProject} onChange={setProject} />
 
       {/* Summary strip: big-icon kind counts for the window */}
       {hasData ? (
