@@ -147,6 +147,23 @@ if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit 0; fi`);
     expect(prs.get('m-epic')!.fix_rounds).toBe(0);
   });
 
+  it('mergePr succeeds even when the post-merge branch delete fails (no false refusal)', async () => {
+    // The regression: `gh pr merge --squash --delete-branch` exited non-zero because the branch delete
+    // failed, AFTER the squash-merge had already landed — so the merge was reported as refused. Merge
+    // and delete are now separate; a failing delete must not undo a successful merge.
+    fakeGh(`
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],"headRefName":"orca/demo-epic"}'; fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit 0; fi
+if [ "$1" = "api" ]; then exit 1; fi`); // the branch delete fails
+    const { missionGit, prs } = build({ prAutoOpen: false, verify: '' });
+    await missionGit.onEngage('m-epic', 'epic');
+    prs.setPr('m-epic', { number: 8, url: 'https://github.com/o/r/pull/8', state: 'open' });
+
+    const res = await missionGit.mergePr('m-epic');
+    expect(res.ok).toBe(true); // merge landed; the failed branch delete is best-effort
+    expect(prs.get('m-epic')!.pr_state).toBe('merged');
+  });
+
   it('mergePr refuses (no state change) when the PR has no open record', async () => {
     fakeGh(`exit 0`);
     const { missionGit, prs } = build({ prAutoOpen: false, verify: '' });

@@ -103,9 +103,9 @@ export type MergeResult = { ok: true } | { ok: false; reason: string };
  *  The branch is deleted on success. */
 export async function mergePR(input: { dir: string; number: number; token: string }): Promise<MergeResult> {
   const env = ghEnv(input.token);
-  let view: { state?: unknown; mergeable?: unknown; statusCheckRollup?: unknown };
+  let view: { state?: unknown; mergeable?: unknown; statusCheckRollup?: unknown; headRefName?: unknown };
   try {
-    const { stdout } = await run('gh', ['pr', 'view', String(input.number), '--json', 'state,mergeable,statusCheckRollup'], { cwd: input.dir, env });
+    const { stdout } = await run('gh', ['pr', 'view', String(input.number), '--json', 'state,mergeable,statusCheckRollup,headRefName'], { cwd: input.dir, env });
     view = JSON.parse(stdout) as typeof view;
   } catch (e) {
     log.error(`gh pr view (merge gate) failed for #${input.number}`, e);
@@ -116,13 +116,25 @@ export async function mergePR(input: { dir: string; number: number; token: strin
   const checks = checksState(view.statusCheckRollup);
   if (checks === 'pending') return { ok: false, reason: 'CI checks are still running' };
   if (checks === 'failing') return { ok: false, reason: 'CI checks are failing' };
+  // Merge and branch deletion are SEPARATE steps. Bundling them as `--squash --delete-branch` made a
+  // failed branch delete (branch protection, a race, lost permission) abort the whole call with a
+  // non-zero exit — even though the squash-merge had already landed — so the UI cried "gh refused the
+  // merge" over a merged PR. Merge first; the branch delete is best-effort cleanup that never fails it.
   try {
-    await run('gh', ['pr', 'merge', String(input.number), '--squash', '--delete-branch'], { cwd: input.dir, env });
-    return { ok: true };
+    await run('gh', ['pr', 'merge', String(input.number), '--squash'], { cwd: input.dir, env });
   } catch (e) {
     log.error(`gh pr merge failed for #${input.number}`, e);
     return { ok: false, reason: 'gh refused the merge' };
   }
+  const head = typeof view.headRefName === 'string' ? view.headRefName : '';
+  if (head) {
+    try {
+      await run('gh', ['api', '-X', 'DELETE', `repos/{owner}/{repo}/git/refs/heads/${head}`], { cwd: input.dir, env });
+    } catch (e) {
+      log.warn(`gh: merged #${input.number} but could not delete branch ${head} — leaving it`, e);
+    }
+  }
+  return { ok: true };
 }
 
 /** Roll a PR's status checks up into pending / failing / passing. Handles both shapes gh returns:
