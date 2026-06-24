@@ -130,6 +130,15 @@ export interface FileNode { path: string; type: 'file' | 'dir' }
 /** A shallow directory listing for the new-project path picker (server-side filesystem browse). */
 export interface DirListing { path: string; parent: string | null; entries: { name: string; path: string }[] }
 
+/** Orca's own version + update posture for the System settings panel. `latest` is null when the npm
+ *  registry can't be reached; `updateAvailable` is then false. */
+export interface SystemInfo {
+  version: string;
+  latest: string | null;
+  updateAvailable: boolean;
+  autoUpdate: boolean;
+}
+
 /** Token/cost usage for a task's agent run, read from the executor CLI's local session storage. */
 export interface TokenUsage {
   input: number;

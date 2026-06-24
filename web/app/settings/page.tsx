@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef } from 'react';
-import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, type LucideIcon } from 'lucide-react';
+import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, Server, Package, type LucideIcon } from 'lucide-react';
 import { PROVIDERS, ProviderLogo, ProviderTag } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Select } from '../../components/ui/Select';
@@ -9,8 +9,8 @@ import { ModelModal } from '../../modules/settings/ModelModal';
 import { ModelNoteModal } from '../../modules/settings/ModelNoteModal';
 import { GithubStatusBanner } from '../../modules/settings/GithubStatusBanner';
 import { execProvider, execModel, type ProviderId } from '../../lib/modelProvider';
-import { useConfig, useMe, usePlanJob } from '../../lib/queries';
-import { useUpdateConfig, useCleanupAll } from '../../lib/mutations';
+import { useConfig, useMe, usePlanJob, useSystem } from '../../lib/queries';
+import { useUpdateConfig, useCleanupAll, useSystemUpdate } from '../../lib/mutations';
 import { orcaClient, OrcaApiError } from '../../lib/orcaClient';
 import { useHermesForm } from '../../modules/settings/useHermesForm';
 import { EXEC_PRESETS, allModels } from '../../lib/execPresets';
@@ -67,12 +67,14 @@ function ModelInput({ value, onChange, placeholder }: { value: string; onChange:
   );
 }
 
-const CATEGORY_VALUES = ['models', 'autopilot', 'github', 'providers', 'defaults', 'hermes', 'data'] as const;
+const CATEGORY_VALUES = ['models', 'autopilot', 'github', 'providers', 'defaults', 'hermes', 'system', 'data'] as const;
 type Category = (typeof CATEGORY_VALUES)[number];
 
 export default function SettingsPage() {
   const config = useConfig();
   const update = useUpdateConfig();
+  const system = useSystem();
+  const systemUpdate = useSystemUpdate();
   const cleanup = useCleanupAll();
   const me = useMe();
   const { toast } = useToast();
@@ -312,18 +314,19 @@ export default function SettingsPage() {
     { id: 'providers', icon: Plug },
     { id: 'defaults', icon: SlidersHorizontal },
     { id: 'hermes', icon: Radio },
+    { id: 'system', icon: Server },
     { id: 'data', icon: Trash2 },
   ];
 
-  // 'models' auto-saves; 'hermes' has its own form; 'data' is a one-off danger action — none use the
-  // shared footer save button.
-  const saveAction: Record<Exclude<Category, 'hermes' | 'models' | 'data'>, { label: string; onClick: () => void }> = {
+  // 'models' auto-saves; 'hermes' has its own form; 'data' is a one-off danger action; 'system'
+  // auto-saves its toggle + has its own update button — none use the shared footer save button.
+  const saveAction: Record<Exclude<Category, 'hermes' | 'models' | 'data' | 'system'>, { label: string; onClick: () => void }> = {
     autopilot: { label: t.settings.saveAutopilot, onClick: saveAutopilot },
     github: { label: t.settings.saveGithub, onClick: saveGithub },
     providers: { label: t.settings.saveProviders, onClick: saveProviders },
     defaults: { label: t.settings.saveDefaults, onClick: saveDefaults },
   };
-  const active = category === 'hermes' || category === 'models' || category === 'data' ? null : saveAction[category];
+  const active = category === 'hermes' || category === 'models' || category === 'data' || category === 'system' ? null : saveAction[category];
 
   const models = allModels(customModels, hiddenPresets);
 
@@ -648,8 +651,45 @@ export default function SettingsPage() {
               <SettingCard title={t.settings.tokenTtl} description={t.settings.tokenTtlDesc} icon={KeyRound}>
                 <input type="number" min={1} value={defTokenTtl} onChange={(e) => setDefTokenTtl(Number(e.target.value))} className={inputClass} />
               </SettingCard>
+            </div>
+        )}
+
+        {category === 'system' && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <SettingCard title={t.settings.version} description={t.settings.versionDesc} icon={Package}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-sm text-text">{system.data?.version ?? '—'}</span>
+                  {system.data?.updateAvailable
+                    ? <Badge tone="warning">{t.settings.updateAvailable.replace('{v}', system.data.latest ?? '')}</Badge>
+                    : system.data?.latest ? <Badge tone="success">{t.settings.upToDate}</Badge> : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => systemUpdate.mutate(undefined, {
+                    onSuccess: () => toast(t.settings.updateStarted),
+                    onError: (e) => toast(e instanceof OrcaApiError && e.code === 'mission_running' ? t.settings.updateBlockedMission : String(e), 'error'),
+                  })}
+                  disabled={systemUpdate.isPending || !system.data?.updateAvailable}
+                  className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-elevated px-3 text-xs font-medium text-text transition-colors hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={systemUpdate.isPending ? 'animate-spin' : ''} />
+                  {systemUpdate.isPending ? t.settings.updating : t.settings.updateNow}
+                </button>
+              </SettingCard>
               <SettingCard title={t.settings.autoUpdate} description={t.settings.autoUpdateDesc} icon={RefreshCw}>
-                <Toggle checked={autoUpdate} onChange={setAutoUpdate} label={t.settings.autoUpdate} />
+                <Toggle checked={autoUpdate} onChange={(v) => { setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onSuccess: () => toast(t.settings.autoUpdateSaved), onError: (e) => toast(String(e), 'error') }); }} label={t.settings.autoUpdate} />
+              </SettingCard>
+              <SettingCard title={t.settings.services} description={t.settings.servicesDesc} icon={Server}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-text">{t.settings.serviceDaemon} <span className="text-text-muted">:4400</span></span>
+                    <Badge tone={system.isError ? 'danger' : 'success'}>{system.isError ? t.settings.serviceDown : t.settings.serviceUp}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-text">{t.settings.serviceWeb} <span className="text-text-muted">:4500</span></span>
+                    <Badge tone="success">{t.settings.serviceUp}</Badge>
+                  </div>
+                </div>
               </SettingCard>
             </div>
         )}

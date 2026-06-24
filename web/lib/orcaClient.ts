@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, AuthResult, ActivityEvent, Project, ProjectGit, CommitLogEntry, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, GithubAuthStatus, TokenUsage, FileNode, DirListing, SessionInfo } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, AuthResult, ActivityEvent, Project, ProjectGit, CommitLogEntry, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, GithubAuthStatus, TokenUsage, FileNode, DirListing, SessionInfo, SystemInfo } from './types';
 import { clearToken } from './token';
 
 // Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
@@ -104,6 +104,8 @@ export const orcaClient = {
   mergeMissionPr: (id: string) => req<{ ok: boolean }>(`/missions/${id}/merge-pr`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   getConfig: () => req<OrcaConfig>('/config'),
   updateConfig: (patch: ConfigPatch) => req<OrcaConfig>('/config', json(patch, 'PUT')),
+  system: () => req<SystemInfo>('/system'),
+  systemUpdate: () => req<{ started: boolean }>('/system/update', json({})),
   login: (username: string, password: string) => req<AuthResult>('/auth/login', json({ username, password })),
   logout: () => req<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   me: () => req<{ user: User }>('/auth/me'),

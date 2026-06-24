@@ -8,7 +8,7 @@
       "entry": ["app/providers.tsx"]
     }
   },
-  "ignoreBinaries": ["tmux", "which", "dot", "gh"],
+  "ignoreBinaries": ["tmux", "which", "dot", "gh", "orca"],
   "ignoreIssues": {
     "web/lib/types.ts": ["types"],
     "web/lib/i18n/types.ts": ["types"],

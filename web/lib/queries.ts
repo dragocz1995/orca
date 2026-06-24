@@ -24,6 +24,7 @@ export const QUERY_KEYS = {
   sessionSignals: ['session-signals'] as const,
   hermesStatus: ['hermes-status'] as const,
   advisorStatus: ['advisor-status'] as const,
+  system: ['system'] as const,
 };
 
 /** The current user's advisor session state, polled so the dock reflects start/stop/crash. */
@@ -79,6 +80,11 @@ export const useHealth = () =>
 
 export const useConfig = () =>
   useQuery({ queryKey: QUERY_KEYS.config, queryFn: orcaClient.getConfig });
+
+/** Orca's version + update posture for the System settings panel. Polled so an "update available"
+ *  badge appears without a reload, and so the version flips after a manual/auto update + restart. */
+export const useSystem = () =>
+  useQuery({ queryKey: QUERY_KEYS.system, queryFn: orcaClient.system, refetchInterval: 60000 });
 
 export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: orcaClient.listUsers });
 

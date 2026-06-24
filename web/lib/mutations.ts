@@ -109,6 +109,12 @@ export function useUpdateConfig() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (patch: ConfigPatch) => orcaClient.updateConfig(patch), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.config }) });
 }
+/** Trigger a manual in-place update. The daemon restarts mid-flight, so the System panel just re-polls
+ *  /system afterwards to pick up the new version. */
+export function useSystemUpdate() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: () => orcaClient.systemUpdate(), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.system }) });
+}
 export function useLogin() {
   return useMutation({ mutationFn: (v: { username: string; password: string }) => orcaClient.login(v.username, v.password) });
 }

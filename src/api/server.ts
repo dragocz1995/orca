@@ -1,4 +1,5 @@
 import { basename, dirname, join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
@@ -35,6 +36,7 @@ import type { InferenceClient, RelayConfig } from '../inference/types.js';
 import { uniqueName } from '../daemon/uniqueName.js';
 import type { Clock } from '../shared/clock.js';
 import type { ConfigStore } from '../store/configStore.js';
+import { isNewer } from '../cli/version.js';
 import { assembleMissionDetail } from '../store/missionDetail.js';
 import type { UserStore, User, TokenScope } from '../store/userStore.js';
 import { authMiddleware } from './auth.js';
@@ -87,6 +89,11 @@ export interface ServerDeps {
   /** Single-use ticket store backing the terminal WebSocket stream. Shared with the daemon's
    *  `/ws/terminal` handler so a ticket minted here is redeemable there. Defaulted when absent. */
   tickets?: TicketStore;
+  /** Latest published version lookup for the System panel. Injected in tests; defaults to a cached
+   *  npm-registry fetch. */
+  latestVersion?: () => Promise<string | null>;
+  /** Start a manual in-place update (detached). Injected in tests; defaults to spawning `orca update`. */
+  startUpdate?: () => void;
 }
 
 /** This package's version, read once from its package.json (two dirs up from dist/api/server.js, and
@@ -95,6 +102,31 @@ const ORCA_VERSION = (() => {
   try { return (JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0'; }
   catch { return '0.0.0'; }
 })();
+
+/** Latest published orcasynth version from the npm registry, cached for 30 min so the System panel's
+ *  polling never hammers npm. A failed fetch keeps any prior good value and returns null otherwise —
+ *  the panel just won't show an "update available" badge rather than erroring. */
+let latestCache: { ts: number; val: string | null } | null = null;
+const LATEST_TTL_MS = 30 * 60 * 1000;
+async function defaultLatestVersion(): Promise<string | null> {
+  const now = Date.now();
+  if (latestCache && now - latestCache.ts < LATEST_TTL_MS) return latestCache.val;
+  try {
+    const r = await fetch('https://registry.npmjs.org/orcasynth/latest');
+    if (!r.ok) throw new Error(`registry ${r.status}`);
+    const body = await r.json() as { version?: string };
+    latestCache = { ts: now, val: body.version ?? latestCache?.val ?? null };
+  } catch {
+    latestCache = { ts: now, val: latestCache?.val ?? null }; // keep last good; null until first success
+  }
+  return latestCache.val;
+}
+
+/** Kick off a manual `orca update`, detached so it survives the very service restart it triggers
+ *  (same mechanism as orca-update.service). The caller gates on missions first. */
+function defaultStartUpdate(): void {
+  spawn('orca', ['update'], { detached: true, stdio: 'ignore' }).unref();
+}
 
 /** Port the daemon listens on — the MCP route reaches back into this same daemon's REST API at it. */
 const ORCA_PORT = Number(process.env.ORCA_PORT ?? 4400);
@@ -1470,6 +1502,28 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
     const patch = await c.req.json();
     return c.json(d.config.update(patch));
+  });
+
+  // System panel: the running version, the latest published one, whether an update is available, and
+  // the auto-update opt-in. Read-only and cheap (the registry lookup is cached), so any authed user
+  // may see it (non-admins still can't trigger the update below).
+  app.get('/system', async (c) => {
+    const latest = await (d.latestVersion ?? defaultLatestVersion)();
+    return c.json({
+      version: ORCA_VERSION,
+      latest,
+      updateAvailable: latest ? isNewer(latest, ORCA_VERSION) : false,
+      autoUpdate: d.config.get().autoUpdate,
+    });
+  });
+
+  // Trigger a manual in-place update. Admin-only (mirrors /config) and refused while a mission is live
+  // — the update restarts the services, which would kill the running agent sessions.
+  app.post('/system/update', (c) => {
+    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (d.missions.live().length > 0) return c.json({ error: 'mission_running' }, 409);
+    (d.startUpdate ?? defaultStartUpdate)();
+    return c.json({ started: true });
   });
 
   app.get('/events', c => streamSSE(c, async stream => {
