@@ -14,6 +14,9 @@ export interface OrcaConfig {
   providers: Providers;
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
+  /** When on, the hourly systemd timer (`orca update --auto`) upgrades to the latest npm release and
+   *  restarts the services — but only while no mission is running. Off by default (opt-in). */
+  autoUpdate: boolean;
 }
 
 // Default executable name per agent program (resolveExecutor program ids). Derived from the shared
@@ -53,6 +56,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   providers: { ...DEFAULT_PROVIDERS },
   defaults: { exec: 'sonnet', autonomy: 'L3', maxSessions: 1 },
   security: { tokenTtlDays: 30 },
+  autoUpdate: false,
 };
 
 interface Stored {
@@ -66,6 +70,7 @@ interface Stored {
   ghToken: string | null;
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
+  autoUpdate: boolean;
 }
 
 const defaultStored = (): Stored => ({
@@ -79,6 +84,7 @@ const defaultStored = (): Stored => ({
   ghToken: null,
   defaults: { ...DEFAULT_CONFIG.defaults },
   security: { ...DEFAULT_CONFIG.security },
+  autoUpdate: false,
 });
 
 export interface ConfigPatch {
@@ -90,6 +96,7 @@ export interface ConfigPatch {
   providers?: Providers;
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
   security?: { tokenTtlDays?: number };
+  autoUpdate?: boolean;
 }
 
 export class ConfigStore {
@@ -117,6 +124,7 @@ export class ConfigStore {
         ghToken: typeof p.ghToken === 'string' ? p.ghToken : null,
         defaults: { exec: p.defaults?.exec ?? d.defaults.exec, autonomy: p.defaults?.autonomy ?? d.defaults.autonomy, maxSessions: p.defaults?.maxSessions ?? d.defaults.maxSessions },
         security: { tokenTtlDays: p.security?.tokenTtlDays ?? d.security.tokenTtlDays },
+        autoUpdate: typeof p.autoUpdate === 'boolean' ? p.autoUpdate : d.autoUpdate,
       };
     } catch { return defaultStored(); } // corrupt row → defaults, never throw
   }
@@ -137,6 +145,7 @@ export class ConfigStore {
       providers: s.providers,
       defaults: s.defaults,
       security: s.security,
+      autoUpdate: s.autoUpdate,
     };
   }
 
@@ -174,6 +183,7 @@ export class ConfigStore {
       defaults: { exec: defaultExec, autonomy: patch.defaults?.autonomy ?? cur.defaults.autonomy, maxSessions: patch.defaults?.maxSessions ?? cur.defaults.maxSessions },
       // Clamp to a sane positive integer — the value is interpolated into a SQL date modifier.
       security: { tokenTtlDays: clampTtlDays(patch.security?.tokenTtlDays, cur.security.tokenTtlDays) },
+      autoUpdate: patch.autoUpdate ?? cur.autoUpdate,
     });
     return this.get();
   }

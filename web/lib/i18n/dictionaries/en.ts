@@ -536,6 +536,8 @@ export const en = {
     maxSessionsDesc: 'Concurrent agents per mission',
     tokenTtl: 'Login token validity',
     tokenTtlDesc: 'How many days a login token stays valid before it expires (forces re-login)',
+    autoUpdate: 'Automatic updates',
+    autoUpdateDesc: 'Hourly background check that installs the latest release and restarts the services — but only while no mission is running.',
     editLabel: 'Edit {exec}',
     deleteLabel: 'Delete {exec}',
     labelLabel: 'Label',

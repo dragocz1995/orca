@@ -5,7 +5,7 @@ import { realRunner, type Runner } from './runner.js';
 import { preflight, preflightBlockers } from './preflight.js';
 import { ensureServiceUser, userHome, type ServiceUserChoice } from './serviceUser.js';
 import { detectAgentClis, installCommand } from './agentClis.js';
-import { daemonUnit, webUnit, type UnitParams } from './systemdUnits.js';
+import { daemonUnit, webUnit, updateService, updateTimer, orcaSudoers, type UnitParams } from './systemdUnits.js';
 import { detectProxy, nginxVhost, apacheVhost, certbotCommand, type ProxyKind } from './proxy.js';
 import { applySetup, buildSetupPlan, defaultExecForCli, isFirstRun, type SetupAnswers } from '../setup.js';
 import { runSetupWizard } from '../setupWizard.js';
@@ -142,11 +142,16 @@ export async function ensureTerminalStreaming(r: Runner): Promise<void> {
 }
 
 /** Write + enable the two systemd units and verify they came active. */
-async function provisionSystemd(r: Runner, user: string, home: string, webHost: string): Promise<void> {
+async function provisionSystemd(r: Runner, user: string, home: string, deploy: Deployment): Promise<void> {
   const { daemonEntry, webServer } = packagePaths();
+  // Proxy-less IP mode is the only one that exposes the daemon: it binds 0.0.0.0 and advertises its
+  // port to the browser, so the terminal WebSocket connects straight to it (no nginx `/ws/` hop). Behind
+  // a proxy or on localhost the daemon stays private on 127.0.0.1 and the WS rides the web's own origin.
+  const direct = deploy.mode === 'ip';
   const params: UnitParams = {
     user, home, nodePath: process.execPath, daemonEntry, webServer,
-    npmGlobalBin: await npmGlobalBin(r), daemonPort: DAEMON_PORT, webPort: WEB_PORT, webHost,
+    npmGlobalBin: await npmGlobalBin(r), daemonPort: DAEMON_PORT, webPort: WEB_PORT, webHost: deploy.webHost,
+    daemonHost: direct ? '0.0.0.0' : '127.0.0.1', wsDirectPort: direct ? DAEMON_PORT : undefined,
   };
   // Ensure the data tree exists and is owned by the service user before first boot.
   await must(r, 'mkdir', ['-p', join(home, '.config', 'orca', 'logs')]);
@@ -154,14 +159,32 @@ async function provisionSystemd(r: Runner, user: string, home: string, webHost: 
 
   await r.writeFile('/etc/systemd/system/orca-daemon.service', daemonUnit(params));
   await r.writeFile('/etc/systemd/system/orca-web.service', webUnit(params));
+  // The auto-update timer + its oneshot service ship disabled-by-default behaviour: the timer fires
+  // hourly but the service no-ops unless the operator turns auto-update on in Settings.
+  await r.writeFile('/etc/systemd/system/orca-update.service', updateService(params));
+  await r.writeFile('/etc/systemd/system/orca-update.timer', updateTimer());
   await must(r, 'systemctl', ['daemon-reload']);
   await must(r, 'systemctl', ['enable', '--now', 'orca-daemon.service']);
   await must(r, 'systemctl', ['enable', '--now', 'orca-web.service']);
+  await must(r, 'systemctl', ['enable', '--now', 'orca-update.timer']);
 
   for (const svc of ['orca-daemon', 'orca-web']) {
     const res = await r.exec('systemctl', ['is-active', svc]);
     if (res.stdout.trim() !== 'active') throw new Error(`${svc} did not start (journalctl -u ${svc})`);
   }
+}
+
+/** Grant the service user passwordless systemctl for its own units, so the auto-update timer (and a
+ *  manual `orca update`) can take a freshly-installed binary live. Validated in a temp file with
+ *  `visudo -cf` and only then atomically installed at 0440 — a malformed drop-in would break sudo for
+ *  the whole box, so it's never written unchecked. */
+async function provisionSudoers(r: Runner, user: string): Promise<void> {
+  const tmp = '/tmp/orca.sudoers';
+  await r.writeFile(tmp, orcaSudoers(user));
+  const chk = await r.exec('visudo', ['-cf', tmp]);
+  if (chk.code !== 0) { await r.exec('rm', ['-f', tmp]); throw new Error(`visudo rejected the drop-in: ${(chk.stderr || chk.stdout).trim()}`); }
+  await must(r, 'install', ['-o', 'root', '-g', 'root', '-m', '0440', tmp, '/etc/sudoers.d/orca']);
+  await r.exec('rm', ['-f', tmp]);
 }
 
 /** Detect the installed reverse proxy, installing the preferred one when none is present. */
@@ -221,7 +244,12 @@ async function execute(r: Runner, plan: InstallPlan): Promise<{ tls: boolean }> 
   await step('Enabling terminal streaming', () => ensureTerminalStreaming(r))
     .catch((e) => p.log.warn(`Terminal streaming unavailable (snapshot fallback stays active): ${(e as Error).message}`));
 
-  await step('Configuring systemd services', () => provisionSystemd(r, plan.user.username, home, plan.deploy.webHost));
+  await step('Configuring systemd services', () => provisionSystemd(r, plan.user.username, home, plan.deploy));
+
+  // Non-fatal: without the sudoers drop-in the services still run — only in-place self-updates
+  // (auto-update timer + manual `orca update`) lose the ability to restart the units unattended.
+  await step('Granting self-update permissions', () => provisionSudoers(r, plan.user.username))
+    .catch((e) => p.log.warn(`Self-update permissions not granted (auto-update can't restart units until fixed): ${(e as Error).message}`));
 
   const ready = await step('Waiting for the daemon', () => waitForDaemon());
   if (!ready) throw new Error('daemon did not become reachable — check: journalctl -u orca-daemon');

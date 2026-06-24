@@ -39,6 +39,7 @@ export interface OrcaConfig {
   providers: Record<string, { bin: string; args: string; skipPermissions: boolean }>;
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
+  autoUpdate: boolean;
 }
 export interface ConfigPatch {
   allowedExecs?: string[];
@@ -49,6 +50,7 @@ export interface ConfigPatch {
   providers?: Record<string, { bin: string; args: string }>;
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
   security?: { tokenTtlDays?: number };
+  autoUpdate?: boolean;
 }
 export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null; labels?: string[]; outcome?: TaskOutcome | null }
 interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }

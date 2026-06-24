@@ -68,6 +68,21 @@ describe('ConfigStore', () => {
     cfg.update({ security: { tokenTtlDays: 9.8 } });     // floored
     expect(cfg.get().security.tokenTtlDays).toBe(9);
   });
+  it('defaults autoUpdate to off (opt-in) and toggles it', () => {
+    expect(cfg.get().autoUpdate).toBe(false);
+    cfg.update({ autoUpdate: true });
+    expect(cfg.get().autoUpdate).toBe(true);
+    cfg.update({ autoUpdate: false });
+    expect(cfg.get().autoUpdate).toBe(false);
+  });
+  it('preserves autoUpdate across an unrelated patch and reads a legacy row as off', () => {
+    cfg.update({ autoUpdate: true });
+    cfg.update({ security: { tokenTtlDays: 5 } });       // unrelated patch keeps autoUpdate on
+    expect(cfg.get().autoUpdate).toBe(true);
+    db.prepare("INSERT INTO settings (id, data) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
+      .run(JSON.stringify({ allowedExecs: ['sonnet'] }));  // legacy row lacks autoUpdate
+    expect(cfg.get().autoUpdate).toBe(false);
+  });
   it('reads an old row without the new fields as defaults', () => {
     // write a raw pre-L2-8 row that lacks notes and defaults fields
     db.prepare("INSERT INTO settings (id, data) VALUES (1, ?)").run(JSON.stringify({ allowedExecs: ['sonnet'], autopilot: { model: 'm', apiUrl: 'u' }, apiKey: null }));

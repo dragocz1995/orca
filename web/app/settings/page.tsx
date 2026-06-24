@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef } from 'react';
-import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, type LucideIcon } from 'lucide-react';
+import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, type LucideIcon } from 'lucide-react';
 import { PROVIDERS, ProviderLogo, ProviderTag } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Select } from '../../components/ui/Select';
@@ -140,6 +140,7 @@ export default function SettingsPage() {
   const [defAutonomy, setDefAutonomy] = useState('');
   const [defMaxSessions, setDefMaxSessions] = useState(1);
   const [defTokenTtl, setDefTokenTtl] = useState(30);
+  const [autoUpdate, setAutoUpdate] = useState(false);
 
   // Add / edit model modal state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -182,6 +183,7 @@ export default function SettingsPage() {
       setDefAutonomy(config.data.defaults.autonomy);
       setDefMaxSessions(config.data.defaults.maxSessions);
       setDefTokenTtl(config.data.security?.tokenTtlDays ?? 30);
+      setAutoUpdate(config.data.autoUpdate ?? false);
     }
   }, [config.data]);
 
@@ -290,7 +292,7 @@ export default function SettingsPage() {
 
   const saveDefaults = () =>
     update.mutate(
-      { defaults: { exec: defExec, autonomy: defAutonomy, maxSessions: defMaxSessions }, security: { tokenTtlDays: defTokenTtl } },
+      { defaults: { exec: defExec, autonomy: defAutonomy, maxSessions: defMaxSessions }, security: { tokenTtlDays: defTokenTtl }, autoUpdate },
       { onSuccess: () => toast(t.settings.defaultsSaved), onError: (e) => toast(String(e), 'error') },
     );
 
@@ -645,6 +647,9 @@ export default function SettingsPage() {
               </SettingCard>
               <SettingCard title={t.settings.tokenTtl} description={t.settings.tokenTtlDesc} icon={KeyRound}>
                 <input type="number" min={1} value={defTokenTtl} onChange={(e) => setDefTokenTtl(Number(e.target.value))} className={inputClass} />
+              </SettingCard>
+              <SettingCard title={t.settings.autoUpdate} description={t.settings.autoUpdateDesc} icon={RefreshCw}>
+                <Toggle checked={autoUpdate} onChange={setAutoUpdate} label={t.settings.autoUpdate} />
               </SettingCard>
             </div>
         )}

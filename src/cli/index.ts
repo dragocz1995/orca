@@ -159,6 +159,17 @@ async function main() {
   // `orca install` is the root provisioning wizard — it sets up systemd, the proxy and the admin
   // itself, so it must run BEFORE ensureDaemon (no auto-spawn) and before the lifecycle commands.
   if (argv[0] === 'install') { const { install } = await import('./install/index.js'); await install(argv.slice(1)); return; }
+  // `orca update --auto` is the hourly systemd timer's entrypoint: gated on the opt-in flag + live
+  // missions (read straight from the DB), it never auto-spawns a daemon and stays silent-success when
+  // it decides not to update — so handle it before both runLifecycle and ensureDaemon.
+  if (argv[0] === 'update' && argv.includes('--auto')) {
+    const { autoUpdate } = await import('./autoUpdate.js');
+    const out = await autoUpdate(process.env, { current: version });
+    console.log(out.ran
+      ? (out.result.updated ? `Auto-updated ${out.result.from} → ${out.result.to}` : `Already up to date (${out.result.to})`)
+      : out.reason === 'busy' ? 'Auto-update deferred — a mission is running' : 'Auto-update is off');
+    return;
+  }
   // Install-lifecycle commands manage the daemon/web themselves — handle them BEFORE ensureDaemon so
   // they don't trigger the API-CLI's auto-spawn.
   if (await runLifecycle(argv[0], process.env, defaultLifecycleDeps(version))) return;

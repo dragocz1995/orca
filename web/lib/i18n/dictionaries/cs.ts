@@ -536,6 +536,8 @@ export const cs = {
     maxSessionsDesc: 'Max souběžných agentů na misi',
     tokenTtl: 'Platnost přihlašovacího tokenu',
     tokenTtlDesc: 'Po kolika dnech vyprší přihlašovací token (vynutí nové přihlášení)',
+    autoUpdate: 'Automatické aktualizace',
+    autoUpdateDesc: 'Každou hodinu na pozadí stáhne nejnovější verzi a restartuje služby — ale jen když neběží žádná mise.',
     editLabel: 'Upravit {exec}',
     deleteLabel: 'Smazat {exec}',
     addModelTitle: 'Přidat model',
