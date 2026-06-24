@@ -7,13 +7,23 @@ const log = logger('github-pr');
 
 export interface PrRef { number: number; url: string }
 
+/** gh child-process env. A token is passed as GH_TOKEN (never on the command line) ONLY when one is
+ *  configured — an empty GH_TOKEN would override gh's own stored auth (`gh auth login`) and break it,
+ *  so when no token is set we omit it and let gh use its keyring/hosts.yml login. */
+function ghEnv(token: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, GH_PROMPT_DISABLED: '1' };
+  if (token) env.GH_TOKEN = token; else delete env.GH_TOKEN;
+  return env;
+}
+
 /** Open a GitHub PR for `head` → `base` via the `gh` CLI, authenticated with `token` (passed as
- *  GH_TOKEN, never on the command line). `gh pr create` prints the new PR's URL as its last line; the
- *  number is parsed from it. When the branch already has a PR (a re-run), create fails and we fall back
- *  to reading the existing one. Returns null when `gh` is missing/unauthenticated or both calls fail —
- *  the caller degrades gracefully (the branch is still pushed; the PR can be opened by hand). */
+ *  GH_TOKEN, never on the command line) or gh's own stored login when no token is set. `gh pr create`
+ *  prints the new PR's URL as its last line; the number is parsed from it. When the branch already has
+ *  a PR (a re-run), create fails and we fall back to reading the existing one. Returns null when `gh` is
+ *  missing/unauthenticated or both calls fail — the caller degrades gracefully (the branch is still
+ *  pushed; the PR can be opened by hand). */
 export async function createPR(input: { dir: string; base: string; head: string; title: string; body: string; token: string }): Promise<PrRef | null> {
-  const env = { ...process.env, GH_TOKEN: input.token, GH_PROMPT_DISABLED: '1' };
+  const env = ghEnv(input.token);
   try {
     const { stdout } = await run('gh', ['pr', 'create', '--base', input.base, '--head', input.head, '--title', input.title, '--body', input.body], { cwd: input.dir, env });
     const ref = parsePrUrl(stdout);
@@ -40,7 +50,7 @@ export interface PrStatus { state: string; reviews: PrReview[]; comments: PrComm
  *  feedback poller to turn a "changes requested" review into a fix phase. Returns null when gh is
  *  missing/unauthenticated or the JSON can't be read — the poller treats that as "no new feedback". */
 export async function readPRReviews(input: { dir: string; number: number; token: string }): Promise<PrStatus | null> {
-  const env = { ...process.env, GH_TOKEN: input.token, GH_PROMPT_DISABLED: '1' };
+  const env = ghEnv(input.token);
   try {
     const { stdout } = await run('gh', ['pr', 'view', String(input.number), '--json', 'state,reviews,comments'], { cwd: input.dir, env });
     const j = JSON.parse(stdout) as { state?: unknown; reviews?: unknown; comments?: unknown };

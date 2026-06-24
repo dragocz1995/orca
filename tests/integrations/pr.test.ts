@@ -52,4 +52,11 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"number":7,"url":"https://g
     const ref = await createPR({ dir: binDir, base: 'main', head: 'orca/x', title: 'T', body: 'B', token: 'secret-tok' });
     expect(ref).toEqual({ number: 9, url: 'https://github.com/o/r/pull/9' });
   });
+
+  it('omits GH_TOKEN entirely when no token is configured (uses gh\'s own login)', async () => {
+    // An empty GH_TOKEN would override gh's stored auth — so with no token it must be UNSET, not "".
+    fakeGh(`if [ -z "\${GH_TOKEN+x}" ]; then echo "https://github.com/o/r/pull/4"; else exit 1; fi`);
+    const ref = await createPR({ dir: binDir, base: 'main', head: 'orca/x', title: 'T', body: 'B', token: '' });
+    expect(ref).toEqual({ number: 4, url: 'https://github.com/o/r/pull/4' });
+  });
 });
