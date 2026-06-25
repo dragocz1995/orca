@@ -6,7 +6,7 @@ import { walkFiles } from './walk.js';
 
 /** Outcome of clearing one executor's session store. `cleared` is false when the store was absent
  *  (a no-op) or when it errored — `error` distinguishes the two. `removed` counts deleted rows/files. */
-export interface ExecClearResult { cleared: boolean; removed: number; error?: string }
+interface ExecClearResult { cleared: boolean; removed: number; error?: string }
 export interface ResetResult { opencode: ExecClearResult; claude: ExecClearResult; codex: ExecClearResult }
 
 /** Destructively clear every CLI session store that usage is summed from, for the daemon user's HOME.
