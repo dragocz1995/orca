@@ -9,6 +9,7 @@ import { detectClis } from '../integrations/cliDetection.js';
 import { detectGithubAuth } from '../integrations/github/auth.js';
 import { readTaskUsage } from '../integrations/usage/index.js';
 import { aggregateUsageByExec } from '../integrations/usage/byModel.js';
+import { clearAllUsage } from '../integrations/usage/reset.js';
 import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, projectReviewDiff, isProjectImage } from '../integrations/projectFiles.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -896,6 +897,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const siblings = new Map<number, ReturnType<typeof d.tasks.list>>();
     for (const pid of new Set(tasks.map((t) => t.project_id))) siblings.set(pid, d.tasks.list({ project_id: pid }));
     return c.json(aggregateUsageByExec(tasks, (t) => readTaskUsage(t, siblings.get(t.project_id) ?? [], usagePathFor(t), d.fallback)));
+  });
+  // Destructively reset all usage: delete every executor's CLI session store (opencode/claude/codex)
+  // for the daemon user's HOME. Admin-only and irreversible. Refused while any agent is live, so a
+  // session store is never deleted under a running agent (which also keeps opencode.db unlocked).
+  app.post('/usage/reset', async c => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const live = (await d.tmux.list()).filter((s) => s.startsWith('orca-'));
+    if (live.length > 0) return c.json({ error: 'agents_running', sessions: live }, 409);
+    return c.json({ ok: true, cleared: clearAllUsage() });
   });
   app.patch('/tasks/:id', async c => {
     const b = await c.req.json();
