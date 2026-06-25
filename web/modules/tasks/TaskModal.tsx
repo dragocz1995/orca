@@ -10,11 +10,12 @@ import { OrcaApiError, orcaClient } from '../../lib/orcaClient';
 import { Modal, ModalBody } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { Select } from '../../components/ui/Select';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Toggle } from '../../components/ui/Toggle';
 import { Field } from '../../components/ui/Field';
 import { Segmented } from '../../components/ui/Segmented';
+import { PillSelect } from '../../components/ui/PillSelect';
+import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { IconButton } from '../../components/ui/IconButton';
 import { Badge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
@@ -193,10 +194,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
 
   const execSelect = (
     <Field label={t.tasks.fieldExecutor}>
-      <Select value={exec} onChange={(e) => setExec(e.target.value)}>
-        <option value="">{t.tasks.defaultExecutor}</option>
-        {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
-      </Select>
+      <ExecutorPicker value={exec} onChange={setExec} models={models} defaultLabel={t.tasks.defaultExecutor} moreLabel={t.tasks.moreModels} />
     </Field>
   );
 
@@ -265,14 +263,14 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label={t.tasks.fieldType}>
-                <Select value={type} onChange={(e) => setType(e.target.value)}>
-                  {TASK_TYPES.map((taskType) => <option key={taskType} value={taskType}>{taskTypeLabel(t, taskType)}</option>)}
-                </Select>
+                <PillSelect
+                  value={type}
+                  onChange={setType}
+                  options={TASK_TYPES.map((taskType) => ({ value: taskType, label: taskTypeLabel(t, taskType), icon: taskTypeMeta(taskType).icon }))}
+                />
               </Field>
               <Field label={t.tasks.fieldPriority}>
-                <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
-                  {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-                </Select>
+                <PillSelect value={priority} onChange={setPriority} options={PRIORITIES.map((p) => ({ value: p, label: p }))} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -337,9 +335,7 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label={t.tasks.fieldAutonomy}>
-                <Select value={autonomy} onChange={(e) => setAutonomy(e.target.value)}>
-                  {['L0', 'L1', 'L2', 'L3'].map((l) => <option key={l} value={l}>{l}</option>)}
-                </Select>
+                <PillSelect value={autonomy} onChange={setAutonomy} options={['L0', 'L1', 'L2', 'L3'].map((l) => ({ value: l, label: l }))} />
               </Field>
               <Field label={t.tasks.fieldMaxSessions}>
                 <Input type="number" min={1} value={maxSessions} onChange={(e) => setMaxSessions(Number(e.target.value))} />
@@ -349,11 +345,15 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
               <Toggle checked={autoModel} onChange={setAutoModel} label={t.tasks.autoModelLabel} />
             </Field>
             <Field label={t.tasks.fieldPrMode} hint={t.tasks.prModeHint}>
-              <Select value={prMode} onChange={(e) => setPrMode(e.target.value as 'default' | 'on' | 'off')}>
-                <option value="default">{t.tasks.prModeDefault}</option>
-                <option value="on">{t.tasks.prModeOn}</option>
-                <option value="off">{t.tasks.prModeOff}</option>
-              </Select>
+              <PillSelect
+                value={prMode}
+                onChange={setPrMode}
+                options={[
+                  { value: 'default', label: t.tasks.prModeDefault },
+                  { value: 'on', label: t.tasks.prModeOn },
+                  { value: 'off', label: t.tasks.prModeOff },
+                ]}
+              />
             </Field>
             {!autoModel && execSelect}
             <button type="button" onClick={() => setEngage((v) => !v)} className="flex w-fit items-center gap-2 text-sm text-text">
@@ -365,11 +365,14 @@ export function TaskModal({ task, onClose, initialSchedule }: { task?: Task; onC
               <div className="flex flex-col gap-2 rounded-md border border-border bg-elevated/40 p-3">
                 <span className="text-xs font-medium uppercase tracking-wide text-text-muted">{t.tasks.manualPhases}</span>
                 {manualPhases.map((phase, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Input value={phase.title} placeholder={t.tasks.phasePlaceholder.replace('{n}', String(i + 1))} onChange={(e) => setManualPhases((rows) => rows.map((r, j) => j === i ? { ...r, title: e.target.value } : r))} />
-                    <Select value={phase.type} onChange={(e) => setManualPhases((rows) => rows.map((r, j) => j === i ? { ...r, type: e.target.value } : r))} className="w-32">
-                      {TASK_TYPES.filter((taskType) => taskType !== 'epic').map((taskType) => <option key={taskType} value={taskType}>{taskTypeLabel(t, taskType)}</option>)}
-                    </Select>
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <Input value={phase.title} placeholder={t.tasks.phasePlaceholder.replace('{n}', String(i + 1))} onChange={(e) => setManualPhases((rows) => rows.map((r, j) => j === i ? { ...r, title: e.target.value } : r))} className="min-w-[12rem] flex-1" />
+                    <PillSelect
+                      size="sm"
+                      value={phase.type}
+                      onChange={(v) => setManualPhases((rows) => rows.map((r, j) => j === i ? { ...r, type: v } : r))}
+                      options={TASK_TYPES.filter((taskType) => taskType !== 'epic').map((taskType) => ({ value: taskType, label: taskTypeLabel(t, taskType), icon: taskTypeMeta(taskType).icon }))}
+                    />
                     <IconButton icon={X} label={t.tasks.removePhase} onClick={() => setManualPhases((rows) => rows.length > 1 ? rows.filter((_, j) => j !== i) : rows)} />
                   </div>
                 ))}

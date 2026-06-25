@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CheckCircle2, XCircle, AlertCircle, Save, Key, Users,
-  Radio, Terminal, HardDrive, UserPlus, ArrowRight, Bot, Eye,
+  Radio, Terminal, HardDrive, UserPlus, ArrowRight, Bot,
   type LucideIcon,
 } from 'lucide-react';
 import { ModuleShell } from '../../components/shell/ModuleShell';
@@ -20,8 +20,7 @@ import { useUpdateConfig, useCreateUser } from '../../lib/mutations';
 import { PROVIDERS } from '../../modules/settings/providers';
 import { useHermesForm } from '../../modules/settings/useHermesForm';
 import { Segmented } from '../../components/ui/Segmented';
-import { Select } from '../../components/ui/Select';
-import { ModelIcon } from '../../components/ui/ModelIcon';
+import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { allModels } from '../../lib/execPresets';
 import { orcaClient } from '../../lib/orcaClient';
 import type { CliStatus as CliStatusType } from '../../lib/types';
@@ -318,20 +317,10 @@ export default function OnboardingPage() {
                 <>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Field label={t.settings.plannerModel}>
-                      <div className="flex items-center gap-2">
-                        {pilotExec ? <ModelIcon name={pilotExec} size={16} /> : <Bot size={14} className="text-text-muted" />}
-                        <Select value={pilotExec} onChange={(e) => setPilotExec(e.target.value)}>
-                          {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
-                        </Select>
-                      </div>
+                      <ExecutorPicker value={pilotExec} onChange={setPilotExec} models={models} allowDefault={false} moreLabel={t.tasks.moreModels} />
                     </Field>
                     <Field label={t.settings.overseerModel}>
-                      <div className="flex items-center gap-2">
-                        {overseerExec ? <ModelIcon name={overseerExec} size={16} /> : <Eye size={14} className="text-text-muted" />}
-                        <Select value={overseerExec} onChange={(e) => setOverseerExec(e.target.value)}>
-                          {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
-                        </Select>
-                      </div>
+                      <ExecutorPicker value={overseerExec} onChange={setOverseerExec} models={models} allowDefault={false} moreLabel={t.tasks.moreModels} />
                     </Field>
                   </div>
                   <div className="mt-4 flex items-center justify-between">

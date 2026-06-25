@@ -29,11 +29,11 @@ describe('TaskModal — auto model toggle', () => {
     // Target the goal textarea by placeholder — the optional mission-name input is also a textbox.
     fireEvent.change(screen.getByPlaceholderText('Describe the goal to plan…'), { target: { value: 'build x' } });
 
-    // Planning mode shows three selects: autonomy + PR workflow + executor.
-    expect(screen.getAllByRole('combobox')).toHaveLength(3);
+    // Planning mode shows the executor picker (its "Executor" field label).
+    expect(screen.getByText('Executor')).toBeTruthy();
     fireEvent.click(screen.getByRole('switch', { name: 'Autopilot picks the model' }));
-    // Executor picker is gone → autonomy + PR workflow remain.
-    expect(screen.getAllByRole('combobox')).toHaveLength(2);
+    // Auto-model on → the executor picker is hidden.
+    expect(screen.queryByText('Executor')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Generate plan' }));
     await waitFor(() => expect(planBody).not.toBeNull());

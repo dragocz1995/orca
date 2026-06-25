@@ -7,13 +7,14 @@ import { allModels } from '../../lib/execPresets';
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { Select } from '../../components/ui/Select';
 import { Field } from '../../components/ui/Field';
 import { Segmented } from '../../components/ui/Segmented';
+import { PillSelect } from '../../components/ui/PillSelect';
+import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { IconButton } from '../../components/ui/IconButton';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
-import { taskTypeLabel, TASK_TYPES } from './taskMeta';
+import { taskTypeLabel, taskTypeMeta, TASK_TYPES } from './taskMeta';
 import { OrcaApiError } from '../../lib/orcaClient';
 
 type Mode = 'manual' | 'replan';
@@ -76,21 +77,19 @@ export function AddPhaseModal({ epicId, onClose }: { epicId: string; onClose: ()
         {mode === 'manual' ? (
           <div className="flex flex-col gap-2">
             {rows.map((row, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex flex-wrap items-center gap-2">
                 <Input
                   value={row.title}
                   placeholder={t.tasks.phasePlaceholder.replace('{n}', String(i + 1))}
                   onChange={(e) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, title: e.target.value } : r))}
+                  className="min-w-[12rem] flex-1"
                 />
-                <Select
+                <PillSelect
+                  size="sm"
                   value={row.type}
-                  onChange={(e) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, type: e.target.value } : r))}
-                  className="w-32"
-                >
-                  {TASK_TYPES.filter((taskType) => taskType !== 'epic').map((taskType) => (
-                    <option key={taskType} value={taskType}>{taskTypeLabel(t, taskType)}</option>
-                  ))}
-                </Select>
+                  onChange={(v) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, type: v } : r))}
+                  options={TASK_TYPES.filter((taskType) => taskType !== 'epic').map((taskType) => ({ value: taskType, label: taskTypeLabel(t, taskType), icon: taskTypeMeta(taskType).icon }))}
+                />
                 <IconButton icon={X} label={t.tasks.removePhase} onClick={() => setRows((rs) => rs.length > 1 ? rs.filter((_, j) => j !== i) : rs)} />
               </div>
             ))}
@@ -111,10 +110,7 @@ export function AddPhaseModal({ epicId, onClose }: { epicId: string; onClose: ()
         )}
 
         <Field label={t.missions.addPhaseFieldExecutor}>
-          <Select value={exec} onChange={(e) => setExec(e.target.value)}>
-            <option value="">{t.tasks.defaultExecutor}</option>
-            {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
-          </Select>
+          <ExecutorPicker value={exec} onChange={setExec} models={models} defaultLabel={t.tasks.defaultExecutor} moreLabel={t.tasks.moreModels} />
         </Field>
       </ModalBody>
       <ModalFooter>

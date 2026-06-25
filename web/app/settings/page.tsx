@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Save, Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, Server, type LucideIcon } from 'lucide-react';
 import { PROVIDERS, ProviderLogo, ProviderTag } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
-import { Select } from '../../components/ui/Select';
+import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { ModelModal } from '../../modules/settings/ModelModal';
 import { ModelNoteModal } from '../../modules/settings/ModelNoteModal';
 import { GithubStatusBanner } from '../../modules/settings/GithubStatusBanner';
@@ -37,18 +37,12 @@ const inputClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 text-
  *  the configured list. Mirrors the executor Select used elsewhere, with a live model badge. An
  *  empty value means relay (the role falls back to the planner/overseer relay model). */
 function BackendPicker({ value, onChange, models, relayLabel, allowRelay = true }: { value: string; onChange: (v: string) => void; models: { label: string; exec: string }[]; relayLabel: string; allowRelay?: boolean }) {
+  const { t } = useTranslation();
   const known = new Set(models.map((m) => m.exec));
+  // Surface a saved-but-unknown model (e.g. a removed preset) as its own pill so it stays selectable.
+  const list = value && !known.has(value) ? [{ label: value, exec: value }, ...models] : models;
   return (
-    <div className="flex items-center gap-2">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-bg" aria-hidden>
-        {value ? <ModelIcon name={value} size={16} /> : <Radio size={14} className="text-text-muted" />}
-      </span>
-      <Select value={value} onChange={(e) => onChange(e.target.value)}>
-        {allowRelay ? <option value="">{relayLabel}</option> : null}
-        {value && !known.has(value) ? <option value={value}>{value}</option> : null}
-        {models.map((m) => <option key={m.exec} value={m.exec}>{m.label}</option>)}
-      </Select>
-    </div>
+    <ExecutorPicker value={value} onChange={onChange} models={list} allowDefault={allowRelay} defaultLabel={relayLabel} moreLabel={t.tasks.moreModels} />
   );
 }
 
