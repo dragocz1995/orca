@@ -28,6 +28,8 @@ export class MissionStore {
        ON CONFLICT(id) DO UPDATE SET
          epic_id=excluded.epic_id, autonomy=excluded.autonomy,
          max_sessions=excluded.max_sessions, state='active'`
+      // created_by is deliberately NOT updated on re-engage: the original engager stays the owner
+      // (notification routing always also includes admins, so a different re-engager is still covered).
     ).run({ ...m, created_by: m.created_by ?? null });
     return this.get(m.id)!;
   }

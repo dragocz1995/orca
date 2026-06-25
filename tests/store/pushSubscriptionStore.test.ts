@@ -38,6 +38,14 @@ describe('PushSubscriptionStore', () => {
     expect(store.listForUser(1)).toHaveLength(0);
   });
 
+  it('removeForUser only deletes the caller\'s own device, never another user\'s', () => {
+    store.upsert(1, sub('https://push/1'));
+    store.removeForUser(2, 'https://push/1'); // user 2 must not be able to delete user 1's device
+    expect(store.listForUser(1)).toHaveLength(1);
+    store.removeForUser(1, 'https://push/1'); // the owner can
+    expect(store.listForUser(1)).toHaveLength(0);
+  });
+
   it('listForUsers returns the union and is empty for no users', () => {
     store.upsert(1, sub('https://push/1'));
     store.upsert(2, sub('https://push/2'));

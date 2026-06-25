@@ -1537,10 +1537,11 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return c.json({ ok: true }, 201);
   });
   app.post('/push/unsubscribe', async (c) => {
-    if (!c.get('user')) return c.json({ error: 'unauthorized' }, 401);
+    const u = c.get('user');
+    if (!u) return c.json({ error: 'unauthorized' }, 401);
     const b = await c.req.json().catch(() => ({})) as { endpoint?: unknown };
     if (typeof b.endpoint !== 'string' || !b.endpoint) return c.json({ error: 'endpoint required' }, 400);
-    d.pushSubscriptions?.remove(b.endpoint);
+    d.pushSubscriptions?.removeForUser(u.id, b.endpoint); // scoped: can only remove your own device
     return c.json({ ok: true });
   });
 

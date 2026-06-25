@@ -59,11 +59,13 @@ export async function enablePush(): Promise<EnablePushResult> {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
   });
-  await fetch(`${BASE}/push/subscribe`, {
+  const res = await fetch(`${BASE}/push/subscribe`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(sub.toJSON()),
   });
+  // Surface a daemon-side rejection (e.g. an expired session) instead of falsely reporting success.
+  if (!res.ok) throw new Error(`subscribe failed: ${res.status}`);
   return 'granted';
 }
 

@@ -16,6 +16,7 @@ function setup() {
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
   const users = new UserStore(db);
   const bob = users.create('bob', 'pw');
+  const mallory = users.create('mallory', 'pw');
   const config = new ConfigStore(db);
   config.setWebPushKeys({ publicKey: 'pub-123', privateKey: 'priv-123' });
   const pushSubscriptions = new PushSubscriptionStore(db);
@@ -25,7 +26,7 @@ function setup() {
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
     clock: new FakeClock(0), config, users, projects: new ProjectStore(db), pushSubscriptions,
   });
-  return { app, pushSubscriptions, bob, bobTok: users.issueToken(bob.id) };
+  return { app, pushSubscriptions, bob, bobTok: users.issueToken(bob.id), malloryTok: users.issueToken(mallory.id) };
 }
 const post = (t: string | null, body: unknown) => ({
   method: 'POST',
@@ -67,5 +68,11 @@ describe('POST /push/unsubscribe', () => {
     const res = await app.request('/push/unsubscribe', post(bobTok, { endpoint: 'https://push/abc' }));
     expect(res.status).toBe(200);
     expect(pushSubscriptions.listForUser(bob.id)).toHaveLength(0);
+  });
+  it('does not let another user remove your device by guessing the endpoint', async () => {
+    const { app, pushSubscriptions, bob, bobTok, malloryTok } = setup();
+    await app.request('/push/subscribe', post(bobTok, validSub));
+    await app.request('/push/unsubscribe', post(malloryTok, { endpoint: 'https://push/abc' }));
+    expect(pushSubscriptions.listForUser(bob.id)).toHaveLength(1); // bob's device survives
   });
 });
