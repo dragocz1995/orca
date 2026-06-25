@@ -625,10 +625,14 @@ contents.
 
 **Response `200`**
 ```json
-[
-  { "name": "projects", "path": "/home/projects" },
-  { "name": "www", "path": "/home/www" }
-]
+{
+  "path": "/home",
+  "parent": "/",
+  "entries": [
+    { "name": "projects", "path": "/home/projects" },
+    { "name": "www", "path": "/home/www" }
+  ]
+}
 ```
 
 **Error `400`**
