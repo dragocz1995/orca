@@ -60,6 +60,11 @@ export class PushDispatcher {
       return buildStalled({ missionId: e.missionId, epicTitle: this.epicTitle(e.missionId) });
     }
     if (e.type === 'mission' && e.state === 'disengaged') {
+      // `disengaged` is overloaded: it fires on natural completion AND on manual teardown (DELETE
+      // mission/task, admin cleanup). Only natural completion closes the epic (writeMissionSummary),
+      // so gate the "Mise dokončena" push on that — a manual stop must not claim the mission finished.
+      const epicId = this.d.missions.get(e.missionId)?.epic_id;
+      if (!epicId || this.d.tasks.get(epicId)?.status !== 'closed') return null;
       return buildDone({ missionId: e.missionId, epicTitle: this.epicTitle(e.missionId), prUrl: this.d.missionGit?.prInfo(e.missionId)?.prUrl ?? null });
     }
     if (e.type === 'task' && e.status === 'blocked') {

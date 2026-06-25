@@ -57,14 +57,22 @@ describe('PushDispatcher', () => {
     expect(h.sent[0]!.payload.session).toBe('orca-zoe');
   });
 
-  it('pushes a done payload with the PR url when a mission disengages', () => {
+  it('pushes a done payload with the PR url when a mission completes naturally (epic closed)', () => {
     const withPr = harness({ prInfo: () => ({ prUrl: 'https://gh/pr/9' }) });
     withPr.tasks.create({ id: 'e1', project_id: 1, title: 'Epic', type: 'epic' });
+    withPr.tasks.close('e1', { summary: 'done', outcome: 'ok' }); // natural completion closes the epic
     withPr.missions.create({ id: 'm-e1', epic_id: 'e1', autonomy: 'L3', max_sessions: 1 });
     withPr.bus.publish({ type: 'mission', missionId: 'm-e1', state: 'disengaged' });
     expect(withPr.sent).toHaveLength(1);
     expect(withPr.sent[0]!.payload.kind).toBe('done');
     expect(withPr.sent[0]!.payload.prUrl).toBe('https://gh/pr/9');
+  });
+
+  it('sends nothing on a manual disengage (epic still open — not a completion)', () => {
+    h.tasks.create({ id: 'e1', project_id: 1, title: 'Epic', type: 'epic' }); // open, not closed
+    h.missions.create({ id: 'm-e1', epic_id: 'e1', autonomy: 'L3', max_sessions: 1 });
+    h.bus.publish({ type: 'mission', missionId: 'm-e1', state: 'disengaged' });
+    expect(h.sent).toHaveLength(0);
   });
 
   it('swallows a lookup that throws (never aborts the bus)', () => {
