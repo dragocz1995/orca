@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS agents (
 CREATE TABLE IF NOT EXISTS missions (
   id TEXT PRIMARY KEY, epic_id TEXT NOT NULL, autonomy TEXT NOT NULL,
   max_sessions INTEGER NOT NULL DEFAULT 1,
-  state TEXT NOT NULL DEFAULT 'active', started_at TEXT NOT NULL DEFAULT (datetime('now'))
+  state TEXT NOT NULL DEFAULT 'active', started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_by INTEGER
 );
 CREATE TABLE IF NOT EXISTS mission_pr (
   mission_id TEXT PRIMARY KEY, branch TEXT NOT NULL, worktree TEXT NOT NULL,
@@ -50,6 +51,15 @@ CREATE TABLE IF NOT EXISTS user_projects (
   user_id INTEGER NOT NULL, project_id INTEGER NOT NULL,
   PRIMARY KEY (user_id, project_id)
 );
+CREATE TABLE IF NOT EXISTS user_push_subscriptions (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_push_subs_user ON user_push_subscriptions(user_id);
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   ts TEXT NOT NULL DEFAULT (datetime('now')),

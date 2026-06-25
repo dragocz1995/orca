@@ -22,6 +22,12 @@ describe('MissionStore', () => {
     expect(again).toMatchObject({ id: 'm1', epic_id: 'e1', autonomy: 'L2', max_sessions: 3, state: 'active' });
     expect(m.active().map(x => x.id)).toEqual(['m1']); // active again, exactly one row
   });
+  it('records the owner and defaults to null when omitted', () => {
+    m.create({ id: 'owned', epic_id: 'e1', autonomy: 'L3', max_sessions: 1, created_by: 5 });
+    m.create({ id: 'legacy', epic_id: 'e2', autonomy: 'L3', max_sessions: 1 });
+    expect(m.get('owned')!.created_by).toBe(5);
+    expect(m.get('legacy')!.created_by).toBeNull();
+  });
   it('live includes active and stalled missions', () => {
     m.create({ id: 'a', epic_id: 'e1', autonomy: 'L3', max_sessions: 1 });
     m.create({ id: 'b', epic_id: 'e2', autonomy: 'L3', max_sessions: 1 });

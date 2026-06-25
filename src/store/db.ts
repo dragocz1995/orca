@@ -65,6 +65,9 @@ export function openDb(path: string): Db {
   // Per-project override of the GitHub PR-native workflow. NULL = inherit the global autopilot default;
   // 1/0 = force on/off for this project (each project can run a different flow). Old DBs default NULL.
   addColumn(db, 'projects', 'pr_enabled', 'INTEGER');
+  // Who started the mission — drives per-mission push-notification routing (owner + admins). Nullable:
+  // legacy/system missions have no owner and fall back to notifying admins only. Old DBs default NULL.
+  addColumn(db, 'missions', 'created_by', 'INTEGER');
   // Seed the bootstrap admin on existing DBs: the lowest-id user, if none is flagged yet.
   db.exec("UPDATE users SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM users) AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)");
   return db;
