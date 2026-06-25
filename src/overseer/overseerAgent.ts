@@ -25,25 +25,33 @@ export interface OverseerController {
 /** Lifecycle of the parked per-mission overseer agent. When `overseerExec` is empty the controller
  *  is inert (the relay fallback in bootstrap handles decisions inline). The agent is parked: it
  *  long-polls and sits idle (0 tokens) until the engine/deriver enqueue a decision. */
-export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; config: ConfigStore; queue: DecisionQueue; cli?: string }): OverseerController {
-  // Single source for the launch — both start (always) and ensure (only when dead) go through it.
+export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; config: ConfigStore; queue: DecisionQueue; cli?: string; missionGit?: { worktreeFor(missionId: string): string | null } }): OverseerController {
+  // Single source for the launch — every caller (engage/resume start, the tick watchdog's ensure,
+  // the reconcile sweep) routes through here, so the idempotency guard lives here too.
   const park = async (missionId: string, projectId: number, projectPath: string): Promise<void> => {
     const exec = deps.config.get().autopilot.overseerExec;
     if (!exec) return; // relay fallback — no parked agent
+    // Idempotent: a live overseer session IS the desired state. If one is already parked for this
+    // mission, leave it — re-launching would make `tmux new-session` throw "duplicate session" and
+    // crash the caller. engage and resume call this unconditionally (the overseer can already be
+    // parked from a prior engage), so the guard must be here, not only in ensure.
+    if ((await deps.tmux.list()).includes(`orca-overseer-${missionId}`)) return;
     const spec = resolveExecutor([`exec:${exec}`], { program: 'claude-code', model: 'sonnet' });
+    // Park the overseer in the mission's worktree when PR-native (else the project checkout). The
+    // overseer judges a phase by running read-only `git diff HEAD` itself — and the agent's work lives
+    // in the worktree, not the main checkout. Run it in the main checkout and every phase false-rejects
+    // as "fabricated" (the checkout shows zero changes), looping the mission forever.
+    const cwd = deps.missionGit?.worktreeFor(missionId) ?? projectPath;
     await deps.spawn.launch({
-      projectId, projectPath, taskId: `overseer-${missionId}`, agentName: `overseer-${missionId}`, spec,
+      projectId, projectPath: cwd, taskId: `overseer-${missionId}`, agentName: `overseer-${missionId}`, spec,
       rawPrompt: overseerPrompt(missionId, deps.cli), extraEnv: { ORCA_MISSION: missionId },
     });
   };
   return {
     start: park,
-    async ensure(missionId, projectId, projectPath) {
-      if (!deps.config.get().autopilot.overseerExec) return; // relay fallback — nothing to park
-      const live = await deps.tmux.list();
-      if (live.includes(`orca-overseer-${missionId}`)) return; // already parked — don't double-spawn
-      await park(missionId, projectId, projectPath);
-    },
+    // The tick watchdog: re-park only if the session has died. park is idempotent (no-ops when the
+    // session is live and when overseerExec is empty), so ensure is just a semantic alias for it.
+    ensure: park,
     async stop(missionId) {
       await deps.tmux.kill(`orca-overseer-${missionId}`).catch(() => { /* already gone — fine */ });
       deps.queue.drain(missionId); // escalate any awaiting decisions so nothing hangs
