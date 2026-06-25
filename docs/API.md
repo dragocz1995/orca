@@ -986,9 +986,6 @@ a non-admin cannot cross tenancy). Unknown or inaccessible project IDs return `[
     "result_summary": null,
     "outcome": null,
     "closed_at": null,
-    "started_at": null,
-    "agent": null,
-    "exec": null,
     "created_at": "2026-06-17 12:00:00"
   }
 ]
@@ -1782,8 +1779,7 @@ is accessible).
     "epic_id": "my-project-a1b2c3d4",
     "autonomy": "L2",
     "max_sessions": 1,
-    "state": "active",
-    "started_at": "2026-06-17 12:00:00"
+    "state": "active"
   }
 ]
 ```
@@ -1799,7 +1795,7 @@ Returns the mission with its epic, full task tree, dependencies, and progress br
 **Response `200`**
 ```json
 {
-  "mission": { "id": "m-my-project-a1b2c3d4", "state": "active", "autonomy": "L2", "max_sessions": 1, "started_at": "2026-06-17 12:00:00" },
+  "mission": { "id": "m-my-project-a1b2c3d4", "state": "active", "autonomy": "L2", "max_sessions": 1 },
   "epic": { "id": "my-project-a1b2c3d4", "title": "Build login page", "type": "epic", "status": "in_progress", ... },
   "tasks": [
     { "id": "my-project-b5c6d7e8", "title": "Set up OAuth provider", "status": "closed", ... },
@@ -2147,8 +2143,8 @@ Time-ordered event log.
 **Response `200`**
 ```json
 [
-  { "id": 1, "type": "task", "target": "task-1", "detail": "created", "ts": "2026-06-17T12:00:00.000Z" },
-  { "id": 2, "type": "signal", "target": "orca-SwiftLake0", "detail": "working", "ts": "2026-06-17T12:05:00.000Z" }
+  { "id": 1, "type": "task", "target": "task-1", "detail": "created", "ts": "2026-06-17T12:00:00.000Z", "project_id": 1, "label": "" },
+  { "id": 2, "type": "signal", "target": "orca-SwiftLake0", "detail": "working", "ts": "2026-06-17T12:05:00.000Z", "project_id": 1, "label": "" }
 ]
 ```
 
@@ -2223,10 +2219,7 @@ Content-Type: application/json
 Admin-only (when users exist). All fields are partial — only specified fields are updated. During
 setup (no users yet) it is open so onboarding can save providers before the first admin exists.
 
-**Response `200`**
-```json
-{ "ok": true }
-```
+**Response `200`** — the full updated config (same shape as `GET /config`).
 
 **Error `403`**
 ```json
@@ -2412,13 +2405,13 @@ has enough configuration to operate. Used by the onboarding wizard.
 **Response `200`**
 ```json
 {
-  "clis": [
-    { "name": "claude", "installed": true, "path": "/usr/local/bin/claude", "version": "1.2.3" },
-    { "name": "opencode", "installed": false, "path": null, "version": null },
-    { "name": "codex", "installed": true, "path": "/usr/bin/codex", "version": "0.5.0" }
+  "tools": [
+    { "name": "claude", "installed": true, "functional": true, "version": "1.2.3", "error": null },
+    { "name": "opencode", "installed": false, "functional": false, "version": null, "error": "'opencode' not found on PATH" },
+    { "name": "codex", "installed": true, "functional": true, "version": "0.5.0", "error": null }
   ],
-  "ready": true,
-  "missing": []
+  "summary": { "allInstalled": false, "allFunctional": false },
+  "freshInstall": { "noConfigPersisted": false, "noApiKey": false, "noCustomSetup": false }
 }
 ```
 
