@@ -129,7 +129,7 @@ export const cs = {
     confirmDeleteMissionTitle: 'Smazat misi {id}?',
     confirmDeleteMissionDescription: 'Trvale odstraní celou misi — epic i všechny její fázové úkoly — a nelze ji vrátit zpět. Soubory na disku zůstanou nedotčené.',
     missionDeleted: 'Mise {id} smazána',
-    defaultExecutor: 'Výchozí (fallback)',
+    defaultExecutor: 'Výchozí',
     newTitle: 'Nový úkol',
     editTitle: 'Upravit {id}',
     singleTask: 'Jeden úkol',

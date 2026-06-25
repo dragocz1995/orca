@@ -129,7 +129,7 @@ export const en = {
     confirmDeleteMissionTitle: 'Delete mission {id}?',
     confirmDeleteMissionDescription: 'This permanently removes the whole mission — the epic and all of its phase tasks — and cannot be undone. It does not touch any files on disk.',
     missionDeleted: 'Mission {id} deleted',
-    defaultExecutor: 'Default (fallback)',
+    defaultExecutor: 'Default',
     newTitle: 'New task',
     editTitle: 'Edit {id}',
     singleTask: 'Single task',
