@@ -96,7 +96,7 @@ export function ActionMenu({ items, label, trigger, triggerClassName, align = 'r
         aria-expanded={open}
         title={resolvedLabel}
         onClick={() => (open ? setOpen(false) : openMenu())}
-        className={triggerClassName ?? 'inline-flex h-8 w-8 items-center justify-center rounded-md border border-danger/60 text-danger transition-colors hover:bg-danger hover:text-white'}
+        className={triggerClassName ?? 'inline-flex h-8 w-8 items-center justify-center rounded-md bg-danger text-white transition-colors hover:bg-danger/85'}
         style={{ transitionDuration: 'var(--motion-fast)' }}
       >
         {trigger ?? <Trash2 size={15} aria-hidden />}
