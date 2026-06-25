@@ -293,7 +293,7 @@ Every data-fetching page handles three states consistently:
 
 - **LoginGate** (`components/auth/LoginGate.tsx`) — wraps the entire app, probes `/api/auth/me` on mount (the session lives in an httpOnly cookie the browser JS can't read). If the daemon has no `UserStore`, renders children directly.
 - **LoginForm** — centered login with Orca logo, username/password
-- **Token** — **httpOnly session cookie**, never in JS or `localStorage`. The browser talks only to the same-origin `/api` BFF proxy (`lib/orcaClient.ts` sets `BASE = '/api'`, `credentials: 'same-origin'`); the proxy injects the daemon bearer from the cookie on every fetch, including SSE. There is no `?token=` query param and no `localStorage` token.
+- **Token** — **httpOnly session cookie**, never in JS or `localStorage`. The browser talks only to the same-origin `/api` BFF proxy (`lib/orcaClient.ts` sets `BASE = '/api'`, `credentials: 'same-origin'`); the proxy (see `web/app/api/[...path]/route.ts`) injects the daemon bearer from the cookie on every fetch, including SSE. There is no `?token=` query param and no `localStorage` token. `NEXT_PUBLIC_ORCA_URL` is **not supported** — the BFF proxy replaces any direct browser-to-daemon communication.
 - **EventBridge** — only mounted after auth (prevents 401 on SSE). Exported from `providers.tsx`
 - **Logout** — `POST /api/auth/logout` expires the cookie server-side and signals the auth gate via the `orca:auth-cleared` event (`lib/token.ts`)
 - **Token helper** — `getToken()`, `setToken()`, `clearToken()`, `withToken()` in `lib/token.ts`
@@ -555,11 +555,11 @@ npm install
 npm run dev          # Next.js dev server (turbopack)
 npm run build        # production build (next build)
 npm start -- -p 4500 # production server (next start, port 4500)
-npm test             # Vitest (~363 cases, RTL + MSW)
+npm test             # Vitest (~433 cases, RTL + MSW)
 npm run test:watch   # watch mode
 ```
 
-The web app talks only to its own same-origin `/api` proxy (`lib/orcaClient.ts:6`), which forwards to the daemon using the httpOnly session cookie. Set `ORCA_DAEMON_URL` (server-side, default `http://localhost:4400`) if the daemon is not on localhost — there is no browser-side `NEXT_PUBLIC_ORCA_URL`.
+The web app talks only to its own same-origin `/api` BFF proxy (`lib/orcaClient.ts:6`), which forwards to the daemon using the httpOnly session cookie. Set `ORCA_DAEMON_URL` (server-side, default `http://localhost:4400`) if the daemon is not on localhost — there is no browser-side `NEXT_PUBLIC_ORCA_URL`. The old `NEXT_PUBLIC_ORCA_URL` pattern is **deprecated** and **not supported** — all daemon communication goes through the server-side BFF proxy.
 
 **Gotcha:** a stale turbopack dev server on :4500 serves broken CSS chunks. Fix by killing the :4500 pid and running `npm start -- -p 4500` (not `next dev`).
 
