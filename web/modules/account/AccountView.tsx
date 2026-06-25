@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { UserCog, Mail, Cpu, Upload, ShieldCheck, Save, Check, User as UserIcon, KeyRound, ZoomIn } from 'lucide-react';
+import { UserCog, Mail, Cpu, Upload, ShieldCheck, Save, Check, User as UserIcon, KeyRound, ZoomIn, Bell } from 'lucide-react';
 import { useMe, useConfig } from '../../lib/queries';
 import { useUpdateMe, useUploadAvatar, useChangePassword } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
@@ -16,6 +16,7 @@ import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { useUiScale, MIN_SCALE, MAX_SCALE, DEFAULT_SCALE } from '../../lib/useUiScale';
+import { isPushSupported, enablePush, disablePush } from '../../lib/pushClient';
 
 export function AccountView() {
   const me = useMe();
@@ -35,6 +36,10 @@ export function AccountView() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // Phone push is a per-device preference (like UI scale): reflect this device's current state.
+  const [pushSupported, setPushSupported] = useState(true);
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
 
   useEffect(() => {
     if (me.data?.user) {
@@ -43,6 +48,36 @@ export function AccountView() {
       setDefaultExec(me.data.user.default_exec);
     }
   }, [me.data]);
+
+  useEffect(() => {
+    const supported = isPushSupported();
+    setPushSupported(supported);
+    if (!supported) return;
+    void navigator.serviceWorker.getRegistration('/sw.js')
+      .then((r) => r?.pushManager.getSubscription())
+      .then((s) => setPushOn(!!s))
+      .catch(() => {});
+  }, []);
+
+  const togglePush = async () => {
+    setPushBusy(true);
+    try {
+      if (pushOn) {
+        await disablePush();
+        setPushOn(false);
+        toast(t.push.disabledToast);
+      } else {
+        const result = await enablePush();
+        if (result === 'granted') { setPushOn(true); toast(t.push.enabledToast); }
+        else if (result === 'denied') toast(t.push.denied, 'error');
+        else toast(t.push.unsupported, 'error');
+      }
+    } catch {
+      toast(t.push.error, 'error');
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   if (me.isLoading || !me.data?.user) {
     return <><ModuleHeader title={t.account.title} icon={UserCog} /><LoadingState /></>;
@@ -189,6 +224,17 @@ export function AccountView() {
               </div>
             </form>
           </SettingCard>
+
+          {/* Phone push — a per-device opt-in. Subscribes this browser/device for off-device alerts. */}
+          {pushSupported ? (
+            <SettingCard title={t.push.title} icon={Bell} description={t.push.hint}>
+              <div className="flex justify-end">
+                <Button variant={pushOn ? 'ghost' : 'accent'} icon={Bell} onClick={togglePush} disabled={pushBusy}>
+                  {pushOn ? t.push.disable : t.push.enable}
+                </Button>
+              </div>
+            </SettingCard>
+          ) : null}
 
           {/* Whole-app zoom — a per-device display preference, applied live via the UiScaleProvider. */}
           <SettingCard title={t.account.uiScale} icon={ZoomIn} description={t.account.uiScaleHint}>

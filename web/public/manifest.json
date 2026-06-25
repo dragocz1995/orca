@@ -1,0 +1,11 @@
+{
+  "name": "Orcasynth",
+  "short_name": "Orca",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "/orca-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

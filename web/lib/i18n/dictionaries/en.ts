@@ -760,6 +760,17 @@ export const en = {
     uiScaleHint: 'Zoom the whole interface in or out on this device (100% is the default).',
     uiScaleReset: 'Reset',
   },
+  push: {
+    title: 'Phone notifications',
+    hint: 'When a mission needs your attention, we will notify you on this device — even with the app closed. You can approve or reject right from the notification.',
+    enable: 'Enable on this device',
+    disable: 'Turn off',
+    enabledToast: 'Notifications enabled on this device.',
+    disabledToast: 'Notifications turned off on this device.',
+    denied: 'You blocked notifications in your browser. Allow them in the browser settings to enable.',
+    unsupported: 'This browser does not support notifications.',
+    error: 'Could not set up notifications.',
+  },
   changes: {
     dirtyOne: '1 dirty',
     dirtyN: '{count} dirty',

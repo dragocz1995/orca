@@ -760,6 +760,17 @@ export const cs = {
     uiScaleHint: 'Zvětší nebo zmenší celé rozhraní na tomto zařízení (výchozí je 100 %).',
     uiScaleReset: 'Výchozí',
   },
+  push: {
+    title: 'Notifikace na telefon',
+    hint: 'Když bude mise potřebovat vaši pozornost, pošleme vám upozornění na toto zařízení — i bez otevřené aplikace. Schválit nebo zamítnout můžete přímo z notifikace.',
+    enable: 'Zapnout na tomto zařízení',
+    disable: 'Vypnout',
+    enabledToast: 'Notifikace na tomto zařízení jsou zapnuté.',
+    disabledToast: 'Notifikace na tomto zařízení jsou vypnuté.',
+    denied: 'Notifikace jste v prohlížeči zakázali. Povolte je v nastavení prohlížeče.',
+    unsupported: 'Tento prohlížeč notifikace nepodporuje.',
+    error: 'Notifikace se nepodařilo nastavit.',
+  },
   changes: {
     dirtyOne: '1 změněno',
     dirtyN: '{count} změněno',
