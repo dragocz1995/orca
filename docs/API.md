@@ -1221,8 +1221,8 @@ projects; optional `?project_id=N` narrows it to a single project.
 **Response `200`**
 ```json
 [
-  { "exec": "sonnet", "inputTokens": 120000, "outputTokens": 34000, "totalTokens": 154000, "costUsd": 0.45, "sessions": 3 },
-  { "exec": "claude:opus", "inputTokens": 50000, "outputTokens": 12000, "totalTokens": 62000, "costUsd": 0.93, "sessions": 1 }
+  { "exec": "sonnet", "usage": { "input": 120000, "output": 34000, "cacheRead": 15000, "cacheWrite": 5000, "total": 174000, "costUsd": 0.45 } },
+  { "exec": "claude:opus", "usage": { "input": 50000, "output": 12000, "cacheRead": 0, "cacheWrite": 0, "total": 62000, "costUsd": null } }
 ]
 ```
 
