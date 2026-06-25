@@ -1,5 +1,6 @@
 import type { ModuleMeta, ModuleGroup } from './types';
 import { meta as dashboard } from './dashboard/meta';
+import { meta as stats } from './stats/meta';
 import { meta as tasks } from './tasks/meta';
 import { meta as kanban } from './kanban/meta';
 import { meta as timeline } from './timeline/meta';
@@ -10,7 +11,7 @@ import { meta as projects } from './projects/meta';
 import { meta as editor } from './editor/meta';
 import { meta as users } from './users/meta';
 
-export const MODULES: ModuleMeta[] = [dashboard, tasks, kanban, timeline, escalations, sessions, settings, projects, editor, users];
+export const MODULES: ModuleMeta[] = [dashboard, stats, tasks, kanban, timeline, escalations, sessions, settings, projects, editor, users];
 
 const GROUP_ORDER: ModuleGroup[] = ['Operate', 'Config'];
 

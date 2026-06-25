@@ -34,6 +34,15 @@ export function useDeleteMission() {
     },
   });
 }
+/** Admin: destructively reset all usage stores. Invalidates the usage query on success. */
+export function useResetUsage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => orcaClient.resetUsage(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.usageByModel }),
+  });
+}
+
 export function useCleanupAll() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: () => orcaClient.cleanupAll(), onSuccess: () => qc.invalidateQueries() });

@@ -25,6 +25,7 @@ export const QUERY_KEYS = {
   hermesStatus: ['hermes-status'] as const,
   advisorStatus: ['advisor-status'] as const,
   system: ['system'] as const,
+  usageByModel: ['usage-by-model'] as const,
 };
 
 /** The current user's advisor session state, polled so the dock reflects start/stop/crash. */
@@ -66,6 +67,14 @@ export const useTaskUsage = (taskId: string, live = false) =>
     enabled: !!taskId,
     refetchInterval: live ? 5000 : false,
     staleTime: live ? 0 : 5 * 60 * 1000,
+  });
+
+/** Total token/cost usage aggregated per model, for the stats page. Cost/tokens move slowly. */
+export const useModelUsage = (projectId?: number) =>
+  useQuery({
+    queryKey: projectId == null ? QUERY_KEYS.usageByModel : ['usage-by-model', projectId],
+    queryFn: () => orcaClient.usageByModel(projectId),
+    refetchInterval: 30_000,
   });
 
 export const useMissions = () =>

@@ -148,3 +148,21 @@ export interface TokenUsage {
   total: number;
   costUsd: number | null;
 }
+
+/** Total token/cost usage aggregated for one model (exec spec). */
+export interface ModelUsage {
+  exec: string;
+  usage: TokenUsage;
+}
+
+/** Outcome of clearing one executor's session store on a usage reset. */
+export interface ExecClearResult {
+  cleared: boolean;
+  removed: number;
+  error?: string;
+}
+
+export interface ResetUsageResult {
+  ok: boolean;
+  cleared: { opencode: ExecClearResult; claude: ExecClearResult; codex: ExecClearResult };
+}

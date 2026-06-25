@@ -6,6 +6,7 @@ import { useTasks, useSessions, useMissions, useSessionSignals, useConfig, usePr
 import { usePauseMission, useResumeMission, useDisengage } from '../../lib/mutations';
 import { deriveDashboardMetrics } from './metrics';
 import { Badge } from '../../components/ui/Badge';
+import { StatCard } from '../../components/ui/StatCard';
 import type { Tone } from '../../components/ui/tone';
 import { NeedsInputBanner } from '../../components/ui/NeedsInputBanner';
 import { ProgressRibbon } from '../../components/ui/ProgressRibbon';
@@ -43,19 +44,6 @@ function LiveLane({ name, task }: { name: string; task?: Task }) {
       <span className="min-w-0 flex-1 truncate text-[11px] text-text-muted">{line}</span>
       <Badge tone={activityTone as Tone}>{t.activity[activity]}</Badge>
     </Link>
-  );
-}
-
-/** A big, airy stat card: large number + small label + faint icon. The dashboard's "system overview". */
-function StatCard({ value, label, icon: Icon }: { value: number; label: string; icon: LucideIcon }) {
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
-      <Icon size={18} className="text-text-muted" aria-hidden />
-      <div className="flex flex-col gap-1">
-        <span className="font-mono text-3xl font-semibold leading-none tabular-nums text-text">{value}</span>
-        <span className="text-[11px] uppercase tracking-wider text-text-muted">{label}</span>
-      </div>
-    </div>
   );
 }
 
