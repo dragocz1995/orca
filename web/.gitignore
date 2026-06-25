@@ -4,3 +4,5 @@ next-env.d.ts
 tsconfig.tsbuildinfo
 *.js
 public/monaco/
+# sw.js is hand-written source (not build output) — it must be tracked despite the *.js rule above.
+!public/sw.js

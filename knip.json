@@ -8,6 +8,7 @@
       "entry": ["app/providers.tsx"]
     }
   },
+  "ignore": ["web/public/sw.js"],
   "ignoreBinaries": ["tmux", "which", "dot", "gh", "orca"],
   "ignoreIssues": {
     "web/lib/types.ts": ["types"],
