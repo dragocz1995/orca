@@ -92,40 +92,63 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
   // PR-native surfacing: a pr record with a url → link out; one without (verified, waiting) → "Open PR".
   const pr = mission?.pr ?? null;
 
+  // Whether the bottom row has any lifecycle pill (PR link/open/merge, or engage/continue/pause/
+  // disengage). When none apply — e.g. a closed epic with no PR — the row is dropped entirely so the
+  // epic stays a single compact line instead of reserving an empty second line.
+  const hasActions = !!pr?.prUrl || pr?.prState === 'ready' || pr?.prState === 'open' || live || !epicClosed;
+
   // No overflow-hidden on the card: it would clip the action menu's dropdown (which must overlay
   // below the card). Corners stay clean because the only child reaching them — the expanded phase
   // list — is rounded to match below (rounded-b-lg).
   return (
-    <div className="group/epic rounded-lg border border-accent/30 bg-accent/[0.04]">
-      <button
-        type="button"
-        onClick={() => { onToggle(); onSelect(epic); }}
-        aria-expanded={expanded}
-        className={`flex w-full min-w-0 items-center gap-3 p-3 text-left transition-colors hover:bg-accent/[0.06] ${activeId === epic.id ? 'bg-accent/[0.06]' : ''}`}
-      >
-        <ChevronRight size={16} className={`shrink-0 text-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden />
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated"><Icon size={20} className="text-accent" aria-hidden /></span>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{epic.title}</span>
-            {active ? <span className="live-dot h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor, ['--live-ring' as string]: dotRing }} aria-hidden /> : null}
+    <div className={`group/epic rounded-lg border border-accent/30 transition-colors ${activeId === epic.id ? 'bg-accent/[0.07]' : 'bg-accent/[0.04] hover:bg-accent/[0.06]'}`}>
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={() => { onToggle(); onSelect(epic); }}
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left"
+        >
+          <ChevronRight size={16} className={`shrink-0 text-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden />
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated"><Icon size={20} className="text-accent" aria-hidden /></span>
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{epic.title}</span>
+              {active ? <span className="live-dot h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor, ['--live-ring' as string]: dotRing }} aria-hidden /> : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <ProgressRibbon phases={phases} className="max-w-[12rem] flex-1" />
+              <span className="shrink-0 font-mono text-[11px] text-text-muted">{done}/{total} {t.tasks.phasesLabel}</span>
+              {totalCost > 0 ? (
+                <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-approve/30 px-1.5 py-0.5 font-mono text-[11px] text-approve" title={`${t.usage.cost}: ${formatCost(totalCost)}`}>
+                  <Coins size={10} className="shrink-0" aria-hidden />{formatCost(totalCost)}
+                </span>
+              ) : null}
+              <ProjectPill projectId={epic.project_id} />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <ProgressRibbon phases={phases} className="max-w-[12rem] flex-1" />
-            <span className="shrink-0 font-mono text-[11px] text-text-muted">{done}/{total} {t.tasks.phasesLabel}</span>
-            {totalCost > 0 ? (
-              <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-approve/30 px-1.5 py-0.5 font-mono text-[11px] text-approve" title={`${t.usage.cost}: ${formatCost(totalCost)}`}>
-                <Coins size={10} className="shrink-0" aria-hidden />{formatCost(totalCost)}
-              </span>
-            ) : null}
-            <ProjectPill projectId={epic.project_id} />
+        </button>
+
+        {/* Status + delete menu, kept together top-right (siblings of the toggle so a click here never
+            collapses the epic). The menu reveals on epic hover; its slot stays reserved so the badge
+            never shifts. */}
+        <div className="flex shrink-0 items-center gap-2 pr-3">
+          <Badge tone={statusTone(effectiveStatus ?? epic.status)}>{statusLabel(t, effectiveStatus ?? epic.status)}</Badge>
+          <div className="opacity-0 transition-opacity group-hover/epic:opacity-100">
+            <ActionMenu
+              label={t.tasks.epicActions}
+              items={[
+                { label: t.missions.addPhase, icon: Plus, onSelect: () => setAddingPhase(true) },
+                { label: t.tasks.deleteMission, icon: Trash2, tone: 'danger', onSelect: () => setConfirmDelete(true) },
+              ]}
+            />
           </div>
         </div>
-        <Badge tone={statusTone(effectiveStatus ?? epic.status)}>{statusLabel(t, effectiveStatus ?? epic.status)}</Badge>
-      </button>
+      </div>
 
-      {/* Mission lifecycle controls — their own row under the progress bar (outside the toggle button, so
-          a control click never collapses the epic), indented to line up beneath the title/progress. */}
+      {/* Mission lifecycle pills — their own row under the progress bar, rendered only when there's at
+          least one, so a quiet epic stays a single compact line. Indented to line up under the title. */}
+      {hasActions ? (
       <div className="flex flex-wrap items-center gap-1.5 px-3 pb-3 pl-[5.75rem]">
         {pr?.prUrl ? (
           <a
@@ -166,16 +189,8 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
             <ActionPill icon={Power} label={t.missions.disengage} tone="danger" onClick={onDisengage} disabled={disengage.isPending} />
           </>
         ) : null}
-        <div className="opacity-0 transition-opacity group-hover/epic:opacity-100">
-          <ActionMenu
-            label={t.tasks.epicActions}
-            items={[
-              { label: t.missions.addPhase, icon: Plus, onSelect: () => setAddingPhase(true) },
-              { label: t.tasks.deleteMission, icon: Trash2, tone: 'danger', onSelect: () => setConfirmDelete(true) },
-            ]}
-          />
-        </div>
       </div>
+      ) : null}
 
       {expanded ? (
         <div className="flex flex-col gap-2.5 rounded-b-lg border-t border-accent/20 bg-bg/30 p-2.5 pl-5">
