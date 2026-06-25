@@ -2243,8 +2243,8 @@ can't trigger an update).
 **Response `200`**
 ```json
 {
-  "version": "1.4.33",
-  "latest": "1.4.33",
+  "version": "1.4.41",
+  "latest": "1.4.41",
   "updateAvailable": false,
   "autoUpdate": true
 }
