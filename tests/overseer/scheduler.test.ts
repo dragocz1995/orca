@@ -67,20 +67,41 @@ describe('Scheduler', () => {
     expect(tasks.get('tz')?.scheduled_at).toBeNull();
   });
 
-  it('caps how many autostart tasks it launches per project in one tick (#41)', async () => {
+  it('serializes due tasks that share a non-PR checkout — one agent at a time (C1)', async () => {
+    // 5 due tasks in one project share its working tree. A shared checkout is single-writer (parallel
+    // agents would clobber each other's edits and muddle per-task change attribution), so each tick
+    // launches at most one; the rest stay open and fire on later ticks once the checkout frees.
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
     const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
     const tasks = new TaskStore(db);
     const tmux = new FakeTmuxDriver();
     let n = 0;
-    const scheduler = new Scheduler({ tasks, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => `N${n++}`, clock: new FakeClock(t0 + 60_000), maxPerProjectPerTick: 2 });
+    const scheduler = new Scheduler({ tasks, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => `N${n++}`, clock: new FakeClock(t0 + 60_000) });
     for (let i = 0; i < 5; i++) tasks.create({ id: `s${i}`, project_id: 1, title: `S${i}`, scheduled_at: '2026-06-17T12:00:00.000Z', autostart: 1 });
     await scheduler.tick();
-    const launched = ['s0', 's1', 's2', 's3', 's4'].filter((id) => tasks.get(id)?.status === 'in_progress');
-    expect(launched).toHaveLength(2);                                  // capped this tick
-    expect((await tmux.list()).length).toBe(2);
-    await scheduler.tick();                                            // next tick fires the rest
-    expect(['s0', 's1', 's2', 's3', 's4'].filter((id) => tasks.get(id)?.status === 'in_progress')).toHaveLength(4);
+    const live = () => ['s0', 's1', 's2', 's3', 's4'].filter((id) => tasks.get(id)?.status === 'in_progress');
+    expect(live()).toHaveLength(1);              // only one agent in the shared checkout
+    expect((await tmux.list()).length).toBe(1);
+    await scheduler.tick();
+    expect(live()).toHaveLength(1);              // still occupied — the next task waits
+    tasks.setStatus(live()[0], 'closed');        // first agent finishes → checkout frees
+    await scheduler.tick();
+    expect(live()).toHaveLength(1);              // the next one fires now
+  });
+
+  it('launches tasks in DIFFERENT projects concurrently — separate checkouts never block each other', async () => {
+    const t0 = Date.parse('2026-06-17T12:00:00.000Z');
+    const db = openDb(':memory:');
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
+    const tasks = new TaskStore(db);
+    const tmux = new FakeTmuxDriver();
+    let n = 0;
+    const scheduler = new Scheduler({ tasks, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => `N${n++}`, clock: new FakeClock(t0 + 60_000) });
+    tasks.create({ id: 'a', project_id: 1, title: 'A', scheduled_at: '2026-06-17T12:00:00.000Z', autostart: 1 });
+    tasks.create({ id: 'b', project_id: 2, title: 'B', scheduled_at: '2026-06-17T12:00:00.000Z', autostart: 1 });
+    await scheduler.tick();
+    expect(['a', 'b'].filter((id) => tasks.get(id)?.status === 'in_progress')).toHaveLength(2); // both fired — different checkouts
   });
 
   it('restores the schedule (and status open) when the spawn fails (O9)', async () => {

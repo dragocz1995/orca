@@ -34,4 +34,21 @@ describe('NoteStore', () => {
     expect(notes.list('mission', 'a')).toEqual([]);
     expect(notes.list('mission', 'b').map((n) => n.body)).toEqual(['y']);
   });
+
+  it('count reports how many notes a scope/target holds', () => {
+    notes.add({ scope: 'mission', target: 'a', body: '1' });
+    notes.add({ scope: 'mission', target: 'a', body: '2' });
+    expect(notes.count('mission', 'a')).toBe(2);
+    expect(notes.count('mission', 'b')).toBe(0);
+  });
+
+  it('deleteAllForTarget purges every scope for a target', () => {
+    notes.add({ scope: 'mission', target: 'a', body: 'm' });
+    notes.add({ scope: 'custom', target: 'a', body: 'c' });
+    notes.add({ scope: 'mission', target: 'b', body: 'keep' });
+    notes.deleteAllForTarget('a');
+    expect(notes.list('mission', 'a')).toEqual([]);
+    expect(notes.list('custom', 'a')).toEqual([]); // not just the default scope
+    expect(notes.list('mission', 'b').map((n) => n.body)).toEqual(['keep']); // other targets untouched
+  });
 });

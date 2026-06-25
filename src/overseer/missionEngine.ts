@@ -8,10 +8,12 @@ import type { AgentSpec } from '../spawn/commandBuilder.js';
 import type { EventBus } from '../api/sse.js';
 import { resolveExecutor } from './routing.js';
 import { projectHead } from '../integrations/projectFiles.js';
+import { busySharedCheckouts } from './checkout.js';
 import { freeAgentName } from '../daemon/uniqueName.js';
 import type { OverseerController } from './overseerAgent.js';
 import type { MissionGit } from './missionGit.js';
 import type { Clock } from '../shared/clock.js';
+import { KeyedMutex } from '../shared/keyedMutex.js';
 import { logger } from '../shared/logger.js';
 
 const log = logger('overseer');
@@ -24,6 +26,10 @@ export interface MissionEngineDeps {
   projects: { get(id: number): { id: number; path: string } | null };
   fallback: AgentSpec;
   nameAgent: () => string; clock: Clock;
+  /** Serializes the spawn-time baseline read on a shared checkout so it lands after any in-flight
+   *  commit (a just-closed phase) and the per-task snapshot range stays exact. Must be the SAME
+   *  instance shared with the scheduler and API server. Absent → a private lock (fine for unit tests). */
+  gitLock?: KeyedMutex;
   /** Optional parked-overseer lifecycle. Started on engage, stopped on pause/disengage. Absent (or
    *  inert when no overseerExec is configured) → relay-fallback decisions, no parked agent. */
   overseer?: OverseerController;
@@ -42,7 +48,8 @@ export interface SummaryContext {
 }
 
 export class MissionEngine {
-  constructor(private d: MissionEngineDeps) {}
+  private readonly gitLock: KeyedMutex;
+  constructor(private d: MissionEngineDeps) { this.gitLock = d.gitLock ?? new KeyedMutex(); }
 
   /** Mission ids with a tick currently in flight. tick() is async and is driven from several places
    *  (the 90s overseer interval, engage/resume) — without this guard two overlapping ticks for the
@@ -254,6 +261,12 @@ export class MissionEngine {
     // Slots in use = this epic's own in-progress children — NOT all global orca- tmux
     // sessions (other projects/missions would otherwise starve this one).
     let running = kids.filter(t => t.status === 'in_progress').length;
+    // Shared (non-PR) checkouts are single-writer: at most one agent edits project.path at a time, so
+    // each phase's committed delta stays cleanly attributable (base..HEAD never straddles a neighbour's
+    // commit, `git add -A` never sweeps in its edits). Track occupied shared checkouts across all
+    // missions/standalone tasks; a PR worktree is isolated, so it's never "busy" here.
+    const resolver = { projectPath: (pid: number) => this.d.projects.get(pid)?.path ?? '', worktreeFor: (mid: string) => this.d.missionGit?.worktreeFor(mid) };
+    const busy = busySharedCheckouts(resolver, this.d.tasks.list({ status: 'in_progress' }));
     // readyForEpic returns only this epic's direct, dependency-cleared children — so a project with
     // several parallel missions no longer has each one walk every ready task in the project (#34/S15).
     for (const task of this.d.readiness.readyForEpic(m.epic_id)) {
@@ -262,6 +275,11 @@ export class MissionEngine {
       // L1–L3 dispatch work autonomously; they differ later, at how the deriver/overseer gate the
       // agent's permission prompts (L1 escalates more, L3 the least).
       if (m.autonomy === 'L0') continue;
+      // In PR-native mode the agent runs inside the mission's isolated worktree, not the main checkout.
+      const cwd = this.d.missionGit?.worktreeFor(id) ?? project.path;
+      // A shared checkout already has a live agent → serialize: leave this phase open and retry next
+      // tick. Every non-PR phase of this mission shares project.path, so none can start until it frees.
+      if (busy.has(cwd)) break;
       const spec = resolveExecutor(task.labels, this.d.fallback);
       const named = task.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
       // A fresh name is picked clear of any live session, so a lingering worker (or the counter
@@ -274,12 +292,9 @@ export class MissionEngine {
       if (!named) this.d.tasks.setAgent(task.id, agentName);
       this.d.tasks.markStarted(task.id, this.d.clock.now()); // precise spawn time → correct usage attribution under concurrency
       this.d.tasks.setStatus(task.id, 'in_progress');
-      // In PR-native mode the agent runs inside the mission's isolated worktree, not the main checkout.
-      const cwd = this.d.missionGit?.worktreeFor(id) ?? project.path;
-      // Baseline for the per-task change snapshot: the checkout's HEAD right now. At close the task's
-      // frozen change list is `git diff base..HEAD` in this same cwd — the delta this phase committed.
-      const baseSha = await projectHead(cwd);
-      if (baseSha) this.d.tasks.markBase(task.id, baseSha);
+      // Read HEAD + stamp the baseline under the checkout lock so it lands AFTER any in-flight commit
+      // (a just-closed phase still committing) — then `git diff base..HEAD` captures exactly this phase.
+      await this.gitLock.run(cwd, async () => { const base = await projectHead(cwd); if (base) this.d.tasks.markBase(task.id, base); });
       try {
         await this.d.spawn.launch({ projectId: epic.project_id, projectPath: cwd, taskId: task.id, agentName, spec, taskTitle: task.title, taskDescription: task.description, epicId: m.epic_id });
       } catch (e) {
@@ -291,6 +306,7 @@ export class MissionEngine {
         log.error(`spawn failed for task ${task.id} in mission ${id} — reverted to open`, e);
         continue;
       }
+      if (cwd === project.path) busy.add(cwd); // shared checkout now occupied — hold this mission's other phases
       running++;
     }
 

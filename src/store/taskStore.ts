@@ -9,8 +9,14 @@ type Row = Omit<Task, 'labels' | 'changed_files'> & { labels: string; changed_fi
  *  column is plain text and a malformed/legacy value must degrade to an empty list, never throw. */
 function parseChangedFiles(raw: string | null): CommitFileChange[] {
   if (!raw) return [];
-  try { const v = JSON.parse(raw); return Array.isArray(v) ? v as CommitFileChange[] : []; }
-  catch { return []; }
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    // Validate element shape — a malformed-but-array value (e.g. a hand-edited DB row) must not flow
+    // through as a CommitFileChange and render as `+undefined` in the UI. Keep only well-formed entries.
+    return v.filter((e): e is CommitFileChange =>
+      e && typeof e.path === 'string' && typeof e.added === 'number' && typeof e.deleted === 'number');
+  } catch { return []; }
 }
 
 const toTask = (r: Row): Task => ({ ...r, labels: r.labels ? r.labels.split(',').filter(Boolean) : [], changed_files: parseChangedFiles(r.changed_files) });

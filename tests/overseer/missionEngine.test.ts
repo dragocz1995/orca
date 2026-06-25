@@ -58,6 +58,25 @@ describe('MissionEngine', () => {
     expect(tasks.get('t1')!.labels.some((l) => l.startsWith('reviewfix:'))).toBe(false); // reset → full budget again
   });
 
+  it('serializes ready phases that share a non-PR checkout, even with max_sessions > 1 (C1)', async () => {
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const tasks = new TaskStore(db);
+    tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
+    // Two independent (no dep) phases → both dependency-cleared and ready at once.
+    tasks.create({ id: 'a', project_id: 1, title: 'A', parent_id: 'epic', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
+    tasks.create({ id: 'b', project_id: 1, title: 'B', parent_id: 'epic', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
+    let n = 0;
+    const engine = new MissionEngine({
+      tasks, readiness: new Readiness(db), missions: new MissionStore(db),
+      spawn: new SpawnService({ tmux: new FakeTmuxDriver(), agents: new AgentStore(db) }), tmux: new FakeTmuxDriver(),
+      bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' },
+      nameAgent: () => `A${n++}`, clock: new SystemClock(),
+    });
+    await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 2 }); // budget would allow 2 in parallel
+    const live = ['a', 'b'].filter((id) => tasks.get(id)?.status === 'in_progress');
+    expect(live).toHaveLength(1); // non-PR phases share project.path → serialized to one, despite max_sessions: 2
+  });
+
   it('stopTask kills the worker session of a single task so a re-open re-spawns cleanly', async () => {
     const { tasks, tmux, engine } = setup();
     tasks.setAgent('t1', 'Worker1');

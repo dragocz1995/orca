@@ -11,6 +11,7 @@ import { readTaskUsage } from '../integrations/usage/index.js';
 import { usagePath } from '../integrations/usage/usagePath.js';
 import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, projectReviewDiff, projectHead, projectRangeFileDiff, isProjectImage } from '../integrations/projectFiles.js';
 import { snapshotTaskChanges } from '../overseer/taskSnapshot.js';
+import { KeyedMutex } from '../shared/keyedMutex.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
@@ -62,6 +63,10 @@ export interface ServerDeps {
   engine: MissionEngine; spawn: SpawnService; tmux: TmuxDriver; bus: EventBus;
   /** PR-native git lifecycle. Absent (or PR mode off) → phases never commit, no worktree, no PR. */
   missionGit?: MissionGit;
+  /** Shared per-checkout git serialization lock — the SAME instance the scheduler and mission engine
+   *  use, so a phase's commit+snapshot at close can't interleave with the baseline read at another
+   *  agent's spawn on the same checkout. Absent → a private lock (fine for isolated tests). */
+  gitLock?: KeyedMutex;
   project: { id: number; path: string };
   fallback: AgentSpec;
   clock: Clock;
@@ -145,6 +150,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   const planJobs = d.planJobs ?? new PlanJobStore();
   const decisionQueue = d.decisionQueue ?? new DecisionQueue();
   const tickets = d.tickets ?? createTicketStore();
+  const gitLock = d.gitLock ?? new KeyedMutex();
   const app = new Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }>();
   app.use('*', cors());
   // Single source of truth for malformed-body handling: most POST/PATCH routes call `c.req.json()`
@@ -521,6 +527,12 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   const usagePathFor = (task: { project_id: number; parent_id: string | null }): string =>
     usagePath(task, pathFor, (id) => d.missionGit?.worktreeFor(id));
 
+  // The checkout a mission's work lands in: the isolated PR worktree while it's live, else the shared
+  // project checkout. `missionId` null (or worktree gone) ⇒ the project path. Single source for the
+  // commit/snapshot/diff sites below, which must all agree on which tree to read.
+  const checkoutPathFor = (missionId: string | null, projectId: number): string =>
+    (missionId ? d.missionGit?.worktreeFor(missionId) : undefined) ?? pathFor(projectId);
+
   // Resolve the target project for a create/plan request. Defaults to the daemon's home project;
   // any other project_id must exist and be accessible to the caller.
   const resolveTarget = (c: AccessCtx, projectId?: number):
@@ -833,13 +845,25 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   // from a mission id is stripped here so workers — which hold the bare epicId — and the overseer —
   // which holds ORCA_MISSION=m-<epicId> — both work). Access is gated by the target epic's project, so
   // an agent can only read/write notes for a mission in a project it is actively working in.
-  const noteTarget = (raw: string | undefined): string => (raw ?? '').replace(/^m-/, '');
+  const noteTarget = (raw: string | undefined): string => {
+    const v = raw ?? '';
+    // Strip a leading mission `m-` only when the remainder actually resolves to an epic. A blind strip
+    // would corrupt the id in a project whose own basename is `m` (its epics are literally `m-<hex>`).
+    if (v.startsWith('m-') && d.tasks.get(v.slice(2))) return v.slice(2);
+    return v;
+  };
+  const MAX_NOTE_BODY = 8000;   // a handoff note is a hint for the next agent, not a document dump
+  const MAX_NOTES_PER_TARGET = 200; // bound the per-mission log so a looping agent can't inflate the DB
   app.get('/notes', (c) => {
     const scope = c.req.query('scope') || 'mission';
     const target = noteTarget(c.req.query('target'));
     if (!target) return c.json({ error: 'target required' }, 400);
+    // Fail CLOSED, mirroring POST: an unresolved target must never list notes unauthenticated. Without
+    // this an orphaned note (e.g. one whose epic was deleted) would read back with no project gate at
+    // all — a cross-tenant leak reachable even by an agent token. The target must resolve and be allowed.
     const epic = d.tasks.get(target);
-    if (epic && !canAccessProject(c, epic.project_id)) return c.json({ error: 'forbidden' }, 403);
+    if (!epic) return c.json({ error: 'unknown target' }, 404);
+    if (!canAccessProject(c, epic.project_id)) return c.json({ error: 'forbidden' }, 403);
     return c.json(d.notes?.list(scope, target) ?? []);
   });
   app.post('/notes', async (c) => {
@@ -848,10 +872,14 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const target = noteTarget(typeof b.target === 'string' ? b.target : '');
     const body = typeof b.body === 'string' ? b.body.trim() : '';
     if (!target || !body) return c.json({ error: 'target and body required' }, 400);
+    // Bound the write: an agent runs with skip-permissions, so cap body size and the per-target count
+    // to keep a prompt-injected loop from inflating the DB (the project's rate-limiting policy).
+    if (body.length > MAX_NOTE_BODY) return c.json({ error: 'body too large' }, 400);
     const epic = d.tasks.get(target);
     if (!epic) return c.json({ error: 'unknown target' }, 404);
     if (!canAccessProject(c, epic.project_id)) return c.json({ error: 'forbidden' }, 403);
     if (!d.notes) return c.json({ error: 'notes unavailable' }, 400);
+    if (d.notes.count(scope, target) >= MAX_NOTES_PER_TARGET) return c.json({ error: 'too many notes' }, 429);
     const author = typeof b.author === 'string' ? b.author : '';
     return c.json(d.notes.add({ scope, target, author, body }), 201);
   });
@@ -987,7 +1015,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
             // agent edits the mission's worktree (and Orca commits each approved phase), so read the diff
             // THERE — the main checkout would show nothing. Without a worktree it's the project checkout,
             // where the diff is cumulative across the sequential mission.
-            const reviewPath = d.missionGit?.worktreeFor(mission.id) ?? d.projects?.get(existing.project_id)?.path ?? d.project.path;
+            const reviewPath = checkoutPathFor(mission.id, existing.project_id);
             const { changedFiles, diff } = await projectReviewDiff(reviewPath);
             const reviewCtx = buildReviewContext({ title: existing.title, outcome: b.outcome ?? '', summary: b.result_summary ?? '', changedFiles, diff });
             void decisionQueue.enqueue(mission.id, 'review', reviewCtx)
@@ -1003,11 +1031,13 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
                 d.bus.publish({ type: 'review', missionId: mission.id, taskId: id, approve: approved, rationale: verdict.rationale });
                 if (approved) {
                   // Commit the approved phase's work BEFORE the next phase ticks (the worktree in PR
-                  // mode, else the shared project checkout) so the next agent never edits it mid-commit
-                  // and the snapshot below has a stable base..HEAD to diff.
-                  await d.missionGit?.commitPhase(mission.id, existing.title, reviewPath).catch((e) => log.error('phase commit failed', e));
-                  // Freeze this phase's change list now that its commit has landed (base..HEAD in the same path).
-                  await snapshotTaskChanges(d.tasks, id, reviewPath);
+                  // mode, else the shared project checkout) so the next agent never edits it mid-commit.
+                  // Under the checkout lock so it can't interleave with the next agent's baseline read —
+                  // the snapshot below then has a stable base..HEAD that captures exactly this phase.
+                  await gitLock.run(reviewPath, async () => {
+                    await d.missionGit?.commitPhase(mission.id, existing.title, reviewPath).catch((e) => log.error('phase commit failed', e));
+                    await snapshotTaskChanges(d.tasks, id, reviewPath);
+                  });
                   // Gate opens: release the gated dependents and resume so the next phase spawns promptly
                   // rather than waiting up to the 90s interval. resumeStalled (not a bare tick) un-freezes
                   // the mission if it stalled while the verdict was pending — otherwise the freeze would
@@ -1053,15 +1083,18 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
         // PR mode, else the shared project checkout. The review path above commits on approval instead,
         // so a rejected phase never commits.
         if (mission && !reviewEnqueued) {
-          const snapPath = d.missionGit?.worktreeFor(mission.id) ?? d.projects?.get(existing.project_id)?.path ?? d.project.path;
-          await d.missionGit?.commitPhase(mission.id, existing.title, snapPath).catch((e) => log.error('phase commit failed', e));
-          await snapshotTaskChanges(d.tasks, id, snapPath);
+          const snapPath = checkoutPathFor(mission.id, existing.project_id);
+          await gitLock.run(snapPath, async () => {
+            await d.missionGit?.commitPhase(mission.id, existing.title, snapPath).catch((e) => log.error('phase commit failed', e));
+            await snapshotTaskChanges(d.tasks, id, snapPath);
+          });
         }
       } else if (b.status === 'closed') {
         // A standalone task (no mission/worktree): its agent commits into the project checkout, so the
         // frozen change list is base..HEAD there. No-op when nothing was committed (empty snapshot).
-        const snapPath = d.projects?.get(existing.project_id)?.path ?? d.project.path;
-        await snapshotTaskChanges(d.tasks, id, snapPath);
+        // Under the checkout lock so the range can't straddle a concurrent agent's commit on the same path.
+        const snapPath = pathFor(existing.project_id);
+        await gitLock.run(snapPath, () => snapshotTaskChanges(d.tasks, id, snapPath));
       }
     }
     if (typeof b.exec === 'string') { d.tasks.setExec(id, b.exec); }
@@ -1081,8 +1114,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
     const path = c.req.query('path') ?? '';
     if (!task.base_sha || !task.head_sha || !path) return c.json({ diff: '' });
-    const root = (task.parent_id ? d.missionGit?.worktreeFor(`m-${task.parent_id}`) : undefined)
-      ?? d.projects?.get(task.project_id)?.path ?? d.project.path;
+    const root = checkoutPathFor(task.parent_id ? `m-${task.parent_id}` : null, task.project_id);
     try {
       return c.json({ diff: await projectRangeFileDiff(root, task.base_sha, task.head_sha, path) });
     } catch {
@@ -1126,7 +1158,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       const removed = d.tasks.deleteEpic(id);
       d.bus.publish({ type: 'task', taskId: id, status: 'cancelled' });
       d.events?.deleteForTarget(id);
-      d.notes?.deleteForTarget('mission', id); // a removed mission leaves no orphan handoff notes
+      d.notes?.deleteAllForTarget(id); // a removed mission leaves no orphan handoff notes under any scope
       return c.json({ ok: true, tasks: removed.tasks });
     }
     d.tasks.delete(id);
@@ -1349,7 +1381,9 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const agentName = uniqueName();
     d.tasks.setAgent(taskId, agentName);     // link task → orca-<agentName> session for run controls
     d.tasks.markStarted(taskId, d.clock.now()); // precise spawn time → correct usage attribution under concurrency
-    d.tasks.markBase(taskId, await projectHead(pathFor(projectId))); // baseline for the per-task change snapshot at close
+    // Baseline for the per-task change snapshot, under the checkout lock so it lands after any in-flight
+    // commit on this path. A manual launch isn't gated on checkout-busy (it's an explicit user action).
+    await gitLock.run(pathFor(projectId), async () => d.tasks.markBase(taskId, await projectHead(pathFor(projectId))));
     d.tasks.setStatus(taskId, 'in_progress');
     let session: string;
     try {

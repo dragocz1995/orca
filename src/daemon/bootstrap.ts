@@ -31,6 +31,7 @@ import { PushDispatcher } from '../push/pushDispatcher.js';
 import { UserStore } from '../store/userStore.js';
 import { EventStore } from '../store/eventStore.js';
 import { NoteStore } from '../store/noteStore.js';
+import { KeyedMutex } from '../shared/keyedMutex.js';
 import { ProjectStore } from '../store/projectStore.js';
 import { UserProjectStore } from '../store/userProjectStore.js';
 import { PushSubscriptionStore } from '../store/pushSubscriptionStore.js';
@@ -169,10 +170,13 @@ export function buildApp(opts: BuildOpts) {
     pathFor: (task) => usagePath(task, (pid) => projects.get(pid)?.path ?? opts.project.path, (id) => missionGit?.worktreeFor(id)),
   }).subscribe(bus);
 
+  // One shared per-checkout git lock across the scheduler, mission engine and API server, so a phase's
+  // commit+snapshot at close never interleaves with another agent's baseline read on the same checkout.
+  const gitLock = new KeyedMutex();
   const engine = new MissionEngine({
     tasks, readiness, missions, spawn, tmux, bus, projects,
     fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: uniqueName, clock: new SystemClock(),
-    overseer, missionGit,
+    overseer, missionGit, gitLock,
     // On natural completion, ask the overseer model to write the mission's "what happened" prose.
     // No relay key → return blank so the engine writes its own deterministic phase digest instead.
     summarize: async (ctx) => {
@@ -182,7 +186,7 @@ export function buildApp(opts: BuildOpts) {
       return text;
     },
   });
-  const scheduler = new Scheduler({ tasks, spawn, bus, projects, fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: uniqueName, clock: new SystemClock() });
+  const scheduler = new Scheduler({ tasks, spawn, bus, projects, fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: uniqueName, clock: new SystemClock(), gitLock, worktreeFor: (id) => missionGit?.worktreeFor(id) });
   // Deriver resolves a session's task via the agent registry / in-progress task (simplified: first in_progress child).
   // Resolve a session's task via its agent:<name> label. Agent names recur across missions,
   // so pick the MOST RECENT match (list is created_at ASC) — never an old same-named task,
@@ -272,7 +276,7 @@ export function buildApp(opts: BuildOpts) {
   // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
   // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
   const tickets = createTicketStore();
-  const app = createServer({ tasks, readiness, missions, engine, missionGit, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, tickets });
+  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace

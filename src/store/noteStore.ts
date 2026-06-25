@@ -19,8 +19,19 @@ export class NoteStore {
     return this.db.prepare('SELECT * FROM notes WHERE scope = ? AND target = ? ORDER BY id ASC').all(scope, target) as Note[];
   }
 
-  /** Purge a target's notes (e.g. on epic delete) so a removed mission leaves no orphan notes. */
+  /** How many notes a scope/target already holds — used to bound the per-target log. */
+  count(scope: string, target: string): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM notes WHERE scope = ? AND target = ?').get(scope, target) as { n: number }).n;
+  }
+
+  /** Purge a target's notes within one scope. */
   deleteForTarget(scope: string, target: string): void {
     this.db.prepare('DELETE FROM notes WHERE scope = ? AND target = ?').run(scope, target);
+  }
+
+  /** Purge ALL of a target's notes across every scope (e.g. on epic delete) so a removed mission leaves
+   *  no orphan notes under any scope — these would otherwise outlive their access-control anchor. */
+  deleteAllForTarget(target: string): void {
+    this.db.prepare('DELETE FROM notes WHERE target = ?').run(target);
   }
 }
