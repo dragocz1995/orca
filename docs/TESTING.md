@@ -2,7 +2,7 @@
 
 ## Running tests
 
-### Daemon tests (~649 cases)
+### Daemon tests (~823 cases, 108 files)
 
 ```bash
 # All tests
@@ -18,7 +18,7 @@ npx vitest tests/store/taskStore.test.ts
 npx vitest --coverage
 ```
 
-### Web frontend tests (~363 cases)
+### Web frontend tests (~433 cases, 102 files)
 
 ```bash
 cd web
@@ -72,6 +72,10 @@ web/tests/
 ```
 
 ## Test architecture
+
+### Test for VAPID key handling
+
+The daemon auto-generates a VAPID keypair on first boot (`ensureVapidKeys()` in `src/push/vapid.ts`) and persists it in the config store. Tests in `tests/store/configStore.test.ts` verify the public key is exposed while the private key stays server-side, and `tests/push/pushSender.test.ts` validates the sender is a no-op when VAPID keys are absent.
 
 ### No external dependencies
 
@@ -165,7 +169,7 @@ GitHub Actions runs on every push and PR to `main` (see [`.github/workflows/ci.y
 
 | Job | Commands | Notes |
 |-----|----------|-------|
-| **Daemon** | `npm ci` → `npm run build` → `npm test` | tmux installed via `apt` for the real driver test |
-| **Web** | `npm ci` → `npm run build` → `npm test` | runs in `web/` subdirectory |
+| **Daemon** (823 tests) | `npm ci` → `npm run build` → `npm test` | tmux installed via `apt` for the real driver test |
+| **Web** (433 tests) | `npm ci` → `npm run build` → `npm test` | runs in `web/` subdirectory |
 
 Both jobs run in parallel on `ubuntu-latest` with Node 22. Superseded runs on the same ref are cancelled automatically.

@@ -24,7 +24,7 @@ npm run build
 |---|---|
 | `npm run serve` | Run the daemon directly from TS via `--experimental-strip-types` (no build step). Starts on `http://localhost:4400`. |
 | `npm run build` | `tsc -p tsconfig.json` + copy `src/store/schema.sql` → `dist/store/` + copy `prompts/` → `dist/prompts/`. CLI ends up at `dist/cli/index.js`, daemon at `dist/daemon/index.js`. |
-| `npm test` | `vitest run` — single run of the daemon test suite (~649 cases) |
+| `npm test` | `vitest run` — single run of the daemon test suite (~823 cases) |
 | `npm run test:watch` | `vitest` — watch mode |
 | `npm run lint` | ESLint + dependency-cruiser architecture checks (no-circular, layer boundaries, orphans) |
 | `npm run deadcode` | `knip` — detect unused exports, files, and dependencies |
@@ -48,13 +48,13 @@ Or link globally: `npm link` then `orca ls`. The CLI auto-starts the daemon if i
 cd web
 npm install
 npm run dev      # Next.js dev server (turbopack)
-npm test         # Vitest (~363 cases)
+npm test         # Vitest (~433 cases)
 npm run lint     # ESLint + dependency-cruiser architecture checks
 npm run build    # Production build (copies Monaco workers, then next build)
 npm start        # Production server (default port 3000)
 ```
 
-Connects to the daemon via the same-origin `/api` BFF proxy. Set `ORCA_DAEMON_URL` (server-side, default `http://localhost:4400`) if the daemon is not on localhost — there is no browser-side env var.
+Connects to the daemon via the same-origin `/api` BFF proxy (see [WEB.md](WEB.md#auth)). Set `ORCA_DAEMON_URL` (server-side, default `http://localhost:4400`) if the daemon is not on localhost — there is no browser-side env var. `NEXT_PUBLIC_ORCA_URL` does **not exist** and is **not supported** — all communication uses the server-side BFF proxy with an httpOnly cookie.
 
 **Gotcha:** a stale turbopack dev server on :4500 serves broken CSS chunks. Fix by killing the :4500 pid and running `next start` (not `next dev`).
 
@@ -64,8 +64,8 @@ GitHub Actions runs on every push and PR to `main` (see [`.github/workflows/ci.y
 
 | Job | Steps |
 |-----|-------|
-| **Daemon** (build + test) | `npm ci` → `npm run build` → `npm test` (tmux installed via apt) |
-| **Web** (build + test) | `npm ci` → `npm run build` → `npm test` (in `web/`) |
+| **Daemon** (823 tests) | `npm ci` → `npm run build` → `npm test` (tmux installed via apt) |
+| **Web** (433 tests) | `npm ci` → `npm run build` → `npm test` (in `web/`) |
 
 Both jobs run in parallel on `ubuntu-latest` with Node 22. Superseded runs on the same ref are cancelled automatically.
 
@@ -210,8 +210,8 @@ src/
     ├── driver.ts     RealTmuxDriver
     └── fakeDriver.ts In-memory fake for tests
 prompts/              Prompt templates (planner, pilot, overseer, advisor, worker, decision)
-tests/                Mirrors src/ structure (~649 tests)
-web/                  Next.js frontend (~363 tests)
+tests/                Mirrors src/ structure (~823 tests)
+web/                  Next.js frontend (~433 tests)
 docs/                 Documentation tree
 ```
 
@@ -232,6 +232,8 @@ Much of the daemon's orchestration runs on periodic intervals. Wired in
 | Overseer watchdog | 60 s | Re-park missing overseer agents for active/stalled missions (crash recovery) |
 | Token purge | 1 h | Delete expired auth tokens (TTL from `config.security.tokenTtlDays`) |
 | Event purge | 1 h | Drop `events` rows past the 30-day retention window (`eventStore.purgeOlderThan()`) |
+| Ticket sweep | 60 s | Sweep expired terminal-WS single-use tickets |
+| PR feedback | 60 s | Poll open PRs for fresh actionable review feedback, re-engage mission with fix phases |
 
 ---
 
@@ -309,6 +311,7 @@ Pass `phases: [{title, type?}]` — no LLM, no key needed. Synchronous 201 respo
 | `ORCA_AUTOSTART` | `1` | Enable CLI daemon autostart |
 | `ORCA_DB` | `~/.config/orca/orca.db` | SQLite database path |
 | `ORCA_PORT` | `4400` | Daemon HTTP port |
+| `ORCA_HOST` | `127.0.0.1` | Daemon bind address (`0.0.0.0` to expose externally) |
 | `ORCA_PROJECT` | `orca` | Default project slug |
 | `ORCA_PROJECT_PATH` | `cwd` | Default project working directory |
 | `ORCA_RELAY_URL` | — | LLM relay base URL |

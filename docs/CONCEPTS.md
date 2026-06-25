@@ -69,7 +69,9 @@ The `stalled` state is transitional: when the engine tick finds zero running ses
 | `epic_id` | Root task ID that owns this mission |
 | `autonomy` | L0–L3 autonomy level |
 | `max_sessions` | Max concurrent agent sessions for this mission's children |
-| `cleared_guardrails` | *(removed — no longer enforced)* |
+| `created_by` | User ID of the person who engaged the mission. Drives push-notification routing: the owner plus all admins receive phone notifications for this mission's events. Null for legacy/system missions (admins only). |
+
+Unused columns: `cleared_guardrails` *(removed — no longer enforced)*
 
 ### Engine tick
 
@@ -173,7 +175,7 @@ The Pilot prompt is stored in `prompts/pilot.md` and rendered at runtime via `sr
 
 ## Authentication & authorization
 
-The daemon supports optional token-based authentication. When a `UserStore` is configured, all endpoints except `/health` and `POST /auth/login` require a bearer token.
+The daemon supports optional token-based authentication. When a `UserStore` is configured, all endpoints except `GET /health`, `GET /setup`, and `POST /auth/login` require a bearer token.
 
 ### Token flow
 
@@ -187,18 +189,46 @@ Tokens are:
 - Revocable via `POST /auth/logout`
 - Passable as query param `?token=<value>` (for SSE EventSource which can't set headers)
 
+### Token scopes
+
+Every token carries a `scope` field:
+
+| Scope | Purpose | Restrictions |
+|---|---|---|
+| `full` | Interactive user session (login via browser/CLI) | Bounded by the user's role and project assignments |
+| `agent` | Spawned agent (worker, overseer, pilot) — injected via `ORCA_TOKEN` | Verb + path allow-list; project scope confined to the agent's live working set |
+| `advisor` | Per-user assistant session (`orca-advisor-<userId>`) | Mapped to `full` at the guard so it has the user's own rights, but isolated from login tokens so rotating/stopping the advisor never touches `full` tokens |
+
+**Agent-scoped tokens** are injected into every spawned agent via `ORCA_TOKEN` (set by `bootstrap.ts`). They prevent a prompt-injected agent from:
+- Creating users or performing admin operations (`/users`, `/config`, project register/delete)
+- Accessing projects it isn't actively working in
+- Listing tokens, reading other agents' data, or spawning sessions
+
+The `agentAllowed()` gate admits only the verbs the agent CLI actually drives:
+
+| Verb | Path | Used by |
+|---|---|---|
+| `GET` | `/tasks`, `/tasks/ready`, `/sessions` | `orca ls` / `orca ready` / `orca sessions` |
+| `GET` | `/plan/:jobId` | Pilot poll |
+| `GET` | `/missions/:id/overseer/next` | Overseer poll |
+| `PATCH` | `/tasks/:id` | `orca close` |
+| `POST` | `/plan/:jobId/submit` | `orca plan submit` |
+| `POST` | `/missions/:id/overseer/decide` | `orca overseer decide` |
+
+Project ownership of the affected row is still enforced downstream by `canAccessProject`, so the agent cannot cross tenancy even within the allow-list.
+
 ### Password storage
 
 Passwords are hashed with scrypt (random 16-byte salt, 64-byte hash). No plaintext storage.
 
 ### Users
 
-The `users` table stores username + password hash. Additional fields: `is_admin` flag, `allowed_execs` (per-user model allow-list), avatar, name, email, default_exec.
+The `users` table stores username + password hash. Additional fields: `is_admin` flag, `allowed_execs` (per-user model allow-list), avatar, name, email, default_exec, advisor_exec, advisor_autostart.
 
 ### Enforcement
 
 The `authMiddleware` in `src/api/auth.ts` checks every request:
-1. Is the path public? (health, login) → allow
+1. Is the path public? (health, setup, login) → allow
 2. Is there a valid token? (Authorization header or query param) → allow
 3. Otherwise → 401
 
@@ -279,6 +309,28 @@ All state changes are recorded in SQLite `events` table (`src/store/eventStore.t
 | `plan` | Plan job status (planning, done, failed) |
 
 The log is queryable via `GET /activity` with optional `type` and `limit` filters. Used by the Timeline page in the web UI. Events are grouped in the UI: identical events within 5 minutes collapse into `×N` to prevent flood from repeated deriver signals.
+
+---
+
+## Phone push notifications
+
+Orca sends web-push notifications to subscribed devices for mission events that need human attention. The feature is opt-in per device from the user's Account page.
+
+### VAPID keypair
+
+A VAPID keypair is generated on first daemon boot by `ensureVapidKeys()` in `src/push/vapid.ts` and persisted in the config store (`config.webPushKeys`). The public key is served at `GET /push/vapid-public-key` (safe pre-auth); the private key never leaves the daemon and is never exposed via the API. Reused across restarts — rotation would invalidate all stored push subscriptions.
+
+### Subscription lifecycle
+
+1. Browser gets the VAPID public key from `GET /push/vapid-public-key`
+2. User opts in → browser calls `PushSubscription` API, posts the subscription to `POST /push/subscribe`
+3. Subscription is stored in `user_push_subscriptions` table, scoped to the authenticated user
+4. On mission events, `PushDispatcher` resolves recipients (owner + admins) and fires `PushSender`
+5. User can unsubscribe via `POST /push/unsubscribe` (scoped to their own endpoints)
+
+### Event triggers
+
+See the [Push dispatch mapping](#push-dispatch-mapping) section above for the exact event-to-notification mapping.
 
 ---
 
@@ -410,11 +462,29 @@ The `EventBus` decouples services and provides real-time updates to the web UI:
 | `mission` | State change | `{ missionId, state }` |
 | `signal` | Deriver output | `{ session, signal }` |
 | `plan` | Plan job status | `{ jobId, status, phases?, error? }` |
+| `review` | Overseer verdict on a post-done review | `{ missionId, taskId, approve, rationale }` |
 
 The event bus:
 - Serves SSE streams at `GET /events`
 - Invalidates React Query caches in the web UI
 - Is implemented as an in-memory pub/sub (`Set<() => void>`)
+- Drives two background subscribers:
+  - **PushDispatcher** — maps events to web-push phone notifications for the mission's owner + admins
+  - **UsageRecorder** — snapshots per-task token/cost usage into the `task_usage` table when a task settles
+
+### Push dispatch mapping
+
+The `PushDispatcher` (`src/push/pushDispatcher.ts`) subscribes to the bus and maps these event patterns to push notifications:
+
+| Event | Trigger | Payload kind | Recipients |
+|---|---|---|---|
+| `review` (not approved) | Overseer rejected or timed out a phase review | `review` — inline Approve / Re-run | Mission owner + admins |
+| `signal` (`needs_input`) | Agent waiting on a permission prompt | `needs_input` — inline Allow / Reject (or tap-to-open for multi-choice) | Mission owner + admins |
+| `mission` (`stalled`) | No running agents and a blocked child | `stalled` — tap-to-open | Mission owner + admins |
+| `mission` (`disengaged`, epic closed) | Natural mission completion | `done` — FYI (mentions PR if one was opened) | Mission owner + admins |
+| `task` (`blocked`) | An agent died too many times (bounded relaunch exceeded) | `blocked` — tap-to-open | Mission owner + admins |
+
+Recipients are resolved by `recipientsForMission()`: the mission's `created_by` owner plus every admin. A mission with no owner falls back to admins only.
 
 ---
 
@@ -472,7 +542,11 @@ The build copies `prompts/` into `dist/prompts/`. Templates are cached after fir
 
 ## Token-usage observability
 
-The daemon reads per-task token consumption and cost from each executor CLI's local session storage — no relay or API key needed. `readTaskUsage()` in `src/integrations/usage/index.ts`:
+Usage is tracked on two paths, both portable (no relay or API key needed):
+
+### Live per-task scan
+
+`readTaskUsage()` in `src/integrations/usage/index.ts` reads directly from the executor's CLI session storage:
 
 1. Resolves the task's executor (program + model) from its `exec:` label
 2. Reads the CLI's local usage DB (opencode, claude-code, or codex)
@@ -484,7 +558,29 @@ Exposed via `GET /tasks/:id/usage`:
 { "inputTokens": 12000, "outputTokens": 3400, "totalTokens": 15400, "costUsd": 0.045, "contextWindow": 200000, "model": "claude-sonnet-4-20250514" }
 ```
 
-Returns `null` when no matching CLI session is found. The web UI polls usage every 8 seconds for live tasks and displays it via `TaskUsageBadge` / `UsageBadge`.
+Returns `null` when no matching CLI session is found. The web UI polls usage every 8 seconds for live tasks.
+
+### Persisted snapshots (stats)
+
+The `UsageRecorder` (`src/integrations/usage/recorder.ts`) subscribes to the `EventBus`. When a task settles (`closed` or `cancelled`), it snapshots the task's token/cost usage into the `task_usage` table via `TaskUsageStore`. This happens once, at settle time — so the stats page aggregates from the DB instead of re-scanning gigabytes of CLI transcripts on every request.
+
+The `task_usage` table stores: `task_id`, `project_id`, `exec` (the full exec spec), `input`, `output`, `cache_read`, `cache_write`, `total`, `cost_usd`, and `captured_at`. A re-run replaces the row in place (UPSERT on `task_id`).
+
+Aggregated per-model stats are exposed via `GET /usage/by-model`:
+```json
+[
+  { "exec": "sonnet", "input": 120000, "output": 34000, "cache_read": 5000, "cache_write": 2000, "total": 154000, "costUsd": 0.45 },
+  { "exec": "claude:opus", "input": 50000, "output": 12000, "cache_read": 0, "cache_write": 0, "total": 62000, "costUsd": 0.93 }
+]
+```
+
+Admin-only `POST /usage/reset` wipes the snapshots (only Orca's DB — CLI transcripts are untouched).
+
+### Path resolution
+
+Both paths resolve the task's working directory through `usagePath()`:
+- **PR-native missions** → the isolated worktree (where the CLI logged usage)
+- **Other missions / manual tasks** → the project checkout
 
 ## tmux sessions
 
@@ -605,4 +701,4 @@ Agents (including the assistant) can also drive Orca without MCP via `orca api <
 
 ### Access
 
-The advisor session is per-user, not project-scoped: only its owner (or an admin) may reach it via the session routes, and a user need not be assigned to the daemon's project to reach their own advisor. The advisor's token is a fourth scope (`advisor`, stored alongside `full`/`agent`) — isolated so rotating/stopping the advisor never touches login tokens.
+The advisor session is per-user, not project-scoped: only its owner (or an admin) may reach it via the session routes, and a user need not be assigned to the daemon's project to reach their own advisor. The advisor's token uses a dedicated `advisor` scope — isolated so rotating/stopping the advisor never touches login tokens.

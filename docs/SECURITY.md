@@ -12,16 +12,9 @@ Authentication is optional. When a `UserStore` is configured, the daemon uses be
 | Password | scrypt with random 16-byte salt, 64-byte derived key |
 | Logout | `POST /auth/logout` — revokes the current token server-side |
 
-### Public endpoints (no auth)
-
-- `GET /health`
-- `POST /auth/login`
-
-All other endpoints require a valid bearer token when `UserStore` is configured. Open mode (no `UserStore`, `ORCA_ALLOW_OPEN=1`) skips auth entirely.
-
 ### Token scope
 
-Every token carries a `scope` field (column `scope` on `auth_tokens`, aliased to `token_scope` in the join query):
+Every token carries a `scope` field (column `scope` on `auth_tokens`, aliased to `token_scope` in the join query). Tokens are 32-byte random hex strings (64 hex chars), issued by `randomBytes(32)`:
 
 | Scope | Purpose | Restrictions |
 |---|---|---|
@@ -174,7 +167,7 @@ Self-service (any authenticated user, own record only):
 When a `userProjects` store is present (multi-user mode), four access gates apply:
 
 1. **Agent capability gate** — `agent`-scoped tokens confined to the verb allow-list above (403 otherwise)
-2. **Global gate** — non-admin users must be assigned to the daemon's home project to access the GATED surface (`/tasks`, `/missions`, `/sessions`, `/activity`, `/events` — boundary-matched so `/tasksfoo` can't sneak past `/tasks`). Setup mode (`users.count() === 0`) bypasses this.
+2. **Global gate** — non-admin users must be assigned to the daemon's home project to access the GATED surface (`/tasks`, `/missions`, `/sessions`, `/activity`, `/events`, `/usage` — boundary-matched so `/tasksfoo` can't sneak past `/tasks`). Setup mode (`users.count() === 0`) bypasses this.
 3. **Per-project gate** — `canAccessProject`: users only see/operate projects they're assigned to; admin sees everything. Agent-scoped tokens use `agentProjects()` (live working set), never the admin bypass.
 4. **Per-user exec allowlist** — `allowed_execs` on the user record restricts which exec strings a non-admin may use; empty list = unrestricted (subject to global `allowedExecs`). Enforced at task create/update and at `PATCH /auth/me` default_exec.
 
@@ -188,6 +181,20 @@ Open/single-user mode (no `userProjects` store) — all authenticated users pass
 - `apiKeySet` is exposed in `GET /config` responses (boolean), but the key value is never returned
 - Key is write-only via `PUT /config`: sent once, hashed/stored, never read back
 - `avatarSecret` is a random 32-byte hex generated at daemon boot (`randomBytes(32)`) — regenerated on each restart, which invalidates all previously signed avatar URLs
+- `webPushKeys` stores the VAPID keypair (generated on first boot via `ensureVapidKeys()`, reused thereafter). The private key is never exposed via the API — only `publicKey` is returned on `GET /push/vapid-public-key` and in `GET /config`
+
+### Push notification subscriptions
+
+Web-push device subscriptions are stored per-user in the `user_push_subscriptions` table:
+
+- Each row stores the push endpoint URL, `p256dh` and `auth` keys (browser-generated, used by the Web Push protocol)
+- Subscribe/unsubscribe is scoped to the authenticated user: `POST /push/unsubscribe` only removes the caller's own endpoint
+- Dead endpoints (HTTP 404/410 from the push service) are pruned on send so stale subscriptions don't accumulate
+- The VAPID private key is generated once on first boot and persisted in the config store — it never leaves the daemon and is never exposed via the API. Rotating it would invalidate every stored subscription
+
+### Mission owner (created_by)
+
+The `missions` table carries a `created_by` column pointing to the user who engaged the mission. This drives push-notification routing: the owner plus all admins receive phone notifications for that mission's events. An owner-less mission (null `created_by`, e.g. legacy/system missions) falls back to notifying all admins. The column is set once on engage and is NOT updated on re-engage — the original engager remains the owner (admins also receive notifications, so a different re-engager is still covered).
 
 ### Allowed executors
 
@@ -218,6 +225,15 @@ Each agent runs in an isolated tmux session:
 - No network exposure — database is file-local (`ORCA_DB`, default `~/.config/orca/orca.db`)
 - Schema uses `CREATE TABLE IF NOT EXISTS` — safe for repeated migration
 - In-memory (`:memory:`) used in tests
+
+### Public endpoints
+
+The following endpoints require no authentication:
+
+- `GET /health` — health check
+- `GET /setup` — setup mode detection
+- `POST /auth/login` — credential-based login
+- `GET /push/vapid-public-key` — VAPID public key (safe pre-auth; the key is public by design)
 
 ### CORS
 

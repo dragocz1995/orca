@@ -22,6 +22,8 @@ The daemon starts a set of independent timer loops:
 | Overseer watchdog | 60 s | Re-park missing overseer agents for active/stalled missions (crash recovery) |
 | Token purge | 1 h | Delete expired auth tokens (TTL from `config.security.tokenTtlDays`) |
 | Event purge | 1 h | Drop `events` rows past the 30-day retention window (`eventStore.purgeOlderThan()`) |
+| Ticket sweep | 60 s | Sweep expired terminal-WS single-use tickets |
+| PR feedback | 60 s | Poll open PRs for fresh actionable review feedback, re-engage mission with fix phases |
 
 Token purge and Event purge also run once on startup, then every hour.
 
@@ -32,6 +34,17 @@ On boot the daemon runs two one-shot recovery passes before the loops start:
 1. **Zombie reconcile** — tasks left `in_progress` whose tmux session is gone are reverted to `open` so they can be picked up again. No grace or relaunch counter: a restart isn't an agent death, so it shouldn't spend the budget.
 
 2. **Overseer reconcile** — when an agent overseer is configured, re-park one per active mission (their tmux sessions died with the daemon) and kill orphan overseer sessions whose mission is no longer active.
+
+### VAPID keypair generation
+
+On every boot, `ensureVapidKeys(config)` in `bootstrap.ts` checks for an existing web-push VAPID keypair in the config store. If none exists (first boot), it generates one via `webpush.generateVAPIDKeys()` and persists the public + private keys. The public key is exposed at `GET /push/vapid-public-key` for browser subscription; the private key stays in the config store, never served via the API.
+
+### Event-bus subscribers (push + usage)
+
+Two `EventBus` subscribers are wired at boot:
+
+- **PushDispatcher** (`src/push/pushDispatcher.ts`) — maps lifecycle events (review escalation, `needs_input` signal, stall, completion, blocked task) to web-push notifications for the mission's owner + admins.
+- **UsageRecorder** (`src/integrations/usage/recorder.ts`) — snapshots each task's token/cost usage into `task_usage` the moment it settles (closed/cancelled), so the stats page reads DB aggregates instead of re-scanning CLI session stores.
 
 ## Request / spawn flow
 
@@ -56,7 +69,7 @@ The agent works in the tmux pane, then calls `node <cli> close <taskId> …` bac
 
 ### `src/api/` — REST API (Hono)
 
-- `server.ts` — route definitions (~1213 lines, ~70 routes in one file): tasks, missions, sessions, projects, users, auth, config, integrations, file editor, git surface, planner, plan jobs, overseer decision routes
+- `server.ts` — route definitions (1,598 lines, 91 routes in one file): tasks, missions, sessions, projects, users, auth, config, integrations, file editor, git surface, planner, plan jobs, overseer decision routes, web push subscriptions, usage stats, system info
 - `sse.ts` — `EventBus` for real-time SSE notifications (terminal output, task state changes, plan job status)
 - `auth.ts` — Bearer token middleware, also accepts `?token=` query param for SSE. `/ws/terminal` is public here — the terminal-WS ticket is its capability
 
@@ -136,6 +149,9 @@ SQLite with WAL mode (`better-sqlite3`). Tables:
 | `users` | User accounts (scrypt password hashes, admin flag, per-user exec allow-list, advisor exec + autostart flag) |
 | `auth_tokens` | Session tokens for bearer auth (scope: full / agent / advisor) |
 | `events` | Activity event log (state changes, signals) |
+| `task_usage` | Persisted per-task token/cost snapshots (written once when a task settles, so the stats page never re-scans CLI session stores) |
+| `user_push_subscriptions` | Per-user web-push device subscriptions (endpoint + VAPID keys) |
+| `mission_pr` | PR-native workflow state (branch, worktree, PR number, review feedback, fix rounds) |
 | `user_projects` | User ↔ project assignments (RBAC many-to-many) |
 
 Store modules: `db.ts`, `taskStore.ts`, `missionStore.ts`, `agentStore.ts`, `eventStore.ts`, `configStore.ts`, `userStore.ts`, `projectStore.ts`, `userProjectStore.ts`, `readiness.ts`, `missionDetail.ts`, `schema.sql`, `types.ts`.
@@ -165,6 +181,16 @@ Commands: `orca ls`, `orca ready`, `orca sessions`, `orca close`, `orca plan sub
 - `clock.ts` — `Clock` interface with `SystemClock` (real) and `FakeClock` (test) implementations
 - `execs.ts` — single source of truth for executor metadata: `PROGRAM_PREFIXES`, `KNOWN_EXECS`, `DEFAULT_BINS`, `isWellFormedExec`, `isAllowedExec` (formerly duplicated across `routing.ts` and `configStore.ts`)
 - `apiClient.ts` — `callOrcaApi(method, path, body, opts)`: the single HTTP-forward core for reaching the Orca REST API with a bearer token. Shared by the `orca api` CLI verb and every MCP tool, so there is no duplicated request logic and a new REST endpoint works in both with zero edits
+
+### `src/push/` — Web push notifications
+
+Phone push notifications deliver mission events (review escalation, `needs_input`, stall, completion) to subscribed devices via the Web Push API (VAPID). The module is wired as an `EventBus` subscriber in `bootstrap.ts`.
+
+- `vapid.ts` — `ensureVapidKeys(config)`: generates a VAPID keypair on first boot via `web-push.generateVAPIDKeys()`; persists it in the config store and reuses it across restarts (rotation would invalidate every stored push subscription). The private key never leaves the daemon.
+- `pushSender.ts` — `PushSender`: delivers web-push payloads to a set of users' devices via `web-push`. Prunes dead endpoints (404/410) so they aren't retried forever.
+- `pushDispatcher.ts` — `PushDispatcher`: the single `EventBus` subscriber that maps Orca lifecycle events to push payloads. Handles `review` (escalation), `signal`/`needs_input` (agent waiting), `mission`/`stalled`, `mission`/`disengaged` (completion), and `task`/`blocked`. Resolves recipients for the owning mission via `recipientsForMission()`.
+- `recipients.ts` — `recipientsForMission()`: resolves the mission's owner (`created_by` column) plus all admins. Deduped; a mission with no owner falls back to admins only.
+- `messages.ts` — notification payload builders with Czech user-facing text and inline action buttons (Approve/Reject, Allow/Reject, Open).
 
 ### `src/prompts/` — Prompt template system
 
@@ -248,12 +274,21 @@ Additional parallel loops (not pictured in the diagram above, see the timer loop
 
 ## Access control / multi-tenancy
 
+Three token scopes govern what an API caller may do:
+
+| Scope | Purpose |
+|---|---|
+| `full` | Interactive user session (login via web/CLI). Bounded by the user's role and project assignments. |
+| `agent` | Spawned agent (worker, overseer, pilot). Restricted to a narrow allow-list of verbs: `PATCH /tasks/:id` (close), `POST /plan/:jobId/submit`, `GET /plan/:jobId`, `GET /tasks`, `GET /tasks/ready`, `GET /sessions`, `GET /missions/:id/overseer/next`, `POST /missions/:id/overseer/decide`. Confined to its live working set via `agentProjects()` — never the admin bypass. |
+| `advisor` | Per-user assistant session (`orca-advisor-<userId>`). Mapped to `full` at the guard so it has the user's own rights, but isolated from login tokens so rotating/stopping the advisor never touches `full` tokens. |
+
 With a `userProjects` store present (multi-user mode):
 
-- A global middleware rejects non-admins not assigned to the daemon's project on the tasks/missions/sessions/activity/events surface (403).
+- A global middleware rejects non-admins not assigned to the daemon's project on the tasks/missions/sessions/activity/events/usage surface (403).
 - Per-route `canAccessProject` / `accessibleProjects` / `resolveTarget` / `missionAccessible` filter list endpoints and gate item operations + project file/git endpoints.
-- A per-user model allow-list (`allowed_execs`) restricts which exec a non-admin may use.
+- Per-user model allow-list (`allowed_execs`) restricts which exec a non-admin may use.
 - Admins and open/single-user mode (no `userProjects`) pass everything unrestricted.
+- The agent scope's `agentProjects()` helper confines access to projects with live `agent:`-labelled tasks or active missions. Overseers keep access to the project of every active mission's epic. Final-phase agents retain access until their epic actually closes.
 
 ## Testing
 
@@ -265,4 +300,4 @@ Tests use Vitest with fake implementations:
 
 This allows full integration-style tests without real tmux or network dependencies.
 
-Daemon tests: ~649 `it`/`test` cases in `tests/`. Web tests: ~363 cases in `web/tests/` (Vitest + React Testing Library).
+Daemon tests: ~823 `it`/`test` cases across 108 test files in `tests/`. Web tests: ~433 cases in `web/tests/` (Vitest + React Testing Library).

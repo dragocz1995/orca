@@ -24,12 +24,13 @@ npm test
 - `src/` — the daemon: stores, overseer (mission engine, planner, scheduler, decision
   engine, janitor), spawn/tmux, deriver, REST API.
 - `web/` — the Next.js front end (feature modules under `web/modules`).
-- `docs/` — API, architecture, concepts, CLI, development, testing.
+- `docs/` — full documentation hub ([`docs/index.md`](./docs/index.md)) with API,
+  architecture, concepts, CLI, development, deployment, web UI, and testing guides.
 
 ## Guidelines
 
-- **Tests required.** New behavior needs tests. Run `npm test` (daemon) and
-  `cd web && npm test` before opening a PR; both suites and `tsc` must be green.
+- **Tests required.** New behavior needs tests. Run `npm test` (daemon, ~649 tests) and
+  `cd web && npm test` (web, ~363 tests) before opening a PR; both suites and `tsc` must be green.
 - **Keep it typed.** TypeScript strict mode, no `any`. No empty `catch` blocks.
 - **Root cause, not workarounds.** Fix the underlying issue; avoid dead code and duplication.
 - **Small, focused PRs.** One concern per PR with a clear description.

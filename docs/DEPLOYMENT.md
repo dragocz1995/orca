@@ -32,6 +32,7 @@ All supported environment variables (defaults shown):
 ```bash
 # Daemon
 ORCA_PORT=4400
+ORCA_HOST=127.0.0.1
 ORCA_DB=$HOME/.config/orca/orca.db
 ORCA_PROJECT=orca
 ORCA_PROJECT_PATH=$PWD
@@ -55,6 +56,9 @@ ORCA_LOG_DIR=$PWD/logs        # log directory
 
 # Web UI (Next.js)
 # ORCA_DAEMON_URL=http://localhost:4400   # server-side only — the BFF proxy uses this to reach the daemon
+
+# VAPID keys for web push notifications — auto-generated on first boot and persisted
+# in the config store (no env var). The private key never leaves the daemon.
 
 # Agent-injected (set by the daemon on spawned agent env, not by the operator)
 # ORCA_PLAN_JOB=<jobId>       # Pilot agent
@@ -174,6 +178,17 @@ server {
         proxy_http_version 1.1;
     }
 
+    # Service worker — must never be cached so updated notifications arrive immediately.
+    location = /sw.js {
+        proxy_pass http://127.0.0.1:4500;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
+
     # Daemon API + SSE + MCP (direct, no rewrite prefix)
     location /api/ {
         proxy_pass http://127.0.0.1:4400;
@@ -215,6 +230,7 @@ Notes:
 | `ORCA_AUTOSTART` | `1` | Let CLI auto-start the daemon; `0` disables |
 | `ORCA_DB` | `~/.config/orca/orca.db` | SQLite database path |
 | `ORCA_PORT` | `4400` | Daemon HTTP port |
+| `ORCA_HOST` | `127.0.0.1` | Daemon bind address (`0.0.0.0` to expose externally) |
 | `ORCA_PROJECT` | `orca` | Default project slug |
 | `ORCA_PROJECT_PATH` | `cwd` | Default project working directory |
 | `ORCA_RELAY_URL` | — | LLM relay base URL (for autopilot) |

@@ -64,13 +64,15 @@ trust it more, you turn the autonomy up; when you trust it less, you turn it dow
   escalates anything destructive or uncertain to a human. Operations like `rm -rf`, dropping
   tables, force-pushes, or touching `.env` always escalate, whatever the level.
 - **Live web UI with one-click intervention.** Tasks, a kanban board with a calendar,
-  missions with phase progress, a timeline, and real-time `tmux` session previews you can
-  jump into and take over. Each preview is a real PTY streamed over a WebSocket (xterm),
-  so you type straight into the agent — native cursor, smooth scrolling, full key support —
-  not a read-only mirror. Creating a project is point-and-click too: a **Browse** button
-  opens a server-side folder picker to choose the path instead of typing it, and you pick a
-  project icon (from an image already in the repo) right after creating it. Full EN/CS
-  internationalization built in, and the whole dashboard is responsive down to a phone.
+  missions with phase progress, a timeline with an activity feed, an escalations queue for
+  review-gate decisions, and real-time `tmux` session previews you can jump into and take
+  over. Each preview is a real PTY streamed over a WebSocket (xterm), so you type straight
+  into the agent — native cursor, smooth scrolling, full key support — not a read-only
+  mirror. A dedicated **Stats** page shows per-model token/cost breakdown. Creating a
+  project is point-and-click too: a **Browse** button opens a server-side folder picker to
+  choose the path instead of typing it, and you pick a project icon (from an image already
+  in the repo) right after creating it. Full EN/CS internationalization built in, and the
+  whole dashboard is responsive down to a phone.
 - **Phone push notifications.** Launch a swarm and walk away from the keyboard — Orca pings
   your phone only when a mission actually needs you. A review escalation, an agent waiting on
   input, or a stalled run arrives as a Web Push notification with inline action buttons
@@ -81,9 +83,10 @@ trust it more, you turn the autonomy up; when you trust it less, you turn it dow
 - **Self-healing.** A stuck-session detector revives agents that die without closing out
   (and blocks the task after repeated failures instead of crash-looping). A janitor sweeps
   up finished sessions. Live token and cost usage is shown per run.
-- **Multi-user RBAC.** Admin and member roles, per-project assignments, per-user model
-  allow-lists, profiles and avatars, and a first-run onboarding that needs no login until
-  the first admin is created.
+- **Multi-user RBAC with self-service.** Admin and member roles, per-project assignments,
+  per-user model allow-lists, profiles and avatars, and a first-run onboarding that needs
+  no login until the first admin is created. Users can change their password, upload an
+  avatar, and manage push-notification devices from their own account page.
 - **Per-user Assistant.** Each user gets a persistent assistant agent (`orca-advisor-<userId>`)
   that drives Orca on their behalf through a built-in MCP server — list tasks, plan goals,
   watch sessions, or call any REST endpoint via the `orca api` passthrough. Auto-starts on
@@ -227,20 +230,25 @@ is a thin client over the REST API + SSE event stream.
 | `src/cli` · `src/daemon` | the `orca` CLI (incl. `orca api` passthrough) and the daemon entrypoint |
 | `web/modules` | feature modules (tasks, kanban, sessions, timeline, projects, advisor, settings, …) |
 
-See [`docs/`](./docs) for the [API](./docs/API.md), [architecture](./docs/ARCHITECTURE.md),
-[concepts](./docs/CONCEPTS.md), [CLI](./docs/CLI.md), and [development](./docs/DEVELOPMENT.md) guides.
+See [`docs/`](./docs) for the [documentation hub](./docs/index.md), [API](./docs/API.md),
+[architecture](./docs/ARCHITECTURE.md), [concepts](./docs/CONCEPTS.md), [CLI](./docs/CLI.md),
+[development](./docs/DEVELOPMENT.md), [deployment](./docs/DEPLOYMENT.md), and [web UI](./docs/WEB.md) guides.
 
 ## Development
 
 ```bash
 npm test            # daemon tests (vitest)
-npm run build       # typecheck + build
+npm run build       # typecheck + build (also copies schema.sql + prompts/)
+npm run build:web   # standalone web UI bundle
+npm run serve       # daemon dev mode (direct TS via --experimental-strip-types)
 npm run lint        # ESLint (unused imports, hook deps)
 npm run depcruise   # dependency-cruiser architecture checks (no cycles, layer boundaries)
 cd web && npm test  # web tests
+cd web && npm run dev  # web dev server (turbopack)
 ```
 
-See [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) and [`docs/TESTING.md`](./docs/TESTING.md).
+See [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md), [`docs/TESTING.md`](./docs/TESTING.md),
+and [`docs/WEB.md`](./docs/WEB.md).
 
 ## Contributing
 
