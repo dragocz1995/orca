@@ -48,9 +48,9 @@ export class MissionEngine {
    *  same mission can both read the same `running` count and dispatch past `max_sessions`. */
   private ticking = new Set<string>();
 
-  async engage(input: { epicId: string; autonomy: string; maxSessions: number }): Promise<Mission> {
+  async engage(input: { epicId: string; autonomy: string; maxSessions: number; createdBy?: number | null }): Promise<Mission> {
     const id = `m-${input.epicId}`;
-    const m = this.d.missions.create({ id, epic_id: input.epicId, autonomy: input.autonomy, max_sessions: input.maxSessions });
+    const m = this.d.missions.create({ id, epic_id: input.epicId, autonomy: input.autonomy, max_sessions: input.maxSessions, created_by: input.createdBy ?? null });
     this.d.bus.publish({ type: 'mission', missionId: m.id, state: 'active' });
     // Park the per-mission overseer agent (no-op when no overseerExec is configured) so it is ready
     // to answer decisions (e.g. post-completion reviews) for this mission.

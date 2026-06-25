@@ -30,6 +30,7 @@ import { UserStore } from '../store/userStore.js';
 import { EventStore } from '../store/eventStore.js';
 import { ProjectStore } from '../store/projectStore.js';
 import { UserProjectStore } from '../store/userProjectStore.js';
+import { PushSubscriptionStore } from '../store/pushSubscriptionStore.js';
 import { RealGitReader } from '../git/gitReader.js';
 import type { TmuxDriver } from '../tmux/types.js';
 import { uniqueName } from './uniqueName.js';
@@ -99,6 +100,7 @@ export function buildApp(opts: BuildOpts) {
   }
   const projects = new ProjectStore(db);
   const userProjects = new UserProjectStore(db);
+  const pushSubscriptions = new PushSubscriptionStore(db);
   const git = new RealGitReader();
   // Give spawned agents a way to close their task: the orca CLI path + daemon URL + a service token.
   // The token is AGENT-SCOPED (not the admin's full token): a prompt-injected agent can only drive
@@ -252,7 +254,7 @@ export function buildApp(opts: BuildOpts) {
   // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
   // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
   const tickets = createTicketStore();
-  const app = createServer({ tasks, readiness, missions, engine, missionGit, spawn, tmux, bus, events, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users, projects, userProjects, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, tickets });
+  const app = createServer({ tasks, readiness, missions, engine, missionGit, spawn, tmux, bus, events, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace

@@ -45,6 +45,7 @@ import { createTicketStore, type TicketStore } from '../terminal/ticketStore.js'
 import type { EventStore } from '../store/eventStore.js';
 import type { ProjectStore } from '../store/projectStore.js';
 import type { UserProjectStore } from '../store/userProjectStore.js';
+import type { PushSubscriptionStore, WebPushSubscription } from '../store/pushSubscriptionStore.js';
 import type { GitReader } from '../git/gitReader.js';
 import { logger } from '../shared/logger.js';
 import { shortId } from '../shared/id.js';
@@ -67,6 +68,8 @@ export interface ServerDeps {
   events?: EventStore;
   projects?: ProjectStore;
   userProjects?: UserProjectStore;
+  /** Per-user web-push device subscriptions. Absent → push subscribe/unsubscribe routes degrade to no-ops. */
+  pushSubscriptions?: PushSubscriptionStore;
   /** Agent registry — records each spawned agent's project at spawn. Used to tag live sessions with
    *  their project (the daemon's single source of truth for session→repo). */
   agents?: AgentStore;
@@ -1083,7 +1086,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       job.epicId = epic.id;
       planJobs.setPhases(job.id, phases);
       let mission;
-      if (b.engage === true) mission = await d.engine.engage({ epicId: epic.id, autonomy: b.autonomy ?? 'L3', maxSessions: b.maxSessions ?? 1 });
+      if (b.engage === true) mission = await d.engine.engage({ epicId: epic.id, autonomy: b.autonomy ?? 'L3', maxSessions: b.maxSessions ?? 1, createdBy: c.get('user')?.id ?? null });
       return c.json({ epic, phases: created.map((t) => d.tasks.get(t.id)), mission }, 201);
     }
 
@@ -1431,6 +1434,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       epicId: b.epicId,
       autonomy: b.autonomy ?? 'L3',
       maxSessions: typeof b.maxSessions === 'number' ? b.maxSessions : 1,
+      createdBy: c.get('user')?.id ?? null, // owner for per-mission push routing
     }), 201);
   });
   app.patch('/missions/:id', async (c) => {
@@ -1516,6 +1520,28 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
       ...(typeof b.choice === 'string' ? { choice: b.choice } : {}),
     });
     return ok ? c.json({ ok: true }) : c.json({ error: 'no such decision' }, 404);
+  });
+
+  // --- Web push: the browser's VAPID public key, plus per-user device subscribe/unsubscribe. The
+  // public key is safe pre-auth (it's public); subscribe/unsubscribe are scoped to the authed user.
+  app.get('/push/vapid-public-key', (c) => c.json({ publicKey: d.config.get().webPush.publicKey }));
+  app.post('/push/subscribe', async (c) => {
+    const u = c.get('user');
+    if (!u) return c.json({ error: 'unauthorized' }, 401);
+    const b = await c.req.json().catch(() => ({})) as Partial<WebPushSubscription>;
+    if (typeof b.endpoint !== 'string' || !b.endpoint
+      || typeof b.keys?.p256dh !== 'string' || typeof b.keys?.auth !== 'string') {
+      return c.json({ error: 'endpoint and keys.{p256dh,auth} required' }, 400);
+    }
+    d.pushSubscriptions?.upsert(u.id, { endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth } });
+    return c.json({ ok: true }, 201);
+  });
+  app.post('/push/unsubscribe', async (c) => {
+    if (!c.get('user')) return c.json({ error: 'unauthorized' }, 401);
+    const b = await c.req.json().catch(() => ({})) as { endpoint?: unknown };
+    if (typeof b.endpoint !== 'string' || !b.endpoint) return c.json({ error: 'endpoint required' }, 400);
+    d.pushSubscriptions?.remove(b.endpoint);
+    return c.json({ ok: true });
   });
 
   app.get('/config', (c) => c.json(d.config.get()));
