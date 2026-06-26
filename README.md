@@ -88,10 +88,12 @@ trust it more, you turn the autonomy up; when you trust it less, you turn it dow
   no login until the first admin is created. Users can change their password, upload an
   avatar, and manage push-notification devices from their own account page.
 - **Per-user Assistant.** Each user gets a persistent assistant agent (`orca-advisor-<userId>`)
-  that drives Orca on their behalf through a built-in MCP server — list tasks, plan goals,
-  watch sessions, or call any REST endpoint via the `orca api` passthrough. Auto-starts on
-  login, remembers its model, and runs in a docked IDE-style side panel with a real-PTY
-  terminal. Pop any session terminal out into its own chromeless window for focus.
+  that drives Orca on their behalf through a built-in MCP server. The server exposes seven
+  tools — `orca_tasks`, `orca_create_task`, `orca_plan`, `orca_sessions`, `orca_note_add`,
+  `orca_notes`, and the generic `orca_request` passthrough that reaches any REST endpoint —
+  so a brand-new endpoint is callable with zero new tooling. Auto-starts on login, remembers
+  its model, and runs in a docked IDE-style side panel with a real-PTY terminal. Pop any
+  session terminal out into its own chromeless window for focus.
 - **Self-hosted & lightweight.** A single SQLite-backed daemon (Hono + SSE) plus a Next.js
   front end. No external services required beyond your own LLM provider.
 
@@ -151,6 +153,11 @@ orca install    # guided provisioning wizard (domain/TLS, ports, first admin)
 Requires **Node ≥ 22** and **tmux**. On first run, `orca` walks you through a quick
 setup — admin account, LLM provider + API key, and a default model. Your data (config,
 the SQLite database, and logs) lives in **`~/.config/orca/`** and survives every update.
+
+> **Interactive terminals** use [`node-pty`](https://www.npmjs.com/package/node-pty), an
+> optional native dependency. If its native addon can't build on your host, everything
+> else runs unchanged — the live session previews just fall back to a read-only mirror
+> instead of a type-into terminal.
 
 Then open <http://localhost:4500> and sign in.
 

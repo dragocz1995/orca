@@ -55,6 +55,8 @@ ORCA_LOG_LEVEL=               # debug | info | warn | error (default info)
 ORCA_LOG_DIR=$PWD/logs        # log directory
 
 # Web UI (Next.js)
+ORCA_WEB_PORT=4500            # port the web UI listens on
+# ORCA_WS_DIRECT_PORT=        # optional direct WebSocket port for PTY streaming (bypasses the proxy)
 # ORCA_DAEMON_URL=http://localhost:4400   # server-side only — the BFF proxy uses this to reach the daemon
 
 # VAPID keys for web push notifications — auto-generated on first boot and persisted
