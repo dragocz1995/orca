@@ -88,13 +88,16 @@ WantedBy=timers.target
 `;
 }
 
-/** sudoers drop-in letting the unprivileged service user restart its own units without a password —
- *  required for both the auto-update timer and a manual `orca update` to take the new binary live.
- *  Scoped to the exact systemctl invocations orca issues (least privilege); validated with `visudo -c`
- *  before it's trusted. */
-export function orcaSudoers(user: string): string {
-  return `# Managed by orca install — lets the ${user} service user restart its own units (auto-update + manual update).
+/** sudoers drop-in letting the unprivileged service user run — without a password — exactly the two
+ *  privileged steps `orca update` needs: restart its own units, and reinstall orca in place. The
+ *  reinstall grant is required when orca lives in a root-owned global prefix (e.g. `/usr`) while the
+ *  daemon runs as a non-root service user, where a plain `npm install -g` would hit EACCES. Both are
+ *  pinned to the literal commands orca issues (least privilege); `reinstallCmd` is the absolute,
+ *  fully-resolved npm command so sudo matches it. Validated with `visudo -c` before it's trusted. */
+export function orcaSudoers(user: string, reinstallCmd: string): string {
+  return `# Managed by orca install — lets the ${user} service user restart its own units and self-update in place (auto-update + manual update).
 ${user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart orca-daemon orca-web, /usr/bin/systemctl is-active orca-daemon orca-web
+${user} ALL=(root) NOPASSWD: ${reinstallCmd}
 `;
 }
 

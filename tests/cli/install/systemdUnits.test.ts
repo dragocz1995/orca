@@ -76,12 +76,15 @@ describe('install/systemdUnits.updateTimer', () => {
 });
 
 describe('install/systemdUnits.orcaSudoers', () => {
-  const s = orcaSudoers('orca');
+  const s = orcaSudoers('orca', '/usr/bin/npm install -g orcasynth@latest --prefix /usr');
   it('grants the service user passwordless systemctl for its own units only', () => {
     expect(s).toMatch(/^orca ALL=\(root\) NOPASSWD: \/usr\/bin\/systemctl restart orca-daemon orca-web/m);
     expect(s).toContain('/usr/bin/systemctl is-active orca-daemon orca-web');
   });
   it('does not grant a blanket systemctl (least privilege)', () => {
     expect(s).not.toMatch(/NOPASSWD:\s*\/usr\/bin\/systemctl\s*$/m);
+  });
+  it('pins the exact self-reinstall command for the service user', () => {
+    expect(s).toMatch(/^orca ALL=\(root\) NOPASSWD: \/usr\/bin\/npm install -g orcasynth@latest --prefix \/usr$/m);
   });
 });

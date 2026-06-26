@@ -8,6 +8,7 @@ import { detectAgentClis, installCommand } from './agentClis.js';
 import { daemonUnit, webUnit, updateService, updateTimer, orcaSudoers, type UnitParams } from './systemdUnits.js';
 import { detectProxy, nginxVhost, apacheVhost, certbotCommand, type ProxyKind } from './proxy.js';
 import { applySetup, buildSetupPlan, defaultExecForCli, isFirstRun, type SetupAnswers } from '../setup.js';
+import { selfPrefix, reinstallNpmArgs } from '../update.js';
 import { runSetupWizard } from '../setupWizard.js';
 import { INSTALL_INFO_PATH, serializeInstallInfo, type InstallInfo } from '../installInfo.js';
 
@@ -180,7 +181,11 @@ async function provisionSystemd(r: Runner, user: string, home: string, deploy: D
  *  the whole box, so it's never written unchecked. */
 async function provisionSudoers(r: Runner, user: string): Promise<void> {
   const tmp = '/tmp/orca.sudoers';
-  await r.writeFile(tmp, orcaSudoers(user));
+  // Pin the literal self-reinstall command so `orca update` (run as the service user) can sudo it.
+  // Absolute npm path so sudo matches it; same prefix `orca update` computes, so the two stay in lockstep.
+  const npm = (await r.which('npm')) ?? '/usr/bin/npm';
+  const reinstallCmd = [npm, ...reinstallNpmArgs(selfPrefix())].join(' ');
+  await r.writeFile(tmp, orcaSudoers(user, reinstallCmd));
   const chk = await r.exec('visudo', ['-cf', tmp]);
   if (chk.code !== 0) { await r.exec('rm', ['-f', tmp]); throw new Error(`visudo rejected the drop-in: ${(chk.stderr || chk.stdout).trim()}`); }
   await must(r, 'install', ['-o', 'root', '-g', 'root', '-m', '0440', tmp, '/etc/sudoers.d/orca']);
