@@ -404,3 +404,233 @@ The interface is consumed by:
 ### Adding a new backend
 
 Implement the `InferenceClient` interface and inject it via the `makeInference` factory in server bootstrap.
+
+---
+
+## Inter-agent handoff notes
+
+Agents working on the same mission can leave free-form handoff notes for later phases. This is the primary mechanism for passing context between sequential agents — each phase's agent reads what the previous one left and writes its own findings for the next.
+
+### CLI usage
+
+```bash
+# Leave a note for the next phase
+orca note add orca-294192e5 "I set up the KeyedMutex in src/shared/keyedMutex.ts — reuse it for any per-checkout serialization."
+
+# Read all notes left by earlier phases (oldest-first)
+orca note ls orca-294192e5
+```
+
+The target is the epic ID (or mission ID with `m-` prefix — both work). Notes are scoped to `mission` by default.
+
+### API
+
+```http
+GET /notes?scope=mission&target=<epicId>
+Authorization: Bearer <token>
+```
+
+```http
+POST /notes
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "scope": "mission",
+  "target": "<epicId>",
+  "body": "Key files to watch: src/overseer/checkout.ts, src/shared/keyedMutex.ts",
+  "author": "Nova"
+}
+```
+
+### Limits
+
+| Limit | Value | Rationale |
+|---|---|---|
+| Body size | 8 000 characters | A handoff note is a hint, not a document dump |
+| Notes per target | 200 | Bounds the per-mission log so a looping agent can't inflate the DB |
+
+### Access control
+
+Notes are access-gated by the target epic's project. An agent can only read/write notes for a mission in a project it is actively working in. An orphaned note (epic deleted) can never be read — the target must resolve and be allowed, or the endpoint returns `404`.
+
+### Purging
+
+Notes are purged when the epic is deleted (`DELETE /tasks/:id`). This prevents orphan notes from outliving their access-control anchor.
+
+### Agent prompt integration
+
+The worker prompt templates instruct agents to:
+1. Read existing notes with `orca note ls <missionId>` at the start of a phase
+2. Leave a handoff note with `orca note add <missionId> "<key findings>"` before closing
+
+This is the standard pattern for sequential mission phases — each agent builds on the previous one's context.
+
+---
+
+## Per-task change snapshots
+
+When a task closes, the daemon freezes the list of files the task's agent committed. This gives you a permanent record of what each phase changed, viewable in the web UI and queryable via the API.
+
+### How it works
+
+1. **At spawn**: the mission engine stamps a `base:<sha>` label on the task — the current `HEAD` in the agent's checkout. This is done under the `KeyedMutex` so it lands after any in-flight commit from a just-closed phase.
+2. **At close**: `snapshotTaskChanges()` reads the new `HEAD` and computes `git diff base..HEAD --name-only`. The file list, `base_sha`, and `head_sha` are stored on the task row.
+3. **Viewing**: `GET /tasks/:id/changed/diff?path=<file>` returns the diff of a single file from the frozen range.
+
+### API
+
+```http
+GET /tasks/orca-abc123/changed/diff?path=src/overseer/checkout.ts
+Authorization: Bearer <token>
+```
+
+Response:
+```json
+{ "diff": "diff --git a/src/overseer/checkout.ts b/src/overseer/checkout.ts\n..." }
+```
+
+Empty `{ "diff": "" }` when:
+- The task has no snapshot (hand-closed, no baseline)
+- The file isn't in the change list
+- The refs were GC'd by a later squash or rebase
+
+### Close paths
+
+Snapshots are taken on three code paths in the `PATCH /tasks/:id` handler:
+
+| Path | When | Locking |
+|---|---|---|
+| Review gate | `reviewOnDone` + overseer → commit+snapshot on *approval* verdict | Under `gitLock.run()` |
+| Direct close | Mission phase, no review gate → commit+snapshot immediately | Under `gitLock.run()` |
+| Standalone task | No mission → snapshot only (no phase commit) | Under `gitLock.run()` |
+
+The review path commits only on approval — a rejected phase never commits, so its snapshot is never taken.
+
+### KeyedMutex serialization
+
+All git operations on one checkout are serialized through a `KeyedMutex` (`src/shared/keyedMutex.ts`). The baseline read at spawn and the commit+snapshot at close must not interleave across agents sharing a working tree, or a task's frozen change range could straddle another's commit. The mutex is per-checkout-path (FIFO), so different checkouts run concurrently.
+
+### Edge cases
+
+- **No baseline** (`base:<sha>` label missing): the task was hand-closed or never spawned by the engine — no snapshot stored.
+- **No commits** (`base == head`): the diff is empty — the task made no changes.
+- **Non-repo / no HEAD**: `projectHead()` returns null → early return.
+- **Git failure**: caught and logged; the close proceeds without a snapshot (best-effort).
+- **GC'd refs**: a later squash or rebase may invalidate the stored SHAs — the diff endpoint returns `{ diff: '' }`.
+
+---
+
+## Session resume
+
+When a provider's `resume` toggle is on (Settings → Providers), the daemon captures the agent's CLI session ID at close and splices a resume flag into the next spawn command. The agent reattaches to its prior conversation with full context instead of cold-starting.
+
+### Provider configuration
+
+In Settings → Providers, each program has a `resume` toggle (default on). When off, the daemon never captures or applies resume labels for that program — every spawn is a cold start.
+
+### Label lifecycle
+
+```
+Task closes/cancelled
+  → UsageRecorder calls captureResumeLabel()
+    → detectSessionId() reads the CLI's local session store
+    → stamps resume:<program>:<sessionId> label on the task
+
+Task re-spawns (stuck detector revert, or next mission phase)
+  → Mission engine calls parseResumeLabel(task.labels)
+    → SpawnService validates: program matches + provider allows resume
+      → buildAgentCommand() splices resume flag into launch command
+```
+
+### Per-program mechanisms
+
+| Program | Flag | Placement | Example |
+|---|---|---|---|
+| `claude-code` | `--resume <id>` | `flag` (after bypass, alongside `--model`) | `claude --dangerously-skip-permissions --resume abc123 --model sonnet "..."` |
+| `opencode` | `-s <id>` | `flag` (after binary, alongside `--model`) | `opencode -s abc123 --model deepseek-v4-pro --prompt "..."` |
+| `codex` | `resume <id>` | `subcommand` (before bypass flag) | `codex resume abc123 --dangerously-bypass-approvals-and-sandbox --model gpt-5.5 "..."` |
+
+The `placement` field controls where the resume tokens land:
+- `subcommand` — immediately after the binary, before any flags.
+- `flag` — after the binary/bypass flag, alongside `--model`.
+
+### Resume prompt
+
+A resumed agent receives a short continuation prompt (`worker-resume`) instead of the full worker preamble. It already holds the full goal and what it did — re-injecting the whole preamble would make it restart from scratch. The resume prompt tells it to pick up where it left off, fold in any new input, then close.
+
+### Stuck detector integration
+
+When the stuck detector reverts a dead agent to `open`, it calls `onReap(task)` before the revert. This callback runs `captureResumeLabel()` to stamp the dead agent's CLI session as the task's `resume:` label. The next spawn then resumes that session — the crash left a partial session on disk that still carries useful context. The capture is best-effort: a detection miss never blocks the reap.
+
+### Adding a new resume provider
+
+1. Create a module in `src/spawn/resume/` implementing `ResumeProvider`:
+   ```typescript
+   export const myCliResume: ResumeProvider = {
+     program: 'my-cli',
+     resumeArgs: (sessionId) => ({ args: ['--continue', sessionId], placement: 'flag' }),
+   };
+   ```
+2. Register it in `src/spawn/resume/index.ts` under `RESUME_PROVIDERS`.
+3. Add session-id detection next to the usage parser in `src/integrations/usage/`.
+
+---
+
+## Checkout serialization
+
+A shared project checkout is single-writer: only one agent may edit it at a time. This keeps each task's committed delta cleanly attributable — `base..HEAD` never straddles another agent's commit, and `git add -A` never sweeps in a neighbour's edits.
+
+### How it works
+
+The mission engine's tick loop performs a **check-and-claim** for each ready task:
+
+1. Resolve the task's working directory via `checkoutOf()` — a PR mission's isolated worktree, else the shared project path.
+2. Read the occupied set **fresh** at each claim (not a tick-start snapshot) — the engine and scheduler tick concurrently.
+3. Call `checkoutBusy()` synchronously, immediately before flipping the task to `in_progress`.
+4. No `await` between the check and `setStatus(task.id, 'in_progress')` — the check-and-claim is atomic.
+
+If the checkout is busy, the engine `break`s out of the ready-task loop — the phase stays `open` and retries on the next tick.
+
+### 409 response
+
+The API endpoint that spawns a standalone task also checks `checkoutBusy()`:
+
+```json
+{ "error": "checkout busy" }
+```
+
+HTTP status `409 Conflict`. The caller should retry later.
+
+### PR worktree exclusion
+
+PR-native missions run in isolated git worktrees (`<repo-parent>/.orca-worktrees/<slug>-<missionId>`). These are per-mission — a different mission or standalone task never collides with them. `busySharedCheckouts()` skips them entirely, so PR missions never block each other or the shared checkout.
+
+### KeyedMutex
+
+A `KeyedMutex` (`src/shared/keyedMutex.ts`) serializes git operations on one checkout:
+
+```typescript
+class KeyedMutex {
+  run<T>(key: string, fn: () => Promise<T>): Promise<T>;
+}
+```
+
+Calls sharing a key run strictly one-at-a-time (FIFO), while different keys run concurrently. Used to serialize:
+- The baseline read at spawn (`markBase()`)
+- The commit+snapshot at close (`commitPhase()` + `snapshotTaskChanges()`)
+
+A throwing `fn` never wedges the chain — the next waiter still runs. Keys with no pending work are dropped so the map can't grow without bound.
+
+### CheckoutResolver
+
+The `CheckoutResolver` interface provides two functions that the engine uses to map tasks to checkouts:
+
+```typescript
+interface CheckoutResolver {
+  projectPath: (projectId: number) => string;
+  worktreeFor?: (missionId: string) => string | null | undefined;
+}
+```
+
+`checkoutOf()` delegates to `usagePath()` — the same logic used for token-usage path resolution — so a task's working directory is always consistent between the spawn, the usage recorder, and the snapshot.

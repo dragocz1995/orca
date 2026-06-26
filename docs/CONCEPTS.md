@@ -46,6 +46,30 @@ When a task closes, the daemon freezes the list of files the task's agent commit
 
 The frozen diff is exposed via `GET /tasks/:id/changed/diff?path=<file>`. Empty when the task has no baseline (hand-closed), no commits were made, or the refs were GC'd by a later squash.
 
+#### Close paths
+
+Snapshots are taken on three code paths in the `PATCH /tasks/:id` close handler:
+
+| Path | Condition | Locking |
+|---|---|---|
+| **Review gate** | `reviewOnDone` + overseer configured → commit+snapshot on *approval* verdict | Under `gitLock.run()` so the commit and snapshot are serialized with the next agent's baseline read |
+| **Direct close** | Mission phase, no review gate → commit+snapshot immediately | Under `gitLock.run()` |
+| **Standalone task** | No mission → snapshot only (no phase commit) | Under `gitLock.run()` |
+
+The review path commits only on approval — a rejected phase never commits, so its snapshot is never taken. The direct-close path commits unconditionally (the agent already closed the task).
+
+#### KeyedMutex serialization
+
+A `KeyedMutex` (`src/shared/keyedMutex.ts`) serializes git operations on one checkout: the baseline read at spawn and the commit+snapshot at close must not interleave across agents sharing a working tree, or a task's frozen change range could straddle another's commit. The mutex is per-checkout-path (FIFO), so different checkouts run concurrently. A throwing `fn` never wedges the chain — the next waiter still runs.
+
+#### Edge cases
+
+- **No baseline** (`base:<sha>` label missing): the task was hand-closed or never spawned by the engine — `snapshotTaskChanges()` returns early, no snapshot stored.
+- **No commits** (`base == head`): the diff is empty — the task made no changes.
+- **Non-repo / no HEAD**: `projectHead()` returns null → early return.
+- **Git failure**: caught and logged; the close proceeds without a snapshot (best-effort).
+- **GC'd refs**: a later squash or rebase may invalidate the stored SHAs — the diff endpoint returns `{ diff: '' }`.
+
 ### Session resume
 
 When a provider's `resume` toggle is on (Settings → Providers), the usage recorder stamps a `resume:<program>:<sessionId>` label on the task at close. On the next spawn, `parseResumeLabel()` reads it and the spawn command splices the resume flag into the agent's launch command:
@@ -58,15 +82,118 @@ When a provider's `resume` toggle is on (Settings → Providers), the usage reco
 
 The resume is applied only if the program still matches and the provider allows it. The stuck detector also captures the dead agent's session for resume before reverting a stuck task, so the relaunch continues the prior conversation.
 
+#### Label lifecycle
+
+1. **Write** — `captureResumeLabel()` in `src/integrations/usage/resumeCapture.ts` detects the CLI session the agent just ran under and stamps the `resume:<program>:<sessionId>` label. Called at two moments:
+   - **UsageRecorder** (EventBus subscriber): when a task settles (`closed`/`cancelled`), before the usage snapshot. The resume label is independent of token parsing — even if usage comes up empty, the session still exists and is resumable.
+   - **Stuck detector** (`onReap` callback): when reverting a dead agent to `open`, captures the crashed-but-persisted session so the relaunch resumes it instead of cold-starting.
+2. **Read** — `parseResumeLabel()` in `src/spawn/resume/index.ts` parses the label at spawn time. The mission engine passes it to `SpawnService.launch()`.
+3. **Apply** — `SpawnService` validates that the recorded program matches the current spawn's program (the operator may have switched execs) and the provider hasn't disabled resume. If both pass, the resume is spliced into the launch command via `buildAgentCommand()`.
+
+#### ResumeProvider pattern
+
+Each CLI has a self-contained `ResumeProvider` module in `src/spawn/resume/`:
+
+| Module | Program | Placement | Command shape |
+|---|---|---|---|
+| `claude.ts` | `claude-code` | `flag` (after bypass, alongside `--model`) | `claude --dangerously-skip-permissions --resume <id> --model <model> <prompt>` |
+| `opencode.ts` | `opencode` | `flag` (after binary, alongside `--model`) | `opencode -s <id> --model <model> --prompt <prompt>` |
+| `codex.ts` | `codex` | `subcommand` (before bypass flag) | `codex resume <id> --dangerously-bypass-approvals-and-sandbox --model <model> <prompt>` |
+
+The `placement` field controls where the resume tokens land relative to the program's own flags:
+- `subcommand` — immediately after the binary, before any flags (codex `resume <id>`).
+- `flag` — after the binary/bypass flag, alongside `--model` (claude `--resume`, opencode `-s`).
+
+Only the trailing session id is shell-escaped; the leading tokens are literal flags/subcommand.
+
+#### Resume prompt
+
+A resumed agent receives a short continuation prompt (`worker-resume`) instead of the full worker preamble — it already holds the full goal and what it did, so re-injecting the whole preamble would make it restart from scratch. The resume prompt tells it to pick up where it left off, fold in any new input (details), then close.
+
+#### Stuck detector integration
+
+When the stuck detector reverts a dead agent to `open`, it calls `onReap(task)` before the revert. This callback runs `captureResumeLabel()` to stamp the dead agent's CLI session as the task's `resume:` label. The next spawn then resumes that session — the crash left a partial session on disk that still carries useful context. The capture is best-effort: a detection miss never blocks the reap.
+
 ### Checkout serialization
 
 A shared project checkout is single-writer: only one agent may edit it at a time. `checkoutBusy()` in `src/overseer/checkout.ts` checks the in-progress list and refuses a second spawn on the same checkout with `409 { "error": "checkout busy" }`. Isolated PR worktrees are excluded — they're per-mission, so a different mission never collides.
 
 A `KeyedMutex` (`src/shared/keyedMutex.ts`) serializes git operations on one checkout: the baseline read at spawn and the commit+snapshot at close must not interleave across agents sharing a working tree, or a task's frozen change range could straddle another's commit.
 
+#### CheckoutResolver
+
+The `CheckoutResolver` interface (`src/overseer/checkout.ts`) provides two functions:
+
+| Function | Purpose |
+|---|---|
+| `projectPath(projectId)` | Filesystem path of a project's shared checkout |
+| `worktreeFor?(missionId)` | A PR mission's isolated worktree dir, or `null`/`undefined` when it runs in the shared checkout |
+
+`checkoutOf()` resolves a task's working directory by delegating to `usagePath()` — the same logic used for token-usage path resolution. A PR mission's task gets its isolated worktree; everything else gets the shared project path.
+
+#### busySharedCheckouts
+
+`busySharedCheckouts()` builds the set of shared checkouts currently occupied by an in-progress task. It iterates the in-progress list and collects only shared checkout paths — isolated PR worktrees are deliberately excluded. The result is a `Set<string>` of occupied paths.
+
+#### Check-and-claim (atomic)
+
+The mission engine's tick loop performs a **check-and-claim** to avoid double-occupancy:
+
+1. Read the occupied set **fresh** at each claim (not a tick-start snapshot) — the engine and scheduler tick concurrently, so another tick may have claimed the checkout while we awaited `freeAgentName()`.
+2. Call `checkoutBusy()` synchronously, immediately before flipping the task to `in_progress`.
+3. No `await` between the check and the `setStatus(task.id, 'in_progress')` — the check-and-claim is atomic, and a concurrent tick that re-reads `in_progress` can't double-occupy.
+
+If the checkout is busy, the engine `break`s out of the ready-task loop — the phase stays `open` and retries on the next tick.
+
+#### 409 response
+
+The API endpoint that spawns a standalone task (outside a mission) also checks `checkoutBusy()` before spawning. If the checkout is occupied, it returns:
+
+```json
+{ "error": "checkout busy" }
+```
+
+with HTTP status `409 Conflict`. The caller should retry later.
+
+#### PR worktree exclusion
+
+PR-native missions run in isolated git worktrees (`<repo-parent>/.orca-worktrees/<slug>-<missionId>`). These are per-mission — a different mission or standalone task never collides with them. `busySharedCheckouts()` skips them entirely, so PR missions never block each other or the shared checkout.
+
 ### Inter-agent handoff notes
 
 Agents working on the same mission can leave free-form handoff notes for later phases via `orca note add <missionId> "<text>"`. Notes are scoped to a mission (epic) and access-gated by the epic's project. The next agent reads them with `orca note ls <missionId>` (oldest-first). Body is capped at 8 000 characters; a target is capped at 200 notes. Notes are stored in the `notes` table and purged when the epic is deleted.
+
+#### NoteStore
+
+`NoteStore` (`src/store/noteStore.ts`) provides the storage layer:
+
+| Method | Purpose |
+|---|---|
+| `add({ scope, target, author?, body })` | Insert a note, returns the full `Note` row |
+| `list(scope, target)` | List notes oldest-first (chronological handoff log) |
+| `count(scope, target)` | How many notes a scope/target already holds |
+| `deleteForTarget(scope, target)` | Purge a target's notes within one scope |
+| `deleteAllForTarget(target)` | Purge ALL of a target's notes across every scope (epic delete) |
+
+The `Note` type: `{ id, scope, target, author, body, created_at }`. The `(scope, target)` keying mirrors the events table — scope defaults to `'mission'`, target is the epic ID.
+
+#### API endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/notes?scope=mission&target=<epicId>` | List handoff notes for a mission (oldest-first) |
+| `POST` | `/notes` | Add a handoff note (`{ scope?, target, body, author? }`) |
+
+Both endpoints are access-gated by the target epic's project — an agent can only read/write notes for a mission in a project it is actively working in. The `noteTarget()` helper strips a leading `m-` from mission IDs so both workers (which hold the bare `epicId`) and the overseer (which holds `ORCA_MISSION=m-<epicId>`) work.
+
+#### Access gating
+
+- `GET /notes`: resolves the target epic, checks `canAccessProject()`. Returns `404` for an unknown target, `403` for cross-tenant access. An orphaned note (epic deleted) can never be read — the target must resolve and be allowed.
+- `POST /notes`: same gate. Additionally enforces `MAX_NOTE_BODY` (8 000 chars) and `MAX_NOTES_PER_TARGET` (200) to bound the per-mission log — a prompt-injected agent loop can't inflate the DB.
+
+#### Purging
+
+Notes are purged when the epic is deleted (`deleteAllForTarget()` in the `DELETE /tasks/:id` handler). This prevents orphan notes from outliving their access-control anchor — without it, a removed mission would leave notes with no project gate.
 
 ---
 
