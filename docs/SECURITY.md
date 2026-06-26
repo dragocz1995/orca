@@ -225,6 +225,29 @@ Each agent runs in an isolated tmux session:
 - Killable via API (`DELETE /sessions/:name`) or CLI (`orca sessions` + manual kill)
 - Sessions run agents with `--dangerously-skip-permissions`; the agent capability gate (above) is the compensating control
 
+### Shared-checkout concurrency hardening
+
+Non-PR phases share one project checkout. Two agents running there concurrently would interleave `git add -A` over a neighbor's edits or straddle `base..HEAD` across another's commit, mis-attributing changes. Three cooperating mechanisms prevent this:
+
+**1. Per-checkout async mutex (`KeyedMutex`)** — a FIFO lock keyed by checkout path, shared across the scheduler, mission engine, and API server. The spawn-time baseline read (`markBase`) and the close-time commit+snapshot run under this lock so they never interleave across agents sharing a working tree. PR worktrees use their own key — cross-checkout parallelism is preserved.
+
+**2. Single-writer gate (`checkoutBusy`)** — before launching an agent into a shared checkout, the scheduler, mission engine, and manual `POST /sessions` all check whether another in-progress task already occupies it. The in-progress list is read **fresh** immediately before the claim, and the task is flipped to `in_progress` **synchronously** — with no `await` between the check and the flip — so the check-and-claim is atomic across concurrent ticks. A stale snapshot would miss a launch another tick made during an await, double-occupying the checkout. Returns `409 { error: 'checkout busy' }` when occupied.
+
+**3. Launch-gate race fix** — the scheduler originally stamped the baseline (under the lock, an await point) while the task was still `open`, only flipping to `in_progress` afterwards. A concurrent mission tick computing the occupied set from `in_progress` could miss the task during that await window. The fix flips to `in_progress` **before** the first await, matching the mission engine, so the gate holds across concurrent ticks.
+
+### Notes API hardening
+
+Inter-agent handoff notes (`notes` table, `NoteStore`) are access-controlled:
+
+- `GET /notes` re-checks project access on the resolved target and fails 404 on an unresolved target
+- `POST /notes` caps body length and enforces a per-target count limit
+- Epic deletion purges notes across **all** scopes (`deleteAllForTarget`) so removed missions leave no orphan notes that would outlive their access-control anchor
+- The `m-` prefix is only stripped when the remainder is a real epic, preventing a crafted target from bypassing the access check
+
+### Exec allow-list enforcement on task update
+
+`PATCH /tasks/:id` stores the `exec` value as an `exec:<spec>` label whose model is interpolated into the agent launch command. Unlike every other exec-setting route, this path originally had no allow-list check — a project member could set an arbitrary executor or smuggle shell metacharacters and run code as the daemon user. The fix gates it like the plan/session routes (global `allowedExecs` + per-user `allowed_execs`), and the model is shell-escaped in the launch command as defense-in-depth.
+
 ### SQLite
 
 - WAL mode for concurrent read/write

@@ -184,6 +184,26 @@ Store modules: `db.ts`, `taskStore.ts`, `missionStore.ts`, `missionPrStore.ts`, 
 
 Commands: `orca ls`, `orca ready`, `orca sessions`, `orca close`, `orca plan submit`, `orca overseer poll`, `orca overseer decide`, plus the generic `orca api <METHOD> <path> [jsonBody]` REST passthrough. Lifecycle commands (`orca up`, `down`, `status`, `update`, `install`) manage the daemon itself. Auto-detects and starts the daemon if not running (except lifecycle commands).
 
+### Shared-checkout concurrency model
+
+Non-PR phases share one project checkout (the project's working directory). Two agents running there concurrently would interleave `git add -A` over a neighbor's edits or straddle `base..HEAD` across another's commit, mis-attributing changes. The concurrency model prevents this with three cooperating pieces:
+
+**1. Per-checkout async mutex (`KeyedMutex`)** — a FIFO lock keyed by checkout path. The spawn-time baseline read (`markBase`) and the close-time commit+snapshot run under this lock so they never interleave across agents sharing a working tree. PR worktrees are per-mission isolated, so they use their own key and cross-checkout parallelism is preserved.
+
+**2. Single-writer gate (`checkoutBusy` / `busySharedCheckouts`)** — before launching an agent into a shared checkout, the scheduler, mission engine, and manual `POST /sessions` all check whether another in-progress task already occupies it. The in-progress list is read **fresh** immediately before the claim, and the task is flipped to `in_progress` **synchronously** — with no `await` between the check and the flip — so the check-and-claim is atomic across concurrent ticks. A stale (tick-start) snapshot would miss a launch another tick made during an await, double-occupying the checkout. PR worktrees are excluded from the busy set (they're per-mission isolated).
+
+**3. Launch-gate race fix** — the scheduler originally stamped the baseline (under the lock, an await point) while the task was still `open`, only flipping to `in_progress` afterwards. A concurrent mission tick computing the occupied set from `in_progress` could miss the task during that await window and launch a second agent. The fix flips to `in_progress` **before** the first await, matching the mission engine, so the gate holds across concurrent ticks.
+
+The `gitLock` (`KeyedMutex`) is instantiated once in `bootstrap.ts` and shared across the scheduler, mission engine, and API server. The close path in `server.ts` runs the review-context build, the commit, and the change snapshot all under the checkout's lock so they form one atomic unit.
+
+### Notes API hardening
+
+The `NoteStore` (`src/store/noteStore.ts`) provides inter-agent handoff notes with these safety properties:
+
+- **Access gating** — `GET /notes` re-checks project access on the resolved target (fails 404 on an unresolved target). `POST /notes` caps the body length and enforces a per-target count limit so a single scope/target can't grow unbounded.
+- **Epic-deletion purge** — `deleteAllForTarget()` purges notes across **all** scopes when an epic is deleted, so removed missions leave no orphan notes that would outlive their access-control anchor.
+- **m- prefix stripping** — the `m-` prefix is only stripped when the remainder is a real epic, preventing a crafted target from bypassing the access check.
+
 ### `src/shared/` — Utilities
 
 - `clock.ts` — `Clock` interface with `SystemClock` (real) and `FakeClock` (test) implementations

@@ -306,6 +306,31 @@ Application logs (file-based, controlled by `ORCA_LOG_DIR` / `ORCA_LOG_LEVEL`):
 tail -f $PWD/logs/daemon.log
 ```
 
+## Updating
+
+### Self-reinstall update flow
+
+`orca update` (and the hourly auto-update timer) reinstalls the npm package in place and restarts the services. The update is **self-locating** — it computes the npm `--prefix` from its own binary path, so it works no matter where orca was globally installed (e.g. a www-data-owned prefix), without the operator having to remember any `--prefix`.
+
+```
+orca update
+  → checkLatest() — fetch https://registry.npmjs.org/orcasynth/latest
+  → isNewer() — skip if already current
+  → reinstall() — npm install -g orcasynth@latest [--prefix <self-located>]
+  → restart — systemctl restart orca-daemon orca-web (sudo when not root)
+```
+
+**Writability check + sudo fallback:** When orca is installed in a root-owned global prefix (e.g. `/usr`) but the daemon runs as a non-root service user, a plain `npm install -g` fails with `EACCES`. The update checks whether the `node_modules` directory is writable by the current user; when it isn't, it routes the in-place reinstall through `sudo`. `orca install` grants exactly this command via a pinned sudoers drop-in (`/etc/sudoers.d/orca`), built from one shared source (`reinstallNpmArgs()`) so the pinned and executed commands stay identical. A writable prefix (root, or a service-user-owned prefix) installs directly, no sudo.
+
+**Auto-update timer:** `orca install` provisions a systemd timer (`orca-update.timer`) that fires hourly and triggers `orca-update.service` — a oneshot unit running `orca update --auto`. The `--auto` flag gates on two conditions before proceeding:
+
+1. The operator must have turned auto-update **on** in Settings (`config.autoUpdate`).
+2. No mission is currently running (a live mission would be interrupted by a restart).
+
+If either condition fails, the service exits cleanly (exit 0) so `systemctl status orca-update` stays green — a disabled or busy box is a normal no-op, not a failure.
+
+**systemd-aware restart:** After a successful install, the update restarts the systemd units (`orca-daemon` + `orca-web`) via `systemctl restart`, transparently through `sudo` when the caller isn't root. A plain launcher install (no `install.json`) falls back to stop/start of the daemon's own spawned process.
+
 ## Troubleshooting
 
 ### Daemon won't start
