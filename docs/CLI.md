@@ -244,9 +244,25 @@ Prints a one-glance block showing which services are running and healthy:
 ### `orca update`
 
 Updates to the latest npm release and restarts the services in place. Self-locating and
-systemd-aware — it targets its own install prefix and restarts the units. When the global prefix
-isn't writable by the current user, it re-invokes itself via `sudo` for the install step. The
-reliable fallback is:
+systemd-aware — it targets its own install prefix and restarts the units.
+
+**Self-locating prefix.** The binary derives its own install prefix from its filesystem path
+(`<prefix>[/lib]/node_modules/orcasynth/dist/cli/update.js`), so `orca update` reinstalls itself
+in place no matter where it was globally installed (e.g. a www-data-owned prefix). The operator
+never needs to remember `--prefix`. When run from a source checkout (no `node_modules` in the
+path), it falls back to npm's default global prefix.
+
+**Sudo self-reinstall.** When the global packages directory isn't writable by the current user
+(the common "installed as root in `/usr`, daemon runs as a non-root service user" layout), the
+update routes the `npm install` through `sudo`. The `orca install` provisioning wizard grants
+exactly this command via a pinned sudoers drop-in (`/etc/sudoers.d/orca`), validated with
+`visudo -cf` before it's trusted. A writable prefix (root, or a service-user-owned prefix)
+installs directly, no sudo.
+
+**Restart.** A systemd-managed box restarts the units via `systemctl` (sudo when not root). A
+plain launcher install (no `install.json`) falls back to stop/start of its own spawned daemon.
+
+The reliable manual fallback is:
 
 ```bash
 sudo npm install -g orcasynth@latest --prefix <install-prefix> && sudo systemctl restart orca-daemon orca-web
@@ -273,6 +289,43 @@ Disable with `ORCA_AUTOSTART=0`:
 ```bash
 ORCA_AUTOSTART=0 orca ls
 ```
+
+## Agent spawn & resume
+
+When the daemon spawns an agent (worker, Pilot, or Overseer), it creates a tmux session named
+`orca-<agentName>` and launches the agent CLI in the task's project directory. The agent reaches
+back to the daemon through environment variables (`ORCA_URL`, `ORCA_TOKEN`) injected at spawn time.
+
+### Resume (session continuation)
+
+When a task is re-spawned (e.g. after a crash, stuck detection, or mission resume), the daemon
+can resume the agent's previous CLI session instead of cold-starting. This preserves the agent's
+full context — what it already did, its reasoning, and partial work.
+
+**How it works:**
+
+1. **Capture.** When a task closes (or the stuck detector reaps a dead agent), the usage recorder
+   stamps the task with a `resume:<program>:<sessionId>` label — e.g. `resume:opencode:abc123`.
+
+2. **Parse.** At the next spawn, `parseResumeLabel()` reads the label. The resume is applied only
+   if the program still matches (the operator may have switched the task's exec since) and the
+   provider hasn't disabled resume in Settings → Providers.
+
+3. **Splice.** Each CLI has its own resume strategy:
+   - **opencode** — `-s <sessionId>` flag (interactive TUI resume)
+   - **claude-code** — `--resume <sessionId>` flag
+   - **codex** — `resume <sessionId>` subcommand (placed before `--model`)
+
+4. **Prompt.** A resumed agent gets a short continuation prompt (`worker-resume`) instead of the
+   full worker preamble — it already holds the goal and context from its prior session.
+
+**Provider control.** The resume toggle in Settings → Providers (`resume: true/false`) lets the
+operator disable resume per CLI. When disabled, every spawn is a cold start.
+
+**Stuck detection.** The stuck detector (2-minute grace period) captures the dead agent's session
+for resume before re-opening the task, so the relaunch continues the crashed-but-persisted context
+instead of starting over. This is bounded by `maxRelaunch` — after that many re-spawns, the task
+is escalated to a human.
 
 ## Exit codes
 
