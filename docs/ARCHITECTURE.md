@@ -69,9 +69,9 @@ The agent works in the tmux pane, then calls `node <cli> close <taskId> …` bac
 
 ### `src/api/` — REST API (Hono)
 
-- `server.ts` — route definitions (1,616 lines, 89 routes in one file): tasks, missions, sessions, projects, users, auth, config, integrations, file editor, git surface, planner, plan jobs, overseer decision routes, web push subscriptions, usage stats, system info, advisor, MCP, activity log, events SSE
+- `server.ts` — route definitions (1,738 lines, 92 routes in one file): tasks, missions, sessions, projects, users, auth, config, integrations, file editor, git surface, planner, plan jobs, overseer decision routes, web push subscriptions, usage stats, system info, advisor, MCP, activity log, events SSE, handoff notes, per-task change snapshots
 - `sse.ts` — `EventBus` for real-time SSE notifications (terminal output, task state changes, plan job status)
-- `auth.ts` — Bearer token middleware, also accepts `?token=` query param for SSE. `/ws/terminal` is public here — the terminal-WS ticket is its capability
+- `auth.ts` — Bearer token middleware (header only, no query param). `/ws/terminal` is public here — the terminal-WS ticket is its capability
 
 ### `src/terminal/` — Real-PTY terminal streaming
 
@@ -116,11 +116,15 @@ A stateless MCP server (`/mcp` endpoint) exposing Orca's toolset to the assistan
 - `planJob.ts` — async planning job registry (shared state between relay and agent backends)
 - `llmParse.ts` — `extractJson()` shared helper for robust LLM JSON output extraction (used by planner + decision)
 - `sessionInfo.ts` — `classifySession()` maps every `orca-*` session to structured `SessionInfo` (role + agent name + optional missionId)
+- `checkout.ts` — `checkoutBusy()` / `busySharedCheckouts()`: single-writer gate for shared project checkouts so per-task change attribution stays clean
+- `taskSnapshot.ts` — `snapshotTaskChanges()`: freezes a task's committed file list at close as `base..HEAD` in the agent's checkout
+- `reviewContext.ts` — `buildReviewContext()`: assembles the review payload (title, outcome, summary, changed files, diff) for the post-done review gate
 
 ### `src/spawn/` — Agent spawning
 
 - `spawn.ts` — `SpawnService` creates tmux sessions with agent commands; nudges Enter at 4s/8s/13s for OpenCode TUI
 - `commandBuilder.ts` — builds the shell command per agent type (claude-code, opencode TUI, codex)
+- `resume/` — per-program session resume strategies: `claudeResume` (`--resume`), `codexResume` (`resume` subcommand), `opencodeResume` (`-s`). `parseResumeLabel()` reads a task's `resume:<program>:<sessionId>` label; the spawn applies it only if the program still matches and the provider's `resume` toggle is on.
 
 ### `src/deriver/` — Agent monitoring
 
@@ -149,12 +153,13 @@ SQLite with WAL mode (`better-sqlite3`). Tables:
 | `users` | User accounts (scrypt password hashes, admin flag, per-user exec allow-list, advisor exec + autostart flag) |
 | `auth_tokens` | Session tokens for bearer auth (scope: full / agent / advisor) |
 | `events` | Activity event log (state changes, signals) |
+| `notes` | Inter-agent handoff notes (free-form context one agent leaves for the next) |
 | `task_usage` | Persisted per-task token/cost snapshots (written once when a task settles, so the stats page never re-scans CLI session stores) |
 | `user_push_subscriptions` | Per-user web-push device subscriptions (endpoint + VAPID keys) |
 | `mission_pr` | PR-native workflow state (branch, worktree, PR number, review feedback, fix rounds) |
 | `user_projects` | User ↔ project assignments (RBAC many-to-many) |
 
-Store modules: `db.ts`, `taskStore.ts`, `missionStore.ts`, `missionPrStore.ts`, `agentStore.ts`, `eventStore.ts`, `configStore.ts`, `userStore.ts`, `projectStore.ts`, `userProjectStore.ts`, `pushSubscriptionStore.ts`, `taskUsageStore.ts`, `readiness.ts`, `missionDetail.ts`, `cascade.ts`, `schema.sql`, `types.ts`.
+Store modules: `db.ts`, `taskStore.ts`, `missionStore.ts`, `missionPrStore.ts`, `agentStore.ts`, `eventStore.ts`, `noteStore.ts`, `configStore.ts`, `userStore.ts`, `projectStore.ts`, `userProjectStore.ts`, `pushSubscriptionStore.ts`, `taskUsageStore.ts`, `readiness.ts`, `missionDetail.ts`, `cascade.ts`, `schema.sql`, `types.ts`.
 
 ### `src/inference/` — LLM relay
 
@@ -184,6 +189,7 @@ Commands: `orca ls`, `orca ready`, `orca sessions`, `orca close`, `orca plan sub
 - `clock.ts` — `Clock` interface with `SystemClock` (real) and `FakeClock` (test) implementations
 - `execs.ts` — single source of truth for executor metadata: `PROGRAM_PREFIXES`, `KNOWN_EXECS`, `DEFAULT_BINS`, `isWellFormedExec`, `isAllowedExec` (formerly duplicated across `routing.ts` and `configStore.ts`)
 - `apiClient.ts` — `callOrcaApi(method, path, body, opts)`: the single HTTP-forward core for reaching the Orca REST API with a bearer token. Shared by the `orca api` CLI verb and every MCP tool, so there is no duplicated request logic and a new REST endpoint works in both with zero edits
+- `keyedMutex.ts` — `KeyedMutex`: per-key async mutex (FIFO). Serializes git operations on one checkout — the baseline read at spawn and the commit+snapshot at close must not interleave across agents sharing a working tree
 
 ### `src/push/` — Web push notifications
 
@@ -303,4 +309,4 @@ Tests use Vitest with fake implementations:
 
 This allows full integration-style tests without real tmux or network dependencies.
 
-Daemon tests: ~833 `it`/`test` cases across 108 test files in `tests/`. Web tests: ~445 cases in 103 test files in `web/tests/` (Vitest + React Testing Library).
+Daemon tests: ~915 `it`/`test` cases across 108 test files in `tests/`. Web tests: ~469 cases in 103 test files in `web/tests/` (Vitest + React Testing Library).

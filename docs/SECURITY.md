@@ -8,7 +8,7 @@ Authentication is optional. When a `UserStore` is configured, the daemon uses be
 |---|---|
 | Login | `POST /auth/login` — username + password, returns `{ token, user }` |
 | Token | 32-byte random hex string, stored in `auth_tokens` table |
-| Transport | `Authorization: Bearer <token>` header or `?token=<query>` param (SSE only) |
+| Transport | `Authorization: Bearer <token>` header |
 | Password | scrypt with random 16-byte salt, 64-byte derived key |
 | Logout | `POST /auth/logout` — revokes the current token server-side |
 
@@ -32,11 +32,11 @@ The `agentAllowed()` gate in `server.ts` runs as middleware **before** any route
 
 | Verb | Path | Used by |
 |---|---|---|
-| `GET` | `/tasks`, `/tasks/ready`, `/sessions` | `orca ls` / `orca ready` / `orca sessions` |
+| `GET` | `/tasks`, `/tasks/ready`, `/sessions`, `/notes` | `orca ls` / `orca ready` / `orca sessions` / `orca note ls` |
 | `GET` | `/plan/:jobId` | Pilot poll |
 | `GET` | `/missions/:id/overseer/next` | Overseer poll |
 | `PATCH` | `/tasks/:id` | `orca close` |
-| `POST` | `/plan/:jobId/submit` | `orca plan submit` |
+| `POST` | `/plan/:jobId/submit`, `/notes` | `orca plan submit` / `orca note add` |
 | `POST` | `/missions/:id/overseer/decide` | `orca overseer decide` |
 
 Any other route returns `403` for an `agent`-scoped token. Project ownership of the affected row is still enforced downstream by `canAccessProject`, so the agent cannot cross tenancy even within the allow-list.
@@ -87,7 +87,7 @@ In-process is sufficient for the single-daemon deployment model. The IP is read 
 
 ### Web UI
 
-Tokens are stored in `localStorage` under `orca.token`. The `LoginGate` wrapper checks for a stored token on mount and shows the `LoginForm` if absent. SSE endpoints append the token as `?token=<value>` (EventSource limitation — `EventSource` cannot set headers).
+The web UI uses the same-origin `/api` BFF proxy with an httpOnly session cookie — the token never reaches browser JS or `localStorage`. The `LoginGate` wrapper probes `/api/auth/me` on mount (the cookie is httpOnly, so JS can't read it). SSE connections go through the same-origin proxy with `credentials: 'same-origin'`. There is no `?token=` query param and no `localStorage` token.
 
 Avatar images use short-lived signed URLs (HMAC over `(userId, exp)`, 5-minute TTL) instead of putting the long-lived session token in the query string — see `src/api/server.ts` `signAvatar` / `avatarSigValid`. An `<img>` can't set an `Authorization` header, so the signed URL is minted by an authenticated caller and the URL itself is near-worthless if leaked.
 

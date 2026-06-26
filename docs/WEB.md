@@ -56,7 +56,7 @@ Data refreshes via `useTasks` (poll 5 s), `useSessions` (poll 5 s), `useMissions
 
 - **ModuleHeader** — title, search input, segmented filter (Active / Open / Blocked / Closed / Autopilot / All), New task button
 - **Day-grouped task list** — cards grouped by today/yesterday/date, paginated (12 per page)
-- **TaskCard** — compact single-row card: small model-icon bubble, title + id, live dot, status/time/project badges, quick run controls (Start/Stop/Pause), hover action menu (close/delete). Full detail (agent, usage, changes, context) opens in the detail pane on click. Checkbox for bulk select.
+- **TaskCard** — compact single-row card: small model-icon bubble, title + id, live dot, status/time/project badges, quick run controls (Start/Stop/Pause), hover action menu (close/delete). Full detail (agent, usage, changes, context) opens in the detail pane on click. Checkbox for bulk select. Right-click opens a context menu with quick actions (close, delete, edit, open detail).
 - **EpicGroup** — collapsible epic row that IS the mission: lifecycle pills (Engage / Pause / Resume / Disengage, plus PR link/open/merge) in their own row below the progress bar, rolled-up cost (`totalCost` from `['task-usage', id]` cache), `ProgressRibbon`, `done/total` count, `ProjectPill`. Status badge and action menu (Add phase, Delete mission) grouped together top-right, revealed on epic hover. Expanded shows child phases as `TaskCard` rows. No `overflow-hidden` on the card to avoid clipping the action menu dropdown.
 - **Filters** — search by text/id, status filter, persistent in `localStorage`
 - **Bulk actions** — bottom bar with close/delete for selected tasks
@@ -188,7 +188,7 @@ Admin-only (non-admins see a lock screen with link to My Account). Inline in `ap
   - Notes, planner prompt template with `{{goal}}` placeholder
   - Test plan button — submits dry-run, polls async plan job, shows preview
 - **GitHub** — PR workflow configuration: GitHub token, default PR settings (base branch, auto-open, verify command), status banner showing `gh` auth state
-- **Providers** — per-program binary paths and extra CLI args (Claude Code, OpenCode, Codex); skip-permissions toggle per provider
+- **Providers** — per-program binary paths and extra CLI args (Claude Code, OpenCode, Codex); skip-permissions toggle per provider; resume-sessions toggle per provider (when enabled, a re-spawned agent continues its prior CLI session)
 - **Defaults** — default executor, autonomy level, max sessions, login token TTL
   - The autonomy selector shows a contextual explainer text below the L0–L3 segmented control that updates in real time as the user switches levels. The texts (from i18n dictionaries) describe each level's behavior:
     - **L0**: "The Pilot only plans and proposes. Nothing runs until you approve it."
@@ -438,9 +438,9 @@ Tailwind CSS 4 with CSS-first config in `globals.css`. OLED-friendly dark theme,
 
 | Token | Value |
 |-------|-------|
-| `radius` | `0.5rem` |
-| `radius-sm` | `0.375rem` |
-| `radius-lg` | `0.75rem` |
+| `radius` | `0.375rem` |
+| `radius-sm` | `0.25rem` |
+| `radius-lg` | `0.5rem` |
 | `shadow-card` | `0 1px 2px 0 rgb(0 0 0 / 0.4)` |
 | `shadow-raised` | `0 4px 16px -4px rgb(0 0 0 / 0.6)` |
 
@@ -499,7 +499,7 @@ The UI adapts across three breakpoints using standard Tailwind responsive prefix
 | `ExecutorPicker` | Executor model picker as brand-icon pills (icon + name). Shows first `limit` models alphabetically with "+N more" expander; keeps selected model visible when collapsed. |
 | `Modal` | Modal dialog with title, close, backdrop, sizes (sm/md/lg/full) |
 | `ConfirmDialog` | Confirmation modal with cancel/confirm |
-| `Toast` | Toast notification (icon + message, auto-dismiss, rAF-based progress bar, hover pause) |
+| `Toast` | Toast notification (icon + message, auto-dismiss, rAF-based progress bar, hover pause). Dark tonal style: deep tinted fill with strong same-hue border and bright lifted accent for icon/title. |
 | `Section` | Section container with title, icon, optional action |
 | `Badge` | Status badge with tone (`default` / `accent` / `muted` / `danger` / `success` / `warning`) |
 | `ModuleHeader` | Sticky, compact page toolbar with title, icon, optional actions |
@@ -507,6 +507,7 @@ The UI adapts across three breakpoints using standard Tailwind responsive prefix
 | `SettingCard` | Settings section card |
 | `HelpTip` | Question-mark tooltip helper |
 | `ActionMenu` | Dropdown action menu with icon and tone support. Default trigger is a filled-red trash icon (solid at rest, darkens on hover). Portalled to body to escape stacking context. |
+| `ContextMenu` | Floating right-click context menu (OLED styled) with optional one-level-deep submenus. Closes on outside click, Esc, scroll/resize. Shared across the file tree and the task list. |
 | `Avatar` | User avatar with fallback initial |
 | `Checkbox` | Checkbox input |
 | `states` | `LoadingState`, `ErrorState` (with retry), `EmptyState` |
@@ -660,7 +661,7 @@ npm install
 npm run dev          # Next.js dev server (turbopack)
 npm run build        # production build (next build)
 npm start -- -p 4500 # production server (next start, port 4500)
-npm test             # Vitest (~445 cases, RTL + MSW)
+npm test             # Vitest (~469 cases, RTL + MSW)
 npm run test:watch   # watch mode
 ```
 
@@ -670,7 +671,7 @@ The web app talks only to its own same-origin `/api` BFF proxy (`lib/orcaClient.
 
 ### Test setup
 
-Tests in `web/tests/` (~445 cases) use:
+Tests in `web/tests/` (~469 cases) use:
 - **Vitest** — test runner
 - **MSW** — API mocking
 - **Testing Library** — component rendering and interaction

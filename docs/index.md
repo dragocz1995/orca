@@ -142,14 +142,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for module details.
 # Daemon
 npm install && npm run build        # compile TS → dist/, copy schema.sql + prompts/
 npm run serve                       # dev mode (direct TS via --experimental-strip-types)
-npm test                            # daemon tests (~833)
+npm test                            # daemon tests (~915)
 npm run lint                        # ESLint + dependency-cruiser architecture checks
 node dist/daemon/index.js           # production start
 
 # Web
 cd web && npm install
 npm run dev                         # Next.js dev server (turbopack)
-npm test                            # web tests (~445)
+npm test                            # web tests (~469)
 npm run build && npm start          # production
 ```
 

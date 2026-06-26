@@ -24,7 +24,7 @@ npm run build
 |---|---|
 | `npm run serve` | Run the daemon directly from TS via `--experimental-strip-types` (no build step). Starts on `http://localhost:4400`. |
 | `npm run build` | `tsc -p tsconfig.json` + copy `src/store/schema.sql` → `dist/store/` + copy `prompts/` → `dist/prompts/`. CLI ends up at `dist/cli/index.js`, daemon at `dist/daemon/index.js`. |
-| `npm test` | `vitest run` — single run of the daemon test suite (~833 cases) |
+| `npm test` | `vitest run` — single run of the daemon test suite (~915 cases) |
 | `npm run test:watch` | `vitest` — watch mode |
 | `npm run lint` | ESLint + dependency-cruiser architecture checks (no-circular, layer boundaries, orphans) |
 | `npm run deadcode` | `knip` — detect unused exports, files, and dependencies |
@@ -48,7 +48,7 @@ Or link globally: `npm link` then `orca ls`. The CLI auto-starts the daemon if i
 cd web
 npm install
 npm run dev      # Next.js dev server (turbopack)
-npm test         # Vitest (~445 cases)
+npm test         # Vitest (~469 cases)
 npm run lint     # ESLint + dependency-cruiser architecture checks
 npm run build    # Production build (copies Monaco workers, then next build)
 npm start        # Production server (default port 3000)
@@ -64,8 +64,8 @@ GitHub Actions runs on every push and PR to `main` (see [`.github/workflows/ci.y
 
 | Job | Steps |
 |-----|-------|
-| **Daemon** (833 tests) | `npm ci` → `npm run build` → `npm test` (tmux installed via apt) |
-| **Web** (445 tests) | `npm ci` → `npm run build` → `npm test` (in `web/`) |
+| **Daemon** (915 tests) | `npm ci` → `npm run build` → `npm test` (tmux installed via apt) |
+| **Web** (469 tests) | `npm ci` → `npm run build` → `npm test` (in `web/`) |
 
 Both jobs run in parallel on `ubuntu-latest` with Node 22. Superseded runs on the same ref are cancelled automatically.
 
@@ -181,16 +181,21 @@ src/
 │   ├── overseerAgent.ts  Parked overseer agent lifecycle
 │   ├── stuckDetector.ts  Stuck task detection + relaunch
 │   ├── llmParse.ts       Shared LLM JSON extraction helper
-│   └── sessionInfo.ts    Session classification (agent/pilot/overseer)
+│   ├── sessionInfo.ts    Session classification (agent/pilot/overseer)
+│   ├── checkout.ts       Single-writer gate for shared checkouts
+│   ├── taskSnapshot.ts   Per-task frozen change list at close
+│   └── reviewContext.ts  Post-done review payload assembly
 ├── prompts/          Prompt template system
 │   └── index.ts      render(name, vars) + rawTemplate(name)
 ├── shared/           Utilities
 │   ├── clock.ts      Clock interface (system + fake)
 │   ├── execs.ts      Executor metadata (PROGRAM_PREFIXES, KNOWN_EXECS, etc.)
+│   ├── keyedMutex.ts Per-key async mutex for git serialization
 │   └── logger.ts     File logger (ORCA_LOG_LEVEL / ORCA_LOG_DIR)
 ├── spawn/            Agent launcher
 │   ├── spawn.ts      SpawnService
-│   └── commandBuilder.ts  Agent command construction
+│   ├── commandBuilder.ts  Agent command construction
+│   └── resume/       Per-program session resume strategies (claude, opencode, codex)
 ├── store/            SQLite data layer
 │   ├── db.ts         Database connection
 │   ├── schema.sql    Table definitions
@@ -204,14 +209,15 @@ src/
 │   ├── userStore.ts     User management + auth tokens
 │   ├── userProjectStore.ts  User ↔ project assignments
 │   ├── projectStore.ts  Project CRUD
-│   └── eventStore.ts    Activity event log
+│   ├── eventStore.ts    Activity event log
+│   └── noteStore.ts     Inter-agent handoff notes
 └── tmux/             tmux abstraction
     ├── types.ts      TmuxDriver interface
     ├── driver.ts     RealTmuxDriver
     └── fakeDriver.ts In-memory fake for tests
 prompts/              Prompt templates (planner, pilot, overseer, advisor, worker, decision)
-tests/                Mirrors src/ structure (~833 tests)
-web/                  Next.js frontend (~445 tests)
+tests/                Mirrors src/ structure (~915 tests)
+web/                  Next.js frontend (~469 tests)
 docs/                 Documentation tree
 ```
 
@@ -366,7 +372,7 @@ SQLite with WAL mode. Schema in `src/store/schema.sql`.
 
 ```sql
 projects  (id, slug, path, notes)
-tasks     (id, project_id, title, type, status, priority, parent_id, labels, description, scheduled_at, autostart, result_summary, outcome, closed_at, created_at)
+tasks     (id, project_id, title, type, status, priority, parent_id, labels, description, scheduled_at, autostart, result_summary, outcome, closed_at, created_at, base_sha, head_sha, changed_files)
 task_deps (task_id, depends_on_id)
 agents    (id, project_id, name, program, model, last_active_ts)
 missions  (id, epic_id, autonomy, max_sessions, state, started_at)
@@ -374,7 +380,11 @@ settings  (id, data)  -- JSON blob for runtime config
 users     (id, username, password_hash, is_admin, allowed_execs, name, email, default_exec, avatar, created_at)
 auth_tokens (token, user_id, scope, created_at)
 events    (id, ts, type, target, detail)
+notes     (id, scope, target, author, body, created_at)
+task_usage (task_id, project_id, exec, input, output, cache_read, cache_write, total, cost_usd, captured_at)
 user_projects (user_id, project_id)
+mission_pr (mission_id, branch, worktree, pr_number, pr_url, pr_state, review_feedback, fix_rounds)
+user_push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at)
 ```
 
 ---

@@ -111,6 +111,17 @@ Flags:
 
 Calls `PATCH /tasks/:id` with `status: "closed"`, `result_summary`, and `outcome`.
 
+### `orca note`
+
+Inter-agent handoff notes for a mission. Agents leave context for later phases; the next agent reads them before starting.
+
+```bash
+orca note add <missionId> "<text>"   # leave a handoff note
+orca note ls  <missionId>            # read this mission's notes (oldest-first)
+```
+
+`<missionId>` is the epic id or `m-<epicId>` — the daemon normalizes the prefix. Calls `POST /notes` and `GET /notes?scope=mission&target=<epicId>`.
+
 ### `orca plan submit`
 
 Used by the **Pilot agent** to submit a structured plan for an async planning job. The job ID is injected via the `ORCA_PLAN_JOB` environment variable — the Pilot never passes it manually.
@@ -233,7 +244,9 @@ Prints a one-glance block showing which services are running and healthy:
 ### `orca update`
 
 Updates to the latest npm release and restarts the services in place. Self-locating and
-systemd-aware — it targets its own install prefix and restarts the units. The reliable fallback is:
+systemd-aware — it targets its own install prefix and restarts the units. When the global prefix
+isn't writable by the current user, it re-invokes itself via `sudo` for the install step. The
+reliable fallback is:
 
 ```bash
 sudo npm install -g orcasynth@latest --prefix <install-prefix> && sudo systemctl restart orca-daemon orca-web

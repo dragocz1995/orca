@@ -32,10 +32,41 @@ Tasks carry string labels used for routing and agent naming:
 - `agent:<name>` — pin a specific agent name for this task's session (`orca-<name>`). Named agents let the deriver, janitor, and stuck detector resolve the task from a session without relying on first-in-progress fallback.
 - `started:<epoch-ms>` — precise spawn timestamp for correct usage attribution under concurrency
 - `stuck:<n>` — relaunch counter; incremented each time the stuck detector reverts this task, bounds re-spawns at `maxRelaunch` (2)
+- `base:<sha>` — the HEAD commit at spawn time, stamped under the checkout lock so it lands after any in-flight commit. Used by the per-task change snapshot to freeze the `base..HEAD` range at close.
+- `head:<sha>` — the HEAD commit at close time, stamped by `snapshotTaskChanges()`. Together with `base:<sha>` it defines the frozen change list for this task.
+- `resume:<program>:<sessionId>` — written by the usage recorder at close when the provider's `resume` toggle is on. At the next spawn, the agent continues its prior CLI session instead of starting cold.
 
 ### Readiness
 
 A task is **ready** when it is `open`, not an epic, and every one of its dependencies (`task_deps`) is `closed` or `cancelled`. The `Readiness` service computes this at query time with a single `NOT EXISTS` deps check — `ready(projectId)` across a project, or `readyForEpic(epicId)` scoped to one epic's direct children (used by the mission engine so parallel missions don't walk each other's tasks).
+
+### Per-task change snapshots
+
+When a task closes, the daemon freezes the list of files the task's agent committed. At spawn, the current `HEAD` is stamped as a `base:<sha>` label (under the checkout lock so it lands after any in-flight commit). At close, `snapshotTaskChanges()` reads the new `HEAD` and computes `git diff base..HEAD --name-only` in the agent's checkout — the mission worktree in PR-native mode, else the shared project checkout. The file list, `base_sha`, and `head_sha` are stored on the task row.
+
+The frozen diff is exposed via `GET /tasks/:id/changed/diff?path=<file>`. Empty when the task has no baseline (hand-closed), no commits were made, or the refs were GC'd by a later squash.
+
+### Session resume
+
+When a provider's `resume` toggle is on (Settings → Providers), the usage recorder stamps a `resume:<program>:<sessionId>` label on the task at close. On the next spawn, `parseResumeLabel()` reads it and the spawn command splices the resume flag into the agent's launch command:
+
+| Program | Resume mechanism |
+|---|---|
+| `claude-code` | `--resume <sessionId>` flag |
+| `opencode` | `-s <sessionId>` flag |
+| `codex` | `resume <sessionId>` subcommand |
+
+The resume is applied only if the program still matches and the provider allows it. The stuck detector also captures the dead agent's session for resume before reverting a stuck task, so the relaunch continues the prior conversation.
+
+### Checkout serialization
+
+A shared project checkout is single-writer: only one agent may edit it at a time. `checkoutBusy()` in `src/overseer/checkout.ts` checks the in-progress list and refuses a second spawn on the same checkout with `409 { "error": "checkout busy" }`. Isolated PR worktrees are excluded — they're per-mission, so a different mission never collides.
+
+A `KeyedMutex` (`src/shared/keyedMutex.ts`) serializes git operations on one checkout: the baseline read at spawn and the commit+snapshot at close must not interleave across agents sharing a working tree, or a task's frozen change range could straddle another's commit.
+
+### Inter-agent handoff notes
+
+Agents working on the same mission can leave free-form handoff notes for later phases via `orca note add <missionId> "<text>"`. Notes are scoped to a mission (epic) and access-gated by the epic's project. The next agent reads them with `orca note ls <missionId>` (oldest-first). Body is capped at 8 000 characters; a target is capped at 200 notes. Notes are stored in the `notes` table and purged when the epic is deleted.
 
 ---
 
@@ -187,7 +218,6 @@ Tokens are:
 - Issued via `POST /auth/login` (scrypt password verification)
 - Stored in the `auth_tokens` table
 - Revocable via `POST /auth/logout`
-- Passable as query param `?token=<value>` (for SSE EventSource which can't set headers)
 
 ### Token scopes
 
@@ -229,7 +259,7 @@ The `users` table stores username + password hash. Additional fields: `is_admin`
 
 The `authMiddleware` in `src/api/auth.ts` checks every request:
 1. Is the path public? (health, setup, login) → allow
-2. Is there a valid token? (Authorization header or query param) → allow
+2. Is there a valid token? (Authorization header) → allow
 3. Otherwise → 401
 
 The middleware is only active when `d.users` is provided to the server factory. Setup mode (zero users) keeps the API open until onboarding creates the first admin.

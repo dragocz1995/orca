@@ -16,11 +16,7 @@ Every route except `GET /health`, `GET /setup`, and `POST /auth/login` requires 
 Authorization: Bearer <token>
 ```
 
-SSE endpoints accept the token as a query parameter (EventSource does not support custom headers):
-
-```
-GET /events?token=<token>
-```
+The web UI uses the same-origin `/api` BFF proxy with an httpOnly session cookie — the token never reaches browser JS. For direct daemon access (CLI, scripts), use the `Authorization: Bearer <token>` header.
 
 ### Token scopes
 
@@ -1198,6 +1194,27 @@ own project path so usage can disambiguate concurrent agents by start-order.
 { "error": "forbidden" }
 ```
 
+### Per-task change snapshot (frozen diff)
+
+```http
+GET /tasks/:id/changed/diff?path=src/index.ts
+```
+
+Returns the diff of one file from the task's frozen change list — the commits the task landed between `base_sha` (stamped at spawn) and `head_sha` (stamped at close). Read from the mission worktree while it's live, else the project checkout. Empty when the task has no snapshot, the file isn't in it, or the refs were GC'd by a later squash.
+
+**Response `200`**
+```json
+{ "diff": "diff --git a/src/index.ts b/src/index.ts\n…" }
+```
+
+Empty diff when no snapshot exists:
+```json
+{ "diff": "" }
+```
+
+**Error `404`** — `{ "error": "task not found" }`
+**Error `403`** — `{ "error": "forbidden" }`
+
 ---
 
 ## Usage & Stats
@@ -2152,6 +2169,49 @@ When no event store is configured, returns `[]`.
 
 ---
 
+## Inter-agent handoff notes
+
+Agents working on the same mission can leave free-form handoff notes for later phases. Notes are scoped to a mission (epic) and access-gated by the epic's project — an agent can only read/write notes for a mission it is actively working in.
+
+### List notes
+
+```http
+GET /notes?scope=mission&target=<epicId>
+```
+
+Returns notes for the given scope/target, oldest-first. `scope` defaults to `mission`. The `target` is an epic id (a leading `m-` from a mission id is stripped, so both `orca note ls <epicId>` and `orca note ls m-<epicId>` work). Accessible to agent-scoped tokens.
+
+**Response `200`**
+```json
+[
+  { "id": 1, "scope": "mission", "target": "my-project-a1b2c3d4", "author": "Atlas0", "body": "The DB schema is already migrated — skip the migration phase.", "created_at": "2026-06-17 12:00:00" }
+]
+```
+
+**Error `400`** — `{ "error": "target required" }`
+**Error `403`** — `{ "error": "forbidden" }` (caller cannot access the epic's project)
+**Error `404`** — `{ "error": "unknown target" }` (epic not found)
+
+### Add a note
+
+```http
+POST /notes
+Content-Type: application/json
+
+{ "scope": "mission", "target": "my-project-a1b2c3d4", "body": "The DB schema is already migrated — skip the migration phase.", "author": "Atlas0" }
+```
+
+Leaves a handoff note. `scope` defaults to `mission`. `author` is optional (empty string when omitted). Body is capped at 8 000 characters; a target is capped at 200 notes. Accessible to agent-scoped tokens.
+
+**Response `201`** — the full created note object.
+
+**Error `400`** — `{ "error": "target and body required" }` or `{ "error": "body too large" }` or `{ "error": "notes unavailable" }`
+**Error `403`** — `{ "error": "forbidden" }`
+**Error `404`** — `{ "error": "unknown target" }`
+**Error `429`** — `{ "error": "too many notes" }` (200-note cap per target)
+
+---
+
 ## Config
 
 ### Get config
@@ -2279,12 +2339,11 @@ while a mission is live — the update restarts services, which would kill runni
 ## Events (SSE)
 
 ```http
-GET /events?token=<token>
+GET /events
+Authorization: Bearer <token>
 ```
 
-Server-Sent Events stream for real-time updates. Auth token as query parameter (EventSource
-doesn't support custom headers). The stream stays alive indefinitely, sleeping 30s between
-keep-alive cycles. Closes on client disconnect via `abort` signal.
+Server-Sent Events stream for real-time updates. The web UI connects through the same-origin `/api` BFF proxy with an httpOnly session cookie. The stream stays alive indefinitely, sleeping 30s between keep-alive cycles. Closes on client disconnect via `abort` signal.
 
 ### Event types
 
@@ -2518,7 +2577,7 @@ own device.
 | `401` | Unauthorized (missing or invalid token) |
 | `403` | Forbidden (not accessible for this user/project, exec not allowed for user, agent token capability limit) |
 | `404` | Not found |
-| `409` | Conflict (duplicate slug/username) |
+| `409` | Conflict (duplicate slug/username, checkout busy) |
 | `413` | Payload too large (avatar exceeds 2 MB) |
 | `429` | Too many requests (login rate limit: 10 per 5 minutes per IP) |
 | `415` | Unsupported media type (avatar image type not accepted) |
@@ -2583,54 +2642,57 @@ also include `jobId` and `epicId` where applicable:
 | 38 | `GET` | `/projects/:id/changed` | Bearer | File editor |
 | 39 | `GET` | `/projects/:id/changes` | Bearer | File editor |
 | 40 | `GET` | `/activity` | Bearer | Activity |
-| 41 | `GET` | `/tasks` | Bearer (full + agent) | Tasks |
-| 42 | `POST` | `/tasks` | Bearer | Tasks |
-| 43 | `GET` | `/tasks/ready` | Bearer (full + agent) | Tasks |
-| 44 | `GET` | `/tasks/deps` | Bearer | Tasks |
-| 45 | `GET` | `/tasks/:id/usage` | Bearer | Tasks |
-| 46 | `PATCH` | `/tasks/:id` | Bearer (full + agent) | Tasks |
-| 47 | `POST` | `/tasks/:id/approve-gate` | Bearer | Tasks |
-| 48 | `GET` | `/tasks/:id/deps` | Bearer | Tasks |
-| 49 | `DELETE` | `/tasks/:id` | Bearer | Tasks |
-| 50 | `POST` | `/admin/cleanup` | Bearer (admin) | Admin |
-| 51 | `GET` | `/usage/by-model` | Bearer | Usage & Stats |
-| 52 | `POST` | `/usage/reset` | Bearer (admin) | Usage & Stats |
-| 53 | `POST` | `/tasks/plan` | Bearer | Planning |
-| 54 | `GET` | `/plan/:jobId` | Bearer (full + agent) | Planning |
-| 55 | `POST` | `/plan/:jobId/submit` | Bearer (full + agent) | Planning |
-| 56 | `POST` | `/tasks/:epicId/phases` | Bearer | Planning |
-| 57 | `GET` | `/sessions` | Bearer (full + agent) | Sessions |
-| 58 | `POST` | `/sessions` | Bearer | Sessions |
-| 59 | `DELETE` | `/sessions/:name` | Bearer | Sessions |
-| 60 | `POST` | `/sessions/:name/keys` | Bearer | Sessions |
-| 61 | `POST` | `/sessions/:name/input` | Bearer | Sessions |
-| 62 | `POST` | `/sessions/:name/resize` | Bearer | Sessions |
-| 63 | `GET` | `/sessions/:name/pane` | Bearer | Sessions |
-| 64 | `GET` | `/sessions/:name/stream` | Bearer | Sessions |
-| 65 | `POST` | `/sessions/:name/ws-ticket` | Bearer | Sessions |
-| 66 | `GET` | `/missions` | Bearer | Missions |
-| 67 | `GET` | `/missions/:id` | Bearer | Missions |
-| 68 | `POST` | `/missions` | Bearer | Missions |
-| 69 | `PATCH` | `/missions/:id` | Bearer | Missions |
-| 70 | `DELETE` | `/missions/:id` | Bearer | Missions |
-| 71 | `POST` | `/missions/:id/pr` | Bearer | Missions |
-| 72 | `POST` | `/missions/:id/merge-pr` | Bearer | Missions |
-| 73 | `GET` | `/missions/:id/overseer/next` | Bearer (full + agent) | Missions |
-| 74 | `POST` | `/missions/:id/overseer/decide` | Bearer (full + agent) | Missions |
-| 75 | `GET` | `/advisor/status` | Bearer (full) | Assistant |
-| 76 | `POST` | `/advisor/start` | Bearer (full) | Assistant |
-| 77 | `POST` | `/advisor/stop` | Bearer (full) | Assistant |
-| 78 | `ALL` | `/mcp` | Bearer | MCP server |
-| 79 | `GET` | `/events` | Bearer (?token) | Events |
-| 80 | `GET` | `/integrations/hermes/status` | Bearer (admin) | Integrations |
-| 81 | `POST` | `/integrations/hermes/install` | Bearer (admin) | Integrations |
-| 82 | `GET` | `/integrations/cli-status` | Bearer | Integrations |
-| 83 | `GET` | `/integrations/github-status` | Bearer | Integrations |
-| 84 | `GET` | `/push/vapid-public-key` | Public/Bearer | Push Notifications |
-| 85 | `POST` | `/push/subscribe` | Bearer | Push Notifications |
-| 86 | `POST` | `/push/unsubscribe` | Bearer | Push Notifications |
-| 87 | `GET` | `/system` | Bearer | System |
-| 88 | `POST` | `/system/update` | Bearer (admin) | System |
-| 89 | `GET` | `/config` | Bearer | Config |
-| 90 | `PUT` | `/config` | Bearer (admin/setup) | Config |
-| 91 | `GET` | `/ws/terminal` | Ticket | Terminal |
+| 41 | `GET` | `/notes` | Bearer (full + agent) | Handoff notes |
+| 42 | `POST` | `/notes` | Bearer (full + agent) | Handoff notes |
+| 43 | `GET` | `/tasks` | Bearer (full + agent) | Tasks |
+| 44 | `POST` | `/tasks` | Bearer | Tasks |
+| 45 | `GET` | `/tasks/ready` | Bearer (full + agent) | Tasks |
+| 46 | `GET` | `/tasks/deps` | Bearer | Tasks |
+| 47 | `GET` | `/tasks/:id/usage` | Bearer | Tasks |
+| 48 | `GET` | `/tasks/:id/changed/diff` | Bearer | Tasks |
+| 49 | `PATCH` | `/tasks/:id` | Bearer (full + agent) | Tasks |
+| 50 | `POST` | `/tasks/:id/approve-gate` | Bearer | Tasks |
+| 51 | `GET` | `/tasks/:id/deps` | Bearer | Tasks |
+| 52 | `DELETE` | `/tasks/:id` | Bearer | Tasks |
+| 53 | `POST` | `/admin/cleanup` | Bearer (admin) | Admin |
+| 54 | `GET` | `/usage/by-model` | Bearer | Usage & Stats |
+| 55 | `POST` | `/usage/reset` | Bearer (admin) | Usage & Stats |
+| 56 | `POST` | `/tasks/plan` | Bearer | Planning |
+| 57 | `GET` | `/plan/:jobId` | Bearer (full + agent) | Planning |
+| 58 | `POST` | `/plan/:jobId/submit` | Bearer (full + agent) | Planning |
+| 59 | `POST` | `/tasks/:epicId/phases` | Bearer | Planning |
+| 60 | `GET` | `/sessions` | Bearer (full + agent) | Sessions |
+| 61 | `POST` | `/sessions` | Bearer | Sessions |
+| 62 | `DELETE` | `/sessions/:name` | Bearer | Sessions |
+| 63 | `POST` | `/sessions/:name/keys` | Bearer | Sessions |
+| 64 | `POST` | `/sessions/:name/input` | Bearer | Sessions |
+| 65 | `POST` | `/sessions/:name/resize` | Bearer | Sessions |
+| 66 | `GET` | `/sessions/:name/pane` | Bearer | Sessions |
+| 67 | `GET` | `/sessions/:name/stream` | Bearer | Sessions |
+| 68 | `POST` | `/sessions/:name/ws-ticket` | Bearer | Sessions |
+| 69 | `GET` | `/missions` | Bearer | Missions |
+| 70 | `GET` | `/missions/:id` | Bearer | Missions |
+| 71 | `POST` | `/missions` | Bearer | Missions |
+| 72 | `PATCH` | `/missions/:id` | Bearer | Missions |
+| 73 | `DELETE` | `/missions/:id` | Bearer | Missions |
+| 74 | `POST` | `/missions/:id/pr` | Bearer | Missions |
+| 75 | `POST` | `/missions/:id/merge-pr` | Bearer | Missions |
+| 76 | `GET` | `/missions/:id/overseer/next` | Bearer (full + agent) | Missions |
+| 77 | `POST` | `/missions/:id/overseer/decide` | Bearer (full + agent) | Missions |
+| 78 | `GET` | `/advisor/status` | Bearer (full) | Assistant |
+| 79 | `POST` | `/advisor/start` | Bearer (full) | Assistant |
+| 80 | `POST` | `/advisor/stop` | Bearer (full) | Assistant |
+| 81 | `ALL` | `/mcp` | Bearer | MCP server |
+| 82 | `GET` | `/events` | Bearer | Events |
+| 83 | `GET` | `/integrations/hermes/status` | Bearer (admin) | Integrations |
+| 84 | `POST` | `/integrations/hermes/install` | Bearer (admin) | Integrations |
+| 85 | `GET` | `/integrations/cli-status` | Bearer | Integrations |
+| 86 | `GET` | `/integrations/github-status` | Bearer | Integrations |
+| 87 | `GET` | `/push/vapid-public-key` | Public/Bearer | Push Notifications |
+| 88 | `POST` | `/push/subscribe` | Bearer | Push Notifications |
+| 89 | `POST` | `/push/unsubscribe` | Bearer | Push Notifications |
+| 90 | `GET` | `/system` | Bearer | System |
+| 91 | `POST` | `/system/update` | Bearer (admin) | System |
+| 92 | `GET` | `/config` | Bearer | Config |
+| 93 | `PUT` | `/config` | Bearer (admin/setup) | Config |
+| 94 | `GET` | `/ws/terminal` | Ticket | Terminal |
