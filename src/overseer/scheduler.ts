@@ -6,7 +6,7 @@ import type { Clock } from '../shared/clock.js';
 import { KeyedMutex } from '../shared/keyedMutex.js';
 import { resolveExecutor } from './routing.js';
 import { projectHead } from '../integrations/projectFiles.js';
-import { busySharedCheckouts, checkoutOf } from './checkout.js';
+import { checkoutBusy, checkoutOf } from './checkout.js';
 import { logger } from '../shared/logger.js';
 
 const log = logger('scheduler');
@@ -35,12 +35,7 @@ export class Scheduler {
 
   async tick(): Promise<void> {
     const now = this.d.clock.now();
-    // Shared (non-PR) checkouts are single-writer: a task waits for the checkout to free up so its
-    // committed delta stays cleanly attributable. Track which are occupied across ALL projects/missions
-    // (a non-PR mission phase and a standalone task can target the same project.path) and grow the set
-    // as this tick launches more.
     const resolver = { projectPath: (id: number) => this.d.projects.get(id)?.path ?? '', worktreeFor: this.d.worktreeFor };
-    const busy = busySharedCheckouts(resolver, this.d.tasks.list({ status: 'in_progress' }));
     for (const project of this.d.projects.list()) {
       // Compare as epochs (#39): `scheduled_at` is stored as the client sent it, which may carry a
       // non-UTC zone (e.g. `+02:00`). A lexical string compare against a UTC ISO `now` would then
@@ -50,21 +45,22 @@ export class Scheduler {
         .filter((t) => t.autostart && t.scheduled_at != null && Date.parse(t.scheduled_at) <= now);
       for (const task of due) {
         const cwd = checkoutOf(resolver, task); // a standalone task's checkout is the shared project path
-        // Shared-checkout serialization is itself the burst cap: every standalone task in a project
-        // shares the project checkout, so once one launches the rest are `busy` and wait for the next
-        // tick — a minute's worth of co-scheduled tasks can't spawn a swarm of parallel agents at once.
-        if (busy.has(cwd)) continue; // shared checkout already has a live agent — serialize, retry next tick
+        // Shared (non-PR) checkouts are single-writer: at most one agent edits a project's tree at a
+        // time, so each task's committed delta stays cleanly attributable. Read the occupied set FRESH
+        // here (not a tick-start snapshot): the scheduler and the mission engine tick concurrently, so a
+        // stale snapshot could miss a launch another tick made into this checkout during one of our
+        // awaits. This is also the burst cap — co-scheduled tasks sharing a checkout fire one per tick.
+        if (checkoutBusy(resolver, this.d.tasks.list({ status: 'in_progress' }), cwd)) continue;
         const spec = resolveExecutor(task.labels, this.d.fallback);
         const named = task.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
         const agentName = named || this.d.nameAgent();
         const originalSchedule = task.scheduled_at;
+        // Everything from the fresh check above through setStatus runs synchronously (no await between),
+        // so the check-and-claim is atomic: a concurrent tick that re-reads in_progress sees this task
+        // the instant we yield at the gitLock await below, and can't double-occupy the checkout.
         this.d.tasks.update(task.id, { scheduled_at: null }); // consume so it fires once
         this.d.tasks.setAgent(task.id, agentName);            // link task → session for run controls
         this.d.tasks.markStarted(task.id, now); // precise spawn time → correct usage attribution under concurrency
-        // Flip to in_progress BEFORE the first await: the busy-gate's cross-tick correctness depends on
-        // it. A concurrent mission/scheduler tick computes `busy` from the in_progress list, so if we
-        // yielded (at the gitLock await below) while still 'open', that tick could miss this task and
-        // launch a second agent into the same shared checkout — re-opening the C1/H1 attribution race.
         this.d.tasks.setStatus(task.id, 'in_progress');
         // Read HEAD + stamp the baseline under the checkout lock, so it lands AFTER any in-flight
         // commit on this checkout (a just-closed task still committing) and the snapshot range is exact.
@@ -84,7 +80,6 @@ export class Scheduler {
           log.error(`spawn failed for task ${task.id} — schedule restored`, e);
           continue;
         }
-        busy.add(cwd); // this checkout is now occupied — later tasks this tick wait for it
         this.d.bus.publish({ type: 'task', taskId: task.id, status: 'in_progress' });
       }
     }

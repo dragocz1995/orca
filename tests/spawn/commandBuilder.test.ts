@@ -4,7 +4,7 @@ import { buildAgentCommand } from '../../src/spawn/commandBuilder.js';
 describe('buildAgentCommand', () => {
   it('routes a provider/model to the interactive `opencode` TUI with --prompt', () => {
     const cmd = buildAgentCommand({ program: 'opencode', model: 'ollama-cloud/deepseek-v4-flash' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });
-    expect(cmd).toContain('--model ollama-cloud/deepseek-v4-flash');
+    expect(cmd).toContain("--model 'ollama-cloud/deepseek-v4-flash'"); // single-quoted so it can't break the shell
     expect(cmd).toContain('--prompt'); // UI mode: task preloaded into the composer
     expect(cmd).not.toContain('opencode run'); // not headless
   });
@@ -20,24 +20,32 @@ describe('buildAgentCommand', () => {
   });
   it('routes a bare model to claude with an autonomous approval bypass', () => {
     const cmd = buildAgentCommand({ program: 'claude-code', model: 'sonnet' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });
-    expect(cmd).toContain('--model sonnet');
+    expect(cmd).toContain("--model 'sonnet'");
     expect(cmd).toContain('--dangerously-skip-permissions');
   });
   it('omits the claude bypass flag when skipPermissions is off', () => {
     const cmd = buildAgentCommand({ program: 'claude-code', model: 'sonnet' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A', skipPermissions: false });
     expect(cmd).not.toContain('--dangerously-skip-permissions');
-    expect(cmd).toContain('--model sonnet');
+    expect(cmd).toContain("--model 'sonnet'");
   });
   it('routes codex with a positional prompt and autonomous approval bypass', () => {
     const cmd = buildAgentCommand({ program: 'codex', model: 'gpt-5.4' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });
     expect(cmd).toContain('codex');
-    expect(cmd).toContain('--model gpt-5.4');
+    expect(cmd).toContain("--model 'gpt-5.4'");
     expect(cmd).toContain('--dangerously-bypass-approvals-and-sandbox');
   });
   it('omits the codex bypass flag when skipPermissions is off', () => {
     const cmd = buildAgentCommand({ program: 'codex', model: 'gpt-5.4' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A', skipPermissions: false });
     expect(cmd).not.toContain('--dangerously-bypass-approvals-and-sandbox');
-    expect(cmd).toContain('--model gpt-5.4');
+    expect(cmd).toContain("--model 'gpt-5.4'");
+  });
+  it('single-quotes the model so shell metacharacters cannot break out of the command (injection defense)', () => {
+    // The model field can carry a task-supplied `exec:` value. Even if a bad value slips past the API
+    // allow-list, single-quoting must neutralize it — the payload stays one literal --model argument.
+    const evil = 'sonnet; touch /tmp/pwned #';
+    const cmd = buildAgentCommand({ program: 'claude-code', model: evil }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A' });
+    expect(cmd).toContain("--model 'sonnet; touch /tmp/pwned #'"); // wrapped, not interpolated raw
+    expect(cmd).not.toContain('--model sonnet; touch'); // the `;` never reaches the shell as a separator
   });
   it('embeds the close command in the prompt and exports the provided env', () => {
     const cmd = buildAgentCommand(
@@ -59,7 +67,7 @@ describe('buildAgentCommand', () => {
   });
   it('uses the configured provider binary and extra args', () => {
     const cmd = buildAgentCommand({ program: 'opencode', model: 'm' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A', bin: '/opt/oc/opencode', extraArgs: '--pure' });
-    expect(cmd).toContain('/opt/oc/opencode --model m --pure --prompt ');
+    expect(cmd).toContain("/opt/oc/opencode --model 'm' --pure --prompt ");
   });
   it('tells the final phase agent to close the epic itself when epicId is given', () => {
     const cmd = buildAgentCommand(
@@ -94,7 +102,7 @@ describe('buildAgentCommand', () => {
       { program: 'claude-code', model: 'opus' },
       { projectPath: '/repo', taskId: 'pj-1', agentName: 'Pilot', rawPrompt: 'PLAN ONLY: do not implement', env: { ORCA_PLAN_JOB: 'pj-1' } },
     );
-    expect(cmd).toContain('--model opus');
+    expect(cmd).toContain("--model 'opus'");
     expect(cmd).toContain("'PLAN ONLY: do not implement'");
     expect(cmd).toContain('export ORCA_PLAN_JOB=');
     expect(cmd).not.toContain('orca close'); // no close-command preamble for reasoning agents

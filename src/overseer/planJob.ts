@@ -7,7 +7,7 @@ export interface PlanJob {
   /** Optional short mission name → epic title. Empty/absent falls back to the goal, so the epic title
    *  is never blank. The full goal always lands in the epic description regardless. */
   name?: string;
-  dryRun: boolean; engage?: { autonomy: string; maxSessions: number };
+  dryRun: boolean; engage?: { autonomy: string; maxSessions: number; preserveReviewBudget?: boolean };
   /** Per-task GitHub PR-native override, stamped onto the epic as a `pr:on`/`pr:off` label so this
    *  mission can opt in/out independently of the project/global default. Undefined/null = inherit. */
   prEnabled?: boolean | null;
@@ -32,7 +32,7 @@ export class PlanJobStore {
 
   constructor(private now: () => number = Date.now) {}
 
-  create(input: { goal: string; name?: string; projectId: number; epicId: string | null; dryRun: boolean; exec?: string; autoModel?: boolean; engage?: { autonomy: string; maxSessions: number }; prEnabled?: boolean | null }): PlanJob {
+  create(input: { goal: string; name?: string; projectId: number; epicId: string | null; dryRun: boolean; exec?: string; autoModel?: boolean; engage?: { autonomy: string; maxSessions: number; preserveReviewBudget?: boolean }; prEnabled?: boolean | null }): PlanJob {
     this.prune();
     const job: PlanJob = { id: `pj-${randomBytes(5).toString('hex')}`, status: 'planning', phases: [], ...input };
     this.jobs.set(job.id, job);

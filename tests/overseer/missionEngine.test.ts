@@ -77,6 +77,46 @@ describe('MissionEngine', () => {
     expect(live).toHaveLength(1); // non-PR phases share project.path → serialized to one, despite max_sessions: 2
   });
 
+  it('coalesces a tick requested while one is already in flight into exactly one extra pass (M1)', async () => {
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const tasks = new TaskStore(db);
+    tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
+    tasks.create({ id: 't1', project_id: 1, title: 'one', parent_id: 'epic' });
+    let ensureCalls = 0; // overseer.ensure runs once per tickOnce → a proxy for how many passes ran
+    const overseer = { start: async () => {}, ensure: async () => { ensureCalls++; }, stop: async () => {} };
+    const engine = new MissionEngine({
+      tasks, readiness: new Readiness(db), missions: new MissionStore(db),
+      spawn: new SpawnService({ tmux: new FakeTmuxDriver(), agents: new AgentStore(db) }), tmux: new FakeTmuxDriver(),
+      bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' },
+      nameAgent: () => 'A0', clock: new SystemClock(), overseer,
+    });
+    await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
+    ensureCalls = 0; // ignore the engage tick
+    // Two ticks fired together: the 2nd lands while the 1st is in flight. It must not be dropped (which
+    // would delay freed work up to 90s) — it coalesces into one extra pass after the 1st completes.
+    await Promise.all([engine.tick('m-epic'), engine.tick('m-epic')]);
+    expect(ensureCalls).toBe(2);
+  });
+
+  it('keeps review self-heal budgets on a PR-feedback re-engage but resets them on a fresh engage (M3)', async () => {
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const tasks = new TaskStore(db);
+    tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
+    tasks.create({ id: 'a', project_id: 1, title: 'A', parent_id: 'epic', status: 'closed' }); // a finished phase…
+    tasks.bumpReviewFix('a'); tasks.bumpReviewFix('a');                                          // …that burned 2 retries
+    const hasBudget = () => tasks.get('a')!.labels.some((l) => l.startsWith('reviewfix:'));
+    const engine = new MissionEngine({
+      tasks, readiness: new Readiness(db), missions: new MissionStore(db),
+      spawn: new SpawnService({ tmux: new FakeTmuxDriver(), agents: new AgentStore(db) }), tmux: new FakeTmuxDriver(),
+      bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' },
+      nameAgent: () => 'A0', clock: new SystemClock(),
+    });
+    await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1, preserveReviewBudget: true });
+    expect(hasBudget()).toBe(true);  // PR-feedback continuation must NOT hand the burned phase a fresh budget
+    await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
+    expect(hasBudget()).toBe(false); // a fresh engage clears stale reviewfix labels as before
+  });
+
   it('stopTask kills the worker session of a single task so a re-open re-spawns cleanly', async () => {
     const { tasks, tmux, engine } = setup();
     tasks.setAgent('t1', 'Worker1');

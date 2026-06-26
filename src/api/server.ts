@@ -9,6 +9,7 @@ import { detectClis } from '../integrations/cliDetection.js';
 import { detectGithubAuth } from '../integrations/github/auth.js';
 import { readTaskUsage } from '../integrations/usage/index.js';
 import { usagePath } from '../integrations/usage/usagePath.js';
+import { checkoutBusy } from '../overseer/checkout.js';
 import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, projectReviewDiff, projectHead, projectRangeFileDiff, isProjectImage } from '../integrations/projectFiles.js';
 import { snapshotTaskChanges } from '../overseer/taskSnapshot.js';
 import { KeyedMutex } from '../shared/keyedMutex.js';
@@ -621,7 +622,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     job.epicId = epic.id;
     planJobs.setPhases(jobId, phases);
     if (job.engage) {
-      await d.engine.engage({ epicId: epic.id, autonomy: job.engage.autonomy, maxSessions: job.engage.maxSessions });
+      await d.engine.engage({ epicId: epic.id, autonomy: job.engage.autonomy, maxSessions: job.engage.maxSessions, preserveReviewBudget: job.engage.preserveReviewBudget });
     } else {
       const missionId = `m-${epic.id}`;
       if (d.engine?.isActive(missionId)) await d.engine.tick(missionId); // replan into a live mission
@@ -1056,7 +1057,10 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
                 // turned every phase into an infinite reopen loop. Check it BEFORE bumpReviewFix so a
                 // timeout doesn't burn the self-heal budget either.
                 const fresh = d.tasks.get(id);
-                if (fresh && !verdict.escalated && mission.autonomy === 'L3' && d.tasks.bumpReviewFix(id) <= REVIEW_FIX_BUDGET) {
+                // Read autonomy from `live` (re-fetched above), not the close-time `mission` snapshot:
+                // a re-engage between close and this verdict (e.g. a PR-feedback replan) may have changed
+                // it, and the self-heal decision must follow the mission's CURRENT autonomy.
+                if (fresh && !verdict.escalated && live.autonomy === 'L3' && d.tasks.bumpReviewFix(id) <= REVIEW_FIX_BUDGET) {
                   const feedback = `\n\n[Review rejected — previous attempt was not accepted]: ${verdict.rationale}\nFix the issue and close the task again.`;
                   d.tasks.update(id, { description: (fresh.description ?? '') + feedback });
                   // Reap the worker if it outlived its task close, so the re-spawn doesn't collide with a
@@ -1099,7 +1103,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
         await gitLock.run(snapPath, () => snapshotTaskChanges(d.tasks, id, snapPath));
       }
     }
-    if (typeof b.exec === 'string') { d.tasks.setExec(id, b.exec); }
+    if (typeof b.exec === 'string') {
+      // Gate the executor exactly like the plan/session routes: an unvalidated exec is stored as an
+      // `exec:<spec>` label and later interpolated into the agent launch command, so without this check
+      // a project member could set an arbitrary executor (escaping the allow-list) or smuggle shell
+      // metacharacters through the model field. Empty string clears the override (revert to fallback).
+      if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
+      if (b.exec && !execAllowedForUser(c, b.exec)) return c.json({ error: 'exec not allowed for user' }, 403);
+      d.tasks.setExec(id, b.exec);
+    }
     if (typeof b.title === 'string' || typeof b.type === 'string' || typeof b.priority === 'string' || typeof b.description === 'string' || b.scheduled_at !== undefined || b.autostart !== undefined) {
       d.tasks.update(id, { title: b.title, type: b.type, priority: b.priority, description: b.description, scheduled_at: b.scheduled_at, autostart: b.autostart });
     }
@@ -1380,13 +1392,19 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     const projectId = task.project_id;
     if (!canAccessProject(c, projectId)) return c.json({ error: 'forbidden' }, 403);
     if (exec) d.tasks.setExec(taskId, exec); // remember which model ran it — drives the model icon
+    // Single-writer: a manual launch targets the shared project checkout, so refuse it when another
+    // agent (a scheduler task or a non-PR mission phase) is already live there — a second writer would
+    // corrupt per-task change attribution. Read in_progress FRESH and flip status synchronously right
+    // after, so the check-and-claim is atomic against the concurrent scheduler/engine ticks.
+    const cwd = pathFor(projectId);
+    const resolver = { projectPath: pathFor, worktreeFor: (mid: string) => d.missionGit?.worktreeFor(mid) };
+    if (checkoutBusy(resolver, d.tasks.list({ status: 'in_progress' }), cwd)) return c.json({ error: 'checkout busy' }, 409);
     const agentName = uniqueName();
     d.tasks.setAgent(taskId, agentName);     // link task → orca-<agentName> session for run controls
     d.tasks.markStarted(taskId, d.clock.now()); // precise spawn time → correct usage attribution under concurrency
-    // Baseline for the per-task change snapshot, under the checkout lock so it lands after any in-flight
-    // commit on this path. A manual launch isn't gated on checkout-busy (it's an explicit user action).
-    await gitLock.run(pathFor(projectId), async () => d.tasks.markBase(taskId, await projectHead(pathFor(projectId))));
-    d.tasks.setStatus(taskId, 'in_progress');
+    d.tasks.setStatus(taskId, 'in_progress'); // claim synchronously after the fresh check above
+    // Baseline for the per-task change snapshot, under the checkout lock so it lands after any in-flight commit.
+    await gitLock.run(cwd, async () => d.tasks.markBase(taskId, await projectHead(cwd)));
     let session: string;
     try {
       ({ session } = await d.spawn.launch({ projectId, projectPath: pathFor(projectId), taskId, agentName, spec, taskTitle: task.title, taskDescription: task.description, epicId: task.parent_id ?? undefined }));

@@ -105,6 +105,32 @@ describe('Scheduler', () => {
     expect(statusAtAwait).toBe('in_progress'); // flipped before we yielded — the gate can't be raced across ticks
   });
 
+  it('re-reads the busy set FRESH per task, so a checkout occupied mid-tick by another writer blocks a later task (C1 cross-tick)', async () => {
+    // The scheduler and the mission engine tick concurrently. This reproduces the cross-tick race with a
+    // single deterministic tick: while the scheduler is awaiting project 1's baseline (gitLock), another
+    // writer claims project 2's checkout (flips x2 in_progress). A stale tick-start snapshot would miss
+    // that and still launch project 2's due task; the fresh per-task read must hold it instead.
+    const t0 = Date.parse('2026-06-17T12:00:00.000Z');
+    const db = openDb(':memory:');
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
+    const tasks = new TaskStore(db);
+    const tmux = new FakeTmuxDriver();
+    tasks.create({ id: 'x2', project_id: 2, title: 'X2' }); // not due — just the checkout another writer claims
+    tasks.create({ id: 'q', project_id: 1, title: 'Q', scheduled_at: '2026-06-17T12:00:00.000Z', autostart: 1 });
+    tasks.create({ id: 'p', project_id: 2, title: 'P', scheduled_at: '2026-06-17T12:00:00.000Z', autostart: 1 });
+    let flipped = false;
+    const gitLock = { run: async (_key: string, fn: () => Promise<unknown>) => {
+      if (!flipped) { flipped = true; tasks.setStatus('x2', 'in_progress'); } // /p2 claimed mid-tick, after the snapshot
+      return fn();
+    } };
+    let n = 0;
+    const scheduler = new Scheduler({ tasks, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => `N${n++}`, clock: new FakeClock(t0 + 60_000), gitLock: gitLock as never });
+    await scheduler.tick();
+    expect(tasks.get('q')?.status).toBe('in_progress'); // project 1 launched normally
+    expect(tasks.get('p')?.status).toBe('open');        // project 2 was claimed mid-tick → fresh read holds it
+  });
+
   it('launches tasks in DIFFERENT projects concurrently — separate checkouts never block each other', async () => {
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
     const db = openDb(':memory:');

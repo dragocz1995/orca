@@ -92,6 +92,7 @@ describe('per-user model allow-list enforcement', () => {
     tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
     // bob has no allowed_execs set → any globally-allowed exec works.
     expect((await app.request('/sessions', post(bobTok, { taskId: 'orca-1', exec: 'ollama-cloud/deepseek-v4-flash' }))).status).toBe(201);
+    tasks.setStatus('orca-1', 'closed'); // free the shared checkout before the next launch (single-writer)
     tasks.create({ id: 'orca-2', project_id: 1, title: 'Y' });
     expect((await app.request('/sessions', post(adminTok, { taskId: 'orca-2', exec: 'codex:gpt-5.5' }))).status).toBe(201);
   });

@@ -77,17 +77,17 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     // lives on `opencode run`), so the bypass is delivered as a merged config via env:
     // OPENCODE_CONFIG_CONTENT sets permission "*" → allow without writing any file into the repo.
     const yolo = skip ? `export OPENCODE_CONFIG_CONTENT=${esc('{"permission":"allow"}')} && ` : '';
-    return `${cd} && ${envExport}${yolo}${bin} --model ${spec.model}${extra} --prompt ${esc(prompt)}`;
+    return `${cd} && ${envExport}${yolo}${bin} --model ${esc(spec.model)}${extra} --prompt ${esc(prompt)}`;
   }
   if (spec.program.startsWith('codex')) {
     const bin = ctx.bin || 'codex';
     // Positional prompt + autonomous approval bypass (codex's skip-permissions equivalent).
     const bypass = skip ? ' --dangerously-bypass-approvals-and-sandbox' : '';
-    return `${cd} && ${envExport}${bin}${bypass} --model ${spec.model}${extra} ${esc(prompt)}`;
+    return `${cd} && ${envExport}${bin}${bypass} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
   }
   const bin = ctx.bin || 'claude';
   // Autonomous approval bypass: orca-spawned agents run unattended in a tmux pane, so an
   // interactive permission prompt would hang the whole mission.
   const bypass = skip ? ' --dangerously-skip-permissions' : '';
-  return `${cd} && ${envExport}${bin}${bypass} --model ${spec.model}${extra} ${esc(prompt)}`;
+  return `${cd} && ${envExport}${bin}${bypass} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
 }

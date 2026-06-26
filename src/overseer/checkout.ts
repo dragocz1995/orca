@@ -30,3 +30,17 @@ export function busySharedCheckouts(
   }
   return busy;
 }
+
+/** Whether `cwd` is a SHARED checkout already occupied by a live agent, judged from the in-progress
+ *  list passed in. MUST be read FRESH (re-list in_progress) and called SYNCHRONOUSLY immediately before
+ *  flipping a task to in_progress — with no await between the check and the flip — so check-and-claim is
+ *  atomic. The scheduler and every mission-engine tick run interleaved; a stale (tick-start) snapshot
+ *  would miss a launch another tick made into this checkout during an await, double-occupying it. PR
+ *  worktrees are isolated, so they are never busy. */
+export function checkoutBusy(
+  r: CheckoutResolver,
+  inProgress: { project_id: number; parent_id: string | null }[],
+  cwd: string,
+): boolean {
+  return busySharedCheckouts(r, inProgress).has(cwd);
+}

@@ -79,10 +79,15 @@ async function ensureDaemon() {
   throw new Error('orca daemon did not become healthy');
 }
 
-/** Read `--flag value` from an argv slice; returns undefined when the flag is absent. */
+/** Read `--flag value` from an argv slice. Returns undefined when the flag is absent OR present without
+ *  a value — a following token that is itself a flag (`--…`) is never swallowed as this flag's value
+ *  (`--summary --outcome ok` must not set summary to "--outcome"). Pair with `has()` to tell "absent"
+ *  apart from "present but valueless" when a value is required. */
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
-  return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const next = args[i + 1];
+  return next === undefined || next.startsWith('--') ? undefined : next;
 }
 function has(args: string[], name: string): boolean { return args.includes(name); }
 
@@ -100,6 +105,11 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
     case 'close': {
       if (!arg) { console.error('usage: orca close <taskId> [--summary "<text>"] [--outcome ok|fail]'); process.exit(1); }
       const outcome = flag(rest, '--outcome');
+      // A flag given with no value (`--outcome` at the end, or followed by another flag) is a mistake,
+      // not "no outcome" — error instead of silently closing with none, which would let the agent think
+      // it recorded ok/fail when it didn't. Same for an empty --summary.
+      if (has(rest, '--outcome') && outcome === undefined) { console.error('orca close: --outcome requires a value (ok or fail)'); process.exit(2); }
+      if (has(rest, '--summary') && flag(rest, '--summary') === undefined) { console.error('orca close: --summary requires a value'); process.exit(2); }
       // Reject a typo'd outcome instead of silently storing null — the agent would otherwise think it
       // closed "ok"/"fail" while the task records no outcome at all.
       if (outcome !== undefined && outcome !== 'ok' && outcome !== 'fail') { console.error('orca close: --outcome must be ok or fail'); process.exit(2); }

@@ -8,7 +8,7 @@ import type { AgentSpec } from '../spawn/commandBuilder.js';
 import type { EventBus } from '../api/sse.js';
 import { resolveExecutor } from './routing.js';
 import { projectHead } from '../integrations/projectFiles.js';
-import { busySharedCheckouts } from './checkout.js';
+import { checkoutBusy } from './checkout.js';
 import { freeAgentName } from '../daemon/uniqueName.js';
 import type { OverseerController } from './overseerAgent.js';
 import type { MissionGit } from './missionGit.js';
@@ -55,13 +55,20 @@ export class MissionEngine {
    *  (the 90s overseer interval, engage/resume) — without this guard two overlapping ticks for the
    *  same mission can both read the same `running` count and dispatch past `max_sessions`. */
   private ticking = new Set<string>();
+  // A tick requested for a mission whose tick is already in flight (review approval, self-heal, gate
+  // release). Coalesced into one more pass after the running tick, so freed work spawns promptly instead
+  // of waiting up to the 90s interval — without re-entrantly stacking ticks.
+  private retick = new Set<string>();
 
-  async engage(input: { epicId: string; autonomy: string; maxSessions: number; createdBy?: number | null }): Promise<Mission> {
+  async engage(input: { epicId: string; autonomy: string; maxSessions: number; createdBy?: number | null; preserveReviewBudget?: boolean }): Promise<Mission> {
     const id = `m-${input.epicId}`;
     const m = this.d.missions.create({ id, epic_id: input.epicId, autonomy: input.autonomy, max_sessions: input.maxSessions, created_by: input.createdBy ?? null });
-    // Fresh self-heal budget: a re-engage must not inherit `reviewfix:<n>` labels from a prior aborted
-    // run, or the mission escalates after fewer (or zero) real review retries this time around.
-    this.d.tasks.resetReviewFix(input.epicId);
+    // Fresh self-heal budget: a brand-new (or aborted-and-restarted) engage must not inherit
+    // `reviewfix:<n>` labels from a prior run, or the mission escalates after fewer real review retries.
+    // A PR-feedback re-engage CONTINUES a finished mission, though, so it passes preserveReviewBudget to
+    // keep the existing budgets — otherwise every PR fix round would silently hand a re-opened phase a
+    // full fresh budget back.
+    if (!input.preserveReviewBudget) this.d.tasks.resetReviewFix(input.epicId);
     this.d.bus.publish({ type: 'mission', missionId: m.id, state: 'active' });
     // Park the per-mission overseer agent (no-op when no overseerExec is configured) so it is ready
     // to answer decisions (e.g. post-completion reviews) for this mission.
@@ -204,10 +211,14 @@ export class MissionEngine {
   }
 
   async tick(id: string): Promise<void> {
-    if (this.ticking.has(id)) return; // a tick is already in flight for this mission — see `ticking`
+    if (this.ticking.has(id)) { this.retick.add(id); return; } // in flight — request one more pass after it
     this.ticking.add(id);
     try {
       await this.tickOnce(id);
+      // A tick that arrived while we were running (e.g. a review approval released a gate) set `retick`.
+      // Drain those requests with one more pass each so the freed work spawns now, not 90s later. Each
+      // extra pass needs a NEW external request to loop again, so this converges.
+      while (this.retick.delete(id)) await this.tickOnce(id);
     } finally {
       this.ticking.delete(id);
     }
@@ -263,10 +274,9 @@ export class MissionEngine {
     let running = kids.filter(t => t.status === 'in_progress').length;
     // Shared (non-PR) checkouts are single-writer: at most one agent edits project.path at a time, so
     // each phase's committed delta stays cleanly attributable (base..HEAD never straddles a neighbour's
-    // commit, `git add -A` never sweeps in its edits). Track occupied shared checkouts across all
-    // missions/standalone tasks; a PR worktree is isolated, so it's never "busy" here.
+    // commit, `git add -A` never sweeps in its edits). The occupied set is read FRESH at each claim
+    // below (not snapshotted here) so a concurrent scheduler/engine tick's launch is always visible.
     const resolver = { projectPath: (pid: number) => this.d.projects.get(pid)?.path ?? '', worktreeFor: (mid: string) => this.d.missionGit?.worktreeFor(mid) };
-    const busy = busySharedCheckouts(resolver, this.d.tasks.list({ status: 'in_progress' }));
     // readyForEpic returns only this epic's direct, dependency-cleared children — so a project with
     // several parallel missions no longer has each one walk every ready task in the project (#34/S15).
     for (const task of this.d.readiness.readyForEpic(m.epic_id)) {
@@ -277,22 +287,25 @@ export class MissionEngine {
       if (m.autonomy === 'L0') continue;
       // In PR-native mode the agent runs inside the mission's isolated worktree, not the main checkout.
       const cwd = this.d.missionGit?.worktreeFor(id) ?? project.path;
-      // A shared checkout already has a live agent → serialize: leave this phase open and retry next
-      // tick. Every non-PR phase of this mission shares project.path, so none can start until it frees.
-      if (busy.has(cwd)) break;
       const spec = resolveExecutor(task.labels, this.d.fallback);
       const named = task.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
       // A fresh name is picked clear of any live session, so a lingering worker (or the counter
       // resetting to 0 on a daemon restart) can never collide with `tmux new-session`. A re-spawn
       // of an already-named task reuses its name — its prior session is dead by the time we get here.
+      // Resolve it BEFORE the claim below so the busy-check and the setStatus flip stay synchronous.
       const agentName = named || await freeAgentName(this.d.nameAgent, () => this.d.tmux.list());
+      // A shared checkout already has a live agent → serialize: leave this phase open and retry next
+      // tick. Every non-PR phase of this mission shares project.path, so none can start until it frees.
+      // Read the occupied set FRESH here (not a tick-start snapshot) and AFTER the freeAgentName await:
+      // the engine and scheduler tick concurrently, so another tick may have claimed this checkout while
+      // we awaited above. The check + setStatus run synchronously below (no await between) → the
+      // check-and-claim is atomic and a concurrent tick that re-reads in_progress can't double-occupy.
+      if (checkoutBusy(resolver, this.d.tasks.list({ status: 'in_progress' }), cwd)) break;
       // Tag the agent BEFORE marking in_progress, so an in_progress child always carries its
       // agent label — otherwise a crash between the two writes would leave stopRunning unable to
       // find (and kill) the session.
       if (!named) this.d.tasks.setAgent(task.id, agentName);
       this.d.tasks.markStarted(task.id, this.d.clock.now()); // precise spawn time → correct usage attribution under concurrency
-      // in_progress BEFORE the gitLock await below: a concurrent tick's busy-snapshot must see this
-      // checkout occupied the moment we yield, or it could launch a second agent into the same tree.
       this.d.tasks.setStatus(task.id, 'in_progress');
       // Read HEAD + stamp the baseline under the checkout lock so it lands AFTER any in-flight commit
       // (a just-closed phase still committing) — then `git diff base..HEAD` captures exactly this phase.
@@ -308,7 +321,6 @@ export class MissionEngine {
         log.error(`spawn failed for task ${task.id} in mission ${id} — reverted to open`, e);
         continue;
       }
-      if (cwd === project.path) busy.add(cwd); // shared checkout now occupied — hold this mission's other phases
       running++;
     }
 

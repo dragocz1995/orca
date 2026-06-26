@@ -59,6 +59,16 @@ describe('per-resource task/mission access', () => {
     expect((await app.request('/tasks/t1', patch(bobTok, { title: 'ok' }))).status).toBe(200);
   });
 
+  it('gates the executor on PATCH /tasks/:id so an off-allow-list exec cannot become a shell-injection foothold', async () => {
+    const { app, adminTok } = setup();
+    // An injection payload is not a known exec → the global allow-list refuses it (400), so it never
+    // lands as an `exec:` label that the launch command would interpolate into the shell.
+    expect((await app.request('/tasks/t1', patch(adminTok, { exec: 'sonnet; touch /tmp/pwned #' }))).status).toBe(400);
+    // A legitimate, allow-listed exec is still accepted, and a blank value clears the override.
+    expect((await app.request('/tasks/t1', patch(adminTok, { exec: 'sonnet' }))).status).toBe(200);
+    expect((await app.request('/tasks/t1', patch(adminTok, { exec: '' }))).status).toBe(200);
+  });
+
   it('a non-admin cannot insert phases into a foreign epic', async () => {
     const { app, bobTok } = setup();
     expect((await app.request('/tasks/epic2/phases', { method: 'POST', headers: { authorization: `Bearer ${bobTok}`, 'content-type': 'application/json' }, body: JSON.stringify({ phases: [{ title: 'x' }] }) })).status).toBe(403);

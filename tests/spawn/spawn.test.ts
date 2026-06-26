@@ -20,6 +20,6 @@ describe('SpawnService', () => {
     const agents = new AgentStore(db); const tmux = new FakeTmuxDriver();
     const svc = new SpawnService({ tmux, agents, providers: (program) => program === 'opencode' ? { bin: '/usr/bin/oc', args: '--pure' } : undefined });
     await svc.launch({ projectId: 1, projectPath: '/o', taskId: 'orca-1', agentName: 'Nova', spec: { program: 'opencode', model: 'm' } });
-    expect(tmux.commandFor('orca-Nova')).toContain('/usr/bin/oc --model m --pure --prompt');
+    expect(tmux.commandFor('orca-Nova')).toContain("/usr/bin/oc --model 'm' --pure --prompt");
   });
 });

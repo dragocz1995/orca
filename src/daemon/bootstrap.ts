@@ -362,7 +362,9 @@ export function buildApp(opts: BuildOpts) {
       const project = epic ? projects.get(epic.project_id) : null;
       const mission = missions.get(`m-${epicId}`);
       if (!epic || !project || !mission) return false;
-      const engage = { autonomy: mission.autonomy, maxSessions: mission.max_sessions };
+      // PR-feedback CONTINUES a finished mission, so keep the existing review self-heal budgets rather
+      // than resetting them on this re-engage. Flows through both the pilot and relay paths below.
+      const engage = { autonomy: mission.autonomy, maxSessions: mission.max_sessions, preserveReviewBudget: true };
       if (config.get().autopilot.pilotExec) {
         const cwd = missionGit.worktreeFor(`m-${epicId}`) ?? project.path;
         // engage flag → finalizePlanJob re-engages the mission AFTER the pilot pins the phases, so a

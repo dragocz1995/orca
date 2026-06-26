@@ -123,6 +123,24 @@ it('POST /sessions launches an agent on a task and marks it in_progress', async 
   expect(t1.labels.some((l) => l.startsWith('agent:'))).toBe(true);
 });
 
+it('POST /sessions refuses to launch into a shared checkout another agent already holds (409)', async () => {
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const tasks = new TaskStore(db);
+  tasks.create({ id: 'busy', project_id: 1, title: 'Busy' });
+  tasks.setStatus('busy', 'in_progress'); // a live agent already owns the project's shared checkout
+  tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
+  const tmux = new FakeTmuxDriver();
+  const app = createServer({
+    tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
+  });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'sonnet' }) });
+  expect(res.status).toBe(409); // single-writer: don't double-occupy the checkout
+  expect(tasks.get('orca-1')?.status).toBe('open'); // not flipped
+  expect(await tmux.list()).toHaveLength(0);         // nothing spawned
+});
+
 it('GET /sessions tags each live session with its project from the agent store', async () => {
   const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (7,'orca','/o')").run();
   const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 7, title: 'X' });
