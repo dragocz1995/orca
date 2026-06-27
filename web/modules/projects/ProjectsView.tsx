@@ -14,7 +14,8 @@ import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { useTranslation } from '../../lib/i18n';
-import { Code2, Pencil, Trash2, ImageIcon } from 'lucide-react';
+import { Code2, Copy, Pencil, Trash2, ImageIcon } from 'lucide-react';
+import { ContextMenu, DIVIDER, type ContextMenuState } from '../../components/ui/ContextMenu';
 import { ProjectEditor } from './editor/ProjectEditor';
 import { ProjectIcon } from '../../components/ui/ProjectIcon';
 import { ProjectIconPicker } from './ProjectIconPicker';
@@ -41,6 +42,24 @@ export function ProjectsView() {
   // Project pending removal — drives the confirm dialog. Removal detaches the project from orca
   // (tasks/missions/access) but never touches files on disk; the backend rejects the home project.
   const [removing, setRemoving] = useState<Project | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+
+  function openCtxMenu(e: React.MouseEvent, p: Project) {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: t.projects.ctxOpenEditor, icon: Code2, onClick: () => { setSelectedId(p.id); setEditingId(p.id); setEditingCommit(null); setEditingWorking(false); } },
+        { label: t.projects.ctxEditProject, icon: Pencil, onClick: () => { setSelectedId(p.id); openEdit(p); } },
+        DIVIDER,
+        { label: t.projects.ctxCopyPath, icon: Copy, onClick: () => { navigator.clipboard.writeText(p.path); toast(t.projects.ctxPathCopied); } },
+        DIVIDER,
+        { label: t.projects.ctxRemove, icon: Trash2, danger: true, onClick: () => setRemoving(p) },
+      ],
+    });
+  }
 
   const [slug, setSlug] = useState('');
   const [path, setPath] = useState('');
@@ -122,6 +141,7 @@ export function ProjectsView() {
                   tabIndex={0}
                   onClick={() => setSelectedId(p.id)}
                   onKeyDown={(e) => { if (e.key === 'Enter') setSelectedId(p.id); }}
+                  onContextMenu={(e) => openCtxMenu(e, p)}
                   className={`card-interactive group flex cursor-pointer gap-3.5 rounded-lg border p-3.5 ${active ? 'border-accent bg-accent/[0.06]' : 'border-border bg-surface'}`}
                 >
                   <div className="flex shrink-0 items-center">
@@ -302,6 +322,8 @@ export function ProjectsView() {
           </ModalFooter>
         </Modal>
       )}
+
+      {ctxMenu && <ContextMenu state={ctxMenu} onClose={() => setCtxMenu(null)} />}
     </>
   );
 }

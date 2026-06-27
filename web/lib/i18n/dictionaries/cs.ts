@@ -412,6 +412,9 @@ export const cs = {
     interrupted: 'Přerušeno {name}',
     killed: 'Ukončeno {name}',
     selectLabel: 'Vybrat {id}',
+    ctxTerminal: 'Terminál',
+    ctxInterrupt: 'Přerušit',
+    ctxKill: 'Ukončit relaci',
   },
   kanban: {
     board: 'Deska',
@@ -743,6 +746,10 @@ export const cs = {
     duplicated: 'Zkopírováno do {path}',
     deleted: 'Smazáno {path}',
     pathCopied: 'Cesta zkopírována',
+    ctxOpenEditor: 'Otevřít editor',
+    ctxEditProject: 'Upravit projekt',
+    ctxPathCopied: 'Cesta ke složce zkopírována',
+    ctxRemove: 'Odebrat projekt',
   },
   users: {
     loadError: 'Nepodařilo se načíst uživatele',
@@ -774,6 +781,8 @@ export const cs = {
     allModelsHint: 'Bez výběru smí uživatel spouštět všechny globálně povolené modely.',
     modelsUpdated: 'Povolené modely uloženy',
     updateError: 'Nepodařilo se uložit změnu',
+    ctxToggleAdmin: 'Přepnout admin roli',
+    ctxRemoveAccess: 'Odebrat přístup',
   },
   editor: {
     noProjects: 'Žádný projekt k úpravám',

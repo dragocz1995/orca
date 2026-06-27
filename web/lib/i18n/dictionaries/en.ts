@@ -412,6 +412,9 @@ export const en = {
     interrupted: 'Interrupted {name}',
     killed: 'Killed {name}',
     selectLabel: 'Select {id}',
+    ctxTerminal: 'Terminal',
+    ctxInterrupt: 'Interrupt',
+    ctxKill: 'Kill session',
   },
   kanban: {
     board: 'Board',
@@ -743,6 +746,10 @@ export const en = {
     duplicated: 'Copied to {path}',
     deleted: 'Deleted {path}',
     pathCopied: 'Path copied',
+    ctxOpenEditor: 'Open editor',
+    ctxEditProject: 'Edit project',
+    ctxPathCopied: 'Project path copied',
+    ctxRemove: 'Remove project',
   },
   users: {
     loadError: 'Failed to load users',
@@ -774,6 +781,8 @@ export const en = {
     allModelsHint: 'With none selected, the user may run any globally-allowed model.',
     modelsUpdated: 'Allowed models saved',
     updateError: 'Failed to save the change',
+    ctxToggleAdmin: 'Toggle admin role',
+    ctxRemoveAccess: 'Remove access',
   },
   editor: {
     noProjects: 'No project to edit',

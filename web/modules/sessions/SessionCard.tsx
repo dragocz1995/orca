@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import Link from 'next/link';
 import { TerminalSquare, SquareSlash, Power, SquareTerminal, Eye, Bot } from 'lucide-react';
 import { useKillSession, useSendInput } from '../../lib/mutations';
@@ -13,6 +14,7 @@ import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
 import { ProjectPill } from '../../components/ui/ProjectPill';
 import { IconButton } from '../../components/ui/IconButton';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { ContextMenu, type ContextMenuState, DIVIDER } from '../../components/ui/ContextMenu';
 import { ChangeStrip } from '../../components/ui/ChangeStrip';
 import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { LiveTail } from '../../components/terminal/LiveTail';
@@ -29,6 +31,7 @@ export function SessionCard({ info, onOpenTerminal, compact = false }: { info: S
   const config = useConfig();
   const name = info.name;
   const signal = useSessionSignal(name);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
 
   // Map session → its task (prefer the in_progress one; agent names are reused across tasks).
   const task = taskForSession(tasks.data ?? [], name);
@@ -50,8 +53,23 @@ export function SessionCard({ info, onOpenTerminal, compact = false }: { info: S
   const dot = needsInput ? 'var(--color-warning)' : 'var(--color-approve)';
   const finished = !!task && (task.status === 'closed' || task.status === 'cancelled');
 
+  // Action handlers defined once, shared between visible triggers and context menu.
+  const handleTerminal = onOpenTerminal;
+  const handleInterrupt = () => send.mutate({ name, keys: ['C-c'] }, { onSuccess: () => toast(t.sessions.interrupted.replace('{name}', name)) });
+  const handleKill = () => kill.mutate(name, { onSuccess: () => toast(t.sessions.killed.replace('{name}', name)), onError: (e) => toast(String(e), 'error') });
+
+  const ctxItems: ContextMenuState['items'] = [
+    { label: t.sessions.ctxTerminal, icon: TerminalSquare, onClick: handleTerminal },
+    { label: t.sessions.ctxInterrupt, icon: SquareSlash, onClick: handleInterrupt },
+    DIVIDER,
+    { label: t.sessions.ctxKill, icon: Power, onClick: handleKill, danger: true },
+  ];
+
   return (
-    <div className={`card-interactive flex flex-col gap-3 rounded-lg border bg-surface ${compact ? 'p-3' : 'p-4'} ${needsInput ? 'border-warning/60' : 'border-border'}`}>
+    <div
+      className={`card-interactive flex flex-col gap-3 rounded-lg border bg-surface ${compact ? 'p-3' : 'p-4'} ${needsInput ? 'border-warning/60' : 'border-border'}`}
+      onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, items: ctxItems }); }}
+    >
       <div className="flex items-center gap-2.5">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
           {info.role === 'overseer' ? <Eye size={18} className="text-text-muted" aria-hidden />
@@ -121,11 +139,12 @@ export function SessionCard({ info, onOpenTerminal, compact = false }: { info: S
               <ModelIcon name={modelExec} size={13} /><span className="max-w-28 truncate">{execModel(modelExec)}</span>
             </span>
           ) : null}
-          <IconButton icon={TerminalSquare} label={t.sessions.terminal} onClick={onOpenTerminal} />
-          <IconButton icon={SquareSlash} label={t.sessions.interrupt} onClick={() => send.mutate({ name, keys: ['C-c'] }, { onSuccess: () => toast(t.sessions.interrupted.replace('{name}', name)) })} />
-          <ActionMenu label={t.sessions.kill} items={[{ label: t.sessions.kill, icon: Power, tone: 'danger', onSelect: () => kill.mutate(name, { onSuccess: () => toast(t.sessions.killed.replace('{name}', name)), onError: (e) => toast(String(e), 'error') }) }]} />
+          <IconButton icon={TerminalSquare} label={t.sessions.terminal} onClick={handleTerminal} />
+          <IconButton icon={SquareSlash} label={t.sessions.interrupt} onClick={handleInterrupt} />
+          <ActionMenu label={t.sessions.kill} items={[{ label: t.sessions.kill, icon: Power, tone: 'danger', onSelect: handleKill }]} />
         </div>
       </div>
+      {ctxMenu && <ContextMenu state={ctxMenu} onClose={() => setCtxMenu(null)} />}
     </div>
   );
 }
