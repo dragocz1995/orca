@@ -25,19 +25,13 @@ import { TaskCard } from './TaskCard';
 import { TaskModal } from './TaskModal';
 import { useTaskContextMenu } from './useTaskContextMenu';
 import { DateRangeFilter } from './DateRangeFilter';
-import { DEFAULT_RANGE, serializeRange, parseRange, isStoredRange, inRange } from './dateRange';
+import { DEFAULT_RANGE, serializeRange, parseRange, isStoredRange, inRange, taskDayMs } from './dateRange';
 import { dayKey } from '../kanban/calendar';
 
 type Filter = 'all' | TaskStatus | 'autopilot';
 const FILTER_VALUES: readonly Filter[] = ['all', 'open', 'in_progress', 'blocked', 'closed', 'cancelled', 'autopilot'];
 const PAGE_SIZE = 12;
 
-/** The date a task belongs to: its schedule, else when it closed, else when it was created. */
-function taskDayMs(task: Task): number {
-  const iso = task.scheduled_at || task.closed_at || task.created_at;
-  const ms = iso ? new Date(iso).getTime() : NaN;
-  return Number.isNaN(ms) ? 0 : ms;
-}
 /** Day key from epoch ms — delegates to the canonical local YYYY-MM-DD key (single source of truth). */
 const dayKeyMs = (ms: number): string => dayKey(new Date(ms));
 

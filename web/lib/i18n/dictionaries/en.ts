@@ -232,6 +232,7 @@ export const en = {
     prevPage: 'Previous',
     nextPage: 'Next',
     rangeLabel: 'Date range',
+    rangeToday: 'Today',
     rangeLast7: 'Last 7 days',
     rangeLast30: 'Last 30 days',
     rangeLast90: 'Last 90 days',

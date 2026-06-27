@@ -24,9 +24,9 @@ describe('DateRangeFilter', () => {
   it('picking a preset reports it and closes the popover', () => {
     const onChange = renderFilter();
     fireEvent.click(screen.getByRole('button', { expanded: false }));
-    // Preset buttons render in order [7d, 30d, 90d, all]; the 4th is "all".
+    // Preset buttons render in order [today, 7d, 30d, 90d, all]; the 5th is "all".
     const presets = screen.getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') !== null);
-    fireEvent.click(presets[3]);
+    fireEvent.click(presets[4]);
     expect(onChange).toHaveBeenCalledWith({ preset: 'all', from: null, to: null });
     expect(screen.queryByRole('dialog')).toBeNull();
   });

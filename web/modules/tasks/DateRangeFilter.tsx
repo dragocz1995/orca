@@ -22,13 +22,13 @@ export function DateRangeFilter({ value, onChange }: { value: DateRange; onChang
 
   const presetLabel: Record<RangePreset, string> = {
     '7d': t.tasks.rangeLast7, '30d': t.tasks.rangeLast30, '90d': t.tasks.rangeLast90,
-    all: t.tasks.rangeAll, custom: t.tasks.rangeCustom,
+    today: t.tasks.rangeToday, all: t.tasks.rangeAll, custom: t.tasks.rangeCustom,
   };
   const label = value.preset === 'custom'
     ? `${value.from ?? '…'} – ${value.to ?? '…'}`
     : presetLabel[value.preset];
 
-  const PRESETS: RangePreset[] = ['7d', '30d', '90d', 'all'];
+  const PRESETS: RangePreset[] = ['today', '7d', '30d', '90d', 'all'];
   const pickPreset = (p: RangePreset) => { onChange({ preset: p, from: null, to: null }); setOpen(false); };
   // Editing either date switches to a custom window, keeping whatever the other end already held.
   const setFrom = (from: string) => onChange({ preset: 'custom', from: from || null, to: value.to });

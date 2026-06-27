@@ -232,6 +232,7 @@ export const cs = {
     prevPage: 'Předchozí',
     nextPage: 'Další',
     rangeLabel: 'Období',
+    rangeToday: 'Dnes',
     rangeLast7: 'Posledních 7 dní',
     rangeLast30: 'Posledních 30 dní',
     rangeLast90: 'Posledních 90 dní',
