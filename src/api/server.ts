@@ -24,13 +24,14 @@ import type { MissionEngine } from '../overseer/missionEngine.js';
 import type { MissionGit } from '../overseer/missionGit.js';
 import type { SpawnService } from '../spawn/spawn.js';
 import type { TmuxDriver } from '../tmux/types.js';
-import type { EventBus } from './sse.js';
+import type { EventBus, OrcaEvent } from './sse.js';
 import type { AgentSpec } from '../spawn/commandBuilder.js';
 import { resolveExecutor } from '../overseer/routing.js';
 import { parseResumeLabel } from '../spawn/resume/index.js';
 import { decompose, parsePhases, modelsBlock, parallelismBlock, VALID_TYPES as VALID_PHASE_TYPES, type Phase } from '../overseer/planner.js';
 import { resolvePrEnabled } from '../overseer/prMode.js';
 import { classifySession } from '../overseer/sessionInfo.js';
+import { eventProjectId, type EventProjectDeps } from './eventProject.js';
 import { buildReviewContext } from '../overseer/reviewContext.js';
 import { PlanJobStore, type PlanJob } from '../overseer/planJob.js';
 import { DecisionQueue } from '../overseer/decisionQueue.js';
@@ -487,6 +488,14 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     return matches[matches.length - 1] ?? null;
   };
 
+  // Resolve any live event's owning project — the same single-source logic the activity log stamps
+  // rows with — so the SSE stream can gate each event per subscriber instead of broadcasting globally.
+  const eventDeps: EventProjectDeps = {
+    taskProject: (id) => d.tasks.get(id)?.project_id ?? null,
+    sessionProject: (s) => taskForSession(s)?.project_id ?? null,
+    jobProject: (id) => planJobs.get(id)?.projectId ?? null,
+  };
+
   // Ownership guard for the session-control routes (kill / keys / resize / pane / stream). The caller
   // must be able to access the project the session's task belongs to; admin / open-mode pass via
   // canAccessProject. An unresolvable session (no matching task) is refused — a caller can't operate
@@ -879,7 +888,11 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     if (!d.events) return c.json([]);
     const limit = Number(c.req.query('limit')) || undefined;
     const type = c.req.query('type') || undefined;
-    return c.json(d.events.list({ limit, type }));
+    const rows = d.events.list({ limit, type });
+    // Scope the timeline to the caller's projects (admin/open mode → null → unrestricted). A row with no
+    // project (legacy/unresolved) is shown only to the unrestricted caller — fail closed for tenants.
+    const allowed = accessibleProjects(c);
+    return c.json(allowed ? rows.filter((r) => r.project_id !== null && allowed.has(r.project_id)) : rows);
   });
 
   // Inter-agent handoff notes. Scope defaults to 'mission'; the target is an epic id (a leading `m-`
@@ -1429,12 +1442,17 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   // or gh's own login) and as whom. The token value is never exposed, only whether one is set.
   app.get('/integrations/github-status', c => c.json(detectGithubAuth(!!d.config.ghToken())));
 
-  app.get('/sessions', async c => c.json((await d.tmux.list()).filter((s) => s.startsWith('orca-')).map((s) => {
-    const info = classifySession(s);
-    // Tag each session with its project from the agent store (every role upserts there at spawn), so
-    // clients can show the repo for workers, pilots and overseers alike — the name alone can't.
-    return { ...info, projectId: d.agents?.projectFor(s.slice('orca-'.length)) ?? undefined };
-  })));
+  app.get('/sessions', async c => c.json((await d.tmux.list())
+    .filter((s) => s.startsWith('orca-'))
+    // Visibility mirrors operability: a caller only sees sessions it may control (its projects' agents,
+    // its own advisor; admin sees all). Without this the list leaked every running session cross-tenant.
+    .filter((s) => sessionAccessible(c, s))
+    .map((s) => {
+      const info = classifySession(s);
+      // Tag each session with its project from the agent store (every role upserts there at spawn), so
+      // clients can show the repo for workers, pilots and overseers alike — the name alone can't.
+      return { ...info, projectId: d.agents?.projectFor(s.slice('orca-'.length)) ?? undefined };
+    })));
   app.post('/sessions', async (c) => {
     const { taskId, exec } = await c.req.json() as { taskId: string; exec?: string };
     if (exec && !d.config.get().allowedExecs.includes(exec)) return c.json({ error: 'exec not allowed' }, 400);
@@ -1780,7 +1798,15 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
   });
 
   app.get('/events', c => streamSSE(c, async stream => {
-    const off = d.bus.subscribe(e => void stream.writeSSE({ data: JSON.stringify(e), event: e.type }));
+    // Per-subscriber tenancy gate: admin/open mode (null) streams everything; a tenant receives only
+    // events in its projects. An event with no resolvable project is withheld from tenants — fail closed.
+    const allowed = accessibleProjects(c);
+    const visible = (e: OrcaEvent): boolean => {
+      if (!allowed) return true;
+      const pid = eventProjectId(e, eventDeps);
+      return pid !== null && allowed.has(pid);
+    };
+    const off = d.bus.subscribe(e => { if (visible(e)) void stream.writeSSE({ data: JSON.stringify(e), event: e.type }); });
     c.req.raw.signal.addEventListener('abort', off);
     // Flush an immediate comment: a streamed response sends no HTTP headers until the first body byte,
     // so through the web BFF proxy the live channel would never connect on a quiet system. Comments

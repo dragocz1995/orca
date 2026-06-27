@@ -15,15 +15,19 @@ function toRow(e: OrcaEvent): { type: string; target: string; detail: string } |
 
 export class EventStore {
   constructor(private db: Db) {}
-  record(e: OrcaEvent): void {
+  record(e: OrcaEvent, projectId?: number | null): void {
     const r = toRow(e);
     if (!r) return;
-    // Task/review events point at a task → stamp the event with that task's project so the timeline
-    // can scope/link it to the right repo. Mission/signal carry no task, so project stays null.
+    // Stamp the event with its owning project so the timeline can scope it to the right repo. The bus
+    // subscriber resolves the project for EVERY event type (mission/signal included) and passes it in;
+    // a direct caller that omits it falls back to the task/review lookup (other types stay null).
     const taskId = e.type === 'task' || e.type === 'review' ? e.taskId : null;
-    const projectId = taskId
-      ? (this.db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(taskId) as { project_id: number } | undefined)?.project_id ?? null
-      : null;
+    let pid = projectId;
+    if (pid === undefined) {
+      pid = taskId
+        ? (this.db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(taskId) as { project_id: number } | undefined)?.project_id ?? null
+        : null;
+    }
     // Snapshot a human label now so the event still reads as a name after its task/epic is deleted
     // (events outlive tasks). Resolve the title for task/review (the target id) and mission (the epic
     // id inside m-<epicId>); signal/plan keep the agent/job name the target already carries.
@@ -31,7 +35,7 @@ export class EventStore {
     const label = titleId
       ? (this.db.prepare('SELECT title FROM tasks WHERE id = ?').get(titleId) as { title: string } | undefined)?.title ?? ''
       : '';
-    this.db.prepare('INSERT INTO events (type, target, detail, project_id, label) VALUES (?, ?, ?, ?, ?)').run(r.type, r.target, r.detail, projectId, label);
+    this.db.prepare('INSERT INTO events (type, target, detail, project_id, label) VALUES (?, ?, ?, ?, ?)').run(r.type, r.target, r.detail, pid, label);
   }
   /** Purge all events for a target (e.g. a deleted task) so the timeline shows no dead feed. */
   deleteForTarget(target: string): void {

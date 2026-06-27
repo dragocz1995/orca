@@ -20,6 +20,7 @@ import { makeOverseer } from '../overseer/overseerAgent.js';
 import { RelayClient } from '../inference/client.js';
 import { Deriver } from '../deriver/deriver.js';
 import { EventBus } from '../api/sse.js';
+import { eventProjectId, type EventProjectDeps } from '../api/eventProject.js';
 import { createServer } from '../api/server.js';
 import { createTicketStore } from '../terminal/ticketStore.js';
 import { RealTmuxDriver } from '../tmux/driver.js';
@@ -130,7 +131,6 @@ export function buildApp(opts: BuildOpts) {
   const bus = new EventBus();
   const events = new EventStore(db);
   const notes = new NoteStore(db);
-  bus.subscribe((e) => { try { events.record(e); } catch (err) { log.error('event record failed', err); } });
   // Activity trail: mirror every bus event into the log file as a readable one-liner, so the log on
   // its own tells the story of a run (spawns, advances, plans) without cross-referencing the DB.
   bus.subscribe((e) => log.info(describeEvent(e)));
@@ -198,6 +198,15 @@ export function buildApp(opts: BuildOpts) {
     const matches = tasks.list().filter((t) => t.labels.includes(`agent:${name}`));
     return matches[matches.length - 1] ?? null;
   };
+  // Persist every bus event into the activity log, stamping its owning project (resolved for ALL event
+  // types, not just task/review) so the timeline can be scoped per-tenant. Subscribed here — after
+  // taskForSession exists — because resolving a signal event's project needs it.
+  const eventDeps: EventProjectDeps = {
+    taskProject: (id) => tasks.get(id)?.project_id ?? null,
+    sessionProject: (s) => taskForSession(s)?.project_id ?? null,
+    jobProject: (id) => planJobs.get(id)?.projectId ?? null,
+  };
+  bus.subscribe((e) => { try { events.record(e, eventProjectId(e, eventDeps)); } catch (err) { log.error('event record failed', err); } });
   // The active mission owning a session (via its task's parent epic), or null for a manual launch.
   const missionIdForSession = (session: string): string | null => {
     const t = taskForSession(session);
