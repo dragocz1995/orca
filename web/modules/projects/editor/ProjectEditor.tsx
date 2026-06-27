@@ -14,7 +14,7 @@ import { useToast } from '../../../components/ui/Toast';
 import { useTranslation } from '../../../lib/i18n';
 import { buildTree, basename, parentDir, joinPath, copyName, isImage, isMarkdown, type TreeNode } from './helpers';
 import { FileTree } from './FileTree';
-import { ContextMenu, DIVIDER, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { ContextMenu, DIVIDER, type ContextMenuState, type MenuEntry } from '../../../components/ui/ContextMenu';
 import { PromptDialog, ConfirmDialog } from './dialogs';
 import { EditorPane } from './EditorPane';
 import { DiffEditorPane } from './DiffEditorPane';
