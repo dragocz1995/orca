@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { TerminalSquare, SquareSlash, Power, SquareTerminal, Eye, Bot } from 'lucide-react';
 import { useKillSession, useSendInput } from '../../lib/mutations';
@@ -144,7 +145,10 @@ export function SessionCard({ info, onOpenTerminal, compact = false }: { info: S
           <ActionMenu label={t.sessions.kill} items={[{ label: t.sessions.kill, icon: Power, tone: 'danger', onSelect: handleKill }]} />
         </div>
       </div>
-      {ctxMenu && <ContextMenu state={ctxMenu} onClose={() => setCtxMenu(null)} />}
+      {/* Portal to <body>: the card lifts on hover (`transform: translateY`), which makes it the
+          containing block for this `fixed` menu — so it would anchor to the card, not the viewport,
+          and fly off to the clamp edge. Rendering outside the card restores viewport positioning. */}
+      {ctxMenu && createPortal(<ContextMenu state={ctxMenu} onClose={() => setCtxMenu(null)} />, document.body)}
     </div>
   );
 }
