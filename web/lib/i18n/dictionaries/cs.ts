@@ -814,6 +814,7 @@ export const cs = {
     passwordChanged: 'Heslo změněno',
     passwordMismatch: 'Nová hesla se neshodují',
     passwordTooShort: 'Nové heslo musí mít alespoň 8 znaků',
+    passwordWrong: 'Současné heslo není správné',
     passwordError: 'Změna hesla selhala',
     uiScale: 'Měřítko rozhraní',
     uiScaleHint: 'Zvětší nebo zmenší celé rozhraní na tomto zařízení (výchozí je 100 %).',

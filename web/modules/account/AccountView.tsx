@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { UserCog, Mail, Cpu, Upload, ShieldCheck, Save, Check, User as UserIcon, KeyRound, ZoomIn, Bell } from 'lucide-react';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { OrcaApiError } from '../../lib/orcaClient';
 import { useMe, useConfig } from '../../lib/queries';
 import { useUpdateMe, useUploadAvatar, useChangePassword } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
@@ -94,11 +94,11 @@ export function AccountView() {
 
   const save = () => updateMe.mutate(
     { name: name.trim(), email: email.trim(), default_exec: defaultExec },
-    { onSuccess: () => toast(t.account.saved), onError: (e) => toast(apiErrorMessage(e) || t.account.saveError, 'error') },
+    { onSuccess: () => toast(t.account.saved), onError: () => toast(t.account.saveError, 'error') },
   );
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) uploadAvatar.mutate(f, { onSuccess: () => toast(t.account.avatarSaved), onError: (er) => toast(apiErrorMessage(er) || t.account.saveError, 'error') });
+    if (f) uploadAvatar.mutate(f, { onSuccess: () => toast(t.account.avatarSaved), onError: () => toast(t.account.saveError, 'error') });
     e.target.value = ''; // allow re-selecting the same file
   };
   const submitPassword = () => {
@@ -108,7 +108,9 @@ export function AccountView() {
       { currentPassword, newPassword },
       {
         onSuccess: () => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); toast(t.account.passwordChanged); },
-        onError: (e) => toast(apiErrorMessage(e) || t.account.passwordError, 'error'),
+        // A wrong current password comes back as 403 (not a session failure); show the specific
+        // translated message, falling back to the generic one for anything else.
+        onError: (e) => toast(e instanceof OrcaApiError && e.status === 403 ? t.account.passwordWrong : t.account.passwordError, 'error'),
       },
     );
   };

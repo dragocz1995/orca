@@ -814,6 +814,7 @@ export const en = {
     passwordChanged: 'Password changed',
     passwordMismatch: 'New passwords do not match',
     passwordTooShort: 'New password must be at least 8 characters',
+    passwordWrong: 'Current password is incorrect',
     passwordError: 'Password change failed',
     uiScale: 'Interface scale',
     uiScaleHint: 'Zoom the whole interface in or out on this device (100% is the default).',
