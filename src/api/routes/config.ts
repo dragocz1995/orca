@@ -3,8 +3,9 @@ import { isNewer } from '../../cli/version.js';
 import { handleMcpRequest } from '../../mcp/server.js';
 import { eventProjectId } from '../eventProject.js';
 import { ORCA_VERSION, ORCA_PORT, defaultLatestVersion, defaultStartUpdate } from '../version.js';
+import { parseBody } from '../validation.js';
+import { pushSubscribeSchema, pushUnsubscribeSchema } from '../schemas/config.js';
 import type { OrcaEvent } from '../sse.js';
-import type { WebPushSubscription } from '../../store/pushSubscriptionStore.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** Daemon-wide surface: the stateless MCP endpoint, web-push key + per-user subscribe/unsubscribe,
@@ -26,19 +27,14 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/push/subscribe', async (c) => {
     const u = c.get('user');
     if (!u) return c.json({ error: 'unauthorized' }, 401);
-    const b = await c.req.json().catch(() => ({})) as Partial<WebPushSubscription>;
-    if (typeof b.endpoint !== 'string' || !b.endpoint
-      || typeof b.keys?.p256dh !== 'string' || typeof b.keys?.auth !== 'string') {
-      return c.json({ error: 'endpoint and keys.{p256dh,auth} required' }, 400);
-    }
+    const b = await parseBody(c, pushSubscribeSchema);
     d.pushSubscriptions?.upsert(u.id, { endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth } });
     return c.json({ ok: true }, 201);
   });
   app.post('/push/unsubscribe', async (c) => {
     const u = c.get('user');
     if (!u) return c.json({ error: 'unauthorized' }, 401);
-    const b = await c.req.json().catch(() => ({})) as { endpoint?: unknown };
-    if (typeof b.endpoint !== 'string' || !b.endpoint) return c.json({ error: 'endpoint required' }, 400);
+    const b = await parseBody(c, pushUnsubscribeSchema);
     d.pushSubscriptions?.removeForUser(u.id, b.endpoint); // scoped: can only remove your own device
     return c.json({ ok: true });
   });

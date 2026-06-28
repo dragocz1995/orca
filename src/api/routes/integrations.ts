@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { hermesStatus, installOrcaMcp } from '../../integrations/hermesInstall.js';
 import { detectClis } from '../../integrations/cliDetection.js';
 import { detectGithubAuth } from '../../integrations/github/auth.js';
+import { parseBody } from '../validation.js';
+import { hermesInstallSchema } from '../schemas/integrations.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** External-integration status/install surface: Hermes MCP registration, CLI detection and GitHub
@@ -31,7 +33,7 @@ export function registerIntegrationRoutes(app: OrcaApp, ctx: RouteContext): void
     // Admin-only: this writes credentials + config into a host path. Without the gate any
     // authenticated user could point Hermes at an attacker URL/token.
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json().catch(() => ({})) as { home?: string; url?: string; token?: string };
+    const b = await parseBody(c, hermesInstallSchema);
     const url = (b.url ?? '').trim();
     const token = (b.token ?? '').trim();
     if (!url || !token) return c.json({ error: 'url and token required' }, 400);

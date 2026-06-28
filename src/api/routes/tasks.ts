@@ -5,6 +5,8 @@ import { decompose, parsePhases, modelsBlock, parallelismBlock, VALID_TYPES as V
 import { resolvePrEnabled } from '../../overseer/prMode.js';
 import { RelayClient } from '../../inference/client.js';
 import { shortId } from '../../shared/id.js';
+import { parseBody } from '../validation.js';
+import { createTaskSchema, patchTaskSchema, planSchema, insertPhasesSchema } from '../schemas/tasks.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** Tasks, usage, admin cleanup and the plan/replan endpoints. The post-done review workflow that the
@@ -30,7 +32,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(scoped);
   });
   app.post('/tasks', async c => {
-    const b = await c.req.json() as { title: string; type?: string; priority?: string; id?: string; description?: string; scheduled_at?: string | null; autostart?: number; deps?: string[]; project_id?: number };
+    const b = await parseBody(c, createTaskSchema);
     const target = resolveTarget(c, b.project_id);
     if ('error' in target) return c.json({ error: target.error }, target.status);
     const id = b.id ?? shortId(basename(target.project.path));
@@ -71,7 +73,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ ok: true, cleared: d.taskUsage?.deleteAll() ?? 0 });
   });
   app.patch('/tasks/:id', async c => {
-    const b = await c.req.json();
+    const b = await parseBody(c, patchTaskSchema);
     const id = c.req.param('id');
     const existing = d.tasks.get(id);
     if (!existing) return c.json({ error: 'task not found' }, 404);
@@ -176,7 +178,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ ok: true, tasks: removed.tasks, missions: removed.missions, events });
   });
   app.post('/tasks/plan', async c => {
-    const b = await c.req.json() as { goal?: string; name?: string; exec?: string; autoModel?: boolean; autonomy?: string; maxSessions?: number; engage?: boolean; phases?: { title?: string; type?: string }[]; dryRun?: boolean; prompt?: string; project_id?: number; prEnabled?: boolean | null };
+    const b = await parseBody(c, planSchema);
     const goal = (b.goal ?? '').trim();
     const name = (b.name ?? '').trim(); // optional short mission name → epic title (goal stays the description)
     // Tri-state PR override: true (force on) / false (force off) / null|undefined (inherit project+global).
@@ -274,7 +276,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     const epic = d.tasks.get(epicId);
     if (!epic || epic.type !== 'epic') return c.json({ error: 'epic not found' }, 404);
     if (!canAccessProject(c, epic.project_id)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json() as { phases?: { title?: string; type?: string; details?: string }[]; goal?: string; prompt?: string; exec?: string };
+    const b = await parseBody(c, insertPhasesSchema);
     if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
     if (b.exec && !execAllowedForUser(c, b.exec)) return c.json({ error: 'exec not allowed for user' }, 403);
 

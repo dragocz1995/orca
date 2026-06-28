@@ -1,3 +1,5 @@
+import { parseBody } from '../validation.js';
+import { createNoteSchema } from '../schemas/activity.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** The activity timeline and inter-agent handoff notes. Both are tenancy-scoped: the timeline to the
@@ -41,7 +43,7 @@ export function registerActivityRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(d.notes?.list(scope, target) ?? []);
   });
   app.post('/notes', async (c) => {
-    const b = await c.req.json().catch(() => ({}));
+    const b = await parseBody(c, createNoteSchema);
     const scope = typeof b.scope === 'string' && b.scope ? b.scope : 'mission';
     const target = noteTarget(typeof b.target === 'string' ? b.target : '');
     const body = typeof b.body === 'string' ? b.body.trim() : '';

@@ -1,5 +1,7 @@
 import { homedir } from 'node:os';
 import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, isProjectImage } from '../../integrations/projectFiles.js';
+import { parseBody } from '../validation.js';
+import { createProjectSchema, updateProjectSchema, writeFileSchema, pathBodySchema, fromToSchema } from '../schemas/projects.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** Project registration + the in-app file editor (tree, read/write, raw bytes, file-manager ops) and
@@ -28,7 +30,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     // Only the admin may register projects (when multi-user auth is on).
     if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
-    const { slug, path, notes } = await c.req.json();
+    const { slug, path, notes } = await parseBody(c, createProjectSchema);
     try { return c.json(d.projects.create({ slug, path, notes }), 201); }
     catch { return c.json({ error: 'slug taken' }, 409); }
   });
@@ -39,7 +41,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     const id = Number(c.req.param('id'));
     const cur = d.projects.get(id);
     if (!cur) return c.json({ error: 'project not found' }, 404);
-    const b = await c.req.json() as { path?: string; notes?: string; icon?: string; pr_enabled?: boolean | null };
+    const b = await parseBody(c, updateProjectSchema);
     const patch: { path?: string; notes?: string; icon?: string; pr_enabled?: boolean | null } = {};
     if (typeof b.path === 'string' && b.path.trim()) patch.path = b.path.trim();
     if (typeof b.notes === 'string') patch.notes = b.notes;
@@ -95,8 +97,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json() as { path?: string; content?: string };
-    if (!b.path || typeof b.content !== 'string') return c.json({ error: 'path and content required' }, 400);
+    const b = await parseBody(c, writeFileSchema);
     try { writeProjectFile(p.path, b.path, b.content); return c.json({ ok: true }); }
     catch { return c.json({ error: 'invalid path' }, 400); }
   });
@@ -121,8 +122,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json() as { path?: string };
-    if (!b.path) return c.json({ error: 'path required' }, 400);
+    const b = await parseBody(c, pathBodySchema);
     try { createProjectFile(p.path, b.path); return c.json({ ok: true }); }
     catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
   });
@@ -130,8 +130,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json() as { path?: string };
-    if (!b.path) return c.json({ error: 'path required' }, 400);
+    const b = await parseBody(c, pathBodySchema);
     try { createProjectDir(p.path, b.path); return c.json({ ok: true }); }
     catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
   });
@@ -139,8 +138,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json() as { from?: string; to?: string };
-    if (!b.from || !b.to) return c.json({ error: 'from and to required' }, 400);
+    const b = await parseBody(c, fromToSchema);
     try { renameProjectEntry(p.path, b.from, b.to); return c.json({ ok: true }); }
     catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
   });
@@ -148,8 +146,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
-    const b = await c.req.json() as { from?: string; to?: string };
-    if (!b.from || !b.to) return c.json({ error: 'from and to required' }, 400);
+    const b = await parseBody(c, fromToSchema);
     try { copyProjectEntry(p.path, b.from, b.to); return c.json({ ok: true }); }
     catch (e) { return c.json({ error: e instanceof Error ? e.message : 'invalid path' }, 400); }
   });
