@@ -18,6 +18,12 @@ export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
+        // The SSE bus drives freshness (useOrcaEvents invalidates on every relevant event), so treat
+        // data as fresh for 10s and skip the refetch-on-focus stampede — a tab regaining focus would
+        // otherwise re-run every mounted query at once for no new data. SSE invalidation bypasses
+        // staleTime, so live updates still land immediately.
+        staleTime: 10_000,
+        refetchOnWindowFocus: false,
         // Don't retry client errors (4xx): a 401 has already cleared the token (req() in orcaClient),
         // and 400/403/404 won't change on a retry — retrying only delays the error UI and re-hammers
         // the daemon. Transient faults (network drop / 5xx) still get a couple of attempts.

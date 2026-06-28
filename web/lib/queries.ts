@@ -44,16 +44,20 @@ export const useTasks = (projectId?: number) =>
   // A bare `useTasks()` keeps the shared `['tasks']` cache key (Kanban/Timeline/Sidebar/… all share
   // one "all tasks" fetch). A scoped `useTasks(projectId)` gets its own entry so a project-filtered
   // Tasks view doesn't replace the global cache. Prefix invalidations still hit both.
-  useQuery({ queryKey: projectId == null ? QUERY_KEYS.tasks : ['tasks', projectId], queryFn: () => orcaClient.tasks(projectId), refetchInterval: 5000 });
+  // No refetchInterval: the SSE bus invalidates ['tasks'] on every task/plan/review event (see
+  // useOrcaEvents), so the list stays live without a 5s poll. The EventSource self-reconnects with
+  // backoff, so a dropped stream still recovers — no silent staleness.
+  useQuery({ queryKey: projectId == null ? QUERY_KEYS.tasks : ['tasks', projectId], queryFn: () => orcaClient.tasks(projectId) });
 
 /** Live session names — the stable handles used for liveness checks, signal keys and ops.
  *  Backed by the same query as useSessionInfos (one fetch); selects just the names. */
 export const useSessions = () =>
-  useQuery({ queryKey: QUERY_KEYS.sessions, queryFn: orcaClient.sessions, refetchInterval: 5000, select: (s) => s.map((x) => x.name) });
+  // SSE `signal` events invalidate ['sessions']; no poll needed.
+  useQuery({ queryKey: QUERY_KEYS.sessions, queryFn: orcaClient.sessions, select: (s) => s.map((x) => x.name) });
 
 /** Live sessions with their daemon-classified role/identity, for display surfaces. */
 export const useSessionInfos = () =>
-  useQuery({ queryKey: QUERY_KEYS.sessions, queryFn: orcaClient.sessions, refetchInterval: 5000 });
+  useQuery({ queryKey: QUERY_KEYS.sessions, queryFn: orcaClient.sessions });
 
 export const useAllDeps = () =>
   useQuery({ queryKey: ['tasks', 'deps'], queryFn: orcaClient.allDeps });
@@ -98,7 +102,8 @@ export const useSystem = () =>
 export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: orcaClient.listUsers });
 
 export const useActivity = (type?: string) =>
-  useQuery({ queryKey: ['activity', type ?? 'all'], queryFn: () => orcaClient.activity(type ? { type } : undefined), refetchInterval: 5000 });
+  // SSE task/mission/signal/review events all invalidate ['activity']; no 5s poll needed.
+  useQuery({ queryKey: ['activity', type ?? 'all'], queryFn: () => orcaClient.activity(type ? { type } : undefined) });
 
 /** Pending overseer escalations — phases a post-done review rejected that still need a human, derived
  *  from the persisted review feed joined to live task/dep state. Shared by the Escalations page, the

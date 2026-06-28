@@ -19,18 +19,10 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
   const onReviewRef = useRef(opts?.onReview);
   onReviewRef.current = opts?.onReview;
   useEffect(() => {
-    // Same-origin SSE through the /api proxy; the httpOnly session cookie rides along via credentials.
-    const es = new EventSource(`${BASE}/events`, { withCredentials: true });
-
-    // Native EventSource auto-reconnects on transport drops (browser-managed retry per HTML spec).
-    // On a terminal failure (readyState CLOSED) just stop — do NOT touch the auth token here: the
-    // EventSource API can't tell a 401 from a benign drop (proxy/SSE timeout, daemon restart, a
-    // hard-reload race), so clearing the token on CLOSED would log the user out spuriously. Real
-    // auth expiry is handled by the regular request path (`req` clears the token on a 401), which
-    // drives the login gate. Closing here only avoids a retry storm against a dead endpoint.
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) es.close();
-    };
+    let es: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;       // reconnect backoff step; reset to 0 on a healthy open
+    let stopped = false;   // set on unmount so a pending retry never reopens after teardown
 
     const makeHandler = (invalidate: () => void) => (e: MessageEvent) => {
       try { JSON.parse(e.data); } catch { return; } // skip malformed, keep the stream alive
@@ -77,12 +69,36 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
       if (data.taskId) onReviewRef.current?.({ missionId: data.missionId, taskId: data.taskId, approve: !!data.approve, rationale: data.rationale ?? '' });
     };
 
-    es.addEventListener('task', taskHandler);
-    es.addEventListener('mission', missionHandler);
-    es.addEventListener('signal', signalHandler);
-    es.addEventListener('plan', planHandler);
-    es.addEventListener('review', reviewHandler);
+    // Same-origin SSE through the /api proxy; the httpOnly session cookie rides along via credentials.
+    // Reconnects itself with capped exponential backoff so a daemon restart / proxy timeout recovers on
+    // its own — load-bearing now that cache freshness relies on SSE invalidation, not a polling fallback.
+    const connect = () => {
+      if (stopped) return;
+      es = new EventSource(`${BASE}/events`, { withCredentials: true });
+      es.onopen = () => { attempt = 0; }; // a healthy stream resets the backoff
 
-    return () => es.close();
+      // Native EventSource auto-reconnects on transport drops (browser-managed retry per HTML spec); we
+      // only act on a terminal failure (readyState CLOSED) where it has given up — then retry ourselves
+      // with backoff. Do NOT touch the auth token here: the EventSource API can't tell a 401 from a
+      // benign drop (proxy/SSE timeout, daemon restart, a hard-reload race), so clearing the token on
+      // CLOSED would log the user out spuriously. Real auth expiry is handled by the regular request
+      // path (`req` clears the token on a 401), which drives the login gate.
+      es.onerror = () => {
+        if (!es || es.readyState !== EventSource.CLOSED) return;
+        es.close();
+        const delay = Math.min(30_000, 1000 * 2 ** attempt); // 1s, 2s, 4s … capped at 30s
+        attempt += 1;
+        retryTimer = setTimeout(connect, delay);
+      };
+
+      es.addEventListener('task', taskHandler);
+      es.addEventListener('mission', missionHandler);
+      es.addEventListener('signal', signalHandler);
+      es.addEventListener('plan', planHandler);
+      es.addEventListener('review', reviewHandler);
+    };
+    connect();
+
+    return () => { stopped = true; if (retryTimer) clearTimeout(retryTimer); es?.close(); };
   }, [qc]);
 }

@@ -45,7 +45,18 @@ export function useResetUsage() {
 
 export function useCleanupAll() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: () => orcaClient.cleanupAll(), onSuccess: () => qc.invalidateQueries() });
+  // cleanupAll disengages every mission, kills the orca- sessions and wipes tasks + events. Invalidate
+  // exactly those caches (+ the mission detail and session signals derived from them) instead of a
+  // wildcard `invalidateQueries()` — config/system/users/usage don't change, so refetching them just
+  // re-hammers the daemon for no reason.
+  return useMutation({
+    mutationFn: () => orcaClient.cleanupAll(),
+    onSuccess: () => {
+      for (const queryKey of [QUERY_KEYS.tasks, QUERY_KEYS.missions, ['mission'], QUERY_KEYS.sessions, QUERY_KEYS.sessionSignals, ['activity']]) {
+        qc.invalidateQueries({ queryKey });
+      }
+    },
+  });
 }
 export function usePlanTask() {
   const qc = useQueryClient();
