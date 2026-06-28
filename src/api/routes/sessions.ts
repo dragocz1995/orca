@@ -1,17 +1,12 @@
 import { streamSSE } from 'hono/streaming';
-import { resolveExecutor } from '../../overseer/routing.js';
 import { classifySession } from '../../overseer/sessionInfo.js';
-import { checkoutBusy } from '../../overseer/checkout.js';
-import { parseResumeLabel } from '../../spawn/resume/index.js';
-import { projectHead } from '../../integrations/projectFiles.js';
-import { uniqueName } from '../../daemon/uniqueName.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** Live tmux session surface: list, manual launch, kill, keystrokes/raw input, resize, pane capture,
  *  the live ANSI stream and a single-use ticket for the terminal WebSocket. Every control route is
  *  ownership-gated by sessionAccessible; a manual launch claims the shared checkout atomically. */
 export function registerSessionRoutes(app: OrcaApp, ctx: RouteContext): void {
-  const { d, sessionAccessible, canAccessProject, execAllowedForUser, pathFor, gitLock, tickets } = ctx;
+  const { d, sessionAccessible, canAccessProject, execAllowedForUser, sessionService, tickets } = ctx;
   app.get('/sessions', async c => c.json((await d.tmux.list())
     .filter((s) => s.startsWith('orca-'))
     // Visibility mirrors operability: a caller only sees sessions it may control (its projects' agents,
@@ -27,48 +22,16 @@ export function registerSessionRoutes(app: OrcaApp, ctx: RouteContext): void {
     const { taskId, exec } = await c.req.json() as { taskId: string; exec?: string };
     if (exec && !d.config.get().allowedExecs.includes(exec)) return c.json({ error: 'exec not allowed' }, 400);
     if (exec && !execAllowedForUser(c, exec)) return c.json({ error: 'exec not allowed for user' }, 403);
-    const spec = resolveExecutor(exec ? [`exec:${exec}`] : [], d.fallback);
     const task = d.tasks.get(taskId);
     if (!task) return c.json({ error: 'task not found' }, 404); // don't spawn a phantom agent for a missing task
     // Launch in the task's own project (multi-project), gated to the caller's access.
-    const projectId = task.project_id;
-    if (!canAccessProject(c, projectId)) return c.json({ error: 'forbidden' }, 403);
-    if (exec) d.tasks.setExec(taskId, exec); // remember which model ran it — drives the model icon
-    // Single-writer: a manual launch targets the shared project checkout, so refuse it when another
-    // agent (a scheduler task or a non-PR mission phase) is already live there — a second writer would
-    // corrupt per-task change attribution. Read in_progress FRESH and flip status synchronously right
-    // after, so the check-and-claim is atomic against the concurrent scheduler/engine ticks.
-    const cwd = pathFor(projectId);
-    const resolver = { projectPath: pathFor, worktreeFor: (mid: string) => d.missionGit?.worktreeFor(mid) };
-    if (checkoutBusy(resolver, d.tasks.list({ status: 'in_progress' }), cwd)) return c.json({ error: 'checkout busy' }, 409);
-    const agentName = uniqueName();
-    d.tasks.setAgent(taskId, agentName);     // link task → orca-<agentName> session for run controls
-    d.tasks.markStarted(taskId, d.clock.now()); // precise spawn time → correct usage attribution under concurrency
-    d.tasks.setStatus(taskId, 'in_progress'); // claim synchronously after the fresh check above
-    // Baseline for the per-task change snapshot, under the checkout lock so it lands after any in-flight commit.
-    await gitLock.run(cwd, async () => d.tasks.markBase(taskId, await projectHead(cwd)));
-    // When this is a resume (the task ran before), pin a note so the resumed agent knows it was
-    // restarted on purpose and should continue rather than wonder why it's running again. Re-read the
-    // description afterwards so the note rides along into the worker-resume prompt.
-    const resume = parseResumeLabel(task.labels);
-    // Only pin the generic manual-restart note when nothing more specific is already there — a
-    // review-reject rationale or a stuck-relaunch reason carries actionable context the user is
-    // restarting to address, so don't clobber it with boilerplate.
-    if (resume && !d.tasks.get(taskId)?.resume_note) d.tasks.setResumeNote(taskId, 'Manually restarted — continue from where you left off and finish the task.');
-    const resumeNote = d.tasks.get(taskId)?.resume_note ?? undefined;
-    let session: string;
-    try {
-      ({ session } = await d.spawn.launch({ projectId, projectPath: pathFor(projectId), taskId, agentName, spec, taskTitle: task.title, taskDescription: task.description, resumeNote, epicId: task.parent_id ?? undefined, resume }));
-    } catch (e) {
-      // The task was already flipped to in_progress above; a spawn failure (bad cwd, missing tmux,
-      // name collision) would otherwise leave it stuck with no live session until the stuck detector
-      // reverts it 120s later. Revert immediately so the mission/scheduler can re-pick it.
-      d.tasks.setStatus(taskId, 'open');
-      d.bus.publish({ type: 'task', taskId, status: 'open' });
-      return c.json({ error: `spawn failed: ${(e as Error).message}` }, 500);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
+    const result = await sessionService.launchManual(task, exec);
+    if (!result.ok) {
+      if (result.reason === 'busy') return c.json({ error: 'checkout busy' }, 409);
+      return c.json({ error: `spawn failed: ${result.message}` }, 500);
     }
-    d.bus.publish({ type: 'task', taskId, status: 'in_progress' });
-    return c.json({ session }, 201);
+    return c.json({ session: result.session }, 201);
   });
   app.delete('/sessions/:name', async c => {
     const name = c.req.param('name');

@@ -3,6 +3,7 @@ import { usagePath } from '../integrations/usage/usagePath.js';
 import { logger } from '../shared/logger.js';
 import { createPlanService } from './services/planService.js';
 import { createReviewService, type ReviewService } from './services/reviewService.js';
+import { createSessionService, type SessionService } from './services/sessionService.js';
 import { KeyedMutex } from '../shared/keyedMutex.js';
 import { PlanJobStore, type PlanJob } from '../overseer/planJob.js';
 import { DecisionQueue } from '../overseer/decisionQueue.js';
@@ -76,6 +77,8 @@ export interface RouteContext {
   releaseGatedDependents(phaseId: string): string[];
   /** The post-done review workflow (gate, verdict apply, commit/self-heal/escalate) for task close. */
   reviewService: ReviewService;
+  /** Manual session launch (atomic checkout claim + snapshot baseline + spawn) for POST /sessions. */
+  sessionService: SessionService;
 }
 
 /** Build the shared {@link RouteContext} from the daemon's injected {@link ServerDeps}. Core reasoning
@@ -245,11 +248,15 @@ export function createRouteContext(d: ServerDeps): RouteContext {
   const reviewService = createReviewService({ d, log, gitLock, decisionQueue, checkoutPathFor, pathFor });
   const { releaseGatedDependents } = reviewService;
 
+  // Manual session launch (the atomic single-writer claim + snapshot baseline + spawn) lives in its own
+  // service so the check-and-claim sequence is testable without the HTTP surface.
+  const sessionService = createSessionService(d, gitLock, pathFor);
+
   return {
     d, log, planJobs, decisionQueue, tickets, gitLock,
     agentProjects, canAccessProject, notAdmin, accessibleProjects, missionAccessible,
     taskForSession, eventDeps, sessionAccessible, execAllowedForUser,
     pathFor, usagePathFor, checkoutPathFor, resolveTarget,
-    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService,
+    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService, sessionService,
   };
 }
