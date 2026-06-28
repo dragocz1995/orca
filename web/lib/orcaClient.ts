@@ -157,7 +157,6 @@ export const orcaClient = {
   projectCommits: (id: number, limit = 30) => req<{ commits: CommitLogEntry[] }>(`/projects/${id}/commits?limit=${limit}`),
   projectChanged: (id: number) => req<{ changed: string[] }>(`/projects/${id}/changed`),
   projectChanges: (id: number) => req<{ diff: string }>(`/projects/${id}/changes`),
-  taskChangedFileDiff: (id: string, path: string) => req<{ diff: string }>(`/tasks/${encodeURIComponent(id)}/changed/diff?path=${encodeURIComponent(path)}`),
   taskCommits: (id: string) => req<{ commits: CommitLogEntry[] }>(`/tasks/${encodeURIComponent(id)}/commits`),
   taskCommitFileDiff: (id: string, hash: string, path: string) => req<{ diff: string }>(`/tasks/${encodeURIComponent(id)}/commit/${encodeURIComponent(hash)}/diff?path=${encodeURIComponent(path)}`),
   missionNotes: (target: string) => req<Note[]>(`/notes?scope=mission&target=${encodeURIComponent(target)}`),

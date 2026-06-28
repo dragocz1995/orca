@@ -248,9 +248,9 @@ export function TasksView() {
               )}
             </div>
 
-            {/* Right — persistent detail pane. Bounded height + internal scroll so its header
-                stays pinned below the toolbar instead of sliding under it on long tasks. */}
-            <aside className="mt-5 min-w-0 lg:mt-0 lg:flex-1 lg:sticky lg:top-16 lg:max-h-[calc(100vh-80px)] lg:overflow-y-auto">
+            {/* Right — persistent detail pane. Sizes to its content and scrolls with the page (no inner
+                scrollbar); its own header is sticky below the module toolbar so it stays visible. */}
+            <aside className="mt-5 min-w-0 lg:mt-0 lg:flex-1">
               {(() => {
                 if (!selectedId) {
                   return <div className="hidden items-center justify-center gap-2 rounded-lg border border-dashed border-border py-20 text-sm text-text-muted lg:flex"><ListChecks size={14} className="shrink-0 text-text-muted/50" aria-hidden />{t.tasks.selectHint}</div>;

@@ -16,7 +16,6 @@ import { AgentStatusDot } from '../../components/ui/AgentStatusDot';
 import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
 import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { ResultSummary } from './ResultSummary';
-import { TaskChanges } from './TaskChanges';
 import { TaskConversation } from './TaskConversation';
 import { LiveTail } from '../../components/terminal/LiveTail';
 import { TerminalModal } from '../../components/terminal/TerminalModal';
@@ -86,8 +85,9 @@ export function TaskDetailPane({ taskId, onEdit, onBack }: { taskId: string; onE
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Identity + actions — sticky so it stays pinned while the detail scrolls. */}
-      <div className="sticky top-0 z-10 -mx-4 flex flex-col gap-2 border-b border-border bg-surface px-4 pb-3 pt-1">
+      {/* Identity + actions — sticky below the module toolbar (top-0 on mobile where the toolbar isn't
+          sticky) so it stays pinned while the page scrolls past the detail. */}
+      <div className="sticky top-0 z-10 -mx-4 flex flex-col gap-2 border-b border-border bg-surface px-4 pb-3 pt-1 md:top-14">
         {onBack ? (
           <button type="button" onClick={onBack} className="-ml-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-xs text-text-muted transition-colors hover:bg-elevated hover:text-text">
             <ChevronLeft size={14} aria-hidden />{t.tasks.backToFlow}
@@ -162,8 +162,6 @@ export function TaskDetailPane({ taskId, onEdit, onBack }: { taskId: string; onE
       {running && session ? <Field label={t.tasks.liveOutput}><LiveTail name={session} lines={28} heightClass="max-h-96" onExpand={() => setOpenTerm(true)} /></Field> : null}
 
       <ResultSummary task={task} />
-
-      <TaskChanges task={task} />
 
       <TaskConversation task={task} />
 

@@ -142,10 +142,6 @@ export const useProjectCommitFileDiff = (id: number | null, hash: string | null,
 export const useProjectChanged = (id: number | null) =>
   useQuery({ queryKey: ['project-changed', id], queryFn: () => orcaClient.projectChanged(id as number), enabled: !!id });
 
-/** Lazy diff of one file from a task's frozen change list — fetched only when the user opens it. */
-export const useTaskChangedFileDiff = (taskId: string | null, path: string | null) =>
-  useQuery({ queryKey: ['task-changed-diff', taskId, path], queryFn: () => orcaClient.taskChangedFileDiff(taskId as string, path as string), enabled: !!taskId && !!path });
-
 /** A task's autopilot conversation (its decision + review events), oldest-first. SSE `decision`/`review`
  *  events invalidate ['task-activity']; no poll. */
 export const useTaskConversation = (taskId: string | null) =>
