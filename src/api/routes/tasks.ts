@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { readTaskUsage } from '../../integrations/usage/index.js';
-import { projectRangeFileDiff } from '../../integrations/projectFiles.js';
+import { projectRangeFileDiff, projectRangeLog, projectCommitFileDiff } from '../../integrations/projectFiles.js';
 import { decompose, parsePhases, modelsBlock, parallelismBlock, VALID_TYPES as VALID_PHASE_TYPES, type Phase } from '../../overseer/planner.js';
 import { resolvePrEnabled } from '../../overseer/prMode.js';
 import { RelayClient } from '../../inference/client.js';
@@ -116,6 +116,35 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
       return c.json({ diff: await projectRangeFileDiff(root, task.base_sha, task.head_sha, path) });
     } catch {
       return c.json({ diff: '' }); // path-traversal reject / bad ref — degrade to empty, never 500
+    }
+  });
+  // The commits a task landed (`git log base..head` in its checkout) — the per-commit history shown
+  // live in the detail pane's "conversation & history" feed, refreshed via the `change` SSE ping.
+  // Empty until the first snapshot stamps base/head, or when the refs were GC'd by a later squash.
+  app.get('/tasks/:id/commits', async c => {
+    const id = c.req.param('id');
+    const task = d.tasks.get(id);
+    if (!task) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
+    if (!task.base_sha || !task.head_sha) return c.json({ commits: [] });
+    const root = checkoutPathFor(task.parent_id ? `m-${task.parent_id}` : null, task.project_id);
+    return c.json({ commits: await projectRangeLog(root, task.base_sha, task.head_sha) });
+  });
+  // Diff of one file as introduced by ONE of a task's commits (`git show <hash> -- <path>` in the task's
+  // checkout) — the per-commit click-through in the conversation feed. Distinct from changed/diff, which
+  // is the cumulative base..head diff. Empty on a bad hash/path or a GC'd ref — degrades, never 500s.
+  app.get('/tasks/:id/commit/:hash/diff', async c => {
+    const id = c.req.param('id');
+    const task = d.tasks.get(id);
+    if (!task) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
+    const path = c.req.query('path') ?? '';
+    if (!path) return c.json({ diff: '' });
+    const root = checkoutPathFor(task.parent_id ? `m-${task.parent_id}` : null, task.project_id);
+    try {
+      return c.json({ diff: await projectCommitFileDiff(root, c.req.param('hash'), path) });
+    } catch {
+      return c.json({ diff: '' });
     }
   });
   // Human approval of an escalated phase: accept its result and release the review gate it holds,

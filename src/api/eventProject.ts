@@ -18,6 +18,8 @@ export function eventProjectId(e: OrcaEvent, d: EventProjectDeps): number | null
   switch (e.type) {
     case 'task':
     case 'review':
+    case 'decision':
+    case 'change':
       return d.taskProject(e.taskId);
     case 'mission': {
       // A mission id is `m-<epicId>`; the epic carries the project. Strip the prefix to reach it.

@@ -59,6 +59,37 @@ describe('GET /activity tenancy filtering', () => {
   });
 });
 
+describe('GET /activity?target — per-task conversation feed', () => {
+  function setupTask() {
+    const db = openDb(':memory:');
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'home','/o')").run();
+    const users = new UserStore(db);
+    const admin = users.create('admin', 'pw');
+    const tasks = new TaskStore(db);
+    tasks.create({ id: 'tk', project_id: 1, title: 'Task' });
+    tasks.create({ id: 'other', project_id: 1, title: 'Other' });
+    const events = new EventStore(db);
+    events.record({ type: 'decision', taskId: 'tk', kind: 'prompt', question: 'run it?', outcome: 'approved', rationale: 'safe', confidence: 0.9 });
+    events.record({ type: 'task', taskId: 'tk', status: 'in_progress' });
+    events.record({ type: 'review', missionId: 'm-x', taskId: 'tk', approve: false, rationale: 'redo' });
+    events.record({ type: 'decision', taskId: 'other', kind: 'prompt', question: 'nope', outcome: 'approved', rationale: 'x', confidence: 0.5 });
+    const app = createServer({
+      tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(), events,
+      engine: null as never, spawn: null as never, tmux: null as never,
+      project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
+      clock: new FakeClock(0), config: new ConfigStore(db), users, projects: new ProjectStore(db),
+    });
+    return { app, tok: users.issueToken(admin.id) };
+  }
+
+  it('returns one task\'s events oldest-first, scoped to that target', async () => {
+    const { app, tok } = setupTask();
+    const rows = (await (await app.request('/activity?target=tk', auth(tok))).json()) as { type: string; target: string }[];
+    expect(rows.every((r) => r.target === 'tk')).toBe(true);       // not 'other'
+    expect(rows.map((r) => r.type)).toEqual(['decision', 'task', 'review']); // id ASC (chronological)
+  });
+});
+
 describe('EventStore.record project stamping', () => {
   it('honors a passed-in project for non-task events, else falls back to the task lookup', () => {
     const db = openDb(':memory:');

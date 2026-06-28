@@ -17,6 +17,7 @@ import { OutcomeBadge } from '../../components/ui/OutcomeBadge';
 import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { ResultSummary } from './ResultSummary';
 import { TaskChanges } from './TaskChanges';
+import { TaskConversation } from './TaskConversation';
 import { LiveTail } from '../../components/terminal/LiveTail';
 import { TerminalModal } from '../../components/terminal/TerminalModal';
 import { useToast } from '../../components/ui/Toast';
@@ -163,6 +164,8 @@ export function TaskDetailPane({ taskId, onEdit, onBack }: { taskId: string; onE
       <ResultSummary task={task} />
 
       <TaskChanges task={task} />
+
+      <TaskConversation task={task} />
 
       {notes.data && notes.data.length > 0 ? (
         <Field label={t.tasks.handoffNotes}>

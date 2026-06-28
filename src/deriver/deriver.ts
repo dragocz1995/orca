@@ -21,11 +21,12 @@ export interface DeriverDeps {
   /** Mission id owning a session, or null (manual launch). Lets a queue-backed decideApproval route
    *  the prompt to that mission's parked overseer agent. */
   missionFor?: (session: string) => string | null;
-  /** Overseer decision for an auto-cleared prompt; escalates when it returns approve=false. */
-  decideApproval?: (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null }) => Promise<{ approve: boolean }>;
+  /** Overseer decision for an auto-cleared prompt; escalates when it returns approve=false. `taskId`
+   *  lets the decision be persisted against the task it was made for (the autopilot conversation feed). */
+  decideApproval?: (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null; taskId: string }) => Promise<{ approve: boolean }>;
   /** Overseer choice for an agent question (prompt kind 'choice'): returns the picked option id, or
    *  null to escalate to a human. The deriver navigates to the id and accepts; null emits needs_input. */
-  decideQuestion?: (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null }) => Promise<{ choiceId: string | null }>;
+  decideQuestion?: (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null; taskId: string }) => Promise<{ choiceId: string | null }>;
 }
 
 /** L1–L3 missions (and manual, mission-less launches) route permission prompts through the overseer;
@@ -107,7 +108,7 @@ export class Deriver {
         let choiceId: string | null = null;
         try {
           const r = this.d.decideQuestion
-            ? await this.d.decideQuestion({ question: prompt.question, context: prompt.context, options: prompt.options, autonomy: autonomy ?? 'L3', missionId: this.d.missionFor?.(session) ?? null })
+            ? await this.d.decideQuestion({ question: prompt.question, context: prompt.context, options: prompt.options, autonomy: autonomy ?? 'L3', missionId: this.d.missionFor?.(session) ?? null, taskId })
             : { choiceId: null };
           choiceId = r.choiceId;
         } catch (e) {
@@ -130,7 +131,7 @@ export class Deriver {
       let decision: { approve: boolean };
       try {
         decision = this.d.decideApproval
-          ? await this.d.decideApproval({ question: prompt.question, context: prompt.context, options: prompt.options, autonomy: autonomy ?? 'L3', missionId: this.d.missionFor?.(session) ?? null })
+          ? await this.d.decideApproval({ question: prompt.question, context: prompt.context, options: prompt.options, autonomy: autonomy ?? 'L3', missionId: this.d.missionFor?.(session) ?? null, taskId })
           : { approve: true };
       } catch (e) {
         log.error('overseer decision failed, escalating', e);

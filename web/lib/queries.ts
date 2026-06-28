@@ -146,6 +146,19 @@ export const useProjectChanged = (id: number | null) =>
 export const useTaskChangedFileDiff = (taskId: string | null, path: string | null) =>
   useQuery({ queryKey: ['task-changed-diff', taskId, path], queryFn: () => orcaClient.taskChangedFileDiff(taskId as string, path as string), enabled: !!taskId && !!path });
 
+/** A task's autopilot conversation (its decision + review events), oldest-first. SSE `decision`/`review`
+ *  events invalidate ['task-activity']; no poll. */
+export const useTaskConversation = (taskId: string | null) =>
+  useQuery({ queryKey: ['task-activity', taskId], queryFn: () => orcaClient.activity({ target: taskId as string }), enabled: !!taskId });
+
+/** The commits a task landed (live git history). SSE `change` events invalidate ['task-commits']; no poll. */
+export const useTaskCommits = (taskId: string | null) =>
+  useQuery({ queryKey: ['task-commits', taskId], queryFn: () => orcaClient.taskCommits(taskId as string), enabled: !!taskId });
+
+/** Lazy diff of one file as introduced by a single task commit (`git show <hash>`), fetched on open. */
+export const useTaskCommitFileDiff = (taskId: string | null, hash: string | null, path: string | null) =>
+  useQuery({ queryKey: ['task-commit-diff', taskId, hash, path], queryFn: () => orcaClient.taskCommitFileDiff(taskId as string, hash as string, path as string), enabled: !!taskId && !!hash && !!path });
+
 /** Handoff notes for a mission (keyed by epic id), shown read-only in the detail pane. */
 export const useMissionNotes = (target: string | null) =>
   useQuery({ queryKey: ['mission-notes', target], queryFn: () => orcaClient.missionNotes(target as string), enabled: !!target, refetchInterval: 10000 });

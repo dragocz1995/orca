@@ -289,6 +289,25 @@ function parseNumstatLine(line: string): CommitFileChange | null {
   return { path, added: added === '-' ? 0 : Number(added) || 0, deleted: deleted === '-' ? 0 : Number(deleted) || 0 };
 }
 
+/** Parse the stdout of a `git log --numstat --pretty=format:\x01%h\x09%ct\x09%an\x09%s` into commits:
+ *  each \x01-prefixed line opens a commit, following numstat rows are its file churn. Shared by the
+ *  whole-repo log and the range log so both parse identically. */
+function parseCommitLog(stdout: string): CommitLogEntry[] {
+  const commits: CommitLogEntry[] = [];
+  let cur: CommitLogEntry | null = null;
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('\x01')) {
+      const [hash = '', ct = '', author = '', ...rest] = line.slice(1).split('\t');
+      cur = { hash, subject: rest.join('\t'), author, timestamp: Number(ct) * 1000, files: [] };
+      commits.push(cur);
+    } else if (cur && line.trim()) {
+      const f = parseNumstatLine(line);
+      if (f) cur.files.push(f);
+    }
+  }
+  return commits;
+}
+
 /** Recent commit history with per-file line churn, for the timeline's "changes over time" view.
  *  One `git log --numstat` call yields each commit's hash, committer timestamp (ms), author, subject
  *  and the list of changed files with +added / −deleted counts (binary files report 0/0). `limit` is
@@ -302,19 +321,24 @@ export async function projectCommitLog(root: string, limit: number): Promise<Com
       ['-C', realpathSync(resolve(root)), 'log', '-n', String(n), '--numstat', '--pretty=format:\x01%h\x09%ct\x09%an\x09%s'],
       { maxBuffer: 8 * 1024 * 1024 },
     );
-    const commits: CommitLogEntry[] = [];
-    let cur: CommitLogEntry | null = null;
-    for (const line of stdout.split('\n')) {
-      if (line.startsWith('\x01')) {
-        const [hash = '', ct = '', author = '', ...rest] = line.slice(1).split('\t');
-        cur = { hash, subject: rest.join('\t'), author, timestamp: Number(ct) * 1000, files: [] };
-        commits.push(cur);
-      } else if (cur && line.trim()) {
-        const f = parseNumstatLine(line);
-        if (f) cur.files.push(f);
-      }
-    }
-    return commits;
+    return parseCommitLog(stdout);
+  } catch {
+    return [];
+  }
+}
+
+/** The commits a task landed, as `git log base..head --numstat` in its checkout — the per-commit
+ *  history behind a task's frozen change list. `base`/`head` are the SHAs stamped at spawn/snapshot.
+ *  Newest first; empty list on a bad range, a non-repo, or any git error. */
+export async function projectRangeLog(root: string, base: string, head: string): Promise<CommitLogEntry[]> {
+  if (!/^[0-9a-f]{4,40}$/i.test(base) || !/^[0-9a-f]{4,40}$/i.test(head)) return [];
+  try {
+    const { stdout } = await run(
+      'git',
+      ['-C', realpathSync(resolve(root)), 'log', '--numstat', '--pretty=format:\x01%h\x09%ct\x09%an\x09%s', `${base}..${head}`],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    return parseCommitLog(stdout);
   } catch {
     return [];
   }

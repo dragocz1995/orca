@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, isProjectImage } from '../../src/integrations/projectFiles.js';
+import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectRangeLog, isProjectImage } from '../../src/integrations/projectFiles.js';
 
 let root: string;
 const w = (rel: string, body: string) => { const p = join(root, rel); mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, body); };
@@ -187,6 +187,35 @@ describe('projectCommitLog', () => {
     expect((await projectCommitLog(root, 2)).length).toBe(2);
     // a non-finite / negative limit must not blow up or inject — it falls back to a safe default
     expect((await projectCommitLog(root, -5 as number)).length).toBeGreaterThan(0);
+  });
+});
+
+describe('projectRangeLog', () => {
+  it('rejects a non-hex ref (no git flag injection) and errors safely', async () => {
+    expect(await projectRangeLog(root, '--all', 'HEAD')).toEqual([]);
+    expect(await projectRangeLog(root, 'deadbeef', 'cafebabe')).toEqual([]); // valid hex, non-repo → caught
+  });
+
+  it('returns only the commits a task landed between base..head, newest-first with churn', async () => {
+    const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+    git('init', '-q');
+    git('config', 'user.email', 't@t.io');
+    git('config', 'user.name', 'T');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'before the task');
+    const base = git('rev-parse', 'HEAD').toString().trim();
+    w('src/index.ts', 'export const x = 2;\nexport const y = 3;'); // the task's first commit: 1 changed, 1 added
+    git('add', '-A');
+    git('commit', '-q', '-m', 'task commit 1');
+    w('README.md', '# hi\nmore'); // the task's second commit
+    git('add', '-A');
+    git('commit', '-q', '-m', 'task commit 2');
+    const head = git('rev-parse', 'HEAD').toString().trim();
+
+    const log = await projectRangeLog(root, base, head);
+    expect(log.map((c) => c.subject)).toEqual(['task commit 2', 'task commit 1']); // only the range, newest-first
+    const f = log[1].files.find((x) => x.path === join('src', 'index.ts'));
+    expect(f).toMatchObject({ added: 2, deleted: 1 });
   });
 });
 

@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { openDb } from '../../src/store/db.js';
 import { TaskStore } from '../../src/store/taskStore.js';
 import { AgentStore } from '../../src/store/agentStore.js';
@@ -156,6 +160,50 @@ describe('Scheduler', () => {
     await scheduler.tick();
     expect(tasks.get('f')?.status).toBe('open');                          // rolled back, not stuck in_progress
     expect(tasks.get('f')?.scheduled_at).toBe('2026-06-17T12:00:00.000Z'); // schedule restored → retries next tick
+  });
+
+  it('does NOT republish change for a running task with no base label (no live-history thrash)', async () => {
+    // Regression: a task in_progress without a `base:` label makes snapshotTaskChanges a no-op, so
+    // head_sha stays null. The raw HEAD-vs-null compare would publish `change` every tick forever; the
+    // re-read of the actually-stamped head_sha must keep it silent.
+    const repo = mkdtempSync(join(tmpdir(), 'orca-sched-'));
+    const git = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+    git('init', '-q'); git('config', 'user.email', 't@t.io'); git('config', 'user.name', 'T');
+    writeFileSync(join(repo, 'f.txt'), 'v0'); git('add', '-A'); git('commit', '-q', '-m', 'c0');
+    try {
+      const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'r',?)").run(repo);
+      const tasks = new TaskStore(db);
+      const bus = new EventBus(); const changes: string[] = [];
+      bus.subscribe((e) => { if (e.type === 'change') changes.push(e.taskId); });
+      const scheduler = new Scheduler({ tasks, spawn: new SpawnService({ tmux: new FakeTmuxDriver(), agents: new AgentStore(db) }), bus, projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => 'N', clock: new FakeClock(0) });
+      tasks.create({ id: 'nb', project_id: 1, title: 'No base' }); tasks.setStatus('nb', 'in_progress');
+      await scheduler.tick();
+      await scheduler.tick();
+      expect(changes).toEqual([]); // never thrashes
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('publishes a single change and refreshes the snapshot when a running task lands a new commit', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'orca-sched-'));
+    const git = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+    git('init', '-q'); git('config', 'user.email', 't@t.io'); git('config', 'user.name', 'T');
+    writeFileSync(join(repo, 'f.txt'), 'v0'); git('add', '-A'); git('commit', '-q', '-m', 'c0');
+    const base = git('rev-parse', 'HEAD').toString().trim();
+    try {
+      const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'r',?)").run(repo);
+      const tasks = new TaskStore(db);
+      const bus = new EventBus(); const changes: string[] = [];
+      bus.subscribe((e) => { if (e.type === 'change') changes.push(e.taskId); });
+      const scheduler = new Scheduler({ tasks, spawn: new SpawnService({ tmux: new FakeTmuxDriver(), agents: new AgentStore(db) }), bus, projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => 'N', clock: new FakeClock(0) });
+      tasks.create({ id: 'wb', project_id: 1, title: 'With base' }); tasks.setStatus('wb', 'in_progress');
+      tasks.markBase('wb', base);            // baseline stamped at spawn
+      writeFileSync(join(repo, 'f.txt'), 'v1\nv2'); git('add', '-A'); git('commit', '-q', '-m', 'task commit');
+      await scheduler.tick();
+      expect(changes).toEqual(['wb']);                          // exactly one change
+      expect(tasks.get('wb')?.changed_files.length).toBeGreaterThan(0); // snapshot refreshed mid-run
+      await scheduler.tick();
+      expect(changes).toEqual(['wb']);                          // HEAD unchanged → no republish
+    } finally { rmSync(repo, { recursive: true, force: true }); }
   });
 
   it('launches due autostart tasks across every project', async () => {

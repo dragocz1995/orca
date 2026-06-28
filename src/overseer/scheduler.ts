@@ -8,6 +8,7 @@ import { resolveExecutor } from './routing.js';
 import { parseResumeLabel } from '../spawn/resume/index.js';
 import { projectHead } from '../integrations/projectFiles.js';
 import { checkoutBusy, checkoutOf } from './checkout.js';
+import { snapshotTaskChanges } from './taskSnapshot.js';
 import { logger } from '../shared/logger.js';
 
 const log = logger('scheduler');
@@ -84,6 +85,34 @@ export class Scheduler {
           continue;
         }
         this.d.bus.publish({ type: 'task', taskId: task.id, status: 'in_progress' });
+      }
+    }
+    await this.syncRunningChanges(resolver);
+  }
+
+  /** Live git history: detect new commits in each running task's checkout and refresh its frozen
+   *  change snapshot, emitting a `change` ping so the detail pane's history/changes update live
+   *  instead of only freezing at close. Best-effort per task — a git failure on one must not stall
+   *  the rest. Snapshots only when HEAD actually advanced past the last recorded `head_sha`, so a quiet
+   *  agent costs one cheap `git rev-parse` per tick and never republishes. */
+  private async syncRunningChanges(resolver: { projectPath: (id: number) => string; worktreeFor?: (missionId: string) => string | null | undefined }): Promise<void> {
+    for (const task of this.d.tasks.list({ status: 'in_progress' })) {
+      const cwd = checkoutOf(resolver, task);
+      if (!cwd) continue;
+      try {
+        const advanced = await this.gitLock.run(cwd, async () => {
+          const head = await projectHead(cwd);
+          if (!head || head === task.head_sha) return false;
+          await snapshotTaskChanges(this.d.tasks, task.id, cwd);
+          // Publish only when the snapshot actually STAMPED the new head. A task with no `base:` label
+          // (empty repo at spawn, or a pre-existing in_progress task) makes snapshotTaskChanges a no-op,
+          // leaving head_sha null forever — without this re-read the raw HEAD-vs-null compare would
+          // re-publish `change` every tick and thrash every client's refetch.
+          return this.d.tasks.get(task.id)?.head_sha === head;
+        });
+        if (advanced) this.d.bus.publish({ type: 'change', taskId: task.id });
+      } catch (e) {
+        log.error(`change sync failed for task ${task.id}`, e);
       }
     }
   }

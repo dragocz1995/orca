@@ -66,7 +66,29 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
       qc.invalidateQueries({ queryKey: ['mission'] });
       qc.invalidateQueries({ queryKey: QUERY_KEYS.missions });
       qc.invalidateQueries({ queryKey: ['activity'] });
+      if (data.taskId) qc.invalidateQueries({ queryKey: ['task-activity', data.taskId] }); // the task's conversation feed
       if (data.taskId) onReviewRef.current?.({ missionId: data.missionId, taskId: data.taskId, approve: !!data.approve, rationale: data.rationale ?? '' });
+    };
+
+    // An autopilot decision on an agent prompt/question — refresh the timeline and the affected task's
+    // conversation feed (scoped by taskId so an unrelated task's open detail pane doesn't refetch).
+    const decisionHandler = (e: MessageEvent) => {
+      let data: { taskId?: string };
+      try { data = JSON.parse(e.data); } catch { return; } // skip malformed, keep the stream alive
+      qc.invalidateQueries({ queryKey: ['activity'] });
+      if (data.taskId) qc.invalidateQueries({ queryKey: ['task-activity', data.taskId] });
+    };
+    // A new commit landed in a running task's checkout — refresh its live git history, frozen change list
+    // and any open file diff (both the cumulative TaskChanges modal and the per-commit feed modal).
+    const changeHandler = (e: MessageEvent) => {
+      let data: { taskId?: string };
+      try { data = JSON.parse(e.data); } catch { return; } // skip malformed, keep the stream alive
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.tasks });
+      if (data.taskId) {
+        qc.invalidateQueries({ queryKey: ['task-commits', data.taskId] });
+        qc.invalidateQueries({ queryKey: ['task-changed-diff', data.taskId] });
+        qc.invalidateQueries({ queryKey: ['task-commit-diff', data.taskId] });
+      }
     };
 
     // Same-origin SSE through the /api proxy; the httpOnly session cookie rides along via credentials.
@@ -96,6 +118,8 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
       es.addEventListener('signal', signalHandler);
       es.addEventListener('plan', planHandler);
       es.addEventListener('review', reviewHandler);
+      es.addEventListener('decision', decisionHandler);
+      es.addEventListener('change', changeHandler);
     };
     connect();
 

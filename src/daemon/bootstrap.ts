@@ -231,16 +231,25 @@ export function buildApp(opts: BuildOpts) {
       // Per-autonomy confidence bar: L1 (Assist) is held stricter than L2/L3 so it auto-runs only
       // clearly-safe steps. One source of truth, applied on every gate path below.
       const minConfidence = minConfidenceFor(input.autonomy);
+      // Persist what the autopilot decided against the task it ran for, so the detail pane can show the
+      // agent↔autopilot conversation. Only the real overseer paths (queue/relay) record — the
+      // no-overseer fallback has no verdict/rationale to show.
+      const recordPrompt = (gated: { approve: boolean }, rationale: string, confidence: number) =>
+        bus.publish({ type: 'decision', taskId: input.taskId, kind: 'prompt', question: input.question, outcome: gated.approve ? 'approved' : 'escalated', rationale, confidence });
       if (input.missionId && config.get().autopilot.overseerExec) {
         const v = await decisionQueue.enqueue(input.missionId, 'prompt', { question: input.question, context: input.context, options: input.options });
-        return gateVerdict(v, { minConfidence });
+        const gated = gateVerdict(v, { minConfidence });
+        recordPrompt(gated, v.rationale, v.confidence);
+        return gated;
       }
       const inf = overseerClient();
       // No overseer wired at all: only L3 may wave a prompt through; L1/L2 escalate
       // instead of being blindly approved (that blanket-approve was the bug that collapsed L2 into L3).
       if (!inf) return noOverseerFallback(input.autonomy);
       const d = await decidePrompt(inf, input);
-      return gateVerdict(d, { minConfidence });
+      const gated = gateVerdict(d, { minConfidence });
+      recordPrompt(gated, d.rationale, d.confidence);
+      return gated;
     },
     // The agent asked the user to pick an option. This routes through the SAME overseer that judges
     // prompts/reviews: the parked agent via the decision queue when one is configured, else the relay
@@ -255,14 +264,21 @@ export function buildApp(opts: BuildOpts) {
         if (!chosen || confidence < minConfidence) return { choiceId: null };
         return { choiceId: chosen.id };
       };
+      // Persist the question verdict (chosen option or escalation) for the task's conversation feed.
+      const recordChoice = (res: { choiceId: string | null }, rationale: string, confidence: number) =>
+        bus.publish({ type: 'decision', taskId: input.taskId, kind: 'choice', question: input.question, outcome: res.choiceId ? 'chose' : 'escalated', rationale, confidence, optionLabel: res.choiceId ? input.options.find((o) => o.id === res.choiceId)?.label : undefined });
       if (input.missionId && config.get().autopilot.overseerExec) {
         const v = await decisionQueue.enqueue(input.missionId, 'question', { question: input.question, context: input.context, options: input.options });
-        return gate(v.choice, v.confidence);
+        const res = gate(v.choice, v.confidence);
+        recordChoice(res, v.rationale, v.confidence);
+        return res;
       }
       const inf = overseerClient();
       if (!inf) return { choiceId: null };
       const v = await decideChoice(inf, input);
-      return gate(v.choice === 'escalate' ? undefined : v.choice, v.confidence);
+      const res = gate(v.choice === 'escalate' ? undefined : v.choice, v.confidence);
+      recordChoice(res, v.rationale, v.confidence);
+      return res;
     },
   });
   // Setup mode: with no users yet the daemon is open so the onboarding page can run before login;

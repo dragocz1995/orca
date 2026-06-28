@@ -24,7 +24,7 @@ function setup(autonomy: string | null = null, decideApproval?: DeriverDecider, 
   });
   return { tmux, deriver, emitted };
 }
-type DeriverDecider = (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null }) => Promise<{ approve: boolean }>;
+type DeriverDecider = (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null; taskId: string }) => Promise<{ approve: boolean }>;
 
 describe('Deriver permission handling', () => {
   it('L3 / manual: sends Enter once and emits working (dedup on repeat)', async () => {
@@ -126,6 +126,13 @@ describe('Deriver permission handling', () => {
     expect(seen).toBe('m-ep');
   });
 
+  it('passes the session task id into decideApproval so the verdict can be persisted against the task', async () => {
+    let seen = 'unset';
+    const { deriver } = setup('L3', async (input) => { seen = input.taskId; return { approve: true }; }, () => 'm-ep');
+    await deriver.tick();
+    expect(seen).toBe('orca-1');
+  });
+
   it('a thrown overseer decision escalates instead of breaking the tick', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { tmux, deriver, emitted } = setup('L3', async () => { throw new Error('relay down'); });
@@ -154,7 +161,7 @@ const OC_QUESTION = `  ┃  # Questions
   ┃  4. Type your own answer
   ┃  ↑↓ select  enter submit  esc dismiss`;
 
-type QDecider = (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null }) => Promise<{ choiceId: string | null }>;
+type QDecider = (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null; taskId: string }) => Promise<{ choiceId: string | null }>;
 
 function setupQuestion(autonomy: string | null, decideQuestion?: QDecider, missionFor?: (s: string) => string | null) {
   const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();

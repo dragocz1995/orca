@@ -10,7 +10,10 @@ export function registerActivityRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.events) return c.json([]);
     const limit = Number(c.req.query('limit')) || undefined;
     const type = c.req.query('type') || undefined;
-    const rows = d.events.list({ limit, type });
+    // `target` scopes the feed to one task (its decisions + review verdicts), read oldest-first — the
+    // detail pane's autopilot conversation. Project-scoping below still applies (fail closed for tenants).
+    const target = c.req.query('target') || undefined;
+    const rows = d.events.list({ limit, type, target });
     // Scope the timeline to the caller's projects (admin/open mode → null → unrestricted). A row with no
     // project (legacy/unresolved) is shown only to the unrestricted caller — fail closed for tenants.
     const allowed = accessibleProjects(c);

@@ -78,6 +78,34 @@ describe('EventStore', () => {
     expect(events.deleteAll()).toBe(2);
     expect(events.list()).toEqual([]);
   });
+  it('persists an autopilot decision as a JSON detail stamped against its task', () => {
+    db.prepare("INSERT INTO projects (id, slug, path) VALUES (3, 'p', '/p')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, title, type) VALUES ('t-d', 3, 'Build it', 'task')").run();
+    events.record({ type: 'decision', taskId: 't-d', kind: 'prompt', question: 'run migration?', outcome: 'approved', rationale: 'safe', confidence: 0.9 });
+    const [row] = events.list();
+    expect(row!.type).toBe('decision');
+    expect(row!.target).toBe('t-d');
+    expect(row!.project_id).toBe(3);
+    expect(row!.label).toBe('Build it');
+    expect(JSON.parse(row!.detail)).toMatchObject({ kind: 'prompt', question: 'run migration?', outcome: 'approved', rationale: 'safe', confidence: 0.9 });
+  });
+  it('does not persist a transient change ping', () => {
+    events.record({ type: 'change', taskId: 't-c' });
+    expect(events.list()).toEqual([]);
+  });
+  it('deleteForTarget removes a task\'s decisions along with its other events', () => {
+    events.record({ type: 'decision', taskId: 'gone', kind: 'choice', question: 'which?', outcome: 'chose', rationale: 'best', confidence: 0.8, optionLabel: 'A' });
+    events.record({ type: 'task', taskId: 'gone', status: 'closed' });
+    events.deleteForTarget('gone');
+    expect(events.list()).toEqual([]);
+  });
+  it('list({target}) returns one task\'s decision + review feed oldest-first', () => {
+    events.record({ type: 'decision', taskId: 'feed', kind: 'prompt', question: 'q1', outcome: 'approved', rationale: 'r1', confidence: 0.7 });
+    events.record({ type: 'review', missionId: 'm-x', taskId: 'feed', approve: false, rationale: 'r2' });
+    events.record({ type: 'decision', taskId: 'other', kind: 'prompt', question: 'nope', outcome: 'approved', rationale: 'x', confidence: 0.5 });
+    const feed = events.list({ target: 'feed' });
+    expect(feed.map((e) => e.type)).toEqual(['decision', 'review']); // oldest-first (id ASC), scoped to 'feed'
+  });
   it('purgeOlderThan drops events past the retention window only', () => {
     events.record({ type: 'task', taskId: 'old', status: 'open' });
     events.record({ type: 'task', taskId: 'fresh', status: 'open' });

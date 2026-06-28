@@ -124,8 +124,8 @@ export const orcaClient = {
   createUser: (username: string, password: string) => req<User>('/users', json({ username, password })),
   updateUser: (id: number, patch: UserPatch) => req<User>(`/users/${id}`, json(patch, 'PATCH')),
   deleteUser: (id: number) => req<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
-  activity: (opts?: { limit?: number; type?: string }) => {
-    const qs = new URLSearchParams({ ...(opts?.limit ? { limit: String(opts.limit) } : {}), ...(opts?.type ? { type: opts.type } : {}) }).toString();
+  activity: (opts?: { limit?: number; type?: string; target?: string }) => {
+    const qs = new URLSearchParams({ ...(opts?.limit ? { limit: String(opts.limit) } : {}), ...(opts?.type ? { type: opts.type } : {}), ...(opts?.target ? { target: opts.target } : {}) }).toString();
     return req<ActivityEvent[]>(`/activity${qs ? `?${qs}` : ''}`);
   },
   projects: () => req<Project[]>('/projects'),
@@ -158,6 +158,8 @@ export const orcaClient = {
   projectChanged: (id: number) => req<{ changed: string[] }>(`/projects/${id}/changed`),
   projectChanges: (id: number) => req<{ diff: string }>(`/projects/${id}/changes`),
   taskChangedFileDiff: (id: string, path: string) => req<{ diff: string }>(`/tasks/${encodeURIComponent(id)}/changed/diff?path=${encodeURIComponent(path)}`),
+  taskCommits: (id: string) => req<{ commits: CommitLogEntry[] }>(`/tasks/${encodeURIComponent(id)}/commits`),
+  taskCommitFileDiff: (id: string, hash: string, path: string) => req<{ diff: string }>(`/tasks/${encodeURIComponent(id)}/commit/${encodeURIComponent(hash)}/diff?path=${encodeURIComponent(path)}`),
   missionNotes: (target: string) => req<Note[]>(`/notes?scope=mission&target=${encodeURIComponent(target)}`),
   userProjects: (userId: number) => req<number[]>(`/users/${userId}/projects`),
   assignProject: (userId: number, projectId: number) => req<{ ok: boolean }>(`/users/${userId}/projects`, json({ projectId })),
