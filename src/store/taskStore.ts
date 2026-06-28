@@ -283,12 +283,19 @@ export class TaskStore {
    *  reviewfix labels of a prior (possibly aborted or buggy) run and escalates after fewer — or zero —
    *  real retries. Only `reviewfix:` labels are touched; agent/exec/stuck labels are preserved. */
   resetReviewFix(epicId: string): void {
-    const rows = this.db.prepare('SELECT id, labels FROM tasks WHERE parent_id = ?').all(epicId) as { id: string; labels: string }[];
-    for (const r of rows) {
-      if (!r.labels.includes('reviewfix:')) continue;
-      const labels = r.labels.split(',').filter((l) => l && !l.startsWith('reviewfix:'));
-      this.db.prepare('UPDATE tasks SET labels = ? WHERE id = ?').run(labels.join(','), r.id);
-    }
+    const rows = this.db.prepare('SELECT id, labels FROM tasks WHERE parent_id = ? AND labels LIKE ?')
+      .all(epicId, '%reviewfix:%') as { id: string; labels: string }[];
+    if (rows.length === 0) return;
+    // One prepared statement, one transaction: a re-engage can touch many phases at once, and N
+    // implicit single-row commits would be N fsyncs. Each row still gets its own filtered label set
+    // (the labels differ per task), so this batches the writes without changing the per-row result.
+    const upd = this.db.prepare('UPDATE tasks SET labels = ? WHERE id = ?');
+    this.db.transaction(() => {
+      for (const r of rows) {
+        const labels = r.labels.split(',').filter((l) => l && !l.startsWith('reviewfix:'));
+        upd.run(labels.join(','), r.id);
+      }
+    })();
   }
 
   depsAmong(ids: string[]): { task_id: string; depends_on_id: string }[] {

@@ -12,6 +12,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint (eslint + knip + depcruise)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # knip and depcruise both span web/, so resolving web imports needs its deps installed too.
+      - run: npm ci
+      - run: npm ci --prefix web
+      - run: npm run lint
+      - run: npm run deadcode
+      - run: npm run depcruise
+
   daemon:
     name: Daemon (build + test)
     runs-on: ubuntu-latest
