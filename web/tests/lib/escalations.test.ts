@@ -33,6 +33,19 @@ describe('pendingEscalations', () => {
     expect(pendingEscalations(events, tasks, deps)).toEqual([]);
   });
 
+  it('hides an L3 self-heal in flight: a re-opened phase is auto-fixing, not awaiting a human', () => {
+    // The latest verdict rejected the phase, its dependent is still gated 'blocked', but the engine
+    // re-opened the phase to re-run it with the feedback. That is autonomous self-heal — it must not
+    // show in the human inbox. It only becomes a real escalation once the phase stays put (closed).
+    const events = [ev({ id: 7, target: 'p1', detail: 'escalated: hygiene' })];
+    const deps = [{ task_id: 'p2', depends_on_id: 'p1' }];
+    const blockedDep = task({ id: 'p2', status: 'blocked', parent_id: 'e' });
+    expect(pendingEscalations(events, [task({ id: 'p1', status: 'open', parent_id: 'e' }), blockedDep], deps)).toEqual([]);
+    expect(pendingEscalations(events, [task({ id: 'p1', status: 'in_progress', parent_id: 'e' }), blockedDep], deps)).toEqual([]);
+    // Budget spent → phase stays closed → it is now a real, standing escalation.
+    expect(pendingEscalations(events, [task({ id: 'p1', status: 'closed', parent_id: 'e' }), blockedDep], deps)).toHaveLength(1);
+  });
+
   it('keeps only the most recent escalation per phase (events are newest-first)', () => {
     const events = [
       ev({ id: 9, target: 'p1', detail: 'escalated: second take', ts: '2026-06-22 12:00:00' }),
