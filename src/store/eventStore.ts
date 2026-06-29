@@ -11,6 +11,8 @@ function toRow(e: OrcaEvent): { type: string; target: string; detail: string } |
     // An autopilot decision on an agent prompt/question — the human-readable payload is JSON so the
     // task detail can render question + verdict + rationale + confidence (read back via try/catch).
     case 'decision': return { type: 'decision', target: e.taskId, detail: JSON.stringify({ kind: e.kind, question: e.question, outcome: e.outcome, rationale: e.rationale, confidence: e.confidence, optionLabel: e.optionLabel }) };
+    // A worker↔autopilot conversation turn — role + text as JSON so the task detail renders chat bubbles.
+    case 'message': return { type: 'message', target: e.taskId, detail: JSON.stringify({ role: e.role, text: e.text }) };
     case 'signal': return { type: 'signal', target: e.session, detail: e.signal.type };
     case 'change': return null; // transient live-refresh ping (git is its own source of truth) — not persisted
     case 'plan': return null; // transient job-status ping — not part of the persistent timeline
@@ -25,7 +27,7 @@ export class EventStore {
     // Stamp the event with its owning project so the timeline can scope it to the right repo. The bus
     // subscriber resolves the project for EVERY event type (mission/signal included) and passes it in;
     // a direct caller that omits it falls back to the task/review lookup (other types stay null).
-    const taskId = e.type === 'task' || e.type === 'review' || e.type === 'decision' ? e.taskId : null;
+    const taskId = e.type === 'task' || e.type === 'review' || e.type === 'decision' || e.type === 'message' ? e.taskId : null;
     let pid = projectId;
     if (pid === undefined) {
       pid = taskId

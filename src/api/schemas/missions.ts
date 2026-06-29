@@ -22,4 +22,7 @@ export const overseerDecideSchema = z.object({
   confidence: z.number().optional(),
   rationale: z.string().optional(),
   choice: z.string().optional(),
+  /** For a 'message' decision: the overseer's free-text reply to the agent's question. Absent (with
+   *  no choice/approve) ⇒ the overseer escalated → the ask falls to the human window. */
+  message: z.string().optional(),
 });

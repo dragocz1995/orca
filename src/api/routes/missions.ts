@@ -125,6 +125,9 @@ export function registerMissionRoutes(app: OrcaApp, ctx: RouteContext): void {
       rationale: typeof b.rationale === 'string' ? b.rationale : '',
       // For a 'question' decision: the picked option id. Absent ⇒ the deriver escalates to a human.
       ...(typeof b.choice === 'string' ? { choice: b.choice } : {}),
+      // For a 'message' decision: the overseer's free-text reply. Absent ⇒ askService falls to the
+      // human window (the overseer chose --escalate, or answered with nothing).
+      ...(typeof b.message === 'string' ? { message: b.message } : {}),
     });
     return ok ? c.json({ ok: true }) : c.json({ error: 'no such decision' }, 404);
   });

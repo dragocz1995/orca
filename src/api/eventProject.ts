@@ -19,6 +19,7 @@ export function eventProjectId(e: OrcaEvent, d: EventProjectDeps): number | null
     case 'task':
     case 'review':
     case 'decision':
+    case 'message':
     case 'change':
       return d.taskProject(e.taskId);
     case 'mission': {

@@ -58,6 +58,15 @@ describe('DecisionQueue', () => {
     await expect(verdict).resolves.toMatchObject({ choice: '2', confidence: 0.9 });
   });
 
+  it('carries the overseer free-text reply through a message verdict', async () => {
+    const q = new DecisionQueue();
+    const verdict = q.enqueue('mm', 'message', { question: 'A or B?' });
+    const req = await q.next('mm');
+    expect(req!.kind).toBe('message');
+    q.resolve('mm', req!.id, { approve: false, confidence: 0, rationale: '', message: 'use A' });
+    await expect(verdict).resolves.toMatchObject({ message: 'use A' });
+  });
+
   it('a question that times out carries no choice (⇒ the deriver escalates)', async () => {
     vi.useFakeTimers();
     const q = new DecisionQueue();

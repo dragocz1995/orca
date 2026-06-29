@@ -29,8 +29,9 @@ export class SpawnService {
     // close the epic itself with its own overall result summary.
     const epicCloseCommand = orca && input.epicId ? `${orca.cli} close ${input.epicId}` : undefined;
     // Merge any caller-supplied env (e.g. ORCA_PLAN_JOB / ORCA_MISSION for reasoning agents) on top
-    // of the daemon-reach env. extraEnv alone still flows through when no orca config is present.
-    const env = orca ? { ORCA_URL: orca.url, ORCA_TOKEN: orca.token, ...input.extraEnv } : input.extraEnv;
+    // of the daemon-reach env. ORCA_TASK lets a worker run `orca ask` without passing its own id;
+    // reasoning agents ignore it. extraEnv alone still flows through when no orca config is present.
+    const env = orca ? { ORCA_URL: orca.url, ORCA_TOKEN: orca.token, ORCA_TASK: input.taskId, ...input.extraEnv } : input.extraEnv;
     const provider = this.d.providers?.(input.spec.program);
     // Resume only when the recorded session is for THIS spawn's program (the operator may have
     // switched the task's exec since) and the provider hasn't disabled resume. Otherwise cold start.

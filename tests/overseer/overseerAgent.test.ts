@@ -21,6 +21,11 @@ describe('overseerPrompt', () => {
     expect(p).toContain('"review"');
     expect(p.toLowerCase()).toContain('blocks its dependents'); // review semantics spelled out
   });
+  it('explains the "message" kind and its free-text answer command (orca ask)', () => {
+    const p = overseerPrompt('m1');
+    expect(p).toContain('"message"'); // the free-text agent question kind
+    expect(p).toContain('overseer decide --id <id> --message'); // how to answer it
+  });
   it('tells the agent it may exit cleanly so a crash/full-context overseer is restartable (O20)', () => {
     expect(overseerPrompt('m1').toLowerCase()).toContain('exit cleanly');
   });

@@ -19,8 +19,8 @@ export interface PromptCatalogEntry {
 const WORKER_VARS = ['agentName', 'taskId', 'titlePart', 'detailsPart', 'resumePart', 'closeCommand'];
 
 export const EDITABLE_PROMPTS: PromptCatalogEntry[] = [
-  { name: 'worker', group: 'workers', vars: WORKER_VARS, jsonContract: false },
-  { name: 'worker-resume', group: 'workers', vars: WORKER_VARS, jsonContract: false },
+  { name: 'worker', group: 'workers', vars: [...WORKER_VARS, 'cli'], jsonContract: false },
+  { name: 'worker-resume', group: 'workers', vars: [...WORKER_VARS, 'cli'], jsonContract: false },
   { name: 'worker-phase', group: 'workers', vars: [...WORKER_VARS, 'epicId', 'cli'], jsonContract: false },
   { name: 'worker-epic-close', group: 'workers', vars: ['epicId', 'cli', 'epicCloseCommand'], jsonContract: false },
   { name: 'pilot', group: 'pilot', vars: ['goal', 'notes', 'submit', 'jobId', 'models', 'parallelism'], jsonContract: true },

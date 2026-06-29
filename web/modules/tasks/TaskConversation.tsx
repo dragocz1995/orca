@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { Bot, GitCommit, Check, TriangleAlert } from 'lucide-react';
+import { Bot, GitCommit, Check, TriangleAlert, Compass, User } from 'lucide-react';
 import type { CommitLogEntry } from '../../lib/types';
 import { useTaskConversation, useTaskCommits, useTaskCommitFileDiff } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
@@ -22,10 +22,30 @@ function parseDecision(detail: string): DecisionPayload | null {
   return null;
 }
 
+/** The JSON payload a `message` event carries: one free-text turn in the worker↔autopilot conversation. */
+type MessageRole = 'agent' | 'autopilot' | 'human';
+interface MessagePayload { role: MessageRole; text: string }
+
+/** Parse a message event's detail blob — always in try/catch (it's stored JSON). */
+function parseMessage(detail: string): MessagePayload | null {
+  try {
+    const p = JSON.parse(detail) as Partial<MessagePayload>;
+    if (p && typeof p.text === 'string' && (p.role === 'agent' || p.role === 'autopilot' || p.role === 'human')) return p as MessagePayload;
+  } catch { /* malformed — skip this row, keep the feed */ }
+  return null;
+}
+
 type FeedItem =
   | { kind: 'decision'; ts: number; key: string; payload: DecisionPayload }
   | { kind: 'review'; ts: number; key: string; approved: boolean; rationale: string }
+  | { kind: 'message'; ts: number; key: string; payload: MessagePayload }
   | { kind: 'commit'; ts: number; key: string; commit: CommitLogEntry };
+
+/** Message role → icon. The agent asks (Bot), the autopilot answers (Compass — the overseer/navigator),
+ *  a human answers (User). One small visual cue so the thread reads as a back-and-forth. */
+function messageRole(role: MessageRole): typeof Bot {
+  return role === 'agent' ? Bot : role === 'human' ? User : Compass;
+}
 
 /** Outcome → colored icon + class. Decisions and the post-done review share the same approve/escalate
  *  visual vocabulary so the feed reads consistently. */
@@ -59,6 +79,9 @@ export function TaskConversation({ task }: { task: { id: string } }) {
         // Detail is `"<approved|escalated>: <rationale>"` (eventStore.toRow).
         const approved = e.detail.startsWith('approved');
         out.push({ kind: 'review', ts, key: `r${e.id}`, approved, rationale: e.detail.replace(/^[^:]*:\s*/, '') });
+      } else if (e.type === 'message') {
+        const payload = parseMessage(e.detail);
+        if (payload) out.push({ kind: 'message', ts, key: `m${e.id}`, payload });
       }
     }
     for (const c of commits.data?.commits ?? []) out.push({ kind: 'commit', ts: c.timestamp, key: `c${c.hash}`, commit: c });
@@ -110,6 +133,20 @@ export function TaskConversation({ task }: { task: { id: string } }) {
                     })}
                   </ul>
                 ) : null}
+              </li>
+            );
+          }
+          if (it.kind === 'message') {
+            const RoleIcon = messageRole(it.payload.role);
+            const roleLabel = it.payload.role === 'agent' ? t.tasks.msgRoleAgent : it.payload.role === 'human' ? t.tasks.msgRoleHuman : t.tasks.msgRoleAutopilot;
+            return (
+              <li key={it.key} className="rounded-lg border border-border bg-surface p-2.5 text-xs">
+                <div className="flex items-center gap-2">
+                  <RoleIcon size={14} className="shrink-0 text-text-muted" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate font-medium text-text">{roleLabel}</span>
+                  {when.label ? <span className="shrink-0 text-text-muted" title={when.title}>{when.label}</span> : null}
+                </div>
+                <p className="mt-1 whitespace-pre-wrap pl-6 text-text-muted">{it.payload.text}</p>
               </li>
             );
           }

@@ -11,6 +11,9 @@ export type OrcaEvent =
   | { type: 'task'; taskId: string; status: string }
   | { type: 'review'; missionId: string; taskId: string; approve: boolean; rationale: string }
   | { type: 'decision'; taskId: string; kind: 'prompt' | 'choice'; question: string; outcome: 'approved' | 'escalated' | 'chose'; rationale: string; confidence: number; optionLabel?: string }
+  // A free-text turn in the worker↔autopilot conversation on a task (`orca ask`): the agent's question
+  // or the reply (overseer/human/sentinel). Persisted on the task so the detail pane renders the thread.
+  | { type: 'message'; taskId: string; role: 'agent' | 'autopilot' | 'human'; text: string }
   | { type: 'change'; taskId: string }
   | { type: 'plan'; jobId: string; status: PlanJobStatus; epicId?: string; phases?: Phase[]; error?: string };
 

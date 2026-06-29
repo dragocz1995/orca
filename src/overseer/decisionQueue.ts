@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-export type DecisionKind = 'prompt' | 'review' | 'question';
+export type DecisionKind = 'prompt' | 'review' | 'question' | 'message';
 export interface DecisionResult {
   approve: boolean;
   confidence: number;
@@ -8,6 +8,10 @@ export interface DecisionResult {
   /** For a 'question' decision: the option id the overseer picked. Absent ⇒ escalate to a human
    *  (also the shape of a timeout/drain verdict, which therefore escalates the question). */
   choice?: string;
+  /** For a 'message' decision (worker asked the autopilot a free-text question): the overseer's
+   *  free-text reply. Absent ⇒ the overseer escalated (or timed out) → the ask falls to the human
+   *  window. Distinct from `choice`/`approve`, which don't apply to a free-text exchange. */
+  message?: string;
   /** True only when the overseer never answered (the decision timed out): there is NO real verdict,
    *  so the decision must be handed to a human and never auto-acted on. In particular a post-done
    *  review must NOT self-heal/re-run the phase on this — that turns a slow/absent overseer into an

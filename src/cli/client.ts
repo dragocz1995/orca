@@ -33,7 +33,16 @@ export class OrcaClient {
   overseerPoll(missionId: string) {
     return this.req(`/missions/${encodeURIComponent(missionId)}/overseer/next`);
   }
-  overseerDecide(missionId: string, body: { id: string; approve: boolean; confidence: number; rationale: string; choice?: string }) {
+  overseerDecide(missionId: string, body: { id: string; approve: boolean; confidence: number; rationale: string; choice?: string; message?: string }) {
     return this.req(`/missions/${encodeURIComponent(missionId)}/overseer/decide`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  }
+  askStart(taskId: string, text: string) {
+    return this.req(`/tasks/${encodeURIComponent(taskId)}/ask`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+  }
+  askPoll(taskId: string, askId: string) {
+    return this.req(`/tasks/${encodeURIComponent(taskId)}/ask/${encodeURIComponent(askId)}`);
+  }
+  askHistory(taskId: string) {
+    return this.req(`/activity?type=message&target=${encodeURIComponent(taskId)}`);
   }
 }

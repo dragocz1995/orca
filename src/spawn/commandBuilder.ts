@@ -72,10 +72,10 @@ export function buildAgentCommand(spec: AgentSpec, ctx: SpawnCtx, renderPrompt: 
   // A phase agent (epicId, not resumed) must NOT redo earlier phases — the phase template carries the
   // "build on prior phases" framing the standalone one lacks.
   let prompt = ctx.resume
-    ? renderPrompt('worker-resume', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand })
+    ? renderPrompt('worker-resume', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand, cli: ctx.cli ?? 'orca' })
     : ctx.epicId
       ? renderPrompt('worker-phase', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, epicId: ctx.epicId, closeCommand, cli: ctx.cli ?? 'orca' })
-      : renderPrompt('worker', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand });
+      : renderPrompt('worker', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand, cli: ctx.cli ?? 'orca' });
   if (ctx.epicId && ctx.epicCloseCommand) {
     // The agent owns mission completion: after closing its own phase, if it was the last
     // one, it closes the epic itself and writes the overall result summary.

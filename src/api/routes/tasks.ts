@@ -6,7 +6,7 @@ import { resolvePrEnabled } from '../../overseer/prMode.js';
 import { RelayClient } from '../../inference/client.js';
 import { shortId } from '../../shared/id.js';
 import { parseBody } from '../validation.js';
-import { createTaskSchema, patchTaskSchema, planSchema, insertPhasesSchema } from '../schemas/tasks.js';
+import { createTaskSchema, patchTaskSchema, planSchema, insertPhasesSchema, askSchema } from '../schemas/tasks.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** Tasks, usage, admin cleanup and the plan/replan endpoints. The post-done review workflow that the
@@ -16,7 +16,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     d, log, planJobs,
     canAccessProject, notAdmin, accessibleProjects, execAllowedForUser,
     pathFor, usagePathFor, checkoutPathFor, resolveTarget,
-    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService,
+    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService, askService,
   } = ctx;
   app.get('/tasks', c => {
     const allowed = accessibleProjects(c);
@@ -162,6 +162,42 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     // nothing would ever pick the work up. The phase's parent IS the epic; mission id is `m-<epicId>`.
     if (existing.parent_id) void d.engine.resumeStalled(`m-${existing.parent_id}`).catch((e) => log.error('approve-gate resume failed', e));
     return c.json({ released });
+  });
+
+  // `orca ask`: a running worker posts a free-text question for the autopilot and blocks on the reply.
+  // Authenticated by the spawn-time token; gated by the task's project. The reply is produced async
+  // (overseer → human window → sentinel) so this returns an ask id the worker then long-polls below.
+  app.post('/tasks/:id/ask', async c => {
+    const id = c.req.param('id');
+    const task = d.tasks.get(id);
+    if (!task) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
+    const b = await parseBody(c, askSchema);
+    return c.json(askService.start(id, b.text));
+  });
+  // Long-poll an ask's reply: returns `{ text }` once the autopilot/human answers (or the sentinel
+  // fires), else `{}` every ~25s so the worker's CLI re-polls. The ask id must belong to this task.
+  app.get('/tasks/:id/ask/:askId', async c => {
+    const id = c.req.param('id');
+    const task = d.tasks.get(id);
+    if (!task) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
+    if (askService.taskFor(c.req.param('askId')) !== id) return c.json({ error: 'no such ask' }, 404);
+    const raw = Number(c.req.query('timeoutMs'));
+    const timeoutMs = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 30_000) : undefined;
+    const text = await askService.poll(c.req.param('askId'), timeoutMs);
+    return c.json(text === null ? {} : { text });
+  });
+  // Human reply to an agent's open question (the fast-follow UI box / a curl). Resolves the same
+  // pending exchange the worker is polling; only valid while the human window is open.
+  app.post('/tasks/:id/ask/:askId/reply', async c => {
+    const id = c.req.param('id');
+    const task = d.tasks.get(id);
+    if (!task) return c.json({ error: 'task not found' }, 404);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
+    if (askService.taskFor(c.req.param('askId')) !== id) return c.json({ error: 'no such ask' }, 404);
+    const b = await parseBody(c, askSchema);
+    return askService.reply(c.req.param('askId'), b.text) ? c.json({ ok: true }) : c.json({ error: 'ask already answered' }, 409);
   });
 
   app.get('/tasks/:id/deps', c => c.json(d.tasks.depsFor(c.req.param('id'))));

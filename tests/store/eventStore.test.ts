@@ -54,6 +54,18 @@ describe('EventStore', () => {
     expect(signal!.label).toBe('');
     expect(task!.label).toBe('');
   });
+  it('records a message event as a JSON {role,text} detail, scoped+stamped to its task', () => {
+    db.prepare("INSERT INTO projects (id, slug, path) VALUES (3, 'pm', '/pm')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, title, type) VALUES ('t-msg', 3, 'Chat task', 'task')").run();
+    events.record({ type: 'message', taskId: 't-msg', role: 'agent', text: 'A or B?' });
+    events.record({ type: 'message', taskId: 't-msg', role: 'autopilot', text: 'use A' });
+    const rows = events.list({ type: 'message', target: 't-msg' }); // target-scoped ⇒ oldest-first (chronological)
+    expect(rows.map((e) => JSON.parse(e.detail!))).toEqual([
+      { role: 'agent', text: 'A or B?' },
+      { role: 'autopilot', text: 'use A' },
+    ]);
+    expect(rows.every((e) => e.project_id === 3 && e.label === 'Chat task')).toBe(true);
+  });
   it('respects limit and type filter', () => {
     events.record({ type: 'task', taskId: 'a', status: 'open' });
     events.record({ type: 'task', taskId: 'b', status: 'closed' });

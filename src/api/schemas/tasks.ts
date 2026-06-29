@@ -29,6 +29,10 @@ export const patchTaskSchema = z.object({
   deps: z.array(z.string()).optional(),
 });
 
+/** A worker's free-text question to the autopilot (`orca ask`), or a human's reply to one. text is
+ *  required-non-empty so an empty turn can't be recorded or block on nothing. */
+export const askSchema = z.object({ text: z.string().min(1) });
+
 /** A planner phase as it arrives over the wire (manual mode / playground). The handler trims and
  *  validates the type against VALID_TYPES, so the shape here is permissive. */
 const phaseInputSchema = z.object({

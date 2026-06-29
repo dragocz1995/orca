@@ -78,6 +78,14 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
       qc.invalidateQueries({ queryKey: ['activity'] });
       if (data.taskId) qc.invalidateQueries({ queryKey: ['task-activity', data.taskId] });
     };
+    // A free-text turn in the worker↔autopilot conversation (`orca ask`) — refresh the affected task's
+    // conversation feed so the new question/reply bubble appears live (scoped by taskId).
+    const messageHandler = (e: MessageEvent) => {
+      let data: { taskId?: string };
+      try { data = JSON.parse(e.data); } catch { return; } // skip malformed, keep the stream alive
+      qc.invalidateQueries({ queryKey: ['activity'] });
+      if (data.taskId) qc.invalidateQueries({ queryKey: ['task-activity', data.taskId] });
+    };
     // A new commit landed in a running task's checkout — refresh its live git history and any open
     // per-commit file diff so the conversation feed updates live without a reload.
     const changeHandler = (e: MessageEvent) => {
@@ -118,6 +126,7 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
       es.addEventListener('plan', planHandler);
       es.addEventListener('review', reviewHandler);
       es.addEventListener('decision', decisionHandler);
+      es.addEventListener('message', messageHandler);
       es.addEventListener('change', changeHandler);
     };
     connect();

@@ -227,5 +227,9 @@ describe('buildAgentCommand', () => {
       expect(cmd).not.toContain('--resume');
       expect(cmd).toContain('First read the project context'); // the normal worker preamble
     });
+    it('tells the worker how to ask the autopilot an open question, using the resolved cli', () => {
+      const cmd = buildAgentCommand({ program: 'claude-code', model: 'sonnet' }, { projectPath: '/o', taskId: 'orca-1', agentName: 'A', cli: 'node /x/cli.js' });
+      expect(cmd).toContain('node /x/cli.js ask'); // the ask guidance renders with the daemon cli, not the bare default
+    });
   });
 });

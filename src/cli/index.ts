@@ -41,12 +41,15 @@ TASKS
                                     --outcome ok|fail         record the outcome
 
 AGENT-FACING                      (invoked by running agents — rarely needed by hand)
+  ask "<text>"                    ask the autopilot a free-text question and wait for the reply
+                                    (needs ORCA_TASK; the answer is printed to stdout)
+                                    --history                 print this task's chat history instead
   note add <missionId> "<text>"   leave a handoff note for later phases of this mission
   note ls  <missionId>            read this mission's handoff notes (oldest-first)
   api <METHOD> <path> [body]      generic authenticated REST call (needs ORCA_URL/ORCA_TOKEN)
   plan submit --phases '<json>'   submit an autopilot plan        (needs ORCA_PLAN_JOB)
   overseer poll                   wait for the next decision       (needs ORCA_MISSION)
-  overseer decide --id <id> …     resolve a decision: --approve | --escalate | --choice <optionId>
+  overseer decide --id <id> …     resolve a decision: --approve | --escalate | --choice <optionId> | --message "<reply>"
                                     [--confidence <0..1>] [--rationale "<text>"]
 
 OPTIONS
@@ -59,7 +62,7 @@ Docs & issues: https://github.com/dragocz1995/orcasynth`;
 /** Commands that talk to the daemon API — only these justify auto-starting it. Everything else
  *  (help, unknown verbs) must NOT spawn a daemon: a stray detached daemon squats the port and starves
  *  the systemd-managed one into a restart loop. */
-const API_COMMANDS = new Set(['ls', 'ready', 'sessions', 'send', 'close', 'note', 'plan', 'overseer', 'api']);
+const API_COMMANDS = new Set(['ls', 'ready', 'sessions', 'send', 'close', 'note', 'plan', 'overseer', 'api', 'ask']);
 
 /** True only for verbs that need the daemon API up — the gate for ensureDaemon's auto-spawn. */
 export function needsDaemon(cmd: string | undefined): boolean {
@@ -130,6 +133,38 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       await c.close(arg, { summary: flag(rest, '--summary'), outcome });
       console.log(`closed ${arg}`); break;
     }
+    case 'ask': {
+      // A worker asks the autopilot a free-text question and blocks until it gets an answer. The task
+      // is taken from ORCA_TASK (set at spawn), so the agent needs only the question text.
+      const taskId = env.ORCA_TASK;
+      if (!taskId) { console.error('orca ask: ORCA_TASK is not set'); process.exit(1); }
+      // `orca ask --history` prints this task's chat history so the agent (or a human in the terminal)
+      // can review the whole conversation, e.g. after resuming.
+      if (arg === '--history') {
+        const rows = await c.askHistory(taskId) as { detail: string }[];
+        for (const r of rows) { try { const m = JSON.parse(r.detail) as { role: string; text: string }; console.log(`${m.role}: ${m.text}`); } catch { /* skip malformed row */ } }
+        break;
+      }
+      if (!arg) { console.error('usage: orca ask "<question>"  |  orca ask --history'); process.exit(1); }
+      const { askId } = await c.askStart(taskId, arg) as { askId: string };
+      // Long-poll until the autopilot/human answers (or the sentinel fires). The server returns `{}`
+      // every ~25s as a heartbeat (keeps the HTTP request alive); just re-poll. Print the reply so the
+      // agent reads it from stdout, then continue its work. Tolerate a transient blip (proxy/network)
+      // with a short backoff so a multi-minute wait isn't killed by one failed request; a 404 means the
+      // exchange is gone (e.g. the daemon restarted) — proceed on our own rather than abort the task.
+      for (;;) {
+        let r: { text?: string };
+        try {
+          r = await c.askPoll(taskId, askId) as { text?: string };
+        } catch (e) {
+          if (String(e).includes('404')) { console.log('No answer is available (the request was lost). Proceed using your own best judgement: make the safest reasonable, reversible assumption and continue.'); break; }
+          await new Promise((res) => setTimeout(res, 2000)); // transient — back off and re-poll
+          continue;
+        }
+        if (typeof r.text === 'string') { console.log(r.text); break; }
+      }
+      break;
+    }
     case 'note': {
       // Handoff notes between agents working the same mission. `<missionId>` is the epic id (or `m-<epicId>`);
       // the daemon normalizes the prefix. add → leave a note; ls → read the mission's notes (oldest-first).
@@ -173,13 +208,15 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       }
       if (arg === 'decide') {
         const id = flag(rest, '--id');
-        if (!id) { console.error('usage: orca overseer decide --id <id> (--approve|--escalate|--choice <optionId>) [--confidence <0..1>] [--rationale "<text>"]'); process.exit(1); }
-        // A 'question' decision picks an option (--choice <id>); a permission/review decision approves
-        // or escalates (--approve|--escalate). Either way confidence rides along for the autonomy gate.
+        if (!id) { console.error('usage: orca overseer decide --id <id> (--approve|--escalate|--choice <optionId>|--message "<reply>") [--confidence <0..1>] [--rationale "<text>"]'); process.exit(1); }
+        // A 'question' decision picks an option (--choice <id>); a 'message' decision answers with free
+        // text (--message); a permission/review decision approves or escalates (--approve|--escalate).
+        // Either way confidence rides along for the autonomy gate; --escalate is the absence of all.
         const choice = flag(rest, '--choice');
+        const message = flag(rest, '--message');
         const approve = has(rest, '--approve');
-        const confidence = (approve || choice !== undefined) ? Number(flag(rest, '--confidence') ?? '0.7') : 0;
-        await c.overseerDecide(missionId, { id, approve, confidence: Number.isFinite(confidence) ? confidence : 0, rationale: flag(rest, '--rationale') ?? '', ...(choice !== undefined ? { choice } : {}) });
+        const confidence = (approve || choice !== undefined || message !== undefined) ? Number(flag(rest, '--confidence') ?? '0.7') : 0;
+        await c.overseerDecide(missionId, { id, approve, confidence: Number.isFinite(confidence) ? confidence : 0, rationale: flag(rest, '--rationale') ?? '', ...(choice !== undefined ? { choice } : {}), ...(message !== undefined ? { message } : {}) });
         console.log(`decided ${id}`); break;
       }
       console.error('usage: orca overseer <poll|decide ...>'); process.exit(1); break;
