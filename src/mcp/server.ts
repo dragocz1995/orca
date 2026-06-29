@@ -25,8 +25,20 @@ function createOrcaMcpServer(deps: McpDeps): McpServer {
   }, async (a) => text(await tools.orca_create_task(a)));
 
   server.registerTool('orca_plan', {
-    description: 'Plan a goal into an epic with phases (autopilot).',
-    inputSchema: { goal: z.string(), project_id: z.number().optional() },
+    description: 'Plan a goal into an epic with phases (autopilot). Supports full planning options: set engage:true to immediately start a mission; autonomy (L0-L3) controls agent freedom; maxSessions controls parallelism; exec overrides the executor; autoModel lets the planner pick per-phase models; dryRun previews phases without persisting; prompt supplies a custom planner prompt; prEnabled (true/false/null) controls PR-native mode.',
+    inputSchema: {
+      goal: z.string(),
+      project_id: z.number().optional(),
+      name: z.string().optional(),
+      exec: z.string().optional(),
+      autoModel: z.boolean().optional(),
+      autonomy: z.string().optional(),
+      maxSessions: z.number().optional(),
+      engage: z.boolean().optional(),
+      dryRun: z.boolean().optional(),
+      prompt: z.string().optional(),
+      prEnabled: z.boolean().nullable().optional(),
+    },
   }, async (a) => text(await tools.orca_plan(a)));
 
   server.registerTool('orca_sessions', { description: 'List live agent sessions.', inputSchema: {} }, async () => text(await tools.orca_sessions()));

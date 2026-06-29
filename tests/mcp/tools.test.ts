@@ -33,6 +33,39 @@ describe('makeOrcaTools', () => {
     expect(calls[1].b).toEqual({ title: 'x', project_id: 1 });
   });
 
+  it('orca_plan forwards all planning options to POST /tasks/plan', async () => {
+    const { calls, call } = spy();
+    const tools = makeOrcaTools({ url: 'http://d', token: 't', call: call as never });
+    await tools.orca_plan({
+      goal: 'build feature',
+      project_id: 2,
+      name: 'my-mission',
+      exec: 'sonnet',
+      autoModel: true,
+      autonomy: 'L2',
+      maxSessions: 3,
+      engage: true,
+      dryRun: false,
+      prompt: 'custom prompt',
+      prEnabled: true,
+    });
+    expect(calls[0].m).toBe('POST');
+    expect(calls[0].p).toBe('/tasks/plan');
+    expect(calls[0].b).toEqual({
+      goal: 'build feature',
+      project_id: 2,
+      name: 'my-mission',
+      exec: 'sonnet',
+      autoModel: true,
+      autonomy: 'L2',
+      maxSessions: 3,
+      engage: true,
+      dryRun: false,
+      prompt: 'custom prompt',
+      prEnabled: true,
+    });
+  });
+
   it('throws on a non-ok response so the agent sees the error', async () => {
     const { call } = spy({ status: 403, ok: false, data: { error: 'forbidden' }, text: 'forbidden' });
     const tools = makeOrcaTools({ url: 'http://d', token: 't', call: call as never });

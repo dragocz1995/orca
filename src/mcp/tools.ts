@@ -17,7 +17,19 @@ export function makeOrcaTools(d: OrcaToolDeps) {
     orca_request: (a: { method: string; path: string; body?: unknown }) => req(a.method, a.path, a.body),
     orca_tasks: () => req('GET', '/tasks'),
     orca_create_task: (a: { title: string; project_id?: number; description?: string }) => req('POST', '/tasks', a),
-    orca_plan: (a: { goal: string; project_id?: number }) => req('POST', '/tasks/plan', a),
+    orca_plan: (a: {
+      goal: string;
+      project_id?: number;
+      name?: string;
+      exec?: string;
+      autoModel?: boolean;
+      autonomy?: string;
+      maxSessions?: number;
+      engage?: boolean;
+      dryRun?: boolean;
+      prompt?: string;
+      prEnabled?: boolean | null;
+    }) => req('POST', '/tasks/plan', a),
     orca_sessions: () => req('GET', '/sessions'),
     orca_note_add: (a: { target: string; body: string }) => req('POST', '/notes', { scope: 'mission', target: a.target, body: a.body }),
     orca_notes: (a: { target: string }) => req('GET', `/notes?scope=mission&target=${encodeURIComponent(a.target)}`),
