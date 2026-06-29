@@ -41,6 +41,78 @@ function createOrcaMcpServer(deps: McpDeps): McpServer {
     inputSchema: { target: z.string() },
   }, async (a) => text(await tools.orca_notes(a)));
 
+  // ---- Mission lifecycle ----
+  server.registerTool('orca_missions', {
+    description: 'List live missions (plus disengaged ones with a pending PR), each with its PR info.',
+    inputSchema: {},
+  }, async () => text(await tools.orca_missions()));
+
+  server.registerTool('orca_mission_engage', {
+    description: 'Engage the autopilot on an epic: spawn a mission that drives its phases to completion. `epicId` is required; autonomy (e.g. L0..L3) and maxSessions default server-side.',
+    inputSchema: { epicId: z.string(), autonomy: z.string().optional(), maxSessions: z.number().optional() },
+  }, async (a) => text(await tools.orca_mission_engage(a)));
+
+  server.registerTool('orca_mission_pause', {
+    description: 'Pause a running mission: kill its running agents, revert their tasks, then mark it paused. `id` is the mission id (e.g. `m-<epicId>`).',
+    inputSchema: { id: z.string() },
+  }, async (a) => text(await tools.orca_mission_pause(a)));
+
+  server.registerTool('orca_mission_resume', {
+    description: 'Resume a paused mission: flip it active, re-park the overseer, then tick. `id` is the mission id.',
+    inputSchema: { id: z.string() },
+  }, async (a) => text(await tools.orca_mission_resume(a)));
+
+  server.registerTool('orca_mission_disengage', {
+    description: 'Disengage (stop) a mission entirely, tearing down its agents. `id` is the mission id.',
+    inputSchema: { id: z.string() },
+  }, async (a) => text(await tools.orca_mission_disengage(a)));
+
+  // ---- Live session control ----
+  server.registerTool('orca_session_spawn', {
+    description: 'Manually launch a worker agent for a task in a fresh tmux session. `taskId` is required; `exec` optionally overrides the executor (must be allowed).',
+    inputSchema: { taskId: z.string(), exec: z.string().optional() },
+  }, async (a) => text(await tools.orca_session_spawn(a)));
+
+  server.registerTool('orca_session_kill', {
+    description: 'Kill a live tmux session by name (e.g. `orca-<task>`).',
+    inputSchema: { name: z.string() },
+  }, async (a) => text(await tools.orca_session_kill(a)));
+
+  server.registerTool('orca_session_send_keys', {
+    description: 'Send key tokens to a session via tmux send-keys. `keys` is a non-empty array of plain tokens (e.g. ["Enter"], ["h","i"]); leading-dash tokens are rejected.',
+    inputSchema: { name: z.string(), keys: z.array(z.string()) },
+  }, async (a) => text(await tools.orca_session_send_keys(a)));
+
+  server.registerTool('orca_session_read_pane', {
+    description: "Capture the last ~60 lines of a session's pane. Set `ansi` to keep colour/escape codes; otherwise plain text.",
+    inputSchema: { name: z.string(), ansi: z.boolean().optional() },
+  }, async (a) => text(await tools.orca_session_read_pane(a)));
+
+  // ---- Task lifecycle ----
+  server.registerTool('orca_task_update', {
+    description: 'Update a task: any of status (open/in_progress/blocked/closed/cancelled), title, type, priority, description, exec override, or deps. Only the fields you pass are changed.',
+    inputSchema: {
+      id: z.string(),
+      status: z.enum(['open', 'in_progress', 'blocked', 'closed', 'cancelled']).optional(),
+      title: z.string().optional(),
+      type: z.string().optional(),
+      priority: z.string().optional(),
+      description: z.string().optional(),
+      exec: z.string().optional(),
+      deps: z.array(z.string()).optional(),
+    },
+  }, async (a) => text(await tools.orca_task_update(a)));
+
+  server.registerTool('orca_task_close', {
+    description: 'Close a task with a verdict: `result_summary` (what was done) and `outcome` (e.g. ok/fail). Drives the post-done overseer review gate for mission phases.',
+    inputSchema: { id: z.string(), result_summary: z.string().optional(), outcome: z.string().optional() },
+  }, async (a) => text(await tools.orca_task_close(a)));
+
+  server.registerTool('orca_task_usage', {
+    description: "Read a task's agent token/cost usage from the executor CLI's local session storage. Null usage means no matching session was found.",
+    inputSchema: { id: z.string() },
+  }, async (a) => text(await tools.orca_task_usage(a)));
+
   return server;
 }
 
