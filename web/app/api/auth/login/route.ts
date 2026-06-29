@@ -21,14 +21,18 @@ export async function POST(req: Request): Promise<Response> {
     return new Response(await upstream.text(), { status: upstream.status, headers: { 'content-type': 'application/json' } });
   }
   let token: string;
+  let tokenTtlDays: number | undefined;
   try {
-    ({ token } = (await upstream.json()) as { token: string });
+    ({ token, tokenTtlDays } = (await upstream.json()) as { token: string; tokenTtlDays?: number });
   } catch {
     // Daemon answered 200 with a non-JSON body (e.g. an upstream gateway error page) — fail closed.
     return jsonError('bad_gateway', 502);
   }
+  // Persist the cookie for the token's full lifetime. Fall back to 30 days to match the daemon default
+  // if an older daemon doesn't report its TTL, so the cookie is never a short-lived session cookie.
+  const ttlDays = typeof tokenTtlDays === 'number' && tokenTtlDays > 0 ? tokenTtlDays : 30;
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
-    headers: { 'content-type': 'application/json', 'set-cookie': sessionCookie(token, isHttps(req)) },
+    headers: { 'content-type': 'application/json', 'set-cookie': sessionCookie(token, isHttps(req), ttlDays * 86400) },
   });
 }

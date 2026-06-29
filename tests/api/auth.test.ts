@@ -29,6 +29,7 @@ describe('auth', () => {
     const body = await ok.json();
     expect(typeof body.token).toBe('string');
     expect(body.user.username).toBe('alice');
+    expect(body.tokenTtlDays).toBe(30); // surfaced so the web BFF can persist the cookie for the token's lifetime
     const bad = await app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'nope' }) });
     expect(bad.status).toBe(401);
   });

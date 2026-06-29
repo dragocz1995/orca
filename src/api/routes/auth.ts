@@ -36,7 +36,9 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     loginHits.delete(ip); // a valid login clears the counter so an earlier typo streak can't lock the user out
     const token = users.issueToken(user.id);
     void d.advisor?.ensureOnLogin(user.id); // fire-and-forget: bring the user's advisor back up; never block login
-    return c.json({ token, user });
+    // Surface the token's TTL so the web BFF can persist the session cookie for exactly as long as the
+    // daemon will accept the token — otherwise it falls back to a session cookie the browser drops early.
+    return c.json({ token, user, tokenTtlDays: d.config.get().security.tokenTtlDays });
   });
   app.post('/auth/logout', (c) => { const t = c.get('token'); if (t) users.revokeToken(t); return c.json({ ok: true }); });
   app.get('/auth/me', (c) => c.json({ user: c.get('user') }));

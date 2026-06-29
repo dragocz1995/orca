@@ -10,16 +10,19 @@ describe('proxy helpers', () => {
     expect(daemonUrl()).toBe('http://localhost:9999');
   });
 
-  it('sessionCookie is httpOnly + lax, and Secure only over HTTPS', () => {
-    const secure = sessionCookie('tok123', true);
+  it('sessionCookie is httpOnly + lax, persisted via Max-Age, and Secure only over HTTPS', () => {
+    const secure = sessionCookie('tok123', true, 30 * 86400);
     expect(secure).toContain(`${COOKIE_NAME}=tok123`);
     expect(secure).toMatch(/HttpOnly/);
     expect(secure).toMatch(/Secure/);
     expect(secure).toMatch(/SameSite=Lax/);
+    // Persisted for the token's TTL, not a session cookie the browser drops on close/suspend.
+    expect(secure).toMatch(/Max-Age=2592000/);
     // Over plain HTTP the cookie must NOT be Secure, or the browser drops it (→ 401 after login).
-    const insecure = sessionCookie('tok123', false);
+    const insecure = sessionCookie('tok123', false, 7 * 86400);
     expect(insecure).toMatch(/HttpOnly/);
     expect(insecure).not.toMatch(/Secure/);
+    expect(insecure).toMatch(/Max-Age=604800/);
   });
 
   it('clearCookie expires the cookie and matches the Secure attr', () => {

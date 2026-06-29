@@ -22,6 +22,18 @@ describe('auth login route', () => {
     expect(JSON.stringify(body)).not.toContain('secret-tok');
   });
 
+  it('persists the cookie for the daemon-reported token TTL (not a session cookie)', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ token: 't', tokenTtlDays: 7 }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const setCookie = (await login(post('https://web.test/api/auth/login', { username: 'admin', password: 'x' }))).headers.get('set-cookie') ?? '';
+    expect(setCookie).toMatch(/Max-Age=604800/); // 7 days in seconds
+  });
+
+  it('falls back to a 30-day cookie when an older daemon omits the TTL', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ token: 't' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const setCookie = (await login(post('https://web.test/api/auth/login', { username: 'admin', password: 'x' }))).headers.get('set-cookie') ?? '';
+    expect(setCookie).toMatch(/Max-Age=2592000/); // 30 days in seconds
+  });
+
   it('marks the cookie Secure behind HTTPS but not over plain HTTP (IP:4500 / localhost)', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ token: 't' }), { status: 200, headers: { 'content-type': 'application/json' } }));
     const httpsReq = new Request('http://web.test/api/auth/login', {

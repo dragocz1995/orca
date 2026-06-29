@@ -18,8 +18,12 @@ export function isHttps(req: Request): boolean {
   return (req.headers.get('x-forwarded-proto') ?? '').split(',')[0].trim().toLowerCase() === 'https';
 }
 
-export function sessionCookie(token: string, secure: boolean): string {
-  return `${COOKIE_NAME}=${token}; ${ATTRS}${secure ? '; Secure' : ''}`;
+/** Mint the httpOnly session cookie. `maxAgeSeconds` MUST match the daemon token's TTL so the browser
+ *  keeps the cookie for exactly as long as the daemon will accept the token; without a Max-Age the
+ *  browser treats it as a session cookie and drops it on close/suspend (minutes-to-hours on mobile),
+ *  logging the user out long before the 30-day token actually expires. */
+export function sessionCookie(token: string, secure: boolean, maxAgeSeconds: number): string {
+  return `${COOKIE_NAME}=${token}; ${ATTRS}${secure ? '; Secure' : ''}; Max-Age=${Math.floor(maxAgeSeconds)}`;
 }
 
 export function clearCookie(secure: boolean): string {
