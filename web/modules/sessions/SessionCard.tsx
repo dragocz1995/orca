@@ -19,7 +19,6 @@ import { ContextMenu, type ContextMenuState, DIVIDER } from '../../components/ui
 import { ChangeStrip } from '../../components/ui/ChangeStrip';
 import { TaskUsageBadge } from '../../components/ui/TaskUsageBadge';
 import { LiveTail } from '../../components/terminal/LiveTail';
-import { SendInput } from '../../components/control/SendInput';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 
@@ -131,8 +130,7 @@ export function SessionCard({ info, onOpenTerminal, compact = false }: { info: S
           </div>
         </div>
       )}
-      <div className="flex items-center justify-between gap-2">
-        <SendInput onSend={(keys) => send.mutate({ name, keys }, { onSuccess: () => toast(t.sessions.sentTo.replace('{name}', name)), onError: (e) => toast(String(e), 'error') })} />
+      <div className="flex items-center justify-end gap-2">
         <div className="flex items-center gap-1.5">
           <ProjectPill projectId={info.projectId ?? task?.project_id} always />
           {modelExec ? (
