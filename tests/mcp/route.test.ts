@@ -1,0 +1,89 @@
+import { describe, it, expect } from 'vitest';
+import { openDb } from '../../src/store/db.js';
+import { TaskStore } from '../../src/store/taskStore.js';
+import { Readiness } from '../../src/store/readiness.js';
+import { MissionStore } from '../../src/store/missionStore.js';
+import { EventBus } from '../../src/api/sse.js';
+import { createServer } from '../../src/api/server.js';
+import { FakeClock } from '../../src/shared/clock.js';
+import { ConfigStore } from '../../src/store/configStore.js';
+import { UserStore } from '../../src/store/userStore.js';
+
+function makeApp() {
+  const db = openDb(':memory:');
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const users = new UserStore(db);
+  users.create('alice', 'secret');
+  const app = createServer({
+    tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db),
+    bus: new EventBus(), engine: null as any, spawn: null as any, tmux: null as any,
+    project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
+    clock: new FakeClock(0), config: new ConfigStore(db), users,
+  });
+  return { app, users };
+}
+
+function mcpInitBody(): string {
+  return JSON.stringify({
+    jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1.0.0' } },
+  });
+}
+
+function mcpHeaders(token?: string): Record<string, string> {
+  const h: Record<string, string> = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+  };
+  if (token) h.authorization = `Bearer ${token}`;
+  return h;
+}
+
+describe('POST /mcp auth gating', () => {
+  it('full-scope token completes an MCP initialize handshake and round-trips a tool call', async () => {
+    const { app, users } = makeApp();
+    const token = users.issueToken(users.list()[0]!.id);
+
+    const initRes = await app.request('/mcp', {
+      method: 'POST', headers: mcpHeaders(token), body: mcpInitBody(),
+    });
+    expect(initRes.status).toBe(200);
+    const initBody = await initRes.text();
+    expect(initBody).toContain('orca');
+    expect(initBody).toContain('protocolVersion');
+
+    const toolsRes = await app.request('/mcp', {
+      method: 'POST', headers: mcpHeaders(token),
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+    });
+    expect(toolsRes.status).toBe(200);
+    const toolsBody = await toolsRes.text();
+    expect(toolsBody).toContain('orca_request');
+    expect(toolsBody).toContain('orca_tasks');
+  });
+
+  it('agent-scope service token gets 403 (not in agentAllowed)', async () => {
+    const { app, users } = makeApp();
+    const agentTok = users.refreshAgentToken(users.list()[0]!.id);
+    const res = await app.request('/mcp', {
+      method: 'POST', headers: mcpHeaders(agentTok), body: mcpInitBody(),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('missing token gets 401', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/mcp', {
+      method: 'POST', headers: mcpHeaders(), body: mcpInitBody(),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('invalid token gets 401', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/mcp', {
+      method: 'POST', headers: mcpHeaders('bogus-token'), body: mcpInitBody(),
+    });
+    expect(res.status).toBe(401);
+  });
+});
