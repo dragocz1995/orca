@@ -49,6 +49,15 @@ describe('BrainService', () => {
     expect(roles).toContain('assistant');
   });
 
+  it('history extracts display text from stored string and array content', () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    d.store.createSession({ id: 'brain-1', userId: 1, model: 'm' });
+    d.store.appendMessage({ id: 'a', sessionId: 'brain-1', parentId: null, role: 'user', content: { role: 'user', content: 'ahoj' } });
+    d.store.appendMessage({ id: 'b', sessionId: 'brain-1', parentId: null, role: 'assistant', content: { role: 'assistant', content: [{ type: 'text', text: 'čau' }] } });
+    expect(svc.history(1)).toEqual([{ role: 'user', text: 'ahoj' }, { role: 'assistant', text: 'čau' }]);
+  });
+
   it('stop disposes the session and reports not running', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

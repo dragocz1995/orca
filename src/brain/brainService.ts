@@ -120,4 +120,25 @@ export class BrainService {
     b.session.dispose();
     this.live.delete(userId);
   }
+
+  /** The user's stored conversation, shaped for display (channels render this on connect). Reads the
+   *  sole store; no live session required, so it works before/independently of `start`. */
+  history(userId: number): BrainMessageView[] {
+    return this.d.store.getMessages(this.sessionIdFor(userId)).map((row) => {
+      let text = '';
+      try { text = extractText(JSON.parse(row.content)); } catch { /* malformed row → empty text */ }
+      return { role: row.role, text };
+    });
+  }
+}
+
+/** Pull display text out of a stored message's content JSON. Content is either a plain string or an
+ *  array of parts ({type:'text', text}); anything else yields an empty string. */
+function extractText(msg: unknown): string {
+  const content = (msg as { content?: unknown }).content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((p) => (p && typeof p === 'object' && 'text' in p ? String((p as { text: unknown }).text) : '')).join('');
+  }
+  return '';
 }

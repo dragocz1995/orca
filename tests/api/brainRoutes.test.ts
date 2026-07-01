@@ -19,6 +19,7 @@ function fakeBrain() {
     send: async (id: number, _text: string) => { if (!started.has(id)) throw new Error('brain not started for user'); },
     subscribe: () => () => {},
     stop: (id: number) => { started.delete(id); },
+    history: (_id: number) => [{ role: 'user', text: 'hi' }, { role: 'assistant', text: 'yo' }],
   };
 }
 
@@ -52,6 +53,13 @@ describe('brain routes', () => {
     expect((await app.request('/brain/send', post(amyTok, { text: 'hi' }))).status).toBe(200);
   });
 
+  it('messages returns the display history', async () => {
+    const { app, amyTok } = setup();
+    const res = await app.request('/brain/messages', auth(amyTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{ role: 'user', text: 'hi' }, { role: 'assistant', text: 'yo' }]);
+  });
+
   it('send before start returns 409', async () => {
     const { app, amyTok } = setup();
     expect((await app.request('/brain/send', post(amyTok, { text: 'hi' }))).status).toBe(409);
@@ -68,5 +76,6 @@ describe('brain routes', () => {
     expect((await app.request('/brain/status', auth(agentTok))).status).toBe(403);
     expect((await app.request('/brain/start', post(agentTok, {}))).status).toBe(403);
     expect((await app.request('/brain/send', post(agentTok, { text: 'x' }))).status).toBe(403);
+    expect((await app.request('/brain/messages', auth(agentTok))).status).toBe(403);
   });
 });

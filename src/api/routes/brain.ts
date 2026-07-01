@@ -25,6 +25,12 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     catch (e) { return c.json({ error: (e as Error).message }, 500); }
   });
 
+  app.get('/brain/messages', async c => {
+    if (!d.brain) return c.json([]);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    return c.json(d.brain.history(c.get('user').id));
+  });
+
   app.post('/brain/send', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
