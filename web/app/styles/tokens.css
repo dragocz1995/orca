@@ -35,3 +35,20 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+/* Light theme. Tailwind v4's @theme emits its vars on :root, so the dark palette above is the
+   default — light lives in a plain CSS rule (an @theme block can't be attribute-scoped). Overriding
+   only the semantic surface/text/border tokens flips the whole app off `data-theme=light` with no
+   per-component edits, since every utility reads these same vars. Accent/danger/status hues sit at a
+   mid lightness that stays legible on both black and white, so they're intentionally left untouched. */
+html[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-surface: #fafafa;
+  --color-elevated: #f0f0f1;
+  --color-border: oklch(0.92 0 0);
+  --color-border-strong: oklch(0.84 0.005 256);
+  --color-text: oklch(0.22 0 0);
+  --color-text-muted: oklch(0.50 0 0);
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --shadow-raised: 0 4px 16px -4px rgb(0 0 0 / 0.16);
+}
