@@ -1,7 +1,7 @@
 import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
 
-export interface BrainEndpointConfig { baseUrl?: string; apiKey: string; model: string }
+interface BrainEndpointConfig { baseUrl?: string; apiKey: string; model: string }
 export interface BrainProviderConfig {
   openai?: BrainEndpointConfig;
   anthropic?: BrainEndpointConfig;

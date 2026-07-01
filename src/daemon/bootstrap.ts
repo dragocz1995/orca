@@ -54,6 +54,9 @@ import { uniqueName } from './uniqueName.js';
 import { logger } from '../shared/logger.js';
 import { AdvisorService } from '../advisor/service.js';
 import { writeMcpConfig } from '../advisor/mcpConfig.js';
+import { BrainService } from '../brain/brainService.js';
+import { BrainStore } from '../store/brainStore.js';
+import { brainConfigFromOrca } from '../brain/config.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -315,10 +318,20 @@ export function buildApp(opts: BuildOpts) {
     prepareMcp: (program, cwd, token) => writeMcpConfig(program, cwd, token, mcpUrl),
     prompts,
   });
+  // Per-user embedded brain (the new advisor engine): an in-process PI agent session. Wired only when
+  // a provider is configured (reuses the relay endpoint) and not for the in-memory test DB. Coexists
+  // with the spawn-CLI advisor — routes degrade to 503 when left unwired.
+  const brainConfig = opts.dbPath === ':memory:' ? null : brainConfigFromOrca(config);
+  const brain = brainConfig
+    ? new BrainService({
+        store: new BrainStore(db), users, config: brainConfig, url: orcaCli.url,
+        cwd: (() => { const p = join(dirname(opts.dbPath), 'brain'); mkdirSync(p, { recursive: true }); return p; })(),
+      })
+    : undefined;
   // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
   // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
   const tickets = createTicketStore();
-  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, tickets });
+  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace

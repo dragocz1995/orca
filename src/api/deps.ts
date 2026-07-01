@@ -78,6 +78,8 @@ export interface ServerDeps {
   pilot?: (job: PlanJob, projectPath: string) => Promise<void>;
   /** Per-user advisor lifecycle. Absent → advisor feature disabled (routes degrade gracefully). */
   advisor?: import('../advisor/service.js').AdvisorService;
+  /** Per-user embedded brain (PI agent) — the new advisor engine. Absent → brain routes degrade to 503. */
+  brain?: import('../brain/brainService.js').BrainService;
   /** Single-use ticket store backing the terminal WebSocket stream. Shared with the daemon's
    *  `/ws/terminal` handler so a ticket minted here is redeemable there. Defaulted when absent. */
   tickets?: TicketStore;

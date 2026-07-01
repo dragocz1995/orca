@@ -14,10 +14,9 @@ export type BrainEvent =
   | { type: 'idle' }
   | { type: 'error'; message: string };
 
-interface BrainUser { id: number; name?: string; username?: string }
 export interface BrainDeps {
   store: BrainStore;
-  users: { ensureAdvisorToken(userId: number): string; get(userId: number): BrainUser | undefined };
+  users: { ensureAdvisorToken(userId: number): string };
   config: BrainProviderConfig;
   /** Daemon REST base the brain's tools call (ORCA_URL). */
   url: string;

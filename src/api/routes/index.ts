@@ -6,6 +6,7 @@ import { registerActivityRoutes } from './activity.js';
 import { registerIntegrationRoutes } from './integrations.js';
 import { registerSessionRoutes } from './sessions.js';
 import { registerAdvisorRoutes } from './advisor.js';
+import { registerBrainRoutes } from './brain.js';
 import { registerMissionRoutes } from './missions.js';
 import { registerConfigRoutes } from './config.js';
 import { registerTaskRoutes } from './tasks.js';
@@ -22,6 +23,7 @@ export function registerRoutes(app: OrcaApp, ctx: RouteContext): void {
   registerIntegrationRoutes(app, ctx);
   registerSessionRoutes(app, ctx);
   registerAdvisorRoutes(app, ctx);
+  registerBrainRoutes(app, ctx);
   registerMissionRoutes(app, ctx);
   registerConfigRoutes(app, ctx);
 }
