@@ -32,11 +32,12 @@
     "dist/",
     "web-dist/",
     "prompts/",
+    "plugins/",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/store/schema.sql dist/store/ && cp -r prompts dist/",
+    "build": "tsc -p tsconfig.json && cp src/store/schema.sql dist/store/ && cp -r prompts dist/ && cp -r plugins dist/",
     "build:web": "node scripts/build-web-bundle.mjs",
     "prepublishOnly": "npm run build && npm run build:web",
     "test": "vitest run",
