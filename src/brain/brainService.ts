@@ -14,6 +14,9 @@ export type BrainEvent =
   | { type: 'idle' }
   | { type: 'error'; message: string };
 
+/** A stored turn shaped for display (the `GET /brain/messages` payload consumed by channels). */
+export interface BrainMessageView { role: string; text: string }
+
 export interface BrainDeps {
   store: BrainStore;
   users: { ensureAdvisorToken(userId: number): string };

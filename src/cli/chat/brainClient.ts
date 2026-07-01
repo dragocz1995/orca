@@ -1,0 +1,96 @@
+import type { BrainEvent, BrainMessageView } from '../../brain/brainService.js';
+
+/** Thrown on a 401 so the caller can drop the cached token and re-login. */
+export class Unauthorized extends Error {
+  constructor() { super('unauthorized'); this.name = 'Unauthorized'; }
+}
+
+export interface BrainClientOpts { base: string; token: string; fetchImpl?: typeof fetch }
+
+/** Parse accumulated SSE text into complete frames, returning the events and the unconsumed tail.
+ *  Pure and buffer-safe (a frame split across chunks stays in `rest` until its blank-line terminator).
+ *  Comment lines (`: ping`) yield no data and are skipped. */
+export function parseSse(buffer: string): { frames: { event?: string; data: string }[]; rest: string } {
+  const frames: { event?: string; data: string }[] = [];
+  let idx: number;
+  while ((idx = buffer.indexOf('\n\n')) >= 0) {
+    const raw = buffer.slice(0, idx);
+    buffer = buffer.slice(idx + 2);
+    let event: string | undefined;
+    let data = '';
+    for (const line of raw.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) data += line.slice(5).trim();
+    }
+    if (data) frames.push({ event, data });
+  }
+  return { frames, rest: buffer };
+}
+
+/** Thin client over the daemon's /brain/* surface. Runs no agent loop — it only starts the session,
+ *  posts user turns, reads history, and streams the brain's events. */
+export class BrainClient {
+  private f: typeof fetch;
+  constructor(private o: BrainClientOpts) { this.f = o.fetchImpl ?? fetch; }
+
+  private headers(json = false): Record<string, string> {
+    const h: Record<string, string> = { authorization: `Bearer ${this.o.token}` };
+    if (json) h['content-type'] = 'application/json';
+    return h;
+  }
+
+  private async post(path: string, body: unknown): Promise<Response> {
+    const res = await this.f(`${this.o.base}${path}`, { method: 'POST', headers: this.headers(true), body: JSON.stringify(body) });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca brain ${res.status} on ${path}`);
+    return res;
+  }
+
+  async start(which?: 'openai' | 'anthropic'): Promise<{ sessionId: string }> {
+    const res = await this.post('/brain/start', which ? { which } : {});
+    return (await res.json()) as { sessionId: string };
+  }
+
+  async send(text: string): Promise<void> {
+    await this.post('/brain/send', { text });
+  }
+
+  async history(): Promise<BrainMessageView[]> {
+    const res = await this.f(`${this.o.base}/brain/messages`, { headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/messages`);
+    return (await res.json()) as BrainMessageView[];
+  }
+
+  /** Open the SSE stream and deliver each BrainEvent to `onEvent` until `signal` aborts. Reconnects
+   *  with a fixed backoff on a dropped connection (the server re-streams live events). A 401
+   *  propagates so the caller can re-login. */
+  async stream(onEvent: (e: BrainEvent) => void, signal: AbortSignal, backoffMs = 1000): Promise<void> {
+    while (!signal.aborted) {
+      try {
+        const res = await this.f(`${this.o.base}/brain/stream`, { headers: this.headers(), signal });
+        if (res.status === 401) throw new Unauthorized();
+        if (!res.ok || !res.body) throw new Error(`orca brain ${res.status} on /brain/stream`);
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const { frames, rest } = parseSse(buf);
+          buf = rest;
+          for (const frame of frames) {
+            // Skip our error-sentinel and malformed frames rather than crashing the UI.
+            try { onEvent(JSON.parse(frame.data) as BrainEvent); } catch { /* ignore bad frame */ }
+          }
+        }
+      } catch (err) {
+        if (err instanceof Unauthorized || signal.aborted) throw err;
+        // otherwise fall through to reconnect
+      }
+      if (signal.aborted) break;
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+}
