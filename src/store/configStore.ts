@@ -20,6 +20,9 @@ export interface OrcaConfig {
   /** Web Push VAPID public key (safe to expose) + whether a keypair has been generated. The private
    *  key NEVER leaves the daemon — read it only via `webPushKeys()`. */
   webPush: { publicKey: string; publicKeySet: boolean };
+  /** Which plugins the admin has enabled. Per-plugin config (which may hold secrets) is NOT exposed here
+   *  — read it daemon-side via `pluginConfig(name)`. */
+  plugins: { enabled: string[] };
 }
 
 // Default executable name per agent program (resolveExecutor program ids). Derived from the shared
@@ -62,6 +65,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   security: { tokenTtlDays: 30 },
   autoUpdate: false,
   webPush: { publicKey: '', publicKeySet: false },
+  plugins: { enabled: [] },
 };
 
 interface Stored {
@@ -78,6 +82,8 @@ interface Stored {
   autoUpdate: boolean;
   /** Persisted VAPID keypair; null until generated on first boot. Private key stays daemon-side. */
   webPush: { publicKey: string; privateKey: string } | null;
+  /** Enabled plugin names + each plugin's own config slice (secrets included, never serialized to API). */
+  plugins: { enabled: string[]; config: Record<string, Record<string, unknown>> };
 }
 
 const defaultStored = (): Stored => ({
@@ -93,6 +99,7 @@ const defaultStored = (): Stored => ({
   security: { ...DEFAULT_CONFIG.security },
   autoUpdate: false,
   webPush: null,
+  plugins: { enabled: [], config: {} },
 });
 
 export interface ConfigPatch {
@@ -105,6 +112,7 @@ export interface ConfigPatch {
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
   security?: { tokenTtlDays?: number };
   autoUpdate?: boolean;
+  plugins?: { enabled?: string[]; config?: Record<string, Record<string, unknown>> };
 }
 
 export class ConfigStore {
@@ -137,6 +145,13 @@ export class ConfigStore {
         webPush: (p.webPush && typeof p.webPush.publicKey === 'string' && p.webPush.publicKey.length > 0
           && typeof p.webPush.privateKey === 'string' && p.webPush.privateKey.length > 0)
           ? { publicKey: p.webPush.publicKey, privateKey: p.webPush.privateKey } : null,
+        plugins: (p.plugins && typeof p.plugins === 'object' && !Array.isArray(p.plugins))
+          ? {
+              enabled: Array.isArray(p.plugins.enabled) ? p.plugins.enabled : [],
+              config: (p.plugins.config && typeof p.plugins.config === 'object' && !Array.isArray(p.plugins.config))
+                ? (p.plugins.config as Record<string, Record<string, unknown>>) : {},
+            }
+          : { enabled: [], config: {} },
       };
     } catch { return defaultStored(); } // corrupt row → defaults, never throw
   }
@@ -160,6 +175,8 @@ export class ConfigStore {
       autoUpdate: s.autoUpdate,
       // Only the public key is exposed; `publicKeySet` reflects whether a full keypair exists.
       webPush: { publicKey: s.webPush?.publicKey ?? '', publicKeySet: !!s.webPush },
+      // Only the enabled list surfaces; per-plugin config (possible secrets) stays daemon-side.
+      plugins: { enabled: s.plugins.enabled },
     };
   }
 
@@ -208,8 +225,18 @@ export class ConfigStore {
       security: { tokenTtlDays: clampTtlDays(patch.security?.tokenTtlDays, cur.security.tokenTtlDays) },
       autoUpdate: patch.autoUpdate ?? cur.autoUpdate,
       webPush: cur.webPush, // VAPID keys are managed via setWebPushKeys, never through the config patch
+      plugins: {
+        enabled: patch.plugins?.enabled ?? cur.plugins.enabled,
+        // Merge per-plugin config so a patch touching one plugin never wipes another's slice.
+        config: patch.plugins?.config ? { ...cur.plugins.config, ...patch.plugins.config } : cur.plugins.config,
+      },
     });
     return this.get();
+  }
+
+  /** A plugin's own config slice (secrets included). Daemon-side only — never routed to any client. */
+  pluginConfig(name: string): Record<string, unknown> {
+    return this.read().plugins.config[name] ?? {};
   }
 
   /** Resolve an exec field on update: keep the current value when the patch omits it; accept a
