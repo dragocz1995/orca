@@ -4,9 +4,6 @@ import type { Skill, ToolDefinition } from '@earendil-works/pi-coding-agent';
  *  flows straight into `formatSkillsForPrompt` — skills are inherently markdown-file based. */
 export type PluginSkill = Skill;
 
-/** A chunk of instructions a plugin appends to the brain's system prompt, after the Orca persona. */
-export type SystemPromptFragment = string;
-
 /** A named lifecycle callback. The concrete hook set stays intentionally minimal for the foundation. */
 export interface PluginHook { name: string; run: (payload: unknown) => void | Promise<void> }
 
@@ -33,7 +30,8 @@ export interface PluginLogger { info(msg: string): void; warn(msg: string): void
 export interface PluginContext {
   registerTool(tool: ToolDefinition): void;
   registerSkill(skill: PluginSkill): void;
-  registerSystemPromptFragment(fragment: SystemPromptFragment): void;
+  /** Append a chunk of instructions to the brain's system prompt, after the Orca persona. */
+  registerSystemPromptFragment(fragment: string): void;
   registerHook(hook: PluginHook): void;
   /** STUB: record a platform adapter (not started by the foundation). */
   registerPlatform(adapter: PlatformAdapter): void;
