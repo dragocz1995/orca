@@ -42,6 +42,7 @@ import { ProjectStore } from '../store/projectStore.js';
 import { UserProjectStore } from '../store/userProjectStore.js';
 import { PushSubscriptionStore } from '../store/pushSubscriptionStore.js';
 import { UserPromptStore } from '../store/userPromptStore.js';
+import { UserSettingStore } from '../store/userSettingStore.js';
 import { PromptService } from '../prompts/promptService.js';
 import { resolveOwnerId } from '../prompts/owner.js';
 import { TaskUsageStore } from '../store/taskUsageStore.js';
@@ -124,6 +125,7 @@ export function buildApp(opts: BuildOpts) {
   const userProjects = new UserProjectStore(db);
   const pushSubscriptions = new PushSubscriptionStore(db);
   const userPrompts = new UserPromptStore(db);
+  const userSettings = new UserSettingStore(db);
   const prompts = new PromptService(userPrompts);
   const taskUsage = new TaskUsageStore(db);
   const git = new RealGitReader();
@@ -337,12 +339,13 @@ export function buildApp(opts: BuildOpts) {
           return loadPlugins({ dirs, enabled, config: pluginConfig, logger: log });
         },
         policy: (userId) => resolvePolicy({ userProjects, projects }, userId),
+        userSettings: (userId) => userSettings.cliSettings(userId),
       })
     : undefined;
   // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
   // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
   const tickets = createTicketStore();
-  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, tickets });
+  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, userSettings, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace

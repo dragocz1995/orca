@@ -41,6 +41,9 @@ export interface BrainDeps {
   loadPlugins?: () => Promise<PluginRegistry>;
   /** Resolves the repo-access Policy for a user; carried into plugin tool execution via AsyncLocalStorage. */
   policy?: (userId: number) => Policy;
+  /** Per-user CLI/brain settings: an optional model override (empty → configured default) + auto-compact
+   *  toggle and its user-tunable threshold percentage. */
+  userSettings?: (userId: number) => { model?: string; autoCompact?: boolean; autoCompactAt?: number };
   /** Injected for tests; defaults to PI's createAgentSession. */
   createSession?: typeof createAgentSession;
   /** Injected for tests; builds the resource loader that carries the Orca system prompt. A test passes
@@ -57,7 +60,10 @@ function defaultResourceLoaderFactory(o: { cwd: string; systemPrompt: string; ap
   });
 }
 
-interface LiveBrain { session: AgentSession; sessionId: string; model: string; policy: Policy; listeners: Set<(e: BrainEvent) => void> }
+interface LiveBrain { session: AgentSession; sessionId: string; model: string; policy: Policy; autoCompact: boolean; autoCompactAt: number; listeners: Set<(e: BrainEvent) => void> }
+
+/** Fallback auto-compact threshold (fraction of the context window) when the user set none. */
+const DEFAULT_AUTO_COMPACT_AT = 0.8;
 
 /** Translate a PI session event into the stable BrainEvent contract. Defensive: unknown event types
  *  are dropped. Streaming shapes are refined by the Task 8 smoke; the contract never changes. */
@@ -101,9 +107,14 @@ export class BrainService {
     const sessionId = this.sessionIdFor(userId);
     const which = opts?.which ?? this.d.config.default;
 
+    // Per-user model override (empty → configured default) — lets each user pick their own brain model
+    // instead of inheriting the shared relay/autopilot model.
+    const userCfg = this.d.userSettings?.(userId);
+    const override = userCfg?.model ? { openai: userCfg.model, anthropic: userCfg.model } : undefined;
+
     // Ensure the store row (sole source of truth) exists before rehydration.
-    const registry = buildBrainRegistry(this.d.config);
-    const model = resolveBrainModel(registry, this.d.config, which);
+    const registry = buildBrainRegistry(this.d.config, override);
+    const model = resolveBrainModel(registry, this.d.config, which, override);
     if (!this.d.store.getSession(sessionId)) {
       this.d.store.createSession({ id: sessionId, userId, model: model.id });
     } else {
@@ -156,7 +167,8 @@ export class BrainService {
       if (be) for (const l of listeners) l(be);
     });
 
-    this.live.set(userId, { session, sessionId, model: model.id, policy, listeners });
+    const autoCompactAt = userCfg?.autoCompactAt ? userCfg.autoCompactAt / 100 : DEFAULT_AUTO_COMPACT_AT;
+    this.live.set(userId, { session, sessionId, model: model.id, policy, autoCompact: !!userCfg?.autoCompact, autoCompactAt, listeners });
     return { sessionId };
   }
 
@@ -173,6 +185,14 @@ export class BrainService {
     projectUserTurn(this.d.store, b.sessionId, text);
     // Establish the user's repo Policy for any plugin tool this turn invokes (read via currentPolicy()).
     await runWithPolicy(b.policy, () => b.session.prompt(text));
+    // Auto-compact: once the conversation fills most of the context window, summarize it so the next
+    // turn keeps room. Opt-in per user; failures are non-fatal (a full window still works, just tighter).
+    if (b.autoCompact) {
+      const usage = b.session.getContextUsage();
+      if (usage?.tokens && usage.contextWindow > 0 && usage.tokens / usage.contextWindow >= b.autoCompactAt) {
+        try { await b.session.compact(); } catch { /* best-effort; keep the session usable */ }
+      }
+    }
   }
 
   stop(userId: number): void {

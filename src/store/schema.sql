@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS user_prompts (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, name)
 );
+
+-- Per-user key/value settings (e.g. the CLI/brain model override, auto-compact toggle). Absence of a
+-- key means "use the default", so a fresh user inherits the shipped behaviour.
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, key)
+);
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   ts TEXT NOT NULL DEFAULT (datetime('now')),

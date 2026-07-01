@@ -29,7 +29,11 @@ function modelEntry(id: string) {
 
 /** Build an in-memory ModelRegistry with the two Orca brain providers registered from Orca config.
  *  API keys are passed inline (no models.json / disk). pi-ai owns the streaming per model.api. */
-export function buildBrainRegistry(cfg: BrainProviderConfig): ModelRegistry {
+/** A per-user model id override, applied to whichever provider that user's brain runs on. Empty/absent
+ *  → the provider's configured default model. */
+export interface BrainModelOverride { openai?: string; anthropic?: string }
+
+export function buildBrainRegistry(cfg: BrainProviderConfig, override?: BrainModelOverride): ModelRegistry {
   const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
   if (cfg.openai) {
     registry.registerProvider(OPENAI_PROVIDER, {
@@ -37,7 +41,7 @@ export function buildBrainRegistry(cfg: BrainProviderConfig): ModelRegistry {
       api: 'openai-completions',
       baseUrl: normOpenAiBase(cfg.openai.baseUrl ?? 'https://api.openai.com'),
       apiKey: cfg.openai.apiKey,
-      models: [modelEntry(cfg.openai.model)],
+      models: [modelEntry(override?.openai || cfg.openai.model)],
     });
   }
   if (cfg.anthropic) {
@@ -46,7 +50,7 @@ export function buildBrainRegistry(cfg: BrainProviderConfig): ModelRegistry {
       api: 'anthropic-messages',
       baseUrl: cfg.anthropic.baseUrl ?? 'https://api.anthropic.com',
       apiKey: cfg.anthropic.apiKey,
-      models: [modelEntry(cfg.anthropic.model)],
+      models: [modelEntry(override?.anthropic || cfg.anthropic.model)],
     });
   }
   return registry;
@@ -56,9 +60,11 @@ export function buildBrainRegistry(cfg: BrainProviderConfig): ModelRegistry {
  *  error if that provider was not configured — the caller surfaces it to the user. */
 export function resolveBrainModel(
   registry: ModelRegistry, cfg: BrainProviderConfig, which: 'openai' | 'anthropic' = cfg.default,
+  override?: BrainModelOverride,
 ): Model<Api> {
   const provider = which === 'anthropic' ? ANTHROPIC_PROVIDER : OPENAI_PROVIDER;
-  const modelId = which === 'anthropic' ? cfg.anthropic?.model : cfg.openai?.model;
+  const configured = which === 'anthropic' ? cfg.anthropic?.model : cfg.openai?.model;
+  const modelId = (which === 'anthropic' ? override?.anthropic : override?.openai) || configured;
   if (!modelId) throw new Error(`brain provider '${which}' is not configured`);
   const model = registry.find(provider, modelId);
   if (!model) throw new Error(`brain model '${modelId}' not found for provider '${which}'`);

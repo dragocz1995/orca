@@ -96,6 +96,22 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     d.userPrompts.remove(c.get('user').id, name);
     return c.json({ ok: true });
   });
+  // Per-user CLI/brain settings (model override + auto-compact) — self-service, consumed by `orca chat`.
+  app.get('/auth/me/cli-settings', (c) => {
+    const u = c.get('user');
+    return c.json(d.userSettings?.cliSettings(u.id) ?? { model: '', autoCompact: false });
+  });
+  app.patch('/auth/me/cli-settings', async (c) => {
+    if (!d.userSettings) return c.json({ error: 'settings unavailable' }, 400);
+    const u = c.get('user');
+    const b = (await c.req.json().catch(() => ({}))) as { model?: unknown; autoCompact?: unknown; autoCompactAt?: unknown };
+    const patch: { model?: string; autoCompact?: boolean; autoCompactAt?: number } = {};
+    if (typeof b.model === 'string') patch.model = b.model.trim();
+    if (typeof b.autoCompact === 'boolean') patch.autoCompact = b.autoCompact;
+    if (typeof b.autoCompactAt === 'number') patch.autoCompactAt = b.autoCompactAt;
+    d.userSettings.setCliSettings(u.id, patch);
+    return c.json(d.userSettings.cliSettings(u.id));
+  });
   // Avatar upload (multipart). Validated by type + size; stored as <userId>.<ext> under avatarsDir.
   const AVATAR_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
   const AVATAR_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
@@ -170,7 +186,9 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     // Never delete the admin: it would lock out assignment management and (on restart) silently
     // re-elect another user as admin. The flag must be transferred deliberately first.
     if (users.isAdmin(Number(c.req.param('id')))) return c.json({ error: 'cannot delete the admin' }, 400);
-    users.delete(Number(c.req.param('id')));
+    const id = Number(c.req.param('id'));
+    users.delete(id);
+    d.userSettings?.removeForUser(id); // drop the user's CLI/brain settings so no orphan rows linger
     return c.json({ ok: true });
   });
 

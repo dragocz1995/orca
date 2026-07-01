@@ -63,6 +63,15 @@ describe('BrainService', () => {
     expect(seenAppend).toContain('Follow house style.');
   });
 
+  it('applies a per-user model override', async () => {
+    const d = fakeDeps();
+    (d as unknown as { userSettings: () => { model: string; autoCompact: boolean } }).userSettings =
+      () => ({ model: 'ollama/kimi-k2.7-code', autoCompact: false });
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    expect(svc.status(1).model).toBe('ollama/kimi-k2.7-code');
+  });
+
   it('send forwards to the PI session, persists the turn, and emits events', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

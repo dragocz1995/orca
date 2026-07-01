@@ -22,6 +22,7 @@ import type { ProjectStore } from '../store/projectStore.js';
 import type { UserProjectStore } from '../store/userProjectStore.js';
 import type { PushSubscriptionStore } from '../store/pushSubscriptionStore.js';
 import type { UserPromptStore } from '../store/userPromptStore.js';
+import type { UserSettingStore } from '../store/userSettingStore.js';
 import type { PromptService } from '../prompts/promptService.js';
 import type { SkillService } from './services/skillService.js';
 import type { TaskUsageStore } from '../store/taskUsageStore.js';
@@ -55,6 +56,8 @@ export interface ServerDeps {
   pushSubscriptions?: PushSubscriptionStore;
   /** Per-user prompt overrides. Absent → the prompts API degrades and resolution uses file defaults only. */
   userPrompts?: UserPromptStore;
+  /** Per-user CLI/brain settings (model override, auto-compact). Absent → the settings API degrades. */
+  userSettings?: UserSettingStore;
   /** User-aware prompt renderer (resolves a user's override else the file default). Absent → callers
    *  fall back to the plain file `render`, i.e. defaults for everyone. */
   prompts?: PromptService;
