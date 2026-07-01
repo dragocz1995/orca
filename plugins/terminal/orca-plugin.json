@@ -1,0 +1,8 @@
+{
+  "name": "terminal",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Run shell commands with the working directory confined to the user's accessible repositories.",
+  "entry": "index.mjs",
+  "provides": { "tools": ["run_command"] }
+}
