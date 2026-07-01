@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
-import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, HermesInstallInput, UserPatch, ProfilePatch } from './types';
+import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, HermesInstallInput, UserPatch, ProfilePatch, CliSettings } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -182,6 +182,10 @@ export function useChangePassword() {
 export function useSaveMyPrompt() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (v: { name: string; content: string }) => orcaClient.saveMyPrompt(v.name, v.content), onSuccess: () => qc.invalidateQueries({ queryKey: ['my-prompts'] }) });
+}
+export function useSaveMyCliSettings() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (patch: Partial<CliSettings>) => orcaClient.saveMyCliSettings(patch), onSuccess: () => qc.invalidateQueries({ queryKey: ['my-cli-settings'] }) });
 }
 export function useResetMyPrompt() {
   const qc = useQueryClient();

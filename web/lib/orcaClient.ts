@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, CliSettings, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
 import { clearToken } from './token';
 
 // Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
@@ -136,6 +136,8 @@ export const orcaClient = {
   myPrompts: () => req<UserPrompt[]>('/auth/me/prompts'),
   saveMyPrompt: (name: string, content: string) => req<{ ok: boolean }>(`/auth/me/prompts/${encodeURIComponent(name)}`, json({ content }, 'PUT')),
   resetMyPrompt: (name: string) => req<{ ok: boolean }>(`/auth/me/prompts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  myCliSettings: () => req<CliSettings>('/auth/me/cli-settings'),
+  saveMyCliSettings: (patch: Partial<CliSettings>) => req<CliSettings>('/auth/me/cli-settings', json(patch, 'PATCH')),
   // Mint a short-lived signed avatar URL. An <img> can't set an Authorization header, so instead of
   // leaking the long-lived session token into the query string (finding W2) we ask the daemon — over
   // an authenticated request — for an HMAC-signed link that expires in minutes.

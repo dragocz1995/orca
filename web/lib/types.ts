@@ -79,6 +79,9 @@ export interface UserPrompt {
   default: string;
   override: string | null;
 }
+
+/** Per-user CLI/brain settings surfaced in Account → CLI. `model` empty → the configured brain default. */
+export interface CliSettings { model: string; autoCompact: boolean; autoCompactAt: number }
 // Login no longer surfaces a token to the browser — the proxy sets it as an httpOnly cookie and
 // returns only a success flag.
 export type AuthResult = { ok: true };

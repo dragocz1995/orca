@@ -212,6 +212,10 @@ export const useMe = () =>
 export const useMyPrompts = () =>
   useQuery({ queryKey: ['my-prompts'], queryFn: orcaClient.myPrompts });
 
+/** The current user's CLI/brain settings (model override + auto-compact). Edited in Account → CLI. */
+export const useMyCliSettings = () =>
+  useQuery({ queryKey: ['my-cli-settings'], queryFn: orcaClient.myCliSettings });
+
 export const useUserProjects = (userId: number | null, enabled = true) =>
   useQuery({ queryKey: ['user-projects', userId], queryFn: () => orcaClient.userProjects(userId as number), enabled: !!userId && enabled });
 

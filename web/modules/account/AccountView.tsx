@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { UserCog, Mail, Cpu, Upload, ShieldCheck, Save, Check, User as UserIcon, KeyRound, ZoomIn, Bell, MessagesSquare } from 'lucide-react';
+import { UserCog, Mail, Cpu, Upload, ShieldCheck, Save, Check, User as UserIcon, KeyRound, ZoomIn, Bell, MessagesSquare, TerminalSquare } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { OrcaApiError } from '../../lib/orcaClient';
 import { useMe, useConfig } from '../../lib/queries';
@@ -23,6 +23,7 @@ import { usePersistentState } from '../../lib/usePersistentState';
 import { useUiScale, MIN_SCALE, MAX_SCALE, DEFAULT_SCALE } from '../../lib/useUiScale';
 import { isPushSupported, enablePush, disablePush } from '../../lib/pushClient';
 import { PromptsSection } from './PromptsSection';
+import { CliSection } from './CliSection';
 
 export function AccountView() {
   const me = useMe();
@@ -35,7 +36,7 @@ export function AccountView() {
   const { scale, setScale } = useUiScale();
   const fileRef = useRef<HTMLInputElement>(null);
   const scalePct = Math.round(scale * 100);
-  const [section, setSection] = usePersistentState<'profile' | 'prompts'>('orca.account.section', 'profile', ['profile', 'prompts']);
+  const [section, setSection] = usePersistentState<'profile' | 'prompts' | 'cli'>('orca.account.section', 'profile', ['profile', 'prompts', 'cli']);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -122,9 +123,10 @@ export function AccountView() {
   };
   const canSubmitPassword = currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword;
 
-  const sections: { id: 'profile' | 'prompts'; icon: LucideIcon; label: string }[] = [
+  const sections: { id: 'profile' | 'prompts' | 'cli'; icon: LucideIcon; label: string }[] = [
     { id: 'profile', icon: UserCog, label: t.account.tabProfile },
     { id: 'prompts', icon: MessagesSquare, label: t.account.tabPrompts },
+    { id: 'cli', icon: TerminalSquare, label: t.account.tabCli },
   ];
 
   return (
@@ -134,12 +136,12 @@ export function AccountView() {
           aria-label={t.account.sectionsNav}
           options={sections.map(({ id, icon, label }) => ({ value: id, label, icon }))}
           value={section}
-          onChange={(v) => setSection(v as 'profile' | 'prompts')}
+          onChange={(v) => setSection(v as 'profile' | 'prompts' | 'cli')}
         />
       </ModuleHeader>
 
       <div className="min-w-0">
-      {section === 'prompts' ? <PromptsSection /> : (
+      {section === 'cli' ? <CliSection /> : section === 'prompts' ? <PromptsSection /> : (
       <>
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* Left rail: the models you may run, big icons — tap one to make it your default. */}
