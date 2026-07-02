@@ -20,8 +20,8 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/brain/start', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const { which } = await parseBody(c, brainStartSchema);
-    try { return c.json(await d.brain.start(c.get('user').id, which ? { which } : undefined), 201); }
+    const { provider } = await parseBody(c, brainStartSchema);
+    try { return c.json(await d.brain.start(c.get('user').id, provider ? { provider } : undefined), 201); }
     catch (e) { return c.json({ error: (e as Error).message }, 500); }
   });
 

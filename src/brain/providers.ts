@@ -1,16 +1,27 @@
 import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
+import type { BrainProviderType } from '../store/configStore.js';
 
-interface BrainEndpointConfig { baseUrl?: string; apiKey: string; model: string }
-export interface BrainProviderConfig {
-  openai?: BrainEndpointConfig;
-  anthropic?: BrainEndpointConfig;
-  default: 'openai' | 'anthropic';
+/** One brain model provider, daemon-side (API key included). `openai`/`anthropic` register a custom
+ *  endpoint; `oauth-*` rely on pi-ai's built-in providers + an OAuth credential in the AuthStorage. */
+export interface BrainProviderEntry {
+  id: string;
+  label: string;
+  type: BrainProviderType;
+  baseUrl: string;
+  models: string[];
+  apiKey: string | null;
 }
 
-/** Provider ids the brain registers under. Stable so resolveBrainModel can look them up. */
-const OPENAI_PROVIDER = 'orca-openai';
-const ANTHROPIC_PROVIDER = 'orca-anthropic';
+export interface BrainRuntimeConfig { providers: BrainProviderEntry[] }
+
+/** Which built-in pi-ai provider an OAuth entry maps onto (models + streaming come from the built-in
+ *  catalog; the credential comes from AuthStorage after a successful login). */
+export const OAUTH_BUILTIN: Record<string, string> = {
+  'oauth-anthropic': 'anthropic',
+  'oauth-github-copilot': 'github-copilot',
+  'oauth-openai-codex': 'openai-codex',
+};
 
 /** pi-ai's openai-completions client appends `/chat/completions` to the model's baseUrl, so the base
  *  must already include the API version segment (e.g. `.../v1`). We only trim a trailing slash — we do
@@ -27,46 +38,66 @@ function modelEntry(id: string) {
   };
 }
 
-/** Build an in-memory ModelRegistry with the two Orca brain providers registered from Orca config.
- *  API keys are passed inline (no models.json / disk). pi-ai owns the streaming per model.api. */
-/** A per-user model id override, applied to whichever provider that user's brain runs on. Empty/absent
- *  → the provider's configured default model. */
-export interface BrainModelOverride { openai?: string; anthropic?: string }
+/** The registry provider name a config entry registers/reads under. Custom endpoints get a stable
+ *  `orca-<id>` namespace; OAuth entries resolve to the built-in provider. */
+export function registryProviderName(p: BrainProviderEntry): string {
+  return OAUTH_BUILTIN[p.type] ?? `orca-${p.id}`;
+}
 
-export function buildBrainRegistry(cfg: BrainProviderConfig, override?: BrainModelOverride): ModelRegistry {
-  const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
-  if (cfg.openai) {
-    registry.registerProvider(OPENAI_PROVIDER, {
-      name: 'Orca OpenAI-compatible',
-      api: 'openai-completions',
-      baseUrl: normOpenAiBase(cfg.openai.baseUrl ?? 'https://api.openai.com'),
-      apiKey: cfg.openai.apiKey,
-      models: [modelEntry(override?.openai || cfg.openai.model)],
-    });
-  }
-  if (cfg.anthropic) {
-    registry.registerProvider(ANTHROPIC_PROVIDER, {
-      name: 'Orca Anthropic',
-      api: 'anthropic-messages',
-      baseUrl: cfg.anthropic.baseUrl ?? 'https://api.anthropic.com',
-      apiKey: cfg.anthropic.apiKey,
-      models: [modelEntry(override?.anthropic || cfg.anthropic.model)],
-    });
+/** Build the brain's ModelRegistry from the configured providers. Custom endpoints are registered with
+ *  inline API keys; OAuth entries need no registration (built-in catalog + AuthStorage credential). */
+export function buildBrainRegistry(cfg: BrainRuntimeConfig, authStorage: AuthStorage = AuthStorage.inMemory()): ModelRegistry {
+  const registry = ModelRegistry.inMemory(authStorage);
+  for (const p of cfg.providers) {
+    if (p.type === 'openai') {
+      registry.registerProvider(registryProviderName(p), {
+        name: p.label,
+        api: 'openai-completions',
+        baseUrl: normOpenAiBase(p.baseUrl || 'https://api.openai.com/v1'),
+        apiKey: p.apiKey ?? undefined,
+        models: p.models.map(modelEntry),
+      });
+    } else if (p.type === 'anthropic') {
+      registry.registerProvider(registryProviderName(p), {
+        name: p.label,
+        api: 'anthropic-messages',
+        baseUrl: p.baseUrl || 'https://api.anthropic.com',
+        apiKey: p.apiKey ?? undefined,
+        models: p.models.map(modelEntry),
+      });
+    }
+    // oauth-* types: built-in providers already carry their model catalogs; auth comes from AuthStorage.
   }
   return registry;
 }
 
-/** Resolve the configured Model for the chosen provider (defaults to cfg.default). Throws a clear
- *  error if that provider was not configured — the caller surfaces it to the user. */
+/** What a user (or a channel) selected: a provider entry id + a model id, both optional — absent parts
+ *  fall back to the first configured provider / its first model. */
+export interface BrainModelSelection { provider?: string; model?: string }
+
+/** Resolve the Model to run on. For custom endpoints an unknown model id is registered on the fly
+ *  (OpenAI-compatible proxies accept arbitrary ids — the picker list is advisory, not exhaustive). */
 export function resolveBrainModel(
-  registry: ModelRegistry, cfg: BrainProviderConfig, which: 'openai' | 'anthropic' = cfg.default,
-  override?: BrainModelOverride,
+  registry: ModelRegistry, cfg: BrainRuntimeConfig, sel?: BrainModelSelection,
 ): Model<Api> {
-  const provider = which === 'anthropic' ? ANTHROPIC_PROVIDER : OPENAI_PROVIDER;
-  const configured = which === 'anthropic' ? cfg.anthropic?.model : cfg.openai?.model;
-  const modelId = (which === 'anthropic' ? override?.anthropic : override?.openai) || configured;
-  if (!modelId) throw new Error(`brain provider '${which}' is not configured`);
-  const model = registry.find(provider, modelId);
-  if (!model) throw new Error(`brain model '${modelId}' not found for provider '${which}'`);
-  return model;
+  const entry = (sel?.provider ? cfg.providers.find((p) => p.id === sel.provider) : undefined) ?? cfg.providers[0];
+  if (!entry) throw new Error('no brain provider configured');
+  const providerName = registryProviderName(entry);
+  const modelId = sel?.model || entry.models[0] || registry.getAll().find((m) => m.provider === providerName)?.id;
+  if (!modelId) throw new Error(`brain provider '${entry.id}' has no models configured`);
+  const model = registry.find(providerName, modelId);
+  if (model) return model;
+  if (entry.type === 'openai' || entry.type === 'anthropic') {
+    // Not in the advertised list — register it ad hoc so a hand-typed model id still works.
+    registry.registerProvider(providerName, {
+      name: entry.label,
+      api: entry.type === 'openai' ? 'openai-completions' : 'anthropic-messages',
+      baseUrl: entry.type === 'openai' ? normOpenAiBase(entry.baseUrl || 'https://api.openai.com/v1') : (entry.baseUrl || 'https://api.anthropic.com'),
+      apiKey: entry.apiKey ?? undefined,
+      models: [...new Set([...entry.models, modelId])].map(modelEntry),
+    });
+    const added = registry.find(providerName, modelId);
+    if (added) return added;
+  }
+  throw new Error(`brain model '${modelId}' not found for provider '${entry.id}'`);
 }

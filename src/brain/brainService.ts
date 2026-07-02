@@ -3,8 +3,9 @@ import type { AgentSession, AgentSessionEvent, ResourceLoader } from '@earendil-
 import type { PluginRegistry } from '../plugins/registry.js';
 import type { Policy } from '../plugins/policy.js';
 import { runWithPolicy } from '../plugins/policyContext.js';
+import type { AuthStorage } from '@earendil-works/pi-coding-agent';
 import type { BrainStore } from '../store/brainStore.js';
-import type { BrainProviderConfig } from './providers.js';
+import type { BrainRuntimeConfig } from './providers.js';
 import { buildBrainRegistry, resolveBrainModel } from './providers.js';
 import { buildOrcaTools } from './tools/index.js';
 import { projectEvent, projectUserTurn, rehydrate } from './persistence.js';
@@ -26,7 +27,9 @@ export interface BrainDeps {
     ensureAdvisorToken(userId: number): string;
     get(userId: number): { name?: string; username?: string } | null | undefined;
   };
-  config: BrainProviderConfig;
+  config: BrainRuntimeConfig;
+  /** Credential store for the brain's providers (OAuth tokens live here). Default: in-memory. */
+  authStorage?: AuthStorage;
   /** Renders the brain's system prompt from the editable `advisor` template (per-user override aware). */
   prompts: { render(name: string, vars: Record<string, string>, userId?: number): string };
   /** Daemon REST base the brain's tools call (ORCA_URL). */
@@ -43,7 +46,7 @@ export interface BrainDeps {
   policy?: (userId: number) => Policy;
   /** Per-user CLI/brain settings: an optional model override (empty → configured default) + auto-compact
    *  toggle and its user-tunable threshold percentage. */
-  userSettings?: (userId: number) => { model?: string; autoCompact?: boolean; autoCompactAt?: number };
+  userSettings?: (userId: number) => { model?: string; modelProvider?: string; autoCompact?: boolean; autoCompactAt?: number };
   /** Injected for tests; defaults to PI's createAgentSession. */
   createSession?: typeof createAgentSession;
   /** Injected for tests; builds the resource loader that carries the Orca system prompt. A test passes
@@ -101,20 +104,19 @@ export class BrainService {
     return { running: !!b, sessionId: b?.sessionId ?? null, model: b?.model ?? '' };
   }
 
-  async start(userId: number, opts?: { which?: 'openai' | 'anthropic' }): Promise<{ sessionId: string }> {
+  async start(userId: number, opts?: { provider?: string }): Promise<{ sessionId: string }> {
     const existing = this.live.get(userId);
     if (existing) return { sessionId: existing.sessionId }; // idempotent
     const sessionId = this.sessionIdFor(userId);
-    const which = opts?.which ?? this.d.config.default;
 
-    // Per-user model override (empty → configured default) — lets each user pick their own brain model
-    // instead of inheriting the shared relay/autopilot model.
+    // Model selection: an explicit start option wins, else the user's saved provider+model override,
+    // else the first configured provider's first model.
     const userCfg = this.d.userSettings?.(userId);
-    const override = userCfg?.model ? { openai: userCfg.model, anthropic: userCfg.model } : undefined;
+    const selection = { provider: opts?.provider ?? userCfg?.modelProvider, model: userCfg?.model };
 
     // Ensure the store row (sole source of truth) exists before rehydration.
-    const registry = buildBrainRegistry(this.d.config, override);
-    const model = resolveBrainModel(registry, this.d.config, which, override);
+    const registry = buildBrainRegistry(this.d.config, this.d.authStorage);
+    const model = resolveBrainModel(registry, this.d.config, selection);
     if (!this.d.store.getSession(sessionId)) {
       this.d.store.createSession({ id: sessionId, userId, model: model.id });
     } else {

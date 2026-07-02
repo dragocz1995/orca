@@ -1,9 +1,9 @@
 import type { Db } from './db.js';
 
-/** Typed per-user CLI/brain settings. `model` empty → use the configured brain default. `autoCompactAt`
- *  is the context-window fill percentage at which the conversation is auto-summarized (user-tunable). */
-export interface CliSettings { model: string; autoCompact: boolean; autoCompactAt: number }
-const CLI_DEFAULTS: CliSettings = { model: '', autoCompact: false, autoCompactAt: 80 };
+/** Typed per-user CLI/brain settings. `model`/`modelProvider` empty → use the configured brain default.
+ *  `autoCompactAt` is the context-window fill percentage at which the conversation is auto-summarized. */
+export interface CliSettings { model: string; modelProvider: string; autoCompact: boolean; autoCompactAt: number }
+const CLI_DEFAULTS: CliSettings = { model: '', modelProvider: '', autoCompact: false, autoCompactAt: 80 };
 
 /** Keep the auto-compact threshold in a sane band — too low would thrash (compact every turn), too high
  *  risks overflowing before it triggers. Non-numbers fall back to the default. */
@@ -50,6 +50,7 @@ export class UserSettingStore {
     const all = this.getAll(userId);
     return {
       model: all.model ?? CLI_DEFAULTS.model,
+      modelProvider: all.modelProvider ?? CLI_DEFAULTS.modelProvider,
       autoCompact: all.autoCompact !== undefined ? all.autoCompact === 'true' : CLI_DEFAULTS.autoCompact,
       autoCompactAt: all.autoCompactAt !== undefined ? clampPercent(Number(all.autoCompactAt)) : CLI_DEFAULTS.autoCompactAt,
     };
@@ -58,6 +59,7 @@ export class UserSettingStore {
   /** Apply a partial CLI-settings patch (only the provided fields are written). */
   setCliSettings(userId: number, patch: Partial<CliSettings>): void {
     if (patch.model !== undefined) this.set(userId, 'model', patch.model);
+    if (patch.modelProvider !== undefined) this.set(userId, 'modelProvider', patch.modelProvider);
     if (patch.autoCompact !== undefined) this.set(userId, 'autoCompact', String(patch.autoCompact));
     if (patch.autoCompactAt !== undefined) this.set(userId, 'autoCompactAt', String(clampPercent(patch.autoCompactAt)));
   }

@@ -97,8 +97,12 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ ok: true });
   });
   // Per-user CLI/brain settings (model override + auto-compact) — self-service, consumed by `orca chat`.
-  // `serverDefault` tells the UI what "empty model" resolves to.
-  const serverDefaultModel = () => d.config.get().autopilot.model;
+  // `serverDefault` tells the UI what "empty model" resolves to: the first dedicated brain provider's
+  // first model, else the autopilot relay model (the brain's legacy fallback).
+  const serverDefaultModel = () => {
+    const cfg = d.config.get();
+    return cfg.brain.providers[0]?.models[0] || cfg.autopilot.model;
+  };
   app.get('/auth/me/cli-settings', (c) => {
     const u = c.get('user');
     const s = d.userSettings?.cliSettings(u.id) ?? { model: '', autoCompact: false, autoCompactAt: 80 };
@@ -107,9 +111,10 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.patch('/auth/me/cli-settings', async (c) => {
     if (!d.userSettings) return c.json({ error: 'settings unavailable' }, 400);
     const u = c.get('user');
-    const b = (await c.req.json().catch(() => ({}))) as { model?: unknown; autoCompact?: unknown; autoCompactAt?: unknown };
-    const patch: { model?: string; autoCompact?: boolean; autoCompactAt?: number } = {};
+    const b = (await c.req.json().catch(() => ({}))) as { model?: unknown; modelProvider?: unknown; autoCompact?: unknown; autoCompactAt?: unknown };
+    const patch: { model?: string; modelProvider?: string; autoCompact?: boolean; autoCompactAt?: number } = {};
     if (typeof b.model === 'string') patch.model = b.model.trim();
+    if (typeof b.modelProvider === 'string') patch.modelProvider = b.modelProvider.trim();
     if (typeof b.autoCompact === 'boolean') patch.autoCompact = b.autoCompact;
     if (typeof b.autoCompactAt === 'number') patch.autoCompactAt = b.autoCompactAt;
     d.userSettings.setCliSettings(u.id, patch);

@@ -20,7 +20,7 @@ function fakeDeps() {
   return {
     store: new BrainStore(openDb(':memory:')),
     users: { ensureAdvisorToken: () => 'full-token', get: () => ({ name: 'Filip', username: 'filip' }) },
-    config: { openai: { baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }, default: 'openai' as const },
+    config: { providers: [{ id: 'relay', label: 'Relay', type: 'openai' as const, baseUrl: 'http://x/v1', models: ['m'], apiKey: 'k' }] },
     prompts: { render: vi.fn((name: string, vars: Record<string, string>) => `PERSONA:${name}:${vars.userName}`) },
     url: 'http://x',
     createSession,
@@ -65,8 +65,8 @@ describe('BrainService', () => {
 
   it('applies a per-user model override', async () => {
     const d = fakeDeps();
-    (d as unknown as { userSettings: () => { model: string; autoCompact: boolean } }).userSettings =
-      () => ({ model: 'ollama/kimi-k2.7-code', autoCompact: false });
+    (d as unknown as { userSettings: () => { model: string; modelProvider: string; autoCompact: boolean } }).userSettings =
+      () => ({ model: 'ollama/kimi-k2.7-code', modelProvider: 'relay', autoCompact: false });
     const svc = new BrainService(d as never);
     await svc.start(1);
     expect(svc.status(1).model).toBe('ollama/kimi-k2.7-code');
