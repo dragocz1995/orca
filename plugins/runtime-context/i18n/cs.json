@@ -1,0 +1,9 @@
+{
+  "description": "Vkládá aktuální datum, čas, den v týdnu a časové pásmo do každého tahu, aby Orca nikdy nehádala, jaké je „teď“. Bezpečné pro cache: jede v uživatelské zprávě, ne v systémovém promptu.",
+  "fields": {
+    "timezone": {
+      "label": "Časové pásmo",
+      "hint": "Časové pásmo IANA, např. Europe/Prague (výchozí). Používá se pro vkládané datum a čas."
+    }
+  }
+}

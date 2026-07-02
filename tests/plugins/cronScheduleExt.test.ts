@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'vitest';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const pluginPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../plugins/cronjob/index.mjs');
+const mod = await import(pluginPath) as {
+  parseSchedule(spec: string): { kind: string; day?: number; hour?: number; minute?: number; ms?: number } | null;
+  inHours(hours: string | undefined, now: number): boolean;
+  isDue(job: Record<string, unknown>, now: number): boolean;
+  isQuietReply(reply: unknown): boolean;
+};
+
+// Mon 2026-07-06 10:00 local
+const MON_10 = new Date(2026, 6, 6, 10, 0, 0).getTime();
+// Sun 2026-07-05 20:30 local
+const SUN_2030 = new Date(2026, 6, 5, 20, 30, 0).getTime();
+
+describe('cronjob schedule extensions', () => {
+  it('parses weekly specs', () => {
+    expect(mod.parseSchedule('weekly sun 20:00')).toEqual({ kind: 'weekly', day: 0, hour: 20, minute: 0 });
+    expect(mod.parseSchedule('weekly fri 07:30')).toEqual({ kind: 'weekly', day: 5, hour: 7, minute: 30 });
+    expect(mod.parseSchedule('weekly xyz 07:30')).toBeNull();
+  });
+
+  it('weekly jobs fire only on their day, once after the time', () => {
+    const job = { schedule: 'weekly sun 20:00' };
+    expect(mod.isDue(job, SUN_2030)).toBe(true);
+    expect(mod.isDue({ ...job, lastRun: new Date(SUN_2030 - 60_000).toISOString() }, SUN_2030)).toBe(false); // already ran after 20:00
+    expect(mod.isDue(job, MON_10)).toBe(false); // wrong day
+  });
+
+  it('the hours window gates interval jobs (with overnight support)', () => {
+    expect(mod.inHours('5-21', new Date(2026, 6, 6, 10).getTime())).toBe(true);
+    expect(mod.inHours('5-21', new Date(2026, 6, 6, 23).getTime())).toBe(false);
+    expect(mod.inHours('22-5', new Date(2026, 6, 6, 23).getTime())).toBe(true);
+    expect(mod.inHours(undefined, MON_10)).toBe(true);
+    const job = { schedule: 'every 15m', hours: '5-21' };
+    expect(mod.isDue(job, new Date(2026, 6, 6, 23).getTime())).toBe(false);
+    expect(mod.isDue(job, MON_10)).toBe(true);
+  });
+
+  it('disabled jobs never fire', () => {
+    expect(mod.isDue({ schedule: 'every 5m', enabled: false }, MON_10)).toBe(false);
+  });
+
+  it('quiet replies (Hermes [SILENT] + NOTHING_TO_REPORT, wrapped or not) are recognized', () => {
+    expect(mod.isQuietReply('NOTHING_TO_REPORT')).toBe(true);
+    expect(mod.isQuietReply('[SILENT]')).toBe(true);
+    expect(mod.isQuietReply('`[SILENT]`')).toBe(true);       // models love wrapping markers in backticks
+    expect(mod.isQuietReply('**NOTHING_TO_REPORT**')).toBe(true);
+    expect(mod.isQuietReply('  nothing_to_report  ')).toBe(true);
+    expect(mod.isQuietReply('New bookings: 2')).toBe(false);
+    expect(mod.isQuietReply('[SILENT] but also this')).toBe(false); // marker + content = real content
+    expect(mod.isQuietReply('')).toBe(false);
+  });
+});

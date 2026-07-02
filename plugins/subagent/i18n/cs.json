@@ -1,0 +1,3 @@
+{
+  "description": "Delegování: spustí nového izolovaného subagenta, který zpracuje samostatný úkol a vrátí výsledek. Subagent dědí přístup volajícího, nikdy víc."
+}

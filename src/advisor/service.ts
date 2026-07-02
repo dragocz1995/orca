@@ -6,6 +6,7 @@ import type { AgentSpec } from '../spawn/commandBuilder.js';
 import { resolveExecutor } from '../overseer/routing.js';
 import { render } from '../prompts/index.js';
 import type { PromptService } from '../prompts/promptService.js';
+import { personalityText } from '../brain/personality.js';
 import { logger } from '../shared/logger.js';
 
 const log = logger('advisor');
@@ -29,6 +30,8 @@ export interface AdvisorDeps {
   prepareMcp?: (program: string, cwd: string, token: string, url: string) => Promise<void> | void;
   /** User-aware prompt renderer, so the advisor prompt resolves to the user's override (else default). */
   prompts?: PromptService;
+  /** Per-user advisor communication style, resolved to the `{{personality}}` prompt paragraph. */
+  advisorStyle?: (userId: number) => string;
 }
 
 /** Per-user advisor lifecycle: a persistent `orca-advisor-<userId>` agent session that controls Orca
@@ -65,9 +68,10 @@ export class AdvisorService {
     const cwd = this.d.advisorDir(userId);
     await this.d.prepareMcp?.(spec.program, cwd, token, this.d.url);
     const u = this.d.users.get(userId)!;
+    const personality = personalityText(this.d.advisorStyle?.(userId) ?? '');
     const rawPrompt = this.d.prompts
-      ? this.d.prompts.render('advisor', { userName: u.name || u.username }, userId)
-      : render('advisor', { userName: u.name || u.username });
+      ? this.d.prompts.render('advisor', { userName: u.name || u.username, personality }, userId)
+      : render('advisor', { userName: u.name || u.username, personality });
     // agentName `advisor-<id>` → SpawnService names the tmux session `orca-advisor-<id>`. The full
     // advisor token overrides the daemon's agent service token via extraEnv, so the advisor acts with
     // the user's own rights. The cwd is a neutral per-user dir, not a project checkout.

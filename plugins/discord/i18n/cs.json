@@ -1,0 +1,53 @@
+{
+  "description": "Discord bot: zmiňte ho a odpoví z Orca AI. Slash příkazy (/model, /new, /help), výběr modelu pro každý kanál, živé streamované odpovědi, stavové reakce a proaktivní cron/tick oznámení. Každá Discord role se mapuje na povolené projekty Orcy a prompt role.",
+  "fields": {
+    "botToken": {
+      "label": "Token bota",
+      "hint": "Discord Developer Portal → Bot → Token. Zapněte oprávnění Message Content intent."
+    },
+    "guildId": {
+      "label": "ID serveru",
+      "hint": "Volitelné: odpovídat jen na tomto serveru (prázdné = všechny servery, kde bot je)."
+    },
+    "threadIds": {
+      "label": "Povolená vlákna",
+      "hint": "ID vláken oddělená čárkou. Prázdné = odpovídat všude, kde je to povoleno. Když vyplníte, bot odpovídá jen v těchto vláknech."
+    },
+    "notifyChannelId": {
+      "label": "ID oznamovacího kanálu",
+      "hint": "Kam se posílají proaktivní zprávy (výsledky cronů/ticků, eskalace). Prázdné = žádné proaktivní zprávy."
+    },
+    "streaming": {
+      "label": "Živé streamované odpovědi",
+      "hint": "Upravovat odpověď průběžně, jak přichází (volání nástrojů + text). Vypnuto = jedna zpráva na konci."
+    },
+    "reactions": {
+      "label": "Stavové reakce",
+      "hint": "Reaguje 👀 při přemýšlení, ✅/❌ po dokončení."
+    },
+    "respondWithoutMention": {
+      "label": "Odpovídat bez zmínky",
+      "hint": "Zapnuto: bot odpovídá na každou zprávu v kanálech, které vidí (styl Iris). Vypnuto: odpovídá jen při @zmínce."
+    },
+    "rolePolicies": {
+      "label": "Pravidla rolí",
+      "hint": "Vyhrává první odpovídající role. Uživatelé bez namapované role jsou ignorováni. Každá role může navíc omezit, které nástroje pro ni smí bot používat."
+    },
+    "language": {
+      "label": "Jazyk služebních zpráv",
+      "hint": "Jazyk vlastních zpráv bota (/new, /model, zástupné texty): en (výchozí) nebo cs."
+    },
+    "visionModel": {
+      "label": "Vision model",
+      "hint": "Model pro zprávy s obrázkovými přílohami (musí umět vision). Prázdné = běžný model kanálu."
+    },
+    "historyLimit": {
+      "label": "Načtení historie kanálu",
+      "hint": "Kolik posledních zpráv kanálu si NOVÁ konverzace načte jako kontext (0 = vypnuto, max 100). Běžící konverzace historii znovu nenačítají."
+    },
+    "runtimeFooter": {
+      "label": "Stavový řádek",
+      "hint": "Připojit pod finální odpověď malý řádek „model · % kontextu“."
+    }
+  }
+}

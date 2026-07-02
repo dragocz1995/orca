@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
 import { readPkgVersion, readPkgInstalledAt } from '../shared/pkgVersion.js';
 import { fetchLatestVersion } from '../shared/registry.js';
+import { logger } from '../shared/logger.js';
+
+const log = logger('system');
 
 /** This package's version, read once from its package.json. Surfaced on /health so the web UI can show it. */
 export const ORCA_VERSION = readPkgVersion(import.meta.url);
@@ -31,4 +34,14 @@ export async function defaultLatestVersion(): Promise<string | null> {
  *  missions first. */
 export function defaultStartUpdate(): void {
   spawn('orca', ['update'], { detached: true, stdio: 'ignore' }).unref();
+}
+
+/** Restart one of the orca systemd units, detached and `--no-block` so PID 1 owns the job — restarting
+ *  orca-daemon kills this very process, so nothing may wait on the child. The operator account is
+ *  expected to hold passwordless sudo for exactly these commands; on a non-systemd host the spawn just
+ *  fails and is logged (the HTTP response has already gone out by then). */
+export function defaultStartRestart(target: 'daemon' | 'web'): void {
+  const child = spawn('sudo', ['systemctl', 'restart', '--no-block', `orca-${target}`], { detached: true, stdio: 'ignore' });
+  child.on('error', (err) => log.warn(`failed to spawn restart of orca-${target}: ${String(err)}`));
+  child.unref();
 }

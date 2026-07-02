@@ -11,10 +11,26 @@ const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536', 'auto']);
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
+/** The model field is now an exec from the model picker (`orca:openai/gpt-image-1`, `openai/gpt-image-1`)
+ *  or a bare id; the OpenAI Images API wants the bare model — the segment after the last `/`. */
+function resolveModel(raw) {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return 'gpt-image-1';
+  return s.slice(s.lastIndexOf('/') + 1).trim() || s || 'gpt-image-1';
+}
+
+
+/** OpenAI-compatible Images API base: the configured proxy/endpoint, default platform OpenAI.
+ *  Trailing slash trimmed — paths below append /images/… directly. */
+function resolveBase(raw) {
+  const s = typeof raw === 'string' ? raw.trim().replace(/\/$/, '') : '';
+  return s || 'https://api.openai.com/v1';
+}
 export function register(ctx) {
   const apiKey = typeof ctx.config.apiKey === 'string' ? ctx.config.apiKey.trim() : '';
   if (!apiKey) { ctx.logger.warn('enabled but no OpenAI API key configured — tool not registered'); return; }
-  const model = (typeof ctx.config.model === 'string' && ctx.config.model.trim()) || 'gpt-image-1';
+  const model = resolveModel(ctx.config.model);
+  const base = resolveBase(ctx.config.baseUrl);
 
   ctx.registerTool(defineTool({
     name: 'edit_image', label: 'Edit image',
@@ -51,7 +67,7 @@ export function register(ctx) {
         form.set('size', SIZES.has(p.size) ? p.size : 'auto');
         form.set('image', new Blob([bytes], { type: mime }), 'source.png');
 
-        const res = await fetch('https://api.openai.com/v1/images/edits', {
+        const res = await fetch(`${base}/images/edits`, {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}` }, // let fetch set the multipart boundary
           body: form,

@@ -1,0 +1,3 @@
+{
+  "description": "Spouštění shellových příkazů (na popředí i na pozadí) s pracovním adresářem omezeným na repozitáře, ke kterým má uživatel přístup. Procesy na pozadí se spravují nástroji list/read/kill."
+}

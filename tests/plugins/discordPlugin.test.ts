@@ -40,3 +40,223 @@ describe('discord splitContent (code-block-aware chunking)', () => {
     expect(splitContent('ahoj')).toEqual(['ahoj']);
   });
 });
+
+describe('discord LiveMessage (Hermes-style tool progress)', () => {
+  const load = async () => (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as {
+    LiveMessage: new (adapter: { rest: (m: string, p: string, b: { content: string }) => Promise<{ id: string }> }, channelId: string) => {
+      onEvent: (e: { type: string; name?: string; detail?: string; delta?: string }) => void;
+      finalize: (reply?: string) => Promise<void>;
+    };
+  };
+
+  it('tools stack tightly in one bubble with arg previews; the answer is the LAST clean message', async () => {
+    const { LiveMessage } = await load();
+    const posts: string[] = []; // message ids in creation order
+    const edits = new Map<string, string>();
+    let nextId = 0;
+    const adapter = {
+      rest: async (method: string, path: string, body: { content: string }) => {
+        if (method === 'POST') { const id = `m${++nextId}`; posts.push(id); edits.set(id, body.content); return { id }; }
+        const id = path.split('/').pop()!;
+        edits.set(id, body.content);
+        return { id };
+      },
+    };
+    const lm = new LiveMessage(adapter, 'chan');
+    lm.onEvent({ type: 'text', delta: 'Mrknu na to… ' }); // narration BEFORE tools must not create a message
+    lm.onEvent({ type: 'tool', name: 'run_command', detail: 'apt list --upgradable' });
+    lm.onEvent({ type: 'tool', name: 'read_file' });
+    await new Promise((r) => setTimeout(r, 20));
+    await lm.finalize('Hotovo, vše běží.');
+    expect(posts.length).toBe(2);
+    const [progressId, answerId] = posts;
+    expect(edits.get(progressId)).toBe('💻 `run_command`: "apt list --upgradable"\n📄 `read_file`…'); // single \n = tight
+    expect(edits.get(progressId)).not.toContain('\n\n');
+    expect(edits.get(answerId)).toBe('Hotovo, vše běží.'); // last message = the clean summary
+  });
+
+  it('a turn without tools posts only the answer', async () => {
+    const { LiveMessage } = await load();
+    const posts: string[] = [];
+    const adapter = { rest: async (_m: string, _p: string, body: { content: string }) => { posts.push(body.content); return { id: `m${posts.length}` }; } };
+    const lm = new LiveMessage(adapter, 'chan');
+    lm.onEvent({ type: 'text', delta: 'Jen odpověď.' });
+    await lm.finalize('Jen odpověď.');
+    expect(posts).toEqual(['Jen odpověď.']);
+  });
+
+  it('consecutive repeats of one tool collapse into a ×N counter with the latest detail', async () => {
+    const { LiveMessage } = await load();
+    const edits = new Map<string, string>();
+    let nextId = 0;
+    const adapter = {
+      rest: async (method: string, path: string, body: { content: string }) => {
+        const id = method === 'POST' ? `m${++nextId}` : path.split('/').pop()!;
+        edits.set(id, body.content);
+        return { id };
+      },
+    };
+    const lm = new LiveMessage(adapter, 'chan');
+    lm.onEvent({ type: 'tool', name: 'sarah_hair', detail: 'list_services' });
+    lm.onEvent({ type: 'tool', name: 'sarah_hair', detail: 'list_bookings' });
+    lm.onEvent({ type: 'tool', name: 'sarah_hair' }); // detail-less repeat keeps the latest detail
+    lm.onEvent({ type: 'tool', name: 'read_file' });  // different tool → new line
+    lm.onEvent({ type: 'tool', name: 'sarah_hair' }); // NON-consecutive → a fresh line, no merge back
+    await new Promise((r) => setTimeout(r, 20));
+    await lm.finalize('done');
+    expect(edits.get('m1')).toBe('✂️ `sarah_hair`: "list_bookings" ×3\n📄 `read_file`…\n✂️ `sarah_hair`…');
+  });
+
+  it('the idle event yields a runtime footer under the final answer (opt-out via config)', async () => {
+    const { LiveMessage, footerLine } = (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as {
+      LiveMessage: new (adapter: unknown, channelId: string) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
+      footerLine: (idle: unknown) => string;
+    };
+    // Unit: provider prefix dropped, percent rounded, missing data → no fragment / empty line.
+    expect(footerLine({ model: 'anthropic/claude-sonnet-5', usage: { percent: 41.6 } })).toBe('-# claude-sonnet-5 · 42 %');
+    expect(footerLine({ model: 'gpt-5' })).toBe('-# gpt-5');
+    expect(footerLine(null)).toBe('');
+    // Integration: the footer rides the final message; cfg.runtimeFooter === false disables it.
+    const mk = (cfg: Record<string, unknown>) => {
+      const posts: string[] = [];
+      const adapter = { cfg, rest: async (_m: string, _p: string, body: { content: string }) => { posts.push(body.content); return { id: `m${posts.length}` }; } };
+      return { posts, adapter };
+    };
+    const on = mk({});
+    const lmOn = new LiveMessage(on.adapter, 'chan');
+    lmOn.onEvent({ type: 'idle', model: 'openai/gpt-5', usage: { percent: 12 } });
+    await lmOn.finalize('Hotovo.');
+    expect(on.posts).toEqual(['Hotovo.\n\n-# gpt-5 · 12 %']);
+    const off = mk({ runtimeFooter: false });
+    const lmOff = new LiveMessage(off.adapter, 'chan');
+    lmOff.onEvent({ type: 'idle', model: 'openai/gpt-5', usage: { percent: 12 } });
+    await lmOff.finalize('Hotovo.');
+    expect(off.posts).toEqual(['Hotovo.']);
+  });
+});
+
+describe('discord toolEmoji (per-tool progress emoji)', () => {
+  it('maps exact names, prefix patterns, and falls back to the wrench', async () => {
+    const { toolEmoji } = await import(join(repoRoot, 'plugins/discord/index.mjs')) as { toolEmoji: (n: string) => string };
+    expect(toolEmoji('sarah_hair')).toBe('✂️');
+    expect(toolEmoji('sarah_hair_public')).toBe('✂️'); // prefix match
+    expect(toolEmoji('run_command')).toBe('💻');
+    expect(toolEmoji('write_file')).toBe('📝');
+    expect(toolEmoji('web_search')).toBe('🔍');
+    expect(toolEmoji('orca_list_tasks')).toBe('🐋'); // prefix match
+    expect(toolEmoji('cron_add')).toBe('⏰');
+    expect(toolEmoji('delegate')).toBe('🤝');
+    expect(toolEmoji('totally_unknown')).toBe('🔧');
+  });
+});
+
+describe('discord extractImageRefs (generated-image markdown → uploads)', () => {
+  const load = async () => (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as unknown as {
+    extractImageRefs: (t: string) => { cleaned: string; files: string[] };
+  };
+
+  it('extracts a relative daemon link and removes it from the text', async () => {
+    const { extractImageRefs } = await load();
+    const r = extractImageRefs('Tady je obrázek: ![kočka](/api/brain/images/abc123.png) hotovo');
+    expect(r.files).toEqual(['abc123.png']);
+    expect(r.cleaned).toBe('Tady je obrázek:  hotovo');
+  });
+
+  it('extracts multiple links, including an absolute-URL variant', async () => {
+    const { extractImageRefs } = await load();
+    const r = extractImageRefs('![a](/api/brain/images/aaa1.png)\n![b](https://example.com/api/brain/images/bbb2.png)');
+    expect(r.files).toEqual(['aaa1.png', 'bbb2.png']);
+    expect(r.cleaned.trim()).toBe('');
+  });
+
+  it('leaves text-only messages untouched', async () => {
+    const { extractImageRefs } = await load();
+    const r = extractImageRefs('žádný obrázek tady není');
+    expect(r.files).toEqual([]);
+    expect(r.cleaned).toBe('žádný obrázek tady není');
+  });
+
+  it('rejects names outside the daemon route pattern (path traversal stays inert text)', async () => {
+    const { extractImageRefs } = await load();
+    const r = extractImageRefs('![x](/api/brain/images/../evil.png) a ![y](/api/brain/images/UPPER.png)');
+    expect(r.files).toEqual([]);
+    expect(r.cleaned).toContain('../evil.png'); // untouched — never treated as a file
+  });
+});
+
+describe('discord context helpers (Hermes-parity)', () => {
+  const load = async () => (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as unknown as {
+    displayNameOf: (m: unknown) => string;
+    resolveMentions: (text: string, mentions: unknown[], rolePolicies: unknown[], channelNames: Map<string, string>) => string;
+    buildReplyContext: (ref: unknown) => string;
+  };
+
+  it('displayNameOf prefers server nick > global name > username > unknown', async () => {
+    const { displayNameOf } = await load();
+    expect(displayNameOf({ member: { nick: 'Anička' }, author: { global_name: 'Anna G', username: 'anna' } })).toBe('Anička');
+    expect(displayNameOf({ member: {}, author: { global_name: 'Anna G', username: 'anna' } })).toBe('Anna G');
+    expect(displayNameOf({ author: { username: 'anna' } })).toBe('anna');
+    expect(displayNameOf({})).toBe('unknown');
+  });
+
+  it('resolveMentions replaces <@id> and <@!id> with display names, roles from policies, channels from the cache', async () => {
+    const { resolveMentions } = await load();
+    const mentions = [
+      { id: '1', username: 'bob', global_name: 'Bobby' },
+      { id: '2', username: 'eva', member: { nick: 'Evka' } },
+    ];
+    const policies = [{ roleId: '9', name: 'Dev tým' }];
+    const channels = new Map([['77', 'general']]);
+    const out = resolveMentions('hey <@1> and <@!2>, ping <@&9> + <@&8> in <#77> or <#88>', mentions, policies, channels);
+    expect(out).toBe('hey @Bobby and @Evka, ping @Dev tým + @role in #general or <#88>');
+  });
+
+  it('buildReplyContext caps the excerpt at 300 chars and falls back through author names', async () => {
+    const { buildReplyContext } = await load();
+    expect(buildReplyContext(null)).toBe(''); // deleted/absent original
+    const short = buildReplyContext({ author: { username: 'bob', global_name: 'Bobby' }, content: 'hello' });
+    expect(short).toBe('[Replying to Bobby: "hello"]');
+    const long = buildReplyContext({ author: { username: 'bob' }, content: 'x'.repeat(400) });
+    expect(long).toBe(`[Replying to bob: "${'x'.repeat(300)}…"]`);
+  });
+});
+
+describe('discord onMessage context pipeline', () => {
+  it('strips the bot mention, resolves other mentions, prefixes the speaker, quotes the reply, notes non-image attachments, and carries channel metadata', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [{ roleId: 'R1', name: 'Dev', projectIds: [1] }], streaming: false, reactions: false } },
+    });
+    const adapter = reg.platforms[0] as unknown as {
+      botId: string | null;
+      rest: (method: string, path: string, body?: unknown) => Promise<unknown>;
+      listen: (h: (src: Record<string, unknown>, text: string) => Promise<string | undefined>) => void;
+      onMessage: (m: unknown) => Promise<void>;
+    };
+    adapter.botId = 'BOT';
+    adapter.rest = async (_method: string, path: string) => {
+      if (path === '/channels/100') return { id: '100', name: 'general', topic: 'Team chat', type: 0 };
+      return {};
+    };
+    let seen: { src: Record<string, unknown>; text: string } | undefined;
+    adapter.listen(async (src, text) => { seen = { src, text }; return 'ok'; });
+
+    await adapter.onMessage({
+      guild_id: 'G', channel_id: '100', id: 'MSG',
+      author: { id: 'U1', username: 'anna', global_name: 'Anna G' },
+      member: { nick: 'Anička', roles: ['R1'] },
+      mentions: [{ id: 'BOT', username: 'orca' }, { id: 'U2', username: 'bob', global_name: 'Bobby' }],
+      content: '<@BOT> ahoj <@!U2> mrkni na <#100>',
+      referenced_message: { author: { id: 'U2', username: 'bob', global_name: 'Bobby' }, content: 'původní zpráva' },
+      attachments: [{ filename: 'spec.pdf', content_type: 'application/pdf', size: 1000, url: 'http://cdn/spec.pdf' }],
+    });
+
+    expect(seen).toBeDefined();
+    expect(seen!.text).toBe('[Replying to Bobby: "původní zpráva"]\n[Anička] ahoj @Bobby mrkni na #general\n[Attachment: spec.pdf (application/pdf)]');
+    expect(seen!.src.userName).toBe('Anička');
+    expect(seen!.src.channelName).toBe('general');
+    expect(seen!.src.channelTopic).toBe('Team chat');
+    expect(seen!.src.images).toBeUndefined();
+    expect(seen!.src.channelId).toBe('100#0');
+  });
+});

@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef } from 'react';
-import { Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, Server, Sparkles, Puzzle, BrainCircuit, type LucideIcon } from 'lucide-react';
+import { Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, RotateCcw, Server, Sparkles, Puzzle, BrainCircuit, type LucideIcon } from 'lucide-react';
 import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
@@ -13,7 +13,7 @@ import { BrainSection } from '../../modules/settings/BrainSection';
 import { execProvider, execModel, type ProviderId } from '../../lib/modelProvider';
 import { useBrainModels, useConfig, useMe, usePlanJob, useSystem, useSystemSkills } from '../../lib/queries';
 import { useAutoSave } from '../../lib/useAutoSave';
-import { useUpdateConfig, useCleanupAll, useSystemUpdate, useInstallSkills } from '../../lib/mutations';
+import { useUpdateConfig, useCleanupAll, useSystemUpdate, useSystemRestart, useInstallSkills } from '../../lib/mutations';
 import { orcaClient, OrcaApiError } from '../../lib/orcaClient';
 import { allModels, isPresetExec, removeModel, upsertModel } from '../../lib/execPresets';
 import { usePersistentState } from '../../lib/usePersistentState';
@@ -70,6 +70,7 @@ export default function SettingsPage() {
   const update = useUpdateConfig();
   const system = useSystem();
   const systemUpdate = useSystemUpdate();
+  const systemRestart = useSystemRestart();
   const systemSkills = useSystemSkills();
   const installSkills = useInstallSkills();
   const cleanup = useCleanupAll();
@@ -79,6 +80,8 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   // Drives the "delete all data" confirm dialog (Data section).
   const [cleanupOpen, setCleanupOpen] = useState(false);
+  // Which service the "restart?" confirm dialog is asking about (null = closed).
+  const [restartTarget, setRestartTarget] = useState<'daemon' | 'web' | null>(null);
 
   // Remember the last settings section across reloads (F5) until the user switches.
   const [category, setCategory] = usePersistentState<Category>('orca.settings.category', 'models', CATEGORY_VALUES);
@@ -238,8 +241,8 @@ export default function SettingsPage() {
 
   // Model changes auto-persist immediately — no separate "save models" step to forget (a two-step
   // add-then-save was a footgun where edits silently vanished on reload). Each handler computes the
-  // next state, applies it, and PUTs it in one go. `silent` skips the toast for frequent toggles.
-  const persistModels = (next: { allowed?: string[]; customModels?: { label: string; exec: string }[]; hiddenPresets?: string[]; modelNotes?: Record<string, string> }, silent = false) => {
+  // next state, applies it, and PUTs it in one go. Success is silent; only errors toast.
+  const persistModels = (next: { allowed?: string[]; customModels?: { label: string; exec: string }[]; hiddenPresets?: string[]; modelNotes?: Record<string, string> }) => {
     const allowedExecs = next.allowed ?? allowed;
     const cm = next.customModels ?? customModels;
     const hp = next.hiddenPresets ?? hiddenPresets;
@@ -250,7 +253,7 @@ export default function SettingsPage() {
     setModelNotes(mn);
     update.mutate(
       { allowedExecs, customModels: cm, hiddenPresets: hp, modelNotes: mn },
-      { onSuccess: () => { if (!silent) toast(t.settings.modelsSaved); }, onError: (e) => toast(String(e), 'error') },
+      { onError: (e) => toast(String(e), 'error') }, // auto-persist is silent on success
     );
   };
 
@@ -263,7 +266,7 @@ export default function SettingsPage() {
   };
 
   const toggle = (exec: string) =>
-    persistModels({ allowed: allowed.includes(exec) ? allowed.filter((e) => e !== exec) : [...allowed, exec] }, true);
+    persistModels({ allowed: allowed.includes(exec) ? allowed.filter((e) => e !== exec) : [...allowed, exec] });
 
   // Delete and edit go through the pure helpers so a custom override of a preset (which lives in BOTH
   // customModels and the preset list) is handled correctly — the old split-by-`PRESET_EXECS` logic
@@ -620,27 +623,10 @@ export default function SettingsPage() {
         {category === 'defaults' && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <SettingCard title={t.settings.executor} description={t.settings.executorDesc} icon={Cpu}>
-                {/* Custom picker (not Segmented): each executor shows its model brand icon. The saved
-                    default is always shown even if it's not in the model list. */}
-                <div role="radiogroup" className="flex flex-wrap gap-1.5">
-                  {(models.some((m) => m.exec === defExec) ? models : [...models, { label: defExec, exec: defExec }]).filter((m) => m.exec).map((m) => {
-                    const on = defExec === m.exec;
-                    return (
-                      <button
-                        key={m.exec}
-                        type="button"
-                        role="radio"
-                        aria-checked={on}
-                        aria-label={m.label}
-                        onClick={() => setDefExec(m.exec)}
-                        className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors ${on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border bg-elevated text-text-muted hover:border-border-strong hover:text-text'}`}
-                        style={{ transitionDuration: 'var(--motion-fast)' }}
-                      >
-                        <ModelIcon name={m.exec} size={15} />{m.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* Same grouped picker the task modal uses (workers + Orca AI sections), so the
+                    default executor can also be a brain model. A saved value missing from the
+                    catalog still shows as its own pill. */}
+                <BackendPicker value={defExec} onChange={setDefExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
               </SettingCard>
               <SettingCard title={t.settings.autonomy} description={t.settings.autonomyDesc} icon={Gauge}>
                 <Segmented options={['L0', 'L1', 'L2', 'L3'].map((l) => ({ value: l, label: l }))} value={defAutonomy} onChange={setDefAutonomy} />
@@ -708,7 +694,7 @@ export default function SettingsPage() {
                       role="switch"
                       aria-checked={autoUpdate}
                       aria-label={t.settings.autoUpdate}
-                      onClick={() => { const v = !autoUpdate; setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onSuccess: () => toast(t.settings.autoUpdateSaved), onError: (e) => toast(String(e), 'error') }); }}
+                      onClick={() => { const v = !autoUpdate; setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onError: (e) => toast(String(e), 'error') }); }}
                       className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border transition-colors ${autoUpdate ? 'border-accent bg-accent' : 'border-border bg-elevated'}`}
                       style={{ transitionDuration: 'var(--motion-fast)' }}
                     >
@@ -728,15 +714,27 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex flex-1 flex-col justify-center gap-3.5">
                     {[
-                      { name: t.settings.serviceDaemon, port: ':4400', up: !system.isError },
-                      { name: t.settings.serviceWeb, port: ':4500', up: true },
+                      { name: t.settings.serviceDaemon, port: ':4400', up: !system.isError, target: 'daemon' as const, restartLabel: t.settings.restartDaemon },
+                      { name: t.settings.serviceWeb, port: ':4500', up: true, target: 'web' as const, restartLabel: t.settings.restartWeb },
                     ].map((s) => (
                       <div key={s.port} className="flex items-center justify-between">
                         <span className="flex items-center gap-2.5 text-sm text-text">
                           <span className={s.up ? 'live-dot inline-block h-2.5 w-2.5 rounded-full bg-success' : 'inline-block h-2.5 w-2.5 rounded-full bg-danger'} />
                           {s.name} <span className="font-mono text-xs text-text-muted">{s.port}</span>
                         </span>
-                        <span className={`text-xs font-medium ${s.up ? 'text-success' : 'text-danger'}`}>{s.up ? t.settings.serviceUp : t.settings.serviceDown}</span>
+                        <span className="flex items-center gap-2.5">
+                          <span className={`text-xs font-medium ${s.up ? 'text-success' : 'text-danger'}`}>{s.up ? t.settings.serviceUp : t.settings.serviceDown}</span>
+                          <button
+                            type="button"
+                            aria-label={s.restartLabel}
+                            title={s.restartLabel}
+                            disabled={systemRestart.isPending}
+                            onClick={() => setRestartTarget(s.target)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-elevated text-text-muted transition-colors hover:border-accent hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <RotateCcw size={13} aria-hidden />
+                          </button>
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -799,6 +797,23 @@ export default function SettingsPage() {
         )}
 
       </SettingsLayout>
+
+      <ConfirmDialog
+        open={restartTarget !== null}
+        title={restartTarget === 'web' ? t.settings.restartWebTitle : t.settings.restartDaemonTitle}
+        description={restartTarget === 'web' ? t.settings.restartWebDesc : t.settings.restartDaemonDesc}
+        confirmLabel={t.settings.restartConfirm}
+        onConfirm={() => {
+          const target = restartTarget;
+          setRestartTarget(null);
+          if (!target) return;
+          systemRestart.mutate(target, {
+            onSuccess: () => toast(target === 'daemon' ? t.settings.restartDaemonStarted : t.settings.restartWebStarted),
+            onError: (e) => toast(String(e), 'error'),
+          });
+        }}
+        onClose={() => setRestartTarget(null)}
+      />
 
       <ConfirmDialog
         open={pendingDelete !== null}

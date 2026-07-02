@@ -2,13 +2,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { Send, Plus, ChevronDown, Wrench, Trash2, Paperclip, X, FileText } from 'lucide-react';
+import { Send, Plus, ChevronDown, Wrench, Trash2, Paperclip, X, FileText, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../lib/i18n';
 import { useToast } from '../../components/ui/Toast';
 import { useBrainSessions } from '../../lib/queries';
 import { orcaClient, BASE } from '../../lib/orcaClient';
-import type { BrainUsage, StatuslineConfig } from '../../lib/types';
+import { formatTaskTime } from '../../lib/format';
+import type { BrainSearchHit, BrainUsage, StatuslineConfig } from '../../lib/types';
 
 /** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
 const fmtK = (n: number): string => (n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
@@ -148,10 +149,23 @@ function Message({ turn }: { turn: Turn }) {
   );
 }
 
+/** A search snippet with the first occurrence of the query highlighted. */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const at = text.toLowerCase().indexOf(query.toLowerCase());
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="rounded-sm bg-accent/30 px-0.5 text-text">{text.slice(at, at + query.length)}</mark>
+      {text.slice(at + query.length)}
+    </>
+  );
+}
+
 /** The docked brain chat: the same server-side brain `orca chat` talks to, in the web. Streams over
  *  the daemon's SSE, keeps multiple conversations (new/resume via the session picker). */
 export function BrainChat() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const sessions = useBrainSessions();
@@ -160,6 +174,8 @@ export function BrainChat() {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<BrainSearchHit[] | null>(null);
   const [usage, setUsage] = useState<BrainUsage | null>(null);
   const [lineCfg, setLineCfg] = useState<StatuslineConfig | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -247,6 +263,19 @@ export function BrainChat() {
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [turns]);
 
+  // Debounced conversation search: ≥2 chars queries the daemon; anything shorter restores the list.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) { setResults(null); return; }
+    let stale = false;
+    const timer = setTimeout(() => {
+      orcaClient.brainSearch(q)
+        .then((hits) => { if (!stale) setResults(hits); })
+        .catch(() => { if (!stale) setResults([]); });
+    }, 300);
+    return () => { stale = true; clearTimeout(timer); };
+  }, [search]);
+
   const submit = async () => {
     const typed = input.trim();
     if ((!typed && attachments.length === 0) || busy) return;
@@ -267,6 +296,7 @@ export function BrainChat() {
 
   const switchSession = async (opts: { session?: string; fresh?: boolean }) => {
     setPickerOpen(false);
+    setSearch('');
     await orcaClient.brainStart(opts);
     await qc.invalidateQueries({ queryKey: ['brain-sessions'] });
     await connect();
@@ -285,7 +315,7 @@ export function BrainChat() {
       <div className="relative flex items-center gap-1 border-b border-border px-2 py-1.5">
         <button
           type="button"
-          onClick={() => setPickerOpen((v) => !v)}
+          onClick={() => { setPickerOpen((v) => !v); setSearch(''); }}
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-text transition-colors hover:bg-elevated"
         >
           <span className="truncate">{active?.title || t.brainChat.newChat}</span>
@@ -302,7 +332,43 @@ export function BrainChat() {
         </button>
         {pickerOpen ? (
           <div className="absolute left-2 right-2 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-elevated p-1 shadow-lg">
-            {(sessions.data ?? []).map((s) => (
+            {/* Fulltext search across the caller's conversations; a live query swaps the list for hits. */}
+            <div className="mb-1 flex items-center gap-1.5 rounded-md border border-border bg-bg px-2">
+              <Search size={13} className="shrink-0 text-text-muted" aria-hidden />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t.brainChat.searchPlaceholder}
+                aria-label={t.brainChat.searchPlaceholder}
+                autoFocus
+                className="w-full bg-transparent py-1.5 text-sm text-text placeholder:text-text-muted focus:outline-none"
+              />
+            </div>
+            {search.trim().length >= 2 ? (
+              results === null ? null : results.length === 0 ? (
+                <p className="px-2 py-2 text-xs text-text-muted">{t.brainChat.searchEmpty}</p>
+              ) : (
+                results.map((h, i) => {
+                  const when = formatTaskTime(h.ts, Date.now(), locale);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => void switchSession({ session: h.sessionId }).catch(() => toast(t.brainChat.searchOpenError, 'error'))}
+                      className="flex w-full flex-col rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface"
+                    >
+                      <span className="flex w-full items-baseline justify-between gap-2">
+                        <span className="truncate text-sm text-text">{h.sessionTitle || t.brainChat.untitled}</span>
+                        <span className="shrink-0 text-tiny text-text-muted" title={when.title}>{when.label}</span>
+                      </span>
+                      <span className="w-full truncate text-tiny text-text-muted">
+                        <Highlight text={h.snippet} query={search.trim()} />
+                      </span>
+                    </button>
+                  );
+                })
+              )
+            ) : (sessions.data ?? []).map((s) => (
               <div key={s.id} className={`group flex items-center rounded-md transition-colors hover:bg-surface ${s.active ? 'bg-surface' : ''}`}>
                 <button
                   type="button"

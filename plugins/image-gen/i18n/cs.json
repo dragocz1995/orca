@@ -1,0 +1,21 @@
+{
+  "description": "Generování obrázků přes OpenAI Images API (výchozí model gpt-image-1). Vygenerované obrázky se zobrazí přímo v chatu.",
+  "fields": {
+    "apiKey": {
+      "label": "OpenAI API klíč",
+      "hint": "platform.openai.com — vyžaduje přístup k Images API."
+    },
+    "model": {
+      "label": "Model",
+      "hint": "Vyberte z nastavených modelů. Výchozí: gpt-image-1."
+    },
+    "size": {
+      "label": "Velikost",
+      "hint": "1024x1024 (výchozí), 1536x1024 nebo 1024x1536."
+    },
+    "baseUrl": {
+      "label": "API base URL",
+      "hint": "Základní URL OpenAI-kompatibilního Images API (výchozí: https://api.openai.com/v1). Nasměrujte na proxy, chcete-li používat modely přes OAuth."
+    }
+  }
+}

@@ -1,27 +1,32 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { openDb } from '../../src/store/db.js';
 import { TaskStore } from '../../src/store/taskStore.js';
 import { Readiness } from '../../src/store/readiness.js';
 import { MissionStore } from '../../src/store/missionStore.js';
 import { ProjectStore } from '../../src/store/projectStore.js';
+import { UserStore } from '../../src/store/userStore.js';
 import { EventBus } from '../../src/api/sse.js';
 import { createServer } from '../../src/api/server.js';
 import { FakeClock } from '../../src/shared/clock.js';
 import { ConfigStore } from '../../src/store/configStore.js';
 
-function makeApp(over: { latestVersion?: () => Promise<string | null>; startUpdate?: () => void; autoUpdate?: boolean; skillService?: any } = {}) {
+function makeApp(over: { latestVersion?: () => Promise<string | null>; startUpdate?: () => void; startRestart?: (target: 'daemon' | 'web') => void; autoUpdate?: boolean; skillService?: any; withUsers?: boolean } = {}) {
   const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
   const config = new ConfigStore(db);
   if (over.autoUpdate) config.update({ autoUpdate: true });
   const missions = new MissionStore(db);
+  // Gated mode on demand: the first user is the admin, the second is a plain user.
+  const users = over.withUsers ? new UserStore(db) : undefined;
+  const adminTok = users ? users.issueToken(users.create('admin', 'pw').id) : undefined;
+  const userTok = users ? users.issueToken(users.create('amy', 'pw').id) : undefined;
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions,
     bus: new EventBus(), engine: null as any, spawn: null as any, tmux: null as any,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
-    clock: new FakeClock(0), config, projects: new ProjectStore(db), git: null as any,
-    latestVersion: over.latestVersion, startUpdate: over.startUpdate, skillService: over.skillService,
+    clock: new FakeClock(0), config, projects: new ProjectStore(db), git: null as any, users,
+    latestVersion: over.latestVersion, startUpdate: over.startUpdate, startRestart: over.startRestart, skillService: over.skillService,
   });
-  return { app, missions };
+  return { app, missions, adminTok, userTok };
 }
 
 describe('GET /system', () => {
@@ -92,5 +97,74 @@ describe('POST /system/update', () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'mission_running' });
     expect(started).toBe(false);
+  });
+});
+
+describe('POST /system/restart', () => {
+  const post = (body: unknown, tok?: string) => ({
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(tok ? { authorization: `Bearer ${tok}` } : {}) },
+    body: JSON.stringify(body),
+  });
+
+  it('responds first, then fires the injected restart for the requested unit (deferred spawn)', async () => {
+    vi.useFakeTimers();
+    try {
+      const restarted: string[] = [];
+      const { app } = makeApp({ startRestart: (t) => restarted.push(t) });
+      const res = await app.request('/system/restart', post({ target: 'daemon' }));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      // The spawn is deferred so the HTTP response wins the race against the daemon's own death.
+      expect(restarted).toEqual([]);
+      vi.advanceTimersByTime(100);
+      expect(restarted).toEqual(['daemon']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restarts the web unit too', async () => {
+    vi.useFakeTimers();
+    try {
+      const restarted: string[] = [];
+      const { app } = makeApp({ startRestart: (t) => restarted.push(t) });
+      expect((await app.request('/system/restart', post({ target: 'web' }))).status).toBe(200);
+      vi.advanceTimersByTime(100);
+      expect(restarted).toEqual(['web']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects an unknown target with 400, without restarting anything', async () => {
+    vi.useFakeTimers();
+    try {
+      let restarted = false;
+      const { app } = makeApp({ startRestart: () => { restarted = true; } });
+      expect((await app.request('/system/restart', post({ target: 'nginx' }))).status).toBe(400);
+      expect((await app.request('/system/restart', post({}))).status).toBe(400);
+      vi.advanceTimersByTime(1000);
+      expect(restarted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is admin-only on a gated daemon', async () => {
+    vi.useFakeTimers();
+    try {
+      let restarted = false;
+      const { app, adminTok, userTok } = makeApp({ withUsers: true, startRestart: () => { restarted = true; } });
+      expect((await app.request('/system/restart', post({ target: 'daemon' }))).status).toBe(401);
+      expect((await app.request('/system/restart', post({ target: 'daemon' }, userTok))).status).toBe(403);
+      vi.advanceTimersByTime(1000);
+      expect(restarted).toBe(false);
+      expect((await app.request('/system/restart', post({ target: 'daemon' }, adminTok))).status).toBe(200);
+      vi.advanceTimersByTime(100);
+      expect(restarted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

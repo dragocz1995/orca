@@ -326,6 +326,7 @@ export function buildApp(opts: BuildOpts) {
     advisorDir: (id) => { const p = join(dirname(opts.dbPath), 'advisor', String(id)); mkdirSync(p, { recursive: true }); return p; },
     prepareMcp: (program, cwd, token) => writeMcpConfig(program, cwd, token, mcpUrl),
     prompts,
+    advisorStyle: (id) => userSettings.cliSettings(id).advisorStyle,
   });
   // Per-user embedded brain (the new advisor engine): an in-process PI agent session. Wired only when
   // a provider is configured (reuses the relay endpoint) and not for the in-memory test DB. Coexists
@@ -355,13 +356,20 @@ export function buildApp(opts: BuildOpts) {
           const pluginConfig = Object.fromEntries(enabled.map((n) => [n, config.pluginConfig(n)]));
           return loadPlugins({
             dirs: pluginDirs, enabled, config: pluginConfig, dataRoot: pluginDataRoot,
-            notify: (t) => brain?.notify(t) ?? Promise.resolve(),
+            notify: (t, channelId) => brain?.notify(t, channelId) ?? Promise.resolve(),
             listModels: () => { const c = brainConfig(); return c ? listBrainModels(c) : Promise.resolve([]); },
             logger: log,
           });
         },
         policy: (userId) => resolvePolicy({ userProjects, projects }, userId),
         userSettings: (userId) => userSettings.cliSettings(userId),
+        agentName: () => config.get().brain.agentName,
+        resolvePlatformUser: (platform, platformUserId) => {
+          if (platform !== 'discord' || !platformUserId) return null;
+          const id = userSettings.userIdBySetting('discordUserId', platformUserId);
+          const u = id != null ? users.get(id) : undefined;
+          return u ? { id: u.id, name: u.name || u.username, username: u.username, admin: !!u.is_admin } : null;
+        },
         // Same allow-list semantics as the task/session routes: admins unrestricted, everyone else
         // bounded by the global list AND their personal whitelist (empty personal = global only).
         execAllowed: (userId, exec) => isExecAllowedForUser(users.get(userId), config.get().allowedExecs, exec),
@@ -385,7 +393,7 @@ export function buildApp(opts: BuildOpts) {
       const pluginConfig = Object.fromEntries(enabled.map((n) => [n, config.pluginConfig(n)]));
       return loadPlugins({
         dirs: pluginDirs, enabled, config: pluginConfig, dataRoot: pluginDataRoot,
-        notify: (t) => brain?.notify(t) ?? Promise.resolve(),
+        notify: (t, channelId) => brain?.notify(t, channelId) ?? Promise.resolve(),
         listModels: () => { const c = brainConfig(); return c ? listBrainModels(c) : Promise.resolve([]); },
         logger: log,
       });

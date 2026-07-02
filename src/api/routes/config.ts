@@ -2,9 +2,9 @@ import { streamSSE } from 'hono/streaming';
 import { isNewer } from '../../cli/version.js';
 import { handleMcpRequest } from '../../mcp/server.js';
 import { eventProjectId } from '../eventProject.js';
-import { ORCA_VERSION, ORCA_INSTALLED_AT, ORCA_PORT, defaultLatestVersion, defaultStartUpdate } from '../version.js';
+import { ORCA_VERSION, ORCA_INSTALLED_AT, ORCA_PORT, defaultLatestVersion, defaultStartUpdate, defaultStartRestart } from '../version.js';
 import { parseBody } from '../validation.js';
-import { pushSubscribeSchema, pushUnsubscribeSchema } from '../schemas/config.js';
+import { pushSubscribeSchema, pushUnsubscribeSchema, systemRestartSchema } from '../schemas/config.js';
 import type { OrcaEvent } from '../sse.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
@@ -82,6 +82,16 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (d.missions.live().length > 0) return c.json({ error: 'mission_running' }, 409);
     (d.startUpdate ?? defaultStartUpdate)();
     return c.json({ started: true });
+  });
+
+  // Restart one of the two systemd units on demand. Admin-only (mirrors /system/update). The response
+  // goes out BEFORE the restart fires: restarting orca-daemon kills this very process, so the detached
+  // `systemctl restart --no-block` spawn is deferred a beat and PID 1 owns the actual restart.
+  app.post('/system/restart', async (c) => {
+    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    const b = await parseBody(c, systemRestartSchema);
+    setTimeout(() => (d.startRestart ?? defaultStartRestart)(b.target), 100);
+    return c.json({ ok: true });
   });
 
   app.get('/events', c => streamSSE(c, async stream => {

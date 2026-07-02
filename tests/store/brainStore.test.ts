@@ -40,4 +40,64 @@ describe('BrainStore', () => {
     expect(store.getSession('a')).toBeUndefined();
     expect(store.getMessages('a')).toHaveLength(0);
   });
+
+  describe('searchMessages', () => {
+    const userMsg = (id: string, sessionId: string, text: string) =>
+      store.appendMessage({ id, sessionId, parentId: null, role: 'user', content: { role: 'user', content: text } });
+
+    it('finds matches only in the caller\'s own sessions', () => {
+      store.createSession({ id: 'mine', userId: 1, title: 'Mine', model: 'm' });
+      store.createSession({ id: 'theirs', userId: 2, title: 'Theirs', model: 'm' });
+      userMsg('m1', 'mine', 'deploy the daemon tonight');
+      userMsg('m2', 'theirs', 'deploy the daemon tonight');
+      const hits = store.searchMessages(1, 'daemon');
+      expect(hits).toHaveLength(1);
+      expect(hits[0]).toMatchObject({ sessionId: 'mine', sessionTitle: 'Mine', role: 'user' });
+    });
+
+    it('is case-insensitive and includes channel sessions owned by the user', () => {
+      store.createSession({ id: 'brain-ch-42', userId: 1, title: 'Discord', model: 'm' });
+      userMsg('m1', 'brain-ch-42', 'Restart NGINX please');
+      expect(store.searchMessages(1, 'nginx')[0]?.sessionId).toBe('brain-ch-42');
+    });
+
+    it('treats LIKE wildcards as literals', () => {
+      store.createSession({ id: 's', userId: 1, model: 'm' });
+      userMsg('m1', 's', 'coverage is 100% done');
+      userMsg('m2', 's', 'coverage is 100x done');
+      userMsg('m3', 's', 'abc alphabet');
+      expect(store.searchMessages(1, '100%')).toHaveLength(1);
+      expect(store.searchMessages(1, '100%')[0]?.snippet).toContain('100% done');
+      expect(store.searchMessages(1, 'a_c')).toHaveLength(0); // '_' must not act as a single-char wildcard ('abc')
+    });
+
+    it('never matches JSON structure, only display text', () => {
+      store.createSession({ id: 's', userId: 1, model: 'm' });
+      userMsg('m1', 's', 'plain words');
+      expect(store.searchMessages(1, 'role')).toHaveLength(0); // every row's JSON carries "role"
+    });
+
+    it('returns [] for queries shorter than 2 chars', () => {
+      store.createSession({ id: 's', userId: 1, model: 'm' });
+      userMsg('m1', 's', 'x marks the spot');
+      expect(store.searchMessages(1, 'x')).toHaveLength(0);
+      expect(store.searchMessages(1, '  ')).toHaveLength(0);
+    });
+
+    it('clips the snippet to ±60 chars around the match with ellipses', () => {
+      store.createSession({ id: 's', userId: 1, model: 'm' });
+      userMsg('m1', 's', `${'a'.repeat(100)} needle ${'b'.repeat(100)}`);
+      const [hit] = store.searchMessages(1, 'needle');
+      expect(hit?.snippet.startsWith('…')).toBe(true);
+      expect(hit?.snippet.endsWith('…')).toBe(true);
+      expect(hit?.snippet).toContain('needle');
+      expect(hit!.snippet.length).toBeLessThanOrEqual(2 + 'needle'.length + 120 + 2); // pads + match + 2×radius + ellipses
+    });
+
+    it('respects the limit, newest first', () => {
+      store.createSession({ id: 's', userId: 1, model: 'm' });
+      for (let i = 0; i < 5; i++) userMsg(`m${i}`, 's', `needle ${i}`);
+      expect(store.searchMessages(1, 'needle', 3).map((h) => h.snippet)).toEqual(['needle 4', 'needle 3', 'needle 2']);
+    });
+  });
 });

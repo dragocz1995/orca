@@ -10,3 +10,8 @@ export const pushSubscribeSchema = z.object({
 export const pushUnsubscribeSchema = z.object({
   endpoint: z.string().min(1),
 });
+
+/** Restart one of the two orca systemd units on demand. */
+export const systemRestartSchema = z.object({
+  target: z.enum(['daemon', 'web']),
+});

@@ -11,6 +11,9 @@ export interface BrainProviderEntry {
   baseUrl: string;
   models: string[];
   apiKey: string | null;
+  /** How this entry authenticates — drives the picker's provenance badge (OAuth account vs API key vs
+   *  the autopilot relay fallback). Set by `brainConfigFromOrca`; absent reads as 'api-key'. */
+  origin?: 'api-key' | 'oauth' | 'relay';
 }
 
 export interface BrainRuntimeConfig { providers: BrainProviderEntry[] }

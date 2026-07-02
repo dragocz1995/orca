@@ -5,16 +5,122 @@
 //
 // On top of plain chat it provides: slash commands (/model, /new, /help), a per-channel model picker
 // (select menu, choice persisted), live streaming replies (edit-in-place with a tool-call trace), a
-// typing indicator, and proactive pushes (cron/tick echoes) via notify().
+// typing indicator, proactive pushes (cron/tick echoes) via notify(), and an admin-only `discord_api`
+// tool for server management (messages, roles, channels — the whole REST surface).
+import { defineTool } from '@earendil-works/pi-coding-agent';
+import { Type } from 'typebox';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const API = 'https://discord.com/api/v10';
+const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
+const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json';
 // GUILDS + GUILD_MESSAGES + MESSAGE_CONTENT
 const INTENTS = (1 << 0) | (1 << 9) | (1 << 15);
 const EDIT_THROTTLE_MS = 1200; // Discord allows ~5 edits / 5 s per channel — stay under it
 const CHUNK = 1990;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // larger images are noted, not downloaded
+const MAX_IMAGES = 4;                    // vision cap per message
+const MAX_UPLOAD_IMAGES = 4;             // generated-image uploads per outgoing message
+const REPLY_EXCERPT = 300;               // quoted-reply excerpt length
+
+/** Find generated-image markdown links — `![…](…/brain/images/<name>.png)`, relative or absolute —
+ *  and return the text with them removed plus the extracted file names. The name rule mirrors the
+ *  daemon's GET /brain/images/:file validation (`[a-z0-9]+.png`), so path tricks never match. */
+export function extractImageRefs(text) {
+  const files = [];
+  const cleaned = text.replace(/!\[[^\]]*\]\([^)\s]*\/brain\/images\/([a-z0-9]+\.png)\)/g, (_, name) => {
+    files.push(name);
+    return '';
+  });
+  return { cleaned, files };
+}
+
+/** Post a final text to a channel. Generated-image links become real Discord file uploads (their
+ *  relative daemon URLs are dead text on Discord): the links are stripped and the files ride the
+ *  FIRST chunk of the (possibly split) message. Text without image links — or an adapter without
+ *  image dirs (tests use bare fakes) — keeps the plain JSON path. */
+async function postWithImages(adapter, channelId, text, replyToId) {
+  const { cleaned, files } = extractImageRefs(text);
+  const data = typeof adapter.resolveImageFiles === 'function' ? adapter.resolveImageFiles(files) : [];
+  const out = data.length ? (cleaned.trim() || '🎨') : text; // nothing loadable → keep the original text
+  const pieces = splitContent(out);
+  // The first piece is a real Discord reply to the triggering message (fail_if_not_exists:false —
+  // a deleted trigger degrades to a plain message instead of a 400).
+  const ref = replyToId ? { message_reference: { message_id: replyToId, fail_if_not_exists: false } } : {};
+  for (let i = 0; i < pieces.length; i++) {
+    if (i === 0 && data.length) await adapter.uploadImages(channelId, pieces[i], data, 0, i === 0 ? ref : {});
+    else await adapter.rest('POST', `/channels/${channelId}/messages`, { content: pieces[i], ...(i === 0 ? ref : {}) });
+  }
+}
+
+
+/** Parse a picker exec (`orca:<provider>/<model>`, `<provider>/<model>`, or bare model) into the
+ *  brain's model selection shape. */
+export function parseModelExec(spec) {
+  const s = typeof spec === 'string' ? spec.trim().replace(/^orca:/, '') : '';
+  if (!s) return null;
+  const slash = s.indexOf('/');
+  return slash > 0 ? { provider: s.slice(0, slash), model: s.slice(slash + 1) } : { model: s };
+}
+
+/** The name a human sees for a message author: server nick > global display name > username. */
+export function displayNameOf(m) {
+  return m?.member?.nick || m?.author?.global_name || m?.author?.username || 'unknown';
+}
+
+/** Replace raw mention tokens with readable names: `<@id>`/`<@!id>` from the payload's mention list,
+ *  `<@&id>` from the configured role policies (else a generic `@role`), `<#id>` from the channel-name
+ *  cache (else left as-is). The bot's own mention must be stripped BEFORE calling this. */
+export function resolveMentions(text, mentions, rolePolicies, channelNames) {
+  let out = text;
+  for (const u of Array.isArray(mentions) ? mentions : []) {
+    const name = u.member?.nick || u.global_name || u.username || u.id;
+    out = out.replaceAll(`<@${u.id}>`, `@${name}`).replaceAll(`<@!${u.id}>`, `@${name}`);
+  }
+  out = out.replace(/<@&(\d+)>/g, (_, id) => {
+    const policy = (Array.isArray(rolePolicies) ? rolePolicies : []).find((p) => p.roleId === id);
+    return policy?.name ? `@${policy.name}` : '@role';
+  });
+  return out.replace(/<#(\d+)>/g, (match, id) => {
+    const name = channelNames?.get(id);
+    return name ? `#${name}` : match;
+  });
+}
+
+/** Quote context for a reply: who is being answered + a capped excerpt of what they said.
+ *  `referenced_message` may be absent/null (not a reply, or the original was deleted) → ''. */
+export function buildReplyContext(ref) {
+  if (!ref) return '';
+  const content = String(ref.content ?? '').trim();
+  const excerpt = content.length > REPLY_EXCERPT ? `${content.slice(0, REPLY_EXCERPT)}…` : content;
+  return `[Replying to ${displayNameOf(ref)}: "${excerpt}"]`;
+}
+
+/** Split a message's attachments into vision-ready images (downloaded + base64, capped) and textual
+ *  notes for everything else (audio/video/documents — Orca has no STT, the agent just learns a file
+ *  arrived). Attachment URLs are public CDN links; no auth header is needed. */
+async function collectAttachments(list) {
+  const images = [];
+  const notes = [];
+  for (const a of Array.isArray(list) ? list : []) {
+    const type = String(a?.content_type ?? '');
+    const note = `[Attachment: ${a?.filename ?? 'file'} (${type || 'unknown'})]`;
+    if (type.startsWith('image/') && (a.size ?? 0) <= MAX_IMAGE_BYTES && images.length < MAX_IMAGES) {
+      try {
+        const res = await fetch(a.url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        images.push({ data: Buffer.from(await res.arrayBuffer()).toString('base64'), mimeType: type });
+      } catch {
+        notes.push(note); // download failed → degrade to a textual note
+      }
+    } else {
+      notes.push(note); // non-image, oversized image, or over the per-message cap
+    }
+  }
+  return { images, notes };
+}
 
 /** Split text into ≤CHUNK pieces WITHOUT breaking a fenced code block: if a cut lands inside ``` … ```,
  *  close the fence on this piece and reopen it (same language) on the next. Prefers newline cuts. */
@@ -42,6 +148,43 @@ export function splitContent(text) {
   return pieces;
 }
 
+
+/** User-facing gateway messages, per configured language (config `language`: 'en' | 'cs'). These are
+ *  the bot's own service texts (slash-command replies, placeholders) — the brain's answers are in
+ *  whatever language the user writes. */
+const MESSAGES = {
+  en: {
+    newConversation: '🆕 Fresh conversation started in this channel.',
+    noModels: '❌ No models configured yet (Settings → Orca AI).',
+    pickModel: '🧠 Pick the model for this channel:',
+    modelSet: (m) => `✅ Model set to **${m}**.`,
+    thinking: '💭 …',
+    help: (name) => [
+      `**${name} on Discord**`,
+      'Write to me and I answer.',
+      '',
+      '`/model` — pick the AI model for this channel',
+      '`/new` — start a fresh conversation here',
+      '`/help` — this message',
+    ].join('\n'),
+  },
+  cs: {
+    newConversation: '🆕 V tomto kanálu začíná nová konverzace.',
+    noModels: '❌ Zatím nejsou nastavené žádné modely (Nastavení → Orca AI).',
+    pickModel: '🧠 Vyberte model pro tento kanál:',
+    modelSet: (m) => `✅ Model nastaven na **${m}**.`,
+    thinking: '💭 …',
+    help: (name) => [
+      `**${name} na Discordu**`,
+      'Napište mi a odpovím.',
+      '',
+      '`/model` — výběr AI modelu pro tento kanál',
+      '`/new` — začít novou konverzaci',
+      '`/help` — tato zpráva',
+    ].join('\n'),
+  },
+};
+
 /** Per-channel state: chosen model + a conversation "generation" (/new bumps it → fresh session). */
 class StateStore {
   constructor(file) { this.file = file; this.cache = null; }
@@ -62,11 +205,12 @@ class StateStore {
 
 class DiscordAdapter {
   name = 'discord';
-  constructor(cfg, logger, state, listModels) {
+  constructor(cfg, logger, state, listModels, imageDirs = []) {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
+    this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
     this.handler = null;
     this.ws = null;
     this.botId = null;
@@ -77,6 +221,8 @@ class DiscordAdapter {
     this.sessionId = null;    // gateway session for RESUME
     this.resumeUrl = null;    // gateway host to RESUME against
     this.awaitingAck = false; // heartbeat sent, ACK (op 11) not yet seen → zombie detection
+    this.channelMeta = new Map(); // channel id → { name, topic }; names change rarely, never invalidated
+    this.msg = MESSAGES[cfg.language === 'cs' ? 'cs' : 'en']; // gateway service texts
   }
 
   listen(onMessage) { this.handler = onMessage; }
@@ -172,44 +318,114 @@ class DiscordAdapter {
     return {
       roleIds,
       access: {
+        // admin:true = the operator's own role — full project scope, orca_* tools, cron management.
+        admin: match.admin === true,
         projectIds: (match.projectIds ?? []).map(Number),
         prompt: rolePrompt(match),
         model: chosen ? { provider: chosen.provider, model: chosen.model } : undefined,
+        // Per-role tool allowlist (undefined or ['*'] = everything the session would normally get).
+        tools: Array.isArray(match.tools) && match.tools.length > 0 ? match.tools : undefined,
       },
     };
+  }
+
+  /** Recent channel history as a context block for a BRAND-NEW brain conversation (the brain calls
+   *  this lazily via `src.history`). Oldest-first, `[name] text` lines, bounded by the configured
+   *  message count and a hard character cap so a chatty channel can't blow up the first prompt. */
+  async fetchHistory(channelId, beforeMessageId) {
+    const limit = Math.min(Math.max(Number(this.cfg.historyLimit) || 0, 0), 100);
+    if (!limit) return '';
+    const msgs = await this.rest('GET', `/channels/${channelId}/messages?before=${beforeMessageId}&limit=${limit}`).catch(() => []);
+    if (!Array.isArray(msgs) || msgs.length === 0) return '';
+    const lines = [];
+    for (const m of [...msgs].reverse()) { // API returns newest-first
+      const body = String(m.content ?? '').trim();
+      if (!body) continue;
+      lines.push(`[${displayNameOf(m)}] ${body.length > 400 ? `${body.slice(0, 400)}…` : body}`);
+    }
+    if (!lines.length) return '';
+    let block = lines.join('\n');
+    if (block.length > 6000) block = block.slice(block.length - 6000);
+    return `[Recent channel messages before you joined this conversation — context only, do not reply to them:]\n${block}`;
+  }
+
+  /** Channel metadata (name/topic) via REST, cached forever — names change rarely; a stale entry
+   *  self-heals on daemon restart. A thread carries no topic, so its parent lends name + topic. */
+  async channelInfo(channelId) {
+    const cached = this.channelMeta.get(channelId);
+    if (cached) return cached;
+    const ch = await this.rest('GET', `/channels/${channelId}`);
+    let name = ch?.name ?? '';
+    let topic = typeof ch?.topic === 'string' ? ch.topic : '';
+    if ([10, 11, 12].includes(ch?.type) && ch?.parent_id) { // announcement/public/private thread
+      const parent = await this.rest('GET', `/channels/${ch.parent_id}`).catch(() => null);
+      if (parent?.name) name = `${parent.name} › ${name}`;
+      if (!topic && typeof parent?.topic === 'string') topic = parent.topic;
+    }
+    const meta = { name, topic };
+    this.channelMeta.set(channelId, meta);
+    return meta;
   }
 
   async onMessage(m) {
     if (!this.handler || m.author?.bot) return;
     if (!m.guild_id) return; // DMs carry no member roles → no policy can ever match; ignore them
     if (this.cfg.guildId && m.guild_id !== this.cfg.guildId) return;
-    if (!(m.mentions ?? []).some((u) => u.id === this.botId)) return; // only answer when addressed
+    // Thread allowlist: when configured, the bot only speaks inside these threads. A thread message's
+    // channel_id IS the thread id, so we gate on it. Empty/unset = respond everywhere else allowed.
+    const threadIds = new Set(String(this.cfg.threadIds ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    if (threadIds.size > 0 && !threadIds.has(m.channel_id)) return;
+    // Iris-style free response is the default; flipping the toggle makes the bot mention-only.
+    const mentioned = (m.mentions ?? []).some((u) => u.id === this.botId);
+    if (this.cfg.respondWithoutMention === false && !mentioned) return;
 
-    const text = String(m.content ?? '').replaceAll(`<@${this.botId}>`, '').replaceAll(`<@!${this.botId}>`, '').trim();
+    const { roleIds, access } = this.accessFor(m, m.channel_id);
+    if (!access) return; // unmapped sender → stay silent (checked early: no REST/CDN work for strangers)
+
+    // Strip the bot's own mention entirely, THEN resolve the remaining mention tokens to names.
+    let text = String(m.content ?? '').replaceAll(`<@${this.botId}>`, '').replaceAll(`<@!${this.botId}>`, '').trim();
+    const meta = await this.channelInfo(m.channel_id).catch(() => null);
+    const channelNames = new Map([...this.channelMeta].map(([id, c]) => [id, c.name]).filter(([, n]) => n));
+    text = resolveMentions(text, m.mentions ?? [], this.cfg.rolePolicies, channelNames);
+    const { images, notes } = await collectAttachments(m.attachments);
+    if (notes.length) text = [text, ...notes].filter(Boolean).join('\n');
+    if (!text && images.length) text = '[The user sent an image]'; // an image-only turn must not be empty
     if (!text) return;
+
+    // Channel sessions are SHARED (one conversation per channel), so every message names its speaker —
+    // and a Discord reply carries the quoted original as context.
+    const replyCtx = buildReplyContext(m.referenced_message);
+    const prefixed = `${replyCtx ? `${replyCtx}\n` : ''}[${displayNameOf(m)}] ${text}`;
 
     // The conversation key folds in the /new "generation" so a reset yields a clean session.
     const gen = this.state.get(m.channel_id).gen ?? 0;
     const convoKey = `${m.channel_id}#${gen}`;
-    const { roleIds, access } = this.accessFor(m, m.channel_id);
-    if (!access) return; // unmapped sender → stay silent
 
     const reactions = this.cfg.reactions !== false;
     const streaming = this.cfg.streaming !== false;
-    const stream = streaming ? new LiveMessage(this, m.channel_id) : null;
+    const stream = streaming ? new LiveMessage(this, m.channel_id, m.id) : null;
     const typing = setInterval(() => void this.rest('POST', `/channels/${m.channel_id}/typing`, {}).catch(() => {}), 8000);
     void this.rest('POST', `/channels/${m.channel_id}/typing`, {}).catch(() => {});
     if (reactions) void this.react(m.channel_id, m.id, '👀').catch(() => {}); // status: seen
 
+    // Image turns steer to the configured vision model — the channel's normal model may be text-only.
+    const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
+    const turnAccess = vision ? { ...access, model: vision } : access;
+
     try {
       const reply = await this.handler(
-        { platform: 'discord', userId: m.author.id, roleIds, channelId: convoKey, access },
-        text,
+        {
+          platform: 'discord', userId: m.author.id, userName: displayNameOf(m), roleIds, channelId: convoKey, access: turnAccess,
+          channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined,
+          images: images.length ? images : undefined,
+          history: () => this.fetchHistory(m.channel_id, m.id),
+        },
+        prefixed,
         stream ? (e) => stream.onEvent(e) : undefined,
       );
       clearInterval(typing);
       if (stream) await stream.finalize(reply);
-      else if (reply) await this.reply(m.channel_id, reply);
+      else if (reply) await this.reply(m.channel_id, reply, m.id);
       if (reactions) { await this.unreact(m.channel_id, m.id, '👀').catch(() => {}); void this.react(m.channel_id, m.id, '✅').catch(() => {}); }
     } catch (e) {
       clearInterval(typing);
@@ -229,15 +445,15 @@ class DiscordAdapter {
     // ACK-and-respond for slash commands (type 2) and component interactions (type 3).
     if (i.type === 2) {
       const name = i.data?.name;
-      if (name === 'help') return this.respond(i, 4, { content: HELP, flags: 64 });
+      if (name === 'help') return this.respond(i, 4, { content: this.msg.help(this.cfg.agentName || 'Orca'), flags: 64 });
       if (name === 'new') {
         const gen = (this.state.get(i.channel_id).gen ?? 0) + 1;
         this.state.patch(i.channel_id, { gen });
-        return this.respond(i, 4, { content: '🐋 Fresh conversation started in this channel.', flags: 64 });
+        return this.respond(i, 4, { content: this.msg.newConversation, flags: 64 });
       }
       if (name === 'model') {
         const models = (await this.listModels().catch(() => [])).slice(0, 25);
-        if (models.length === 0) return this.respond(i, 4, { content: 'No models configured yet (Settings → Orca AI).', flags: 64 });
+        if (models.length === 0) return this.respond(i, 4, { content: this.msg.noModels, flags: 64 });
         const current = this.state.get(i.channel_id).model;
         const options = models.map((mo) => ({
           label: mo.model.slice(0, 100),
@@ -246,7 +462,7 @@ class DiscordAdapter {
           default: !!current && current.provider === mo.provider && current.model === mo.model,
         }));
         return this.respond(i, 4, {
-          content: 'Pick the model for this channel:',
+          content: this.msg.pickModel,
           flags: 64,
           components: [{ type: 1, components: [{ type: 3, custom_id: 'pick_model', options, placeholder: 'Choose a model…' }] }],
         });
@@ -255,7 +471,7 @@ class DiscordAdapter {
     if (i.type === 3 && i.data?.custom_id === 'pick_model') {
       const [provider, model] = String(i.data.values?.[0] ?? '').split('::');
       if (provider && model) this.state.patch(i.channel_id, { model: { provider, model } });
-      return this.respond(i, 7, { content: `✅ Model set to **${model}**.`, components: [] });
+      return this.respond(i, 7, { content: this.msg.modelSet(model), components: [] });
     }
   }
 
@@ -264,17 +480,51 @@ class DiscordAdapter {
     await this.rest('POST', `/interactions/${i.id}/${i.token}/callback`, { type, data });
   }
 
-  async reply(channelId, text) {
-    for (const piece of splitContent(text)) {
-      await this.rest('POST', `/channels/${channelId}/messages`, { content: piece });
+  async reply(channelId, text, replyToId) {
+    await postWithImages(this, channelId, text, replyToId);
+  }
+
+  /** Load up to MAX_UPLOAD_IMAGES generated images by validated name from the image plugins' data
+   *  dirs. A missing/unreadable file is skipped silently — the text still goes out without it. */
+  resolveImageFiles(names) {
+    const files = [];
+    for (const name of names.slice(0, MAX_UPLOAD_IMAGES)) {
+      for (const dir of this.imageDirs) {
+        const p = join(dir, name);
+        if (!existsSync(p)) continue;
+        try { files.push({ name, data: readFileSync(p) }); } catch { /* unreadable → skip */ }
+        break;
+      }
     }
+    return files;
+  }
+
+  /** Multipart message post: text + attached PNG files (Discord renders uploads; a relative daemon
+   *  link would be dead text). Same auth + 429 retry discipline as rest(). */
+  async uploadImages(channelId, content, files, attempt = 0, extra = {}) {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({ content, ...extra }));
+    files.forEach((f, i) => form.append(`files[${i}]`, new Blob([f.data], { type: 'image/png' }), f.name));
+    const res = await fetch(`${API}/channels/${channelId}/messages`, {
+      method: 'POST',
+      headers: { authorization: `Bot ${this.cfg.botToken}` }, // content-type: fetch sets the multipart boundary
+      body: form,
+    });
+    if (res.status === 429 && attempt < 3) {
+      const wait = (Number(res.headers.get('retry-after')) || 1) * 1000;
+      await new Promise((r) => setTimeout(r, wait));
+      return this.uploadImages(channelId, content, files, attempt + 1, extra);
+    }
+    if (!res.ok) throw new Error(`discord API POST /channels/${channelId}/messages (upload) → HTTP ${res.status}`);
+    return res.json();
   }
 
   /** Host-initiated push (cron/tick echoes) → the configured notification channel. No-op without one. */
-  async notify(text) {
-    const channelId = typeof this.cfg.notifyChannelId === 'string' ? this.cfg.notifyChannelId.trim() : '';
-    if (!channelId) return;
-    await this.reply(channelId, text);
+  async notify(text, channelId) {
+    const target = (typeof channelId === 'string' && channelId.trim())
+      || (typeof this.cfg.notifyChannelId === 'string' ? this.cfg.notifyChannelId.trim() : '');
+    if (!target) return;
+    await this.reply(target, text);
   }
 
   async rest(method, path, body, attempt = 0) {
@@ -293,63 +543,135 @@ class DiscordAdapter {
   }
 }
 
-/** A single reply message that streams: post once, then edit-in-place (throttled) as text + tool-call
- *  chips arrive, and split into extra messages if the final answer exceeds Discord's 2000-char cap. */
-class LiveMessage {
+/** One editable Discord message: created on the first write, then PATCHed (throttled — Discord allows
+ *  ~5 edits / 5 s per channel). Shared by the tool-progress bubble and the streaming answer. */
+class EditableMessage {
   constructor(adapter, channelId) {
     this.a = adapter;
     this.channelId = channelId;
     this.messageId = null;
-    this.text = '';
-    this.tools = [];
+    this.content = '';
     this.lastEdit = 0;
-    this.pending = null;
+    this.pending = false;
   }
-  render() {
-    const chips = this.tools.length ? this.tools.map((t) => `\`🔧 ${t}\``).join(' ') + '\n' : '';
-    return (chips + this.text).slice(0, CHUNK) || '🐋 …';
+  /** Set the full desired content and schedule a (throttled) edit. */
+  update(content) {
+    this.content = content.slice(0, CHUNK);
+    void this.flush();
   }
-  async ensure() {
-    if (this.messageId) return;
-    const msg = await this.a.rest('POST', `/channels/${this.channelId}/messages`, { content: '🐋 …' }).catch(() => null);
-    this.messageId = msg?.id ?? null;
-  }
-  onEvent(e) {
-    if (e.type === 'text' && e.delta) this.text += e.delta;
-    else if (e.type === 'tool' && e.name) this.tools.push(e.name);
-    else return;
-    void this.throttledEdit();
-  }
-  async throttledEdit() {
+  async flush() {
+    if (this.closed) return; // finalized elsewhere — a straggler edit must not overwrite the final text
     const now = Date.now();
     if (now - this.lastEdit < EDIT_THROTTLE_MS) { this.pending = true; return; }
     this.lastEdit = now;
-    await this.ensure();
-    if (!this.messageId) return;
-    await this.a.rest('PATCH', `/channels/${this.channelId}/messages/${this.messageId}`, { content: this.render() }).catch(() => {});
-    if (this.pending) { this.pending = false; setTimeout(() => void this.throttledEdit(), EDIT_THROTTLE_MS); }
-  }
-  async finalize(reply) {
-    const full = reply || this.text || '(no response)';
-    const chips = this.tools.length ? this.tools.map((t) => `\`🔧 ${t}\``).join(' ') + '\n' : '';
-    const pieces = splitContent(chips + full);
-    await this.ensure();
-    if (this.messageId) await this.a.rest('PATCH', `/channels/${this.channelId}/messages/${this.messageId}`, { content: pieces[0] }).catch(() => {});
-    else await this.a.rest('POST', `/channels/${this.channelId}/messages`, { content: pieces[0] }).catch(() => {});
-    for (const piece of pieces.slice(1)) {
-      await this.a.rest('POST', `/channels/${this.channelId}/messages`, { content: piece }).catch(() => {});
+    if (!this.messageId) {
+      const msg = await this.a.rest('POST', `/channels/${this.channelId}/messages`, { content: this.content || '💭 …' }).catch(() => null);
+      this.messageId = msg?.id ?? null;
+    } else {
+      await this.a.rest('PATCH', `/channels/${this.channelId}/messages/${this.messageId}`, { content: this.content }).catch(() => {});
     }
+    if (this.pending) { this.pending = false; setTimeout(() => void this.flush(), EDIT_THROTTLE_MS); }
   }
 }
 
-const HELP = [
-  '**Orca on Discord**',
-  'Mention me and I answer from the Orca brain.',
-  '',
-  '`/model` — pick the AI model for this channel',
-  '`/new` — start a fresh conversation here',
-  '`/help` — this message',
-].join('\n');
+/** Per-tool progress emoji, data-driven: exact tool name, or a prefix when the pattern ends in `*`.
+ *  First match wins; unknown tools fall back to the generic wrench. */
+const TOOL_EMOJI = [
+  ['sarah_hair*', '✂️'],
+  ['run_command', '💻'], ['list_processes', '💻'], ['read_process_output', '💻'], ['kill_process', '💻'],
+  ['read_file', '📄'], ['list_dir', '📄'],
+  ['write_file', '📝'], ['edit_file', '📝'],
+  ['web_search', '🔍'], ['web_fetch', '🌐'],
+  ['generate_image', '🎨'], ['edit_image', '🎨'],
+  ['add_memory', '🧠'], ['search_memory', '🧠'],
+  ['cron_add', '⏰'], ['cron_list', '⏰'], ['cron_remove', '⏰'], ['schedule_wakeup', '⏰'],
+  ['create_skill', '📖'], ['list_skills', '📖'], ['delete_skill', '📖'],
+  ['discord_api', '💬'],
+  ['orca_*', '🐋'],
+  ['delegate', '🤝'],
+  ['scan_code', '🛡️'],
+];
+export function toolEmoji(name) {
+  for (const [pat, emoji] of TOOL_EMOJI) {
+    if (pat.endsWith('*') ? name.startsWith(pat.slice(0, -1)) : name === pat) return emoji;
+  }
+  return '🔧';
+}
+
+/** One rendered progress line: `<emoji> \`tool\`` + optional `: "detail"` + optional ` ×N` counter. */
+function toolLine(c) {
+  return `${toolEmoji(c.name)} \`${c.name}\`` + (c.detail ? `: "${c.detail}"` : '…') + (c.count > 1 ? ` ×${c.count}` : '');
+}
+
+/** Runtime footer, Hermes-style: `model · 42 %` as Discord subtext under the final answer. Empty
+ *  when the idle event carried no usable data (defensive: never render a `?%` footer). */
+export function footerLine(idle) {
+  const parts = [];
+  const model = typeof idle?.model === 'string' ? idle.model.split('/').pop() : '';
+  if (model) parts.push(model);
+  const pct = idle?.usage?.percent;
+  if (typeof pct === 'number' && pct >= 0) parts.push(`${Math.round(pct)} %`);
+  return parts.length ? `-# ${parts.join(' · ')}` : '';
+}
+
+/** Streaming turn, Hermes-style: tools go into ONE edited progress bubble — one emoji-tagged line per
+ *  tool, joined by single newlines so they stack tightly; CONSECUTIVE repeats of the same tool collapse
+ *  into a ×N counter on their line (latest detail shown) — and the final answer is posted as its own
+ *  clean message AFTER the run settles. Text deltas are working narration between tool calls; they are
+ *  not streamed into the channel, so the answer is always the LAST message (the summary), never buried
+ *  under a tool trace. No tools → just the answer. */
+export class LiveMessage {
+  constructor(adapter, channelId, replyToId) {
+    this.a = adapter;
+    this.channelId = channelId;
+    this.replyToId = replyToId; // the triggering message — the final answer is a real reply to it
+    this.toolCalls = []; // { name, detail?, count } — one entry per rendered line
+    this.progress = null; // created lazily on the first tool event
+    this.text = '';       // accumulated only as the finalize fallback (handler may return undefined)
+    this.imageRefs = [];  // generated-image refs from tool results — attached even if the reply omits them
+    this.idle = null;     // the turn's settle event (model + context usage) → runtime footer
+  }
+  onEvent(e) {
+    if (e.type === 'tool' && e.name) {
+      const last = this.toolCalls[this.toolCalls.length - 1];
+      if (last && last.name === e.name) {
+        last.count += 1;
+        if (e.detail) last.detail = e.detail; // latest detail wins on a collapsed line
+      } else {
+        this.toolCalls.push({ name: e.name, detail: e.detail, count: 1 });
+      }
+      this.progress ??= new EditableMessage(this.a, this.channelId);
+      this.progress.update(this.toolCalls.map(toolLine).join('\n'));
+    } else if (e.type === 'text' && e.delta) {
+      this.text += e.delta;
+    } else if (e.type === 'image' && e.ref) {
+      this.imageRefs.push(e.ref);
+    } else if (e.type === 'idle') {
+      this.idle = e;
+    }
+  }
+  async finalize(reply) {
+    // Settle the progress bubble to its complete tool list (a throttled edit may still be pending),
+    // then freeze it so the straggler timer can't fire afterwards.
+    if (this.progress) {
+      this.progress.lastEdit = 0; // bypass the throttle for this one final settle
+      await this.progress.flush();
+      this.progress.closed = true;
+    }
+    let full = reply || this.text || '(no response)';
+    // Models often forget to repeat the generated-image markdown in their final text — append any
+    // tool-produced refs that are missing so the files always reach the channel.
+    for (const ref of this.imageRefs) {
+      if (!full.includes(ref.slice(ref.lastIndexOf('/') + 1))) full += `\n![image](${ref})`;
+    }
+    // Hermes-style runtime footer (model · context %) under the very last message, opt-out via config.
+    if (this.a.cfg?.runtimeFooter !== false) {
+      const footer = footerLine(this.idle);
+      if (footer) full += `\n\n${footer}`;
+    }
+    await postWithImages(this.a, this.channelId, full, this.replyToId).catch(() => {});
+  }
+}
 
 function rolePrompt(policy) {
   const parts = [];
@@ -361,7 +683,37 @@ function rolePrompt(policy) {
 export function register(ctx) {
   const token = typeof ctx.config.botToken === 'string' ? ctx.config.botToken.trim() : '';
   if (!token) { ctx.logger.warn('enabled but no botToken configured — not connecting'); return; }
-  const state = new StateStore(join(ctx.dataDir(), 'channel-state.json'));
-  ctx.registerPlatform(new DiscordAdapter({ ...ctx.config, botToken: token }, ctx.logger, state, ctx.listModels));
-  ctx.logger.info('discord platform registered (slash commands + model picker + streaming)');
+  const dataDir = ctx.dataDir();
+  const state = new StateStore(join(dataDir, 'channel-state.json'));
+  // The image-gen/image-edit plugins are data-dir siblings — their generated PNGs upload from there.
+  const imageDirs = [join(dataDir, '..', 'image-gen'), join(dataDir, '..', 'image-edit')];
+  const adapter = new DiscordAdapter({ ...ctx.config, botToken: token }, ctx.logger, state, ctx.listModels, imageDirs);
+  ctx.registerPlatform(adapter);
+
+  // Raw Discord REST access for the OWNER: delete/purge messages, manage roles, edit channels —
+  // whatever the bot's permissions allow. The token never leaves the plugin; admin sessions only.
+  ctx.registerTool(defineTool({
+    name: 'discord_api', label: 'Discord API',
+    description: 'Call the Discord REST API (v10) with the bot token — server management: delete messages (DELETE /channels/{id}/messages/{msgId}, bulk POST /channels/{id}/messages/bulk-delete with {"messages":[ids]} for <14d messages), manage roles (PUT/DELETE /guilds/{gid}/members/{uid}/roles/{roleId}), fetch messages (GET /channels/{id}/messages?limit=50), edit channels, and anything else the API offers. Admin only.',
+    parameters: Type.Object({
+      method: Type.Union([Type.Literal('GET'), Type.Literal('POST'), Type.Literal('PATCH'), Type.Literal('PUT'), Type.Literal('DELETE')]),
+      path: Type.String({ description: 'API path starting with /, e.g. /channels/123/messages?limit=20' }),
+      body: Type.Optional(Type.String({ description: 'JSON request body, when the endpoint takes one' })),
+    }),
+    execute: async (_id, p) => {
+      try {
+        if (!ctx.isAdminSession()) throw new Error('discord_api is only available to the owner (admin session)');
+        if (!p.path.startsWith('/')) return ok('Error: path must start with "/".');
+        let body;
+        if (p.body) {
+          try { body = JSON.parse(p.body); } catch { return ok('Error: body is not valid JSON.'); }
+        }
+        const res = await adapter.rest(p.method, p.path, body);
+        const text = res === null ? '(no content)' : JSON.stringify(res, null, 2);
+        return ok(text.length > 4000 ? `${text.slice(0, 4000)}\n… (truncated)` : text);
+      } catch (e) { return fail(e); }
+    },
+  }));
+
+  ctx.logger.info('discord platform registered (slash commands + model picker + streaming + discord_api)');
 }

@@ -1,9 +1,11 @@
 import type { Db } from './db.js';
+import { DEFAULT_ADVISOR_STYLE, isAdvisorStyle } from '../brain/personality.js';
 
 /** Typed per-user CLI/brain settings. `model`/`modelProvider` empty → use the configured brain default.
- *  `autoCompactAt` is the context-window fill percentage at which the conversation is auto-summarized. */
-export interface CliSettings { model: string; modelProvider: string; autoCompact: boolean; autoCompactAt: number }
-const CLI_DEFAULTS: CliSettings = { model: '', modelProvider: '', autoCompact: false, autoCompactAt: 80 };
+ *  `autoCompactAt` is the context-window fill percentage at which the conversation is auto-summarized.
+ *  `advisorStyle` picks the advisor's communication style (the `{{personality}}` prompt paragraph). */
+export interface CliSettings { model: string; modelProvider: string; visionModel: string; visionModelProvider: string; autoCompact: boolean; autoCompactAt: number; advisorStyle: string; discordUserId: string }
+const CLI_DEFAULTS: CliSettings = { model: '', modelProvider: '', visionModel: '', visionModelProvider: '', autoCompact: false, autoCompactAt: 80, advisorStyle: DEFAULT_ADVISOR_STYLE, discordUserId: '' };
 
 /** Keep the auto-compact threshold in a sane band — too low would thrash (compact every turn), too high
  *  risks overflowing before it triggers. Non-numbers fall back to the default. */
@@ -51,8 +53,12 @@ export class UserSettingStore {
     return {
       model: all.model ?? CLI_DEFAULTS.model,
       modelProvider: all.modelProvider ?? CLI_DEFAULTS.modelProvider,
+      visionModel: all.visionModel ?? CLI_DEFAULTS.visionModel,
+      visionModelProvider: all.visionModelProvider ?? CLI_DEFAULTS.visionModelProvider,
       autoCompact: all.autoCompact !== undefined ? all.autoCompact === 'true' : CLI_DEFAULTS.autoCompact,
       autoCompactAt: all.autoCompactAt !== undefined ? clampPercent(Number(all.autoCompactAt)) : CLI_DEFAULTS.autoCompactAt,
+      advisorStyle: isAdvisorStyle(all.advisorStyle) ? all.advisorStyle : CLI_DEFAULTS.advisorStyle,
+      discordUserId: all.discordUserId ?? CLI_DEFAULTS.discordUserId,
     };
   }
 
@@ -60,7 +66,24 @@ export class UserSettingStore {
   setCliSettings(userId: number, patch: Partial<CliSettings>): void {
     if (patch.model !== undefined) this.set(userId, 'model', patch.model);
     if (patch.modelProvider !== undefined) this.set(userId, 'modelProvider', patch.modelProvider);
+    if (patch.visionModel !== undefined) this.set(userId, 'visionModel', patch.visionModel);
+    if (patch.visionModelProvider !== undefined) this.set(userId, 'visionModelProvider', patch.visionModelProvider);
     if (patch.autoCompact !== undefined) this.set(userId, 'autoCompact', String(patch.autoCompact));
     if (patch.autoCompactAt !== undefined) this.set(userId, 'autoCompactAt', String(clampPercent(patch.autoCompactAt)));
+    if (patch.advisorStyle !== undefined && isAdvisorStyle(patch.advisorStyle)) this.set(userId, 'advisorStyle', patch.advisorStyle);
+    // A Discord snowflake is digits-only; anything else (or empty) clears the link.
+    if (patch.discordUserId !== undefined) {
+      const v = String(patch.discordUserId).trim();
+      if (/^\d{5,25}$/.test(v)) this.set(userId, 'discordUserId', v);
+      else this.remove(userId, 'discordUserId');
+    }
+  }
+
+  /** Reverse lookup: which user claimed this setting value (e.g. a Discord id → the Orca account).
+   *  Returns null when nobody has. First writer wins on duplicates (deterministic by user id). */
+  userIdBySetting(key: string, value: string): number | null {
+    const r = this.db.prepare('SELECT user_id FROM user_settings WHERE key = ? AND value = ? ORDER BY user_id LIMIT 1')
+      .get(key, value) as { user_id: number } | undefined;
+    return r ? r.user_id : null;
   }
 }

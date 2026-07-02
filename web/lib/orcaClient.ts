@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, CliSettings, PluginInfo, PluginDetail, BrainModelOption, BrainSessionInfo, BrainMessage, BrainStatus, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, CliSettings, PluginInfo, PluginDetail, CronJob, DiscordChannelOption, PluginSkill, BrainModelOption, BrainSessionInfo, BrainSearchHit, BrainMessage, BrainStatus, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
 import { clearToken } from './token';
 
 // Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
@@ -125,6 +125,7 @@ export const orcaClient = {
   updateConfig: (patch: ConfigPatch) => req<OrcaConfig>('/config', json(patch, 'PUT')),
   system: () => req<SystemInfo>('/system'),
   systemUpdate: () => req<{ started: boolean }>('/system/update', json({})),
+  systemRestart: (target: 'daemon' | 'web') => req<{ ok: boolean }>('/system/restart', json({ target })),
   systemSkills: () => req<SkillsInfo>('/system/skills'),
   installSkills: () => req<SkillInstallResult>('/system/skills/install', json({})),
   login: (username: string, password: string) => req<AuthResult>('/auth/login', json({ username, password })),
@@ -142,6 +143,15 @@ export const orcaClient = {
   togglePlugin: (name: string, enabled: boolean) => req<PluginInfo>(`/plugins/${encodeURIComponent(name)}`, json({ enabled }, 'PATCH')),
   pluginDetail: (name: string) => req<PluginDetail>(`/plugins/${encodeURIComponent(name)}`),
   savePluginConfig: (name: string, values: Record<string, unknown>) => req<{ ok: boolean }>(`/plugins/${encodeURIComponent(name)}/config`, json({ values }, 'PATCH')),
+  /** The cronjob plugin's raw jobs list; saving replaces the whole array (applies live, no restart). */
+  cronJobs: () => req<CronJob[]>('/plugins/cronjob/jobs'),
+  saveCronJobs: (jobs: CronJob[]) => req<{ ok: boolean }>('/plugins/cronjob/jobs', json(jobs, 'PUT')),
+  /** The skills plugin's markdown skills (bundled + user); user skills are created/deleted per file. */
+  pluginSkills: () => req<PluginSkill[]>('/plugins/skills/list'),
+  createPluginSkill: (skill: { name: string; description: string; content: string }) => req<{ ok: boolean }>('/plugins/skills', json(skill)),
+  deletePluginSkill: (name: string) => req<{ ok: boolean }>(`/plugins/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  /** Text channels + active threads of the configured Discord guild (the cron destination picker). */
+  discordChannels: () => req<DiscordChannelOption[]>('/plugins/discord/channels'),
   brainModels: () => req<BrainModelOption[]>('/brain/models'),
   taskBrainConversation: (taskId: string) => req<BrainMessage[]>(`/tasks/${encodeURIComponent(taskId)}/conversation`),
   brainStatus: () => req<BrainStatus>('/brain/status'),
@@ -149,9 +159,12 @@ export const orcaClient = {
   brainSend: (text: string, images?: { data: string; mimeType: string }[]) =>
     req<{ ok: boolean }>('/brain/send', json(images?.length ? { text, images } : { text })),
   brainSessions: () => req<BrainSessionInfo[]>('/brain/sessions'),
+  brainSearch: (q: string) => req<BrainSearchHit[]>(`/brain/search?q=${encodeURIComponent(q)}`),
   brainDeleteSession: (id: string) => req<{ ok: boolean }>(`/brain/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   brainMessages: () => req<BrainMessage[]>('/brain/messages'),
   brainOauthStatus: () => req<Record<string, boolean>>('/brain/oauth/status'),
+  brainOauthCatalog: (type: string) => req<{ models: string[] }>(`/brain/oauth/${encodeURIComponent(type)}/catalog`),
+  brainProviderProbe: (body: { baseUrl: string; apiKey?: string; id?: string }) => req<{ models: string[] }>('/brain/providers/probe', { method: 'POST', body: JSON.stringify(body) }),
   brainOauthStart: (type: string) => req<OAuthFlowState>(`/brain/oauth/${encodeURIComponent(type)}/start`, { method: 'POST' }),
   brainOauthFlow: (id: string) => req<OAuthFlowState>(`/brain/oauth/flow/${encodeURIComponent(id)}`),
   brainOauthInput: (id: string, value: string) => req<{ ok: boolean }>(`/brain/oauth/flow/${encodeURIComponent(id)}/input`, json({ value })),

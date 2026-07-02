@@ -24,8 +24,9 @@ export interface OrcaConfig {
    *  — read it daemon-side via `pluginConfig(name)`. */
   plugins: { enabled: string[] };
   /** The brain's dedicated model providers (public view: API keys stripped to `apiKeySet`). Empty →
-   *  the brain falls back to the autopilot relay endpoint. */
-  brain: { providers: BrainProviderPublic[] };
+   *  the brain falls back to the autopilot relay endpoint. `agentName` is the assistant's display
+   *  identity ("Orca" by default) — it feeds the persona prompts everywhere the brain speaks. */
+  brain: { providers: BrainProviderPublic[]; agentName: string };
 }
 
 /** How a brain provider authenticates/talks upstream. `openai` = any OpenAI-compatible endpoint;
@@ -114,7 +115,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   autoUpdate: false,
   webPush: { publicKey: '', publicKeySet: false },
   plugins: { enabled: [] },
-  brain: { providers: [] },
+  brain: { providers: [], agentName: 'Orca' },
 };
 
 interface Stored {
@@ -134,7 +135,7 @@ interface Stored {
   /** Enabled plugin names + each plugin's own config slice (secrets included, never serialized to API). */
   plugins: { enabled: string[]; config: Record<string, Record<string, unknown>> };
   /** Brain provider entries with plaintext API keys — stripped to `apiKeySet` in the public view. */
-  brain: { providers: BrainProviderStored[] };
+  brain: { providers: BrainProviderStored[]; agentName: string };
 }
 
 const defaultStored = (): Stored => ({
@@ -151,7 +152,7 @@ const defaultStored = (): Stored => ({
   autoUpdate: false,
   webPush: null,
   plugins: { enabled: [], config: {} },
-  brain: { providers: [] },
+  brain: { providers: [], agentName: 'Orca' },
 });
 
 export interface ConfigPatch {
@@ -167,7 +168,7 @@ export interface ConfigPatch {
   plugins?: { enabled?: string[]; config?: Record<string, Record<string, unknown>> };
   /** Brain providers replace wholesale (the UI edits the full list). A patched entry with an empty/absent
    *  apiKey KEEPS the currently stored key for that id — the UI never sees (or resends) secrets. */
-  brain?: { providers?: unknown };
+  brain?: { providers?: unknown; agentName?: unknown };
 }
 
 export class ConfigStore {
@@ -207,7 +208,7 @@ export class ConfigStore {
                 ? (p.plugins.config as Record<string, Record<string, unknown>>) : {},
             }
           : { enabled: [], config: {} },
-        brain: { providers: sanitizeBrainProviders(p.brain?.providers) },
+        brain: { providers: sanitizeBrainProviders(p.brain?.providers), agentName: typeof p.brain?.agentName === 'string' && p.brain.agentName.trim() ? p.brain.agentName.trim().slice(0, 40) : 'Orca' },
       };
     } catch { return defaultStored(); } // corrupt row → defaults, never throw
   }
@@ -233,7 +234,7 @@ export class ConfigStore {
       webPush: { publicKey: s.webPush?.publicKey ?? '', publicKeySet: !!s.webPush },
       // Only the enabled list surfaces; per-plugin config (possible secrets) stays daemon-side.
       plugins: { enabled: s.plugins.enabled },
-      brain: { providers: s.brain.providers.map(({ apiKey, ...pub }) => ({ ...pub, apiKeySet: !!apiKey })) },
+      brain: { providers: s.brain.providers.map(({ apiKey, ...pub }) => ({ ...pub, apiKeySet: !!apiKey })), agentName: s.brain.agentName },
     };
   }
 
@@ -287,16 +288,19 @@ export class ConfigStore {
         // Merge per-plugin config so a patch touching one plugin never wipes another's slice.
         config: patch.plugins?.config ? { ...cur.plugins.config, ...patch.plugins.config } : cur.plugins.config,
       },
-      brain: patch.brain?.providers !== undefined
-        ? {
-            providers: sanitizeBrainProviders(patch.brain.providers).map((p) => ({
+      brain: {
+        providers: patch.brain?.providers !== undefined
+          ? sanitizeBrainProviders(patch.brain.providers).map((p) => ({
               ...p,
               // An entry arriving without a key keeps the stored one — the public view never carries
               // secrets, so the UI round-trips entries keyless and only sets apiKey when (re)entered.
               apiKey: p.apiKey ?? cur.brain.providers.find((c) => c.id === p.id)?.apiKey ?? null,
-            })),
-          }
-        : cur.brain,
+            }))
+          : cur.brain.providers,
+        agentName: typeof patch.brain?.agentName === 'string' && patch.brain.agentName.trim()
+          ? patch.brain.agentName.trim().slice(0, 40)
+          : cur.brain.agentName,
+      },
     });
     return this.get();
   }

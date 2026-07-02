@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
-import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings } from './types';
+import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings, CronJob } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -142,6 +142,11 @@ export function useSystemUpdate() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: () => orcaClient.systemUpdate(), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.system }) });
 }
+/** Restart one of the systemd units. No invalidation — a daemon restart drops the API for a few
+ *  seconds anyway; the System panel's regular polling picks the service back up on its own. */
+export function useSystemRestart() {
+  return useMutation({ mutationFn: (target: 'daemon' | 'web') => orcaClient.systemRestart(target) });
+}
 export function useInstallSkills() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: () => orcaClient.installSkills(), onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.systemSkills }) });
@@ -190,6 +195,26 @@ export function useSaveMyCliSettings() {
 export function useTogglePlugin() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (v: { name: string; enabled: boolean }) => orcaClient.togglePlugin(v.name, v.enabled), onSuccess: () => qc.invalidateQueries({ queryKey: ['plugins'] }) });
+}
+/** Replace the cronjob plugin's whole jobs array (auto-saved by the cron editor). */
+export function useSaveCronJobs() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (jobs: CronJob[]) => orcaClient.saveCronJobs(jobs), onSuccess: () => qc.invalidateQueries({ queryKey: ['cron-jobs'] }) });
+}
+/** Create (or overwrite) a user skill of the skills plugin. Applies live via plugin hot-reload. */
+export function useCreatePluginSkill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (skill: { name: string; description: string; content: string }) => orcaClient.createPluginSkill(skill),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-skills'] }),
+  });
+}
+export function useDeletePluginSkill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => orcaClient.deletePluginSkill(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-skills'] }),
+  });
 }
 export function useSavePluginConfig() {
   const qc = useQueryClient();

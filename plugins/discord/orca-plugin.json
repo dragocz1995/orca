@@ -4,14 +4,92 @@
   "apiVersion": "1",
   "description": "Discord bot: mention it and it answers from Orca AI. Slash commands (/model, /new, /help), a per-channel model picker, live streaming replies, status reactions and proactive cron/tick pushes. Each Discord role maps to allowed Orca projects + a role prompt.",
   "entry": "index.mjs",
-  "provides": { "platforms": ["discord"] },
-  "requires": { "config": ["botToken"] },
+  "provides": {
+    "platforms": [
+      "discord"
+    ],
+    "tools": [
+      "discord_api"
+    ]
+  },
+  "requires": {
+    "config": [
+      "botToken"
+    ]
+  },
   "configSchema": [
-    { "key": "botToken", "label": "Bot token", "type": "secret", "required": true, "hint": "Discord Developer Portal → Bot → Token. Enable the Message Content intent." },
-    { "key": "guildId", "label": "Guild ID", "type": "string", "hint": "Optional: only respond in this server (empty = all servers the bot is in)." },
-    { "key": "notifyChannelId", "label": "Notification channel ID", "type": "string", "hint": "Where proactive messages (cron/tick results, escalations) are posted. Empty = no proactive pushes." },
-    { "key": "streaming", "label": "Live streaming replies", "type": "boolean", "hint": "Edit the reply in place as it streams (tool calls + text). Off = one message at the end." },
-    { "key": "reactions", "label": "Status reactions", "type": "boolean", "hint": "React 👀 while thinking, ✅/❌ when done." },
-    { "key": "rolePolicies", "label": "Role policies", "type": "rolePolicies", "hint": "First matching role wins. Users with no mapped role are ignored." }
+    {
+      "key": "botToken",
+      "label": "Bot token",
+      "type": "secret",
+      "required": true,
+      "hint": "Discord Developer Portal → Bot → Token. Enable the Message Content intent."
+    },
+    {
+      "key": "guildId",
+      "label": "Guild ID",
+      "type": "string",
+      "hint": "Optional: only respond in this server (empty = all servers the bot is in)."
+    },
+    {
+      "key": "threadIds",
+      "label": "Allowed threads",
+      "type": "string",
+      "hint": "Comma-separated thread IDs. Empty = respond everywhere allowed. When set, the bot only responds inside these threads."
+    },
+    {
+      "key": "notifyChannelId",
+      "label": "Notification channel ID",
+      "type": "string",
+      "hint": "Where proactive messages (cron/tick results, escalations) are posted. Empty = no proactive pushes."
+    },
+    {
+      "key": "streaming",
+      "label": "Live streaming replies",
+      "type": "boolean",
+      "hint": "Edit the reply in place as it streams (tool calls + text). Off = one message at the end."
+    },
+    {
+      "key": "reactions",
+      "label": "Status reactions",
+      "type": "boolean",
+      "hint": "React 👀 while thinking, ✅/❌ when done."
+    },
+    {
+      "key": "respondWithoutMention",
+      "label": "Respond without mention",
+      "type": "boolean",
+      "hint": "On: the bot answers every message in channels it can see (Iris-style). Off: it only answers when @mentioned."
+    },
+    {
+      "key": "language",
+      "label": "Service language",
+      "type": "string",
+      "hint": "Language of the bot's own service messages (/new, /model, placeholders): en (default) or cs."
+    },
+    {
+      "key": "visionModel",
+      "label": "Vision model",
+      "type": "model",
+      "hint": "Model used for turns that carry image attachments (must support vision). Empty = the channel's normal model."
+    },
+    {
+      "key": "historyLimit",
+      "label": "Channel history backfill",
+      "type": "number",
+      "hint": "How many recent channel messages a BRAND-NEW conversation loads as context (0 = off, max 100). Ongoing conversations never re-fetch."
+    },
+    {
+      "key": "runtimeFooter",
+      "label": "Runtime footer",
+      "type": "boolean",
+      "hint": "Append a small \"model · context %\" line under the final reply."
+    },
+    {
+      "key": "rolePolicies",
+      "label": "Role policies",
+      "type": "rolePolicies",
+      "hint": "First matching role wins. Users with no mapped role are ignored. Each role may also restrict which tools the bot can use for them."
+    }
   ]
 }

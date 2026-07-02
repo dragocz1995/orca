@@ -14,7 +14,7 @@ describe('brainConfigFromOrca', () => {
     config.update({ autopilot: { apiUrl: 'https://coresynth.io/v1', model: 'gpt-x', apiKey: 'cs-key' } });
     const cfg = brainConfigFromOrca(config);
     expect(cfg?.providers).toEqual([
-      { id: 'relay', label: 'Relay', type: 'openai', baseUrl: 'https://coresynth.io/v1', models: ['gpt-x'], apiKey: 'cs-key' },
+      { id: 'relay', label: 'Relay', type: 'openai', baseUrl: 'https://coresynth.io/v1', models: ['gpt-x'], apiKey: 'cs-key', origin: 'relay' },
     ]);
   });
 
@@ -23,7 +23,7 @@ describe('brainConfigFromOrca', () => {
     const auth = { get: (p: string) => (p === 'anthropic' ? { type: 'oauth' } : undefined) } as never;
     const cfg = brainConfigFromOrca(config, auth);
     expect(cfg?.providers).toEqual([
-      { id: 'anthropic', label: 'Claude account', type: 'oauth-anthropic', baseUrl: '', models: [], apiKey: null },
+      { id: 'anthropic', label: 'Claude account', type: 'oauth-anthropic', baseUrl: '', models: [], apiKey: null, origin: 'oauth' },
     ]);
   });
 

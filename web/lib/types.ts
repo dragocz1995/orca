@@ -41,7 +41,7 @@ export interface OrcaConfig {
   security: { tokenTtlDays: number };
   autoUpdate: boolean;
   plugins?: { enabled: string[] };
-  brain?: { providers: BrainProvider[] };
+  brain?: { providers: BrainProvider[]; agentName?: string };
 }
 
 /** How a brain provider talks upstream: a custom endpoint (API key) or a connected OAuth account. */
@@ -54,10 +54,12 @@ export interface BrainProvider {
   models: string[];
   apiKeySet: boolean;
 }
-/** One pickable brain model (Account → CLI dropdown), grouped by provider. */
-export interface BrainModelOption { provider: string; providerLabel: string; model: string; exec: string }
+/** One Orca AI (brain) model. `source` = how its provider authenticates (drives the OAuth badge). */
+export interface BrainModelOption { provider: string; providerLabel: string; model: string; exec: string; source: 'api-key' | 'oauth' | 'relay' }
 /** One brain conversation in the session picker (web chat + CLI). */
 export interface BrainSessionInfo { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean }
+/** One fulltext-search match across the caller's brain conversations. */
+export interface BrainSearchHit { sessionId: string; sessionTitle: string; role: string; snippet: string; ts: string }
 /** A stored brain turn shaped for display. */
 export type BrainSegment =
   | { kind: 'text'; text: string }
@@ -90,7 +92,7 @@ export interface ConfigPatch {
   security?: { tokenTtlDays?: number };
   autoUpdate?: boolean;
   /** Wholesale brain provider list; an entry may carry `apiKey` to (re)set that provider's secret. */
-  brain?: { providers?: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[] };
+  brain?: { providers?: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]; agentName?: string };
 }
 export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null; labels?: string[]; outcome?: TaskOutcome | null }
 interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }
@@ -124,7 +126,7 @@ export interface UserPrompt {
 
 /** Per-user CLI/brain settings surfaced in Account → CLI. `model` empty → the configured brain default
  *  (`serverDefault`, response-only). */
-export interface CliSettings { model: string; modelProvider: string; autoCompact: boolean; autoCompactAt: number; serverDefault?: string }
+export interface CliSettings { model: string; modelProvider: string; visionModel: string; visionModelProvider: string; autoCompact: boolean; autoCompactAt: number; advisorStyle: string; discordUserId: string; serverDefault?: string }
 
 /** One installed daemon plugin as listed by GET /plugins (admin). */
 export interface PluginInfo {
@@ -135,19 +137,28 @@ export interface PluginInfo {
   source: 'bundled' | 'user';
   enabled: boolean;
   configurable: boolean;
+  /** Per-locale manifest translations (from the plugin's `i18n/<lang>.json`). English lives in the
+   *  manifest itself and is the fallback; a locale entry overrides `description` + per-field label/hint. */
+  i18n?: Record<string, PluginI18n>;
+}
+
+/** Localized overrides for a plugin's manifest strings, keyed by config-field key. */
+export interface PluginI18n {
+  description?: string;
+  fields?: Record<string, { label?: string; hint?: string }>;
 }
 
 /** One declared plugin config field (drives the per-plugin settings form). */
 export interface PluginConfigField {
   key: string;
   label: string;
-  type: 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies';
+  type: 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies' | 'model';
   hint?: string;
   required?: boolean;
 }
 
 /** One role → access mapping row in a plugin's `rolePolicies` config (the Discord pattern). */
-export interface RolePolicy { roleId: string; name: string; projectIds: number[]; prompt: string }
+export interface RolePolicy { roleId: string; name: string; projectIds: number[]; prompt: string; tools?: string[]; admin?: boolean }
 
 /** GET /plugins/:name — the detail behind each plugin's own settings section. */
 export interface PluginDetail extends PluginInfo {
@@ -155,6 +166,31 @@ export interface PluginDetail extends PluginInfo {
   config: Record<string, unknown>;
   secretsSet: string[];
 }
+
+/** One scheduled job of the cronjob plugin (the raw jobs.json shape). `enabled: false` = paused;
+ *  a one-shot job carries `runAt` instead of a recurring schedule. */
+export interface CronJob {
+  id: string;
+  name: string;
+  schedule: string;
+  prompt: string;
+  /** Optional "H-H" active-hours window (e.g. "5-21") outside which the job stays quiet. */
+  hours?: string;
+  /** Discord channel/thread the result is delivered to; empty = the plugin's default channel. */
+  notifyChannelId?: string;
+  enabled?: boolean;
+  runAt?: string;
+  createdAt?: string;
+  lastRun?: string;
+  lastResult?: string;
+}
+
+/** One text-capable Discord destination (GET /plugins/discord/channels) for the cron channel picker. */
+export interface DiscordChannelOption { id: string; name: string; type: 'channel' | 'thread'; parentName?: string }
+
+/** One markdown skill of the skills plugin (GET /plugins/skills/list). Bundled skills ship with the
+ *  install and are read-only; user skills are created at runtime and can be deleted. */
+export interface PluginSkill { name: string; description: string; source: 'bundled' | 'user' }
 // Login no longer surfaces a token to the browser — the proxy sets it as an httpOnly cookie and
 // returns only a success flag.
 export type AuthResult = { ok: true };

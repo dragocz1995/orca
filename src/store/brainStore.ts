@@ -1,4 +1,5 @@
 import type { Db } from './db.js';
+import { extractText } from '../brain/messageView.js';
 
 export interface BrainSessionRow {
   id: string; user_id: number; title: string; model: string; created_at: string; updated_at: string;
@@ -6,6 +7,12 @@ export interface BrainSessionRow {
 export interface BrainMessageRow {
   id: string; session_id: string; parent_id: string | null; role: string; content: string; created_at: string;
 }
+export interface BrainSearchHit {
+  sessionId: string; sessionTitle: string; role: string; snippet: string; ts: string;
+}
+
+/** Radius of context kept around a search match in its snippet. */
+const SNIPPET_RADIUS = 60;
 
 /** Persistence for the embedded brain's conversations — the SOLE authoritative store (design D1).
  *  The PI agent session runs in-memory; every settled turn is projected here, and history is
@@ -43,6 +50,39 @@ export class BrainStore {
   getMessages(sessionId: string): BrainMessageRow[] {
     return this.db.prepare('SELECT * FROM brain_messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC')
       .all(sessionId) as BrainMessageRow[];
+  }
+
+  /** Case-insensitive fulltext search across the user's conversations (channel sessions included —
+   *  they carry the owner's user_id). The LIKE over the raw content JSON is a coarse prefilter;
+   *  each candidate is confirmed against its extracted display text (so JSON keys never match)
+   *  and shaped into a ±60-char snippet. Newest first. */
+  searchMessages(userId: number, query: string, limit = 50): BrainSearchHit[] {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    const like = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    const rows = this.db.prepare(
+      `SELECT m.session_id, s.title, m.role, m.content, m.created_at
+         FROM brain_messages m JOIN brain_sessions s ON s.id = m.session_id
+        WHERE s.user_id = ? AND m.role IN ('user', 'assistant') AND m.content LIKE ? ESCAPE '\\'
+        ORDER BY m.created_at DESC, m.rowid DESC`
+    ).all(userId, like) as { session_id: string; title: string; role: string; content: string; created_at: string }[];
+    const needle = q.toLowerCase();
+    const hits: BrainSearchHit[] = [];
+    for (const r of rows) {
+      if (hits.length >= limit) break;
+      let text = '';
+      try { text = extractText(JSON.parse(r.content)); } catch { continue; }
+      const at = text.toLowerCase().indexOf(needle);
+      if (at < 0) continue; // LIKE hit the JSON structure, not the display text
+      const from = Math.max(0, at - SNIPPET_RADIUS);
+      const to = Math.min(text.length, at + q.length + SNIPPET_RADIUS);
+      const body = text.slice(from, to).replace(/\s+/g, ' ');
+      hits.push({
+        sessionId: r.session_id, sessionTitle: r.title, role: r.role,
+        snippet: `${from > 0 ? '…' : ''}${body}${to < text.length ? '…' : ''}`, ts: r.created_at,
+      });
+    }
+    return hits;
   }
 
   /** Set a session's display title (derived from its first user message; set once). */

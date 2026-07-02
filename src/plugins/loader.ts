@@ -6,12 +6,38 @@ import type { PluginManifest } from './manifest.js';
 import { PluginRegistry } from './registry.js';
 import type { PluginLogger, PluginModule } from './api.js';
 
+/** Localized overrides for a plugin's user-facing manifest strings, keyed by field key. The manifest's
+ *  own English strings stay the source/fallback; a `<lang>.json` supplies translations for other locales. */
+interface PluginI18n {
+  description?: string;
+  fields?: Record<string, { label?: string; hint?: string }>;
+}
+
 /** A plugin found on disk (manifest parsed, code NOT imported). What the admin UI lists. */
 export interface DiscoveredPlugin {
   manifest: PluginManifest;
   dir: string;
   /** Which scan root it came from: the Orca install ('bundled') or the instance data dir ('user'). */
   source: 'bundled' | 'user';
+  /** Per-locale manifest translations from the plugin's `i18n/<lang>.json` files (empty when none). */
+  i18n?: Record<string, PluginI18n>;
+}
+
+/** Load a plugin's `i18n/<lang>.json` translation files into a `{ lang: PluginI18n }` map. Each plugin
+ *  owns its own translations next to its manifest, so a new plugin ships localized without touching the
+ *  app dictionaries. Missing dir or malformed files degrade to the manifest's English strings. */
+function loadPluginI18n(pluginDir: string): Record<string, PluginI18n> | undefined {
+  const dir = join(pluginDir, 'i18n');
+  if (!existsSync(dir)) return undefined;
+  const out: Record<string, PluginI18n> = {};
+  for (const file of readdirSync(dir)) {
+    const m = /^([a-z]{2})\.json$/.exec(file);
+    const lang = m?.[1];
+    if (!lang) continue;
+    try { out[lang] = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as PluginI18n; }
+    catch { /* malformed translation file → fall back to manifest English */ }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Scan `dirs` for plugin folders and parse their manifests WITHOUT importing any code — safe to call
@@ -31,7 +57,7 @@ export function discoverPlugins(dirs: string[]): DiscoveredPlugin[] {
         const manifest = parseManifest(JSON.parse(readFileSync(join(pluginDir, 'orca-plugin.json'), 'utf-8')));
         if (manifest.name !== name) continue;
         seen.add(name);
-        found.push({ manifest, dir: pluginDir, source: i === 0 ? 'bundled' : 'user' });
+        found.push({ manifest, dir: pluginDir, source: i === 0 ? 'bundled' : 'user', i18n: loadPluginI18n(pluginDir) });
       } catch { /* not a plugin folder (or broken manifest) → not listed */ }
     }
   });
@@ -48,7 +74,7 @@ export interface LoadPluginsOptions {
   /** Root for per-plugin writable data dirs (ctx.dataDir()). */
   dataRoot?: string;
   /** Proactive-notification sink exposed to plugins as ctx.notify(). */
-  notify?: (text: string) => Promise<void>;
+  notify?: (text: string, channelId?: string) => Promise<void>;
   /** Model catalog provider exposed to plugins as ctx.listModels(). */
   listModels?: () => Promise<{ provider: string; providerLabel: string; model: string }[]>;
   logger: PluginLogger;

@@ -11,6 +11,24 @@ describe('parseManifest', () => {
     const m = parseManifest({ ...good, requires: { env: ['X'] }, provides: { skills: ['*'] } });
     expect(m.provides?.skills).toEqual(['*']);
   });
+  it('accepts every declared config field type, including the model picker', () => {
+    const m = parseManifest({
+      ...good,
+      configSchema: [
+        { key: 'k1', label: 'S', type: 'string' },
+        { key: 'k2', label: 'Sec', type: 'secret' },
+        { key: 'k3', label: 'B', type: 'boolean' },
+        { key: 'k4', label: 'N', type: 'number' },
+        { key: 'k5', label: 'T', type: 'textarea' },
+        { key: 'k6', label: 'R', type: 'rolePolicies' },
+        { key: 'model', label: 'Model', type: 'model' },
+      ],
+    });
+    expect(m.configSchema?.map((f) => f.type)).toContain('model');
+  });
+  it('rejects an unknown config field type', () => {
+    expect(() => parseManifest({ ...good, configSchema: [{ key: 'k', label: 'L', type: 'wat' }] })).toThrow();
+  });
   it('rejects a missing required field', () => {
     expect(() => parseManifest({ ...good, name: undefined })).toThrow();
   });

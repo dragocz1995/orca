@@ -3,12 +3,14 @@ import type { AgentSession, AgentSessionEvent, ResourceLoader } from '@earendil-
 import type { PluginRegistry } from '../plugins/registry.js';
 import type { Policy } from '../plugins/policy.js';
 import { runWithPolicy } from '../plugins/policyContext.js';
+import type { TurnIdentity } from '../plugins/policyContext.js';
 import type { AuthStorage } from '@earendil-works/pi-coding-agent';
-import type { BrainStore } from '../store/brainStore.js';
+import type { BrainStore, BrainSearchHit } from '../store/brainStore.js';
 import type { BrainRuntimeConfig } from './providers.js';
 import { buildBrainRegistry, resolveBrainModel } from './providers.js';
 import { orcaExec } from '../shared/execs.js';
 import { buildOrcaTools } from './tools/index.js';
+import { personalityText } from './personality.js';
 import { projectEvent, projectUserTurn, rehydrate } from './persistence.js';
 import { shapeBrainMessages, toolDetail, extractText } from './messageView.js';
 import type { BrainMessageView } from './messageView.js';
@@ -19,7 +21,10 @@ export type BrainEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool'; name: string; detail?: string }
   | { type: 'diff'; diff: string }
-  | { type: 'idle'; usage?: BrainUsage }
+  /** A tool produced a stored image (`/api/brain/images/…`) — channels attach it even when the
+   *  model's final text forgets to repeat the markdown link. */
+  | { type: 'image'; ref: string }
+  | { type: 'idle'; usage?: BrainUsage; model?: string }
   | { type: 'error'; message: string };
 
 /** Statusline data for one live conversation: current context fill + session totals. */
@@ -60,7 +65,12 @@ export interface BrainDeps {
   policy?: (userId: number) => Policy;
   /** Per-user CLI/brain settings: an optional model override (empty → configured default) + auto-compact
    *  toggle and its user-tunable threshold percentage. */
-  userSettings?: (userId: number) => { model?: string; modelProvider?: string; autoCompact?: boolean; autoCompactAt?: number };
+  userSettings?: (userId: number) => { model?: string; modelProvider?: string; visionModel?: string; visionModelProvider?: string; autoCompact?: boolean; autoCompactAt?: number; advisorStyle?: string };
+  /** The assistant's configured display identity (Settings → Orca AI). Absent → 'Orca'. */
+  agentName?: () => string;
+  /** Resolve a platform sender (e.g. a Discord id) to the Orca user who claimed it in their account
+   *  settings. Lets channel turns carry a verified identity line for registered users. */
+  resolvePlatformUser?: (platform: string, platformUserId: string) => { id: number; name: string; username?: string; admin: boolean } | null;
   /** Per-user brain-model permission, keyed by exec spec `orca:<provider>/<model>`. Absent → no
    *  restriction (open mode / tests). Enforced on explicit picks; a saved-but-revoked default
    *  silently falls back to the server default instead of erroring. */
@@ -85,7 +95,7 @@ function defaultResourceLoaderFactory(o: { cwd: string; systemPrompt: string; ap
   });
 }
 
-interface LiveBrain { session: AgentSession; sessionId: string; model: string; policy: Policy; autoCompact: boolean; autoCompactAt: number; listeners: Set<(e: BrainEvent) => void>; turnContext: () => string }
+interface LiveBrain { session: AgentSession; sessionId: string; model: string; visionCapable: boolean; policy: Policy; autoCompact: boolean; autoCompactAt: number; listeners: Set<(e: BrainEvent) => void>; turnContext: () => string; /** True while the session runs on the user's vision-fallback model (an image turn hopped onto it). */ visionFallback?: boolean }
 
 /** Fallback auto-compact threshold (fraction of the context window) when the user set none. */
 const DEFAULT_AUTO_COMPACT_AT = 0.8;
@@ -108,6 +118,13 @@ function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   if (anyE.type === 'tool_execution_end') {
     const diff = anyE.result?.details?.diff;
     if (typeof diff === 'string' && diff.trim()) return { type: 'diff', diff };
+    // Image tools return a markdown link to the stored file; surface it as a first-class event so
+    // channel adapters can attach the real file (models often omit the link from their final text).
+    const parts = (anyE.result as { content?: { type?: string; text?: string }[] } | undefined)?.content;
+    for (const part of Array.isArray(parts) ? parts : []) {
+      const m = typeof part?.text === 'string' ? /\((\/api)?\/brain\/images\/([a-z0-9]+\.png)\)/.exec(part.text) : null;
+      if (m) return { type: 'image', ref: `/api/brain/images/${m[2]}` };
+    }
   }
   return null;
 }
@@ -131,7 +148,7 @@ export class BrainService {
   private live = new Map<string, LiveBrain>();
   private active = new Map<number, string>();
   private channels = new Map<string, LiveBrain>();
-  private startedPlatforms: { name: string; disconnect?(): void; notify?(t: string): Promise<void> }[] = [];
+  private startedPlatforms: { name: string; disconnect?(): void; notify?(t: string, channelId?: string): Promise<void> }[] = [];
   private pluginsMemo?: PluginRegistry;
   /** Per-conversation exclusivity: PI sessions are single-conversation, so concurrent prompt()/spawn
    *  calls on one session id queue up here instead of corrupting turn state. */
@@ -246,6 +263,12 @@ export class BrainService {
       .map((s) => ({ id: s.id, title: s.title, model: s.model, updated_at: s.updated_at, running: this.live.has(s.id), active: s.id === activeId }));
   }
 
+  /** Fulltext search across the user's stored conversations (channel sessions included — they carry
+   *  the owner's user_id, so ownership scoping is the store's join). */
+  searchMessages(userId: number, query: string): BrainSearchHit[] {
+    return this.d.store.searchMessages(userId, query);
+  }
+
   /** Everything shared by a user session and a channel session: registry + store row + rehydration +
    *  persona/plugins composition + PI session construction + persistence subscription. */
   private async spawnLive(opts: {
@@ -258,6 +281,8 @@ export class BrainService {
     /** Platform channel session (Discord, …): the sender is NOT an Orca user, so the owner's
      *  full-scope orca_* API tools are withheld — only Policy-guarded plugin tools load. */
     channel?: boolean;
+    /** Per-role tool allowlist (tool names; '*' = everything). Undefined = no restriction. */
+    toolFilter?: string[];
     autoCompact: boolean;
     autoCompactAt: number;
   }): Promise<LiveBrain> {
@@ -281,7 +306,11 @@ export class BrainService {
     // Enabled plugins contribute tools, skills, and system-prompt fragments. Their tools read the active
     // Policy at call time via AsyncLocalStorage (set around each prompt), no per-session construction.
     const plugins = await this.resolvePlugins();
-    const pluginTools = plugins?.tools ?? [];
+    let pluginTools = plugins?.tools ?? [];
+    if (opts.toolFilter && !opts.toolFilter.includes('*')) {
+      const allow = new Set(opts.toolFilter);
+      pluginTools = pluginTools.filter((t) => allow.has(t.name));
+    }
     const allTools = [...tools, ...pluginTools];
     const skills = plugins?.skills ?? [];
     const skillsBlock = skills.length ? formatSkillsForPrompt(skills) : '';
@@ -292,7 +321,14 @@ export class BrainService {
     // so the brain knows it is Orca — not the underlying model's default persona.
     const u = this.d.users.get(ownerUserId);
     const userName = u?.name || u?.username || 'Filip';
-    const persona = this.d.prompts.render('advisor', { userName }, ownerUserId);
+    const personality = personalityText(this.d.userSettings?.(ownerUserId)?.advisorStyle ?? '');
+    const agentName = this.d.agentName?.() || 'Orca';
+    // Shared platform channels get their own persona: the senders are OTHER people, so the owner's
+    // "personal advisor" prompt (owner-name identity, terminal/control-plane framing) would misaddress
+    // everyone in the room. The channel prompt keeps the agent identity and speaks to bracketed senders.
+    const persona = opts.channel
+      ? this.d.prompts.render('advisor-channel', { ownerName: userName, personality, agentName }, ownerUserId)
+      : this.d.prompts.render('advisor', { userName, personality, agentName }, ownerUserId);
     const resourceLoader = (this.d.resourceLoaderFactory ?? defaultResourceLoaderFactory)({ cwd, systemPrompt: persona, appendSystemPrompt: append });
     // A resource loader passed to createAgentSession is NOT auto-reloaded (only one it builds itself is),
     // so its system prompt stays empty unless we reload it here. Without this the brain falls back to
@@ -316,7 +352,7 @@ export class BrainService {
       projectEvent(this.d.store, sessionId, e); // persist settled turns (agent_end)
       const be = toBrainEvent(e);
       if (!be) return;
-      if (be.type === 'idle') be.usage = usageOf(session); // statusline data rides the idle event
+      if (be.type === 'idle') { be.usage = usageOf(session); be.model = model.id; } // statusline data rides the idle event
       for (const l of listeners) l(be);
     });
 
@@ -327,13 +363,14 @@ export class BrainService {
       const parts = providers.map((f) => { try { return f(); } catch { return ''; } }).filter((x) => x && x.trim());
       return parts.length ? `<context>\n${parts.join('\n')}\n</context>\n\n` : '';
     };
-    return { session, sessionId, model: model.id, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners, turnContext };
+    const visionCapable = Array.isArray((model as { input?: string[] }).input) ? ((model as { input?: string[] }).input as string[]).includes('image') : true;
+    return { session, sessionId, model: model.id, visionCapable, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners, turnContext };
   }
 
   /** Start (or resume) a conversation. `session` resumes that stored conversation (ownership checked);
    *  `fresh` opens a brand-new one. Either way it becomes the user's active conversation. Idempotent
    *  when the target is already live. */
-  async start(userId: number, opts?: { provider?: string; session?: string; fresh?: boolean }): Promise<{ sessionId: string }> {
+  async start(userId: number, opts?: { provider?: string; model?: string; session?: string; fresh?: boolean }): Promise<{ sessionId: string }> {
     let sessionId: string;
     if (opts?.fresh) {
       sessionId = `brain-${userId}-${Date.now().toString(36)}`;
@@ -352,7 +389,7 @@ export class BrainService {
       // else the first configured provider's first model. A saved model the user is no longer
       // allowed to run falls back to the server default rather than blocking the brain.
       const userCfg = this.d.userSettings?.(userId);
-      let selection: { provider?: string; model?: string } = { provider: opts?.provider ?? userCfg?.modelProvider, model: userCfg?.model };
+      let selection: { provider?: string; model?: string } = { provider: opts?.provider ?? userCfg?.modelProvider, model: opts?.model ?? userCfg?.model };
       if (!this.selectionAllowed(userId, selection)) selection = {};
       const live = await this.spawnLive({
         sessionId,
@@ -375,29 +412,53 @@ export class BrainService {
   }
 
   async send(userId: number, text: string, images?: { data: string; mimeType: string }[]): Promise<void> {
-    const b = this.activeLive(userId);
+    let b = this.activeLive(userId);
     if (!b) throw new Error('brain not started for user');
+    // Vision fallback (Account → CLI): an image turn on a text-only model hops onto the user's
+    // configured vision model — the session respawns there (history rehydrates from SQLite) and hops
+    // back on the next text-only turn, so the fallback never silently becomes the permanent model.
+    const vision = this.d.userSettings?.(userId)?.visionModel;
+    if (images?.length && !b.visionCapable && vision) {
+      this.stop(userId);
+      await this.start(userId, { provider: this.d.userSettings?.(userId)?.visionModelProvider || undefined, model: vision });
+      b = this.activeLive(userId);
+      if (!b) throw new Error('brain not started for user');
+      b.visionFallback = true;
+    } else if (!images?.length && b.visionFallback) {
+      this.stop(userId);
+      await this.start(userId);
+      b = this.activeLive(userId);
+      if (!b) throw new Error('brain not started for user');
+    }
+    const live = b;
     // Serialized per conversation: concurrent prompt() calls on one PI session corrupt turn state.
-    await this.serial(b.sessionId, async () => {
+    await this.serial(live.sessionId, async () => {
       // First user message names the conversation (once) so the session list reads naturally.
-      const row = this.d.store.getSession(b.sessionId);
-      if (row && !row.title) this.d.store.setTitle(b.sessionId, text.slice(0, 60));
+      const row = this.d.store.getSession(live.sessionId);
+      if (row && !row.title) this.d.store.setTitle(live.sessionId, text.slice(0, 60));
       // History stores the text plus an attachment marker; the image bytes live only in the live
       // context (a rehydrated conversation keeps the marker, not the pixels).
-      projectUserTurn(this.d.store, b.sessionId, images?.length ? `${text}\n[📎 ${images.length}× obrázek]` : text);
+      projectUserTurn(this.d.store, live.sessionId, images?.length ? `${text}\n[📎 ${images.length}× obrázek]` : text);
       const options = images?.length
         ? { images: images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })) }
         : undefined;
       // Establish the user's repo Policy for any plugin tool this turn invokes (read via currentPolicy()).
       // The turn-context prefix rides only in the live prompt (not stored history) → fresh + cache-safe.
-      const prompted = b.turnContext() + text;
-      await runWithPolicy(b.policy, () => (options ? b.session.prompt(prompted, options) : b.session.prompt(prompted)));
+      const prompted = live.turnContext() + text;
+      // The turn's identity: the Orca account itself (memory and other per-user plugin state key on it).
+      const identity = {
+        platform: 'orca',
+        userId: String(userId),
+        orcaUsername: this.d.users.get(userId)?.username,
+        admin: live.policy.allowedProjectIds === 'all',
+      };
+      await runWithPolicy(live.policy, () => (options ? live.session.prompt(prompted, options) : live.session.prompt(prompted)), identity);
       // Auto-compact: once the conversation fills most of the context window, summarize it so the next
       // turn keeps room. Opt-in per user; failures are non-fatal (a full window still works, just tighter).
-      if (b.autoCompact) {
-        const usage = b.session.getContextUsage();
-        if (usage?.tokens && usage.contextWindow > 0 && usage.tokens / usage.contextWindow >= b.autoCompactAt) {
-          try { await b.session.compact(); } catch { /* best-effort; keep the session usable */ }
+      if (live.autoCompact) {
+        const usage = live.session.getContextUsage();
+        if (usage?.tokens && usage.contextWindow > 0 && usage.tokens / usage.contextWindow >= live.autoCompactAt) {
+          try { await live.session.compact(); } catch { /* best-effort; keep the session usable */ }
         }
       }
     });
@@ -432,11 +493,11 @@ export class BrainService {
 
   /** Push a proactive message to every started platform that has a notification channel (Discord, …).
    *  Fail-open per adapter — a broken sink must not break the cron tick that triggered it. */
-  async notify(text: string): Promise<void> {
+  async notify(text: string, channelId?: string): Promise<void> {
     for (const p of this.startedPlatforms) {
-      const adapter = p as { notify?(t: string): Promise<void> };
+      const adapter = p as { notify?(t: string, channelId?: string): Promise<void> };
       if (typeof adapter.notify === 'function') {
-        try { await adapter.notify(text); } catch { /* one sink down must not block the rest */ }
+        try { await adapter.notify(text, channelId); } catch { /* one sink down must not block the rest */ }
       }
     }
   }
@@ -457,8 +518,25 @@ export class BrainService {
             ? { allowedProjectIds: 'all' as const, allowedPaths: () => [] }
             : this.d.policyForProjects?.(src.access.projectIds)
               ?? { allowedProjectIds: new Set(src.access.projectIds), allowedPaths: () => [] };
-          const promptAppend = src.access.prompt ? [src.access.prompt] : undefined;
-          return this.channelSend({ channelId: `${src.platform}-${src.threadId ?? src.channelId}`, ownerUserId: owner, policy, promptAppend, trusted: src.access.admin, model: src.access.model, onEvent }, text);
+          const promptAppend = [
+            ...(src.access.prompt ? [src.access.prompt] : []),
+            ...(src.channelName ? [this.channelFragment(src, owner)] : []),
+          ];
+          // A sender who linked their platform id in Account settings gets a verified identity line —
+          // the agent then KNOWS who this is (incl. recognizing the operator), not just a bracket name.
+          const linked = this.d.resolvePlatformUser?.(src.platform, src.userId);
+          const sendText = linked
+            ? `[Verified: this sender is the Orca user "${linked.name}"${linked.id === owner ? ' — the operator of this instance' : ''}]\n${text}`
+            : text;
+          // Per-turn sender identity: a linked sender keys per-user plugin state (memory) by their Orca
+          // account; an unknown sender by platform id. Owner-authored automation (cron) counts as admin.
+          const identity = {
+            platform: src.platform,
+            userId: src.userId,
+            orcaUsername: linked?.username || linked?.name,
+            admin: src.access.admin === true || linked?.admin === true,
+          };
+          return this.channelSend({ channelId: `${src.platform}-${src.threadId ?? src.channelId}`, ownerUserId: owner, policy, promptAppend: promptAppend.length ? promptAppend : undefined, trusted: src.access.admin, model: src.access.model, tools: src.access.admin ? undefined : src.access.tools, images: src.images, identity, history: src.history, onEvent }, sendText);
         });
         await adapter.connect();
         this.startedPlatforms.push(adapter);
@@ -469,6 +547,22 @@ export class BrainService {
     }
   }
 
+  /** Shared-channel system-prompt fragment: names the room (and its topic) and pins the multi-user
+   *  etiquette — senders arrive `[name]`-prefixed and are usually NOT the instance owner, so the brain
+   *  must never address a stranger as the owner. Applied only when the channel session spawns via
+   *  `promptAppend` → `extraAppend`; a later channel-name/topic change takes effect once the session
+   *  respawns (LRU eviction or a /new reset). */
+  private channelFragment(src: { platform: string; channelName?: string; channelTopic?: string }, ownerUserId: number): string {
+    const u = this.d.users.get(ownerUserId);
+    const ownerName = u?.name || u?.username || 'the owner';
+    const platform = src.platform.charAt(0).toUpperCase() + src.platform.slice(1);
+    const topic = src.channelTopic?.trim() ? ` The channel topic is: "${src.channelTopic.trim()}".` : '';
+    return `You are talking on ${platform} in #${src.channelName}.${topic}\n`
+      + `This is a shared channel: each user message is prefixed with the sender's name in [brackets]. `
+      + `Address each sender by their bracketed name — the person talking to you is usually NOT ${ownerName}, `
+      + `whose Orca instance you run on. Never assume the sender is ${ownerName} unless the prefix says so.`;
+  }
+
   /** Send one channel message (e.g. a Discord mention) into that channel's own conversation and return
    *  the final assistant text. The session is keyed by the channel — NOT the Orca user — and runs with
    *  the caller-resolved Policy (role → projects) plus optional role prompt fragments. Persisted like
@@ -477,11 +571,18 @@ export class BrainService {
    *  stays in SQLite and rehydrates on the next message), so a busy server can't leak sessions. */
   private static readonly MAX_CHANNELS = 32;
 
-  async channelSend(opts: { channelId: string; ownerUserId: number; policy: Policy; promptAppend?: string[]; trusted?: boolean; model?: { provider?: string; model?: string }; onEvent?: (e: BrainEvent) => void }, text: string): Promise<string> {
+  async channelSend(opts: { channelId: string; ownerUserId: number; policy: Policy; promptAppend?: string[]; trusted?: boolean; model?: { provider?: string; model?: string }; tools?: string[]; images?: { data: string; mimeType: string }[]; identity?: TurnIdentity; history?: () => Promise<string>; onEvent?: (e: BrainEvent) => void }, text: string): Promise<string> {
     const sessionId = `brain-ch-${opts.channelId}`;
     // Serialized per channel: two rapid Discord messages must not prompt() one PI session concurrently
     // (and must not both spawn it).
     return this.serial(sessionId, async () => {
+      // A BRAND-NEW conversation (no stored turns) may backfill what the platform channel said before
+      // the brain joined — fetched lazily so an ongoing conversation never pays for it. Prepended to
+      // the first user message (not the system prompt) so it persists as normal history.
+      if (opts.history && this.d.store.getMessages(sessionId).length === 0) {
+        const past = await opts.history().catch(() => '');
+        if (past.trim()) text = `${past.trim()}\n\n${text}`;
+      }
       let ch = this.channels.get(opts.channelId);
       // A model switch mid-conversation rebuilds the session on the new model (history rehydrates).
       if (ch && opts.model?.model && ch.model !== opts.model.model) { ch.session.dispose(); this.channels.delete(opts.channelId); ch = undefined; }
@@ -497,6 +598,7 @@ export class BrainService {
           policy: opts.policy,
           extraAppend: opts.promptAppend,
           channel: !opts.trusted, // foreign platform senders never get the orca_* control-plane tools
+          toolFilter: opts.tools,
           autoCompact: true, // channels are long-lived and unattended — keep their context bounded
           autoCompactAt: DEFAULT_AUTO_COMPACT_AT,
         });
@@ -504,13 +606,17 @@ export class BrainService {
         this.channels.delete(opts.channelId); // re-insert below → Map order doubles as LRU order
       }
       this.channels.set(opts.channelId, ch);
-      projectUserTurn(this.d.store, sessionId, text);
+      // Same image handling as send(): history keeps a marker, the pixels ride only the live prompt.
+      projectUserTurn(this.d.store, sessionId, opts.images?.length ? `${text}\n[📎 ${opts.images.length}× obrázek]` : text);
       const prompted = ch.turnContext() + text;
+      const options = opts.images?.length
+        ? { images: opts.images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })) }
+        : undefined;
       // Optional live streaming (Discord edit-in-place): forward this turn's events to the caller.
       const onEvent = opts.onEvent;
       const detach = onEvent ? (ch.listeners.add(onEvent), () => ch.listeners.delete(onEvent)) : undefined;
       try {
-        await runWithPolicy(opts.policy, () => ch.session.prompt(prompted));
+        await runWithPolicy(opts.policy, () => (options ? ch.session.prompt(prompted, options) : ch.session.prompt(prompted)), opts.identity);
       } finally { detach?.(); }
       const usage = ch.session.getContextUsage();
       if (usage?.tokens && usage.contextWindow > 0 && usage.tokens / usage.contextWindow >= ch.autoCompactAt) {

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, Plus, Pencil, Trash2, KeyRound, Link2, Unlink, ExternalLink, Check } from 'lucide-react';
+import { BrainCircuit, Plus, Pencil, Trash2, KeyRound, Link2, Unlink, ExternalLink, Check, ListChecks } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -11,6 +11,8 @@ import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { useConfig, useBrainOauthStatus } from '../../lib/queries';
+import { useUpdateConfig } from '../../lib/mutations';
+import { useAutoSave } from '../../lib/useAutoSave';
 import { useSaveBrainProviders, useBrainOauthDisconnect } from '../../lib/mutations';
 import { orcaClient } from '../../lib/orcaClient';
 import type { BrainProvider, BrainProviderType, OAuthFlowState } from '../../lib/types';
@@ -75,18 +77,106 @@ function OAuthConnectDialog({ flow: initial, onDone }: { flow: OAuthFlowState; o
   );
 }
 
-/** Add/edit dialog for one provider entry. API-key types take endpoint + key + models; OAuth types
- *  only need a label (auth lives in the connected account, models default to the built-in catalog). */
+/** Clickable model pills over a catalog, with a search box once the list gets long. Each pill carries
+ *  its brand icon (ModelIcon matches by name). Selected pills read as active; empty selection means
+ *  "the whole catalog". Shared by the OAuth account picker and the API-provider dialog. */
+function ModelPillsPicker({ catalog, selected, onChange }: {
+  catalog: string[]; selected: string[]; onChange: (models: string[]) => void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+  const picked = new Set(selected);
+  const toggle = (m: string) => onChange(picked.has(m) ? selected.filter((x) => x !== m) : [...selected, m]);
+  const q = query.trim().toLowerCase();
+  const shown = q ? catalog.filter((m) => m.toLowerCase().includes(q)) : catalog;
+  return (
+    <div className="flex flex-col gap-2">
+      {catalog.length > 8 ? (
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.brain.searchModels} aria-label={t.brain.searchModels} />
+      ) : null}
+      <div className="flex max-h-80 flex-wrap content-start gap-1.5 overflow-y-auto">
+        {shown.map((m) => {
+          const on = picked.has(m);
+          return (
+            <button key={m} type="button" onClick={() => toggle(m)} aria-pressed={on}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-xs transition-colors ${on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border bg-elevated text-text-muted hover:border-border-strong hover:text-text'}`}
+              style={{ transitionDuration: 'var(--motion-fast)' }}>
+              <ModelIcon name={m} size={14} />{m}
+            </button>
+          );
+        })}
+        {shown.length === 0 ? <span className="text-xs italic text-text-muted">{t.brain.searchNoMatch}</span> : null}
+      </div>
+      <span className="text-tiny text-text-muted">{picked.size === 0 ? t.brain.pickModelsAll : t.brain.pickModelsCount.replace('{n}', String(picked.size))}</span>
+    </div>
+  );
+}
+
+/** The OAuth account's built-in catalog, loaded once, rendered as clickable pills. */
+function OauthCatalogPicker({ type, selected, onChange }: {
+  type: BrainProviderType; selected: string[]; onChange: (models: string[]) => void;
+}) {
+  const [catalog, setCatalog] = useState<string[] | null>(null);
+  useEffect(() => {
+    setCatalog(null);
+    void orcaClient.brainOauthCatalog(type).then((r) => setCatalog(r.models)).catch(() => setCatalog([]));
+  }, [type]);
+  if (catalog === null) return <LoadingState />;
+  return <ModelPillsPicker catalog={catalog} selected={selected} onChange={onChange} />;
+}
+
+/** Model picker for a connected OAuth account. The selection is stored as an explicit provider
+ *  entry's manual `models` list — empty selection = the whole catalog (today's behavior). This keeps
+ *  the Models section from drowning in the account's entire catalog when only a couple are wanted. */
+function OAuthModelsModal({ type, initial, onSave, onClose }: {
+  type: BrainProviderType; initial: string[]; onSave: (models: string[]) => void; onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [picked, setPicked] = useState<string[]>(initial);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+      <div className="flex w-full max-w-lg flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+        <span className="text-sm font-semibold text-text">{t.brain.pickModelsTitle.replace('{provider}', t.brain.types[type])}</span>
+        <p className="text-xs text-text-muted">{t.brain.pickModelsHint}</p>
+        <OauthCatalogPicker type={type} selected={picked} onChange={setPicked} />
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="accent" icon={Check} onClick={() => onSave(picked)}>{t.common.save}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Add/edit dialog for one API-key provider entry (endpoint + key + models). OAuth accounts are NOT
+ *  added here — they connect via the account cards above, where their model selection also lives. */
 function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
   draft: Draft; existingIds: string[]; onSave: (d: Draft) => void; onClose: () => void;
 }) {
   const { t } = useTranslation();
   const [d, setD] = useState(initial);
   const isNew = !initial.id;
-  const isOauth = d.type.startsWith('oauth-');
   const id = isNew ? slug(d.label) : d.id;
   const idTaken = isNew && existingIds.includes(id);
-  const valid = d.label.trim() && id && !idTaken && (isOauth || d.type === 'anthropic' || d.baseUrl.trim());
+  const valid = d.label.trim() && id && !idTaken && (d.type === 'anthropic' || d.baseUrl.trim());
+
+  // Live-probe the endpoint's /models as soon as it looks addressable, so the admin clicks pills
+  // instead of typing model ids. Debounced; when editing, the stored key is used server-side (`id`).
+  // No answer (bad URL, no /models route) → the manual textarea below stays as the fallback.
+  // null = endpoint gave nothing (manual textarea fallback); 'loading' = probe in flight — show a
+  // spinner instead of flashing the fallback and swapping it for pills a beat later.
+  const [probed, setProbed] = useState<string[] | 'loading' | null>(d.type === 'openai' && initial.baseUrl.trim() ? 'loading' : null);
+  useEffect(() => {
+    if (d.type !== 'openai' || !d.baseUrl.trim()) { setProbed(null); return; }
+    setProbed('loading');
+    const timer = setTimeout(() => {
+      void orcaClient.brainProviderProbe({ baseUrl: d.baseUrl.trim(), ...(d.apiKey.trim() ? { apiKey: d.apiKey.trim() } : {}), ...(isNew ? {} : { id: d.id }) })
+        .then((r) => setProbed(r.models.length > 0 ? r.models : null))
+        .catch(() => setProbed(null));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [d.type, d.baseUrl, d.apiKey, d.id, isNew]);
+  const selectedModels = d.models.split('\n').map((m) => m.trim()).filter(Boolean);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
@@ -100,31 +190,31 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
           <Segmented
             aria-label={t.brain.providerType}
             size="sm"
-            options={[...API_TYPES, ...OAUTH_TYPES.map((o) => o.type)].map((v) => ({ value: v, label: t.brain.types[v] }))}
+            options={API_TYPES.map((v) => ({ value: v, label: t.brain.types[v] }))}
             value={d.type}
             onChange={(v) => setD({ ...d, type: v as BrainProviderType })}
           />
         </Field>
-        {!isOauth ? (
-          <>
-            <Field label={t.brain.baseUrl} hint={d.type === 'openai' ? t.brain.baseUrlHintOpenai : t.brain.baseUrlHintAnthropic}>
-              <Input value={d.baseUrl} onChange={(e) => setD({ ...d, baseUrl: e.target.value })} placeholder={d.type === 'openai' ? 'https://ai.example.com/v1' : 'https://api.anthropic.com'} className="font-mono" />
-            </Field>
-            <Field label={t.brain.apiKey} hint={isNew ? undefined : t.brain.apiKeyKeepHint}>
-              <Input type="password" value={d.apiKey} onChange={(e) => setD({ ...d, apiKey: e.target.value })} placeholder={isNew ? 'sk-…' : '••••••'} autoComplete="off" />
-            </Field>
-          </>
-        ) : (
-          <p className="text-xs text-text-muted">{t.brain.oauthProviderHint}</p>
-        )}
-        <Field label={t.brain.models} hint={d.type === 'openai' ? t.brain.modelsHintAuto : t.brain.modelsHint}>
-          <textarea
-            value={d.models}
-            onChange={(e) => setD({ ...d, models: e.target.value })}
-            rows={3}
-            className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent"
-            placeholder={'claude-opus-4-8\nollama/kimi-k2.7-code'}
-          />
+        <Field label={t.brain.baseUrl} hint={d.type === 'openai' ? t.brain.baseUrlHintOpenai : t.brain.baseUrlHintAnthropic}>
+          <Input value={d.baseUrl} onChange={(e) => setD({ ...d, baseUrl: e.target.value })} placeholder={d.type === 'openai' ? 'https://ai.example.com/v1' : 'https://api.anthropic.com'} className="font-mono" />
+        </Field>
+        <Field label={t.brain.apiKey} hint={isNew ? undefined : t.brain.apiKeyKeepHint}>
+          <Input type="password" value={d.apiKey} onChange={(e) => setD({ ...d, apiKey: e.target.value })} placeholder={isNew ? 'sk-…' : '••••••'} autoComplete="off" />
+        </Field>
+        <Field label={t.brain.models} hint={Array.isArray(probed) ? t.brain.modelsHintPicker : d.type === 'openai' ? t.brain.modelsHintAuto : t.brain.modelsHint}>
+          {probed === 'loading' ? (
+            <LoadingState />
+          ) : Array.isArray(probed) ? (
+            <ModelPillsPicker catalog={probed} selected={selectedModels.filter((m) => probed.includes(m))} onChange={(models) => setD({ ...d, models: models.join('\n') })} />
+          ) : (
+            <textarea
+              value={d.models}
+              onChange={(e) => setD({ ...d, models: e.target.value })}
+              rows={3}
+              className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent"
+              placeholder={'claude-opus-4-8\nollama/kimi-k2.7-code'}
+            />
+          )}
         </Field>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
@@ -145,9 +235,29 @@ export function BrainSection() {
   const { t } = useTranslation();
   const [modal, setModal] = useState<Draft | null>(null);
   const [flow, setFlow] = useState<OAuthFlowState | null>(null);
+  const [modelsFor, setModelsFor] = useState<BrainProviderType | null>(null);
+
+  // The assistant's display identity ("Orca" by default) — feeds the persona everywhere it speaks.
+  const updateConfig = useUpdateConfig();
+  const [agentName, setAgentName] = useState('');
+  const [nameSeeded, setNameSeeded] = useState(false);
+  useEffect(() => {
+    if (config && !nameSeeded) { setAgentName(config.brain?.agentName ?? 'Orca'); setNameSeeded(true); }
+  }, [config, nameSeeded]);
+  useAutoSave([agentName], () => {
+    if (agentName.trim()) updateConfig.mutate({ brain: { agentName: agentName.trim() } }, { onError: () => toast(t.brain.saveError, 'error') });
+  }, { ready: nameSeeded });
 
   if (!config) return <LoadingState />;
   const providers = config.brain?.providers ?? [];
+  // OAuth entries exist in config only as carriers of the account's model selection — the account
+  // cards above manage them, so the add/edit grid below shows API-key providers only.
+  const apiProviders = providers.filter((p) => !p.type.startsWith('oauth-'));
+
+  // A connected account's model selection lives on its explicit provider entry (id = the builtin
+  // provider name, so `orca:<id>/<model>` execs stay stable whether the entry is synthetic or saved).
+  const OAUTH_ENTRY_ID: Record<string, string> = { 'oauth-anthropic': 'anthropic', 'oauth-openai-codex': 'openai-codex', 'oauth-github-copilot': 'github-copilot' };
+  const oauthEntryOf = (type: BrainProviderType) => providers.find((p) => p.type === type);
 
   const persist = (next: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]) =>
     save.mutate(next, {
@@ -177,6 +287,13 @@ export function BrainSection() {
     <div className="flex flex-col gap-6">
       <p className="text-xs text-text-muted">{t.brain.intro}</p>
 
+      {/* Identity: what the assistant calls itself, everywhere it speaks (chat, Discord, CLI). */}
+      <div className="flex max-w-md flex-col gap-2">
+        <span className="text-sm font-medium text-text">{t.brain.agentName}</span>
+        <Input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Orca" aria-label={t.brain.agentName} />
+        <span className="text-tiny text-text-muted">{t.brain.agentNameHint}</span>
+      </div>
+
       {/* OAuth accounts: one row per supported account type, connect/disconnect. */}
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-text">{t.brain.accounts}</span>
@@ -193,7 +310,10 @@ export function BrainSection() {
                   {connected ? <Badge tone="accent">{t.brain.connected}</Badge> : <span className="text-tiny text-text-muted">{t.brain.notConnected}</span>}
                 </div>
                 {connected ? (
-                  <Button variant="ghost" icon={Unlink} onClick={() => disconnect.mutate(type, { onSuccess: () => toast(t.brain.disconnected) })}>{t.brain.disconnect}</Button>
+                  <span className="flex shrink-0 gap-1">
+                    <Button variant="ghost" icon={ListChecks} aria-label={`${t.brain.pickModels}: ${t.brain.types[type]}`} onClick={() => setModelsFor(type)}>{t.brain.pickModels}</Button>
+                    <Button variant="ghost" icon={Unlink} aria-label={`${t.brain.disconnect}: ${t.brain.types[type]}`} onClick={() => disconnect.mutate(type, { onSuccess: () => toast(t.brain.disconnected) })} />
+                  </span>
                 ) : (
                   <Button variant="accent" icon={Link2} onClick={() => startConnect(type)}>{t.brain.connect}</Button>
                 )}
@@ -209,11 +329,11 @@ export function BrainSection() {
           <span className="text-sm font-medium text-text">{t.brain.providers}</span>
           <Button variant="accent" icon={Plus} onClick={() => setModal(emptyDraft())}>{t.brain.addProvider}</Button>
         </div>
-        {providers.length === 0 ? (
+        {apiProviders.length === 0 ? (
           <p className="text-xs italic text-text-muted">{t.brain.noProviders}</p>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {providers.map((p) => (
+            {apiProviders.map((p) => (
               <div key={p.id} className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
                 <div className="flex items-center gap-2">
                   <BrainCircuit size={16} className="shrink-0 text-accent" aria-hidden />
@@ -234,6 +354,23 @@ export function BrainSection() {
       </div>
 
       {modal ? <ProviderModal draft={modal} existingIds={providers.map((p) => p.id)} onSave={upsert} onClose={() => setModal(null)} /> : null}
+      {modelsFor ? (
+        <OAuthModelsModal
+          type={modelsFor}
+          initial={oauthEntryOf(modelsFor)?.models ?? []}
+          onClose={() => setModelsFor(null)}
+          onSave={(models) => {
+            // Upsert the explicit entry carrying the selection; keep an existing entry's identity.
+            const existing = oauthEntryOf(modelsFor);
+            const entry = existing
+              ? { ...(({ apiKeySet, ...rest }) => rest)(existing), models }
+              : { id: OAUTH_ENTRY_ID[modelsFor], label: t.brain.types[modelsFor], type: modelsFor, baseUrl: '', models };
+            const keyless = providers.map(({ apiKeySet, ...p }) => p);
+            persist(keyless.some((p) => p.id === entry.id) ? keyless.map((p) => (p.id === entry.id ? entry : p)) : [...keyless, entry]);
+            setModelsFor(null);
+          }}
+        />
+      ) : null}
       {flow ? (
         <OAuthConnectDialog
           flow={flow}

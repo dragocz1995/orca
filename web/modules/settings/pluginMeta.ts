@@ -15,7 +15,7 @@ const PLUGIN_ICONS: Record<string, LucideIcon> = {
   'image-gen': ImageIcon,
   'image-edit': Wand2,
   video: Clapperboard,
-  cron: Clock,
+  cronjob: Clock,
   statusline: Activity,
   'security-scan': ShieldCheck,
   discord: MessageCircle,

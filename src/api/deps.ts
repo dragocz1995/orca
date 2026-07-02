@@ -105,6 +105,8 @@ export interface ServerDeps {
   latestVersion?: () => Promise<string | null>;
   /** Start a manual in-place update (detached). Injected in tests; defaults to spawning `orca update`. */
   startUpdate?: () => void;
+  /** Restart one systemd unit (detached, `--no-block`). Injected in tests; defaults to sudo systemctl. */
+  startRestart?: (target: 'daemon' | 'web') => void;
   /** Agent-skill install/verify for the System panel. Injected in tests; defaults to a service that
    *  writes into the spawning user's real provider skills dirs. */
   skillService?: SkillService;

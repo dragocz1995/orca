@@ -29,7 +29,9 @@ export function parseOneShot(spec, now) {
   return null;
 }
 
-/** Parse "every 15m" / "every 2h" / "daily 07:30" into a matcher. Returns null when invalid. */
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+/** Parse "every 15m" / "every 2h" / "daily 07:30" / "weekly sun 20:00" into a matcher. Null = invalid. */
 export function parseSchedule(spec) {
   let m = /^every\s+(\d+)\s*(m|h)$/i.exec(spec.trim());
   if (m) {
@@ -39,17 +41,38 @@ export function parseSchedule(spec) {
   }
   m = /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(spec.trim());
   if (m) return { kind: 'daily', hour: Number(m[1]), minute: Number(m[2]) };
+  m = /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(spec.trim());
+  if (m) return { kind: 'weekly', day: WEEKDAYS.indexOf(m[1].toLowerCase()), hour: Number(m[2]), minute: Number(m[3]) };
   return null;
+}
+
+/** Whether a job reply means "nothing to say". Hermes-era prompts answer `[SILENT]`, ours say
+ *  `NOTHING_TO_REPORT` — and models love wrapping either in backticks/bold, so match leniently. */
+export function isQuietReply(reply) {
+  return /^[`*_\s]*(NOTHING_TO_REPORT|\[SILENT\])[`*_\s]*$/i.test(String(reply ?? '').trim());
+}
+
+/** Whether `now` falls inside a job's optional "H-H" active-hours window (e.g. '5-21'). */
+export function inHours(hours, now) {
+  if (!hours) return true;
+  const m = /^([01]?\d|2[0-3])\s*-\s*([01]?\d|2[0-3])$/.exec(String(hours).trim());
+  if (!m) return true; // malformed guard never blocks the job
+  const h = new Date(now).getHours();
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a <= b ? h >= a && h <= b : h >= a || h <= b; // supports overnight windows like 22-5
 }
 
 /** Whether a job is due at `now` given its last run. Daily jobs fire once after today's HH:MM;
  *  one-shot (wakeup) jobs fire exactly once at their stored runAt. */
 export function isDue(job, now) {
+  if (job.enabled === false) return false;
   if (job.runAt) return !job.lastRun && now >= Date.parse(job.runAt);
+  if (!inHours(job.hours, now)) return false;
   const sched = parseSchedule(job.schedule);
   if (!sched) return false;
   const last = job.lastRun ? Date.parse(job.lastRun) : 0;
   if (sched.kind === 'interval') return now - last >= sched.ms;
+  if (sched.kind === 'weekly' && new Date(now).getDay() !== sched.day) return false;
   const at = new Date(now);
   at.setHours(sched.hour, sched.minute, 0, 0);
   return now >= at.getTime() && last < at.getTime();
@@ -57,7 +80,11 @@ export function isDue(job, now) {
 
 class CronAdapter {
   name = 'cron';
-  constructor(store, logger, notify) { this.store = store; this.log = logger; this.notify = notify; this.handler = null; }
+  // The outbound sink is stored as `deliver`, NOT `notify`: the host broadcasts host-initiated
+  // messages to every platform adapter exposing a `notify` method — if this adapter carried one,
+  // the broadcast would call back into itself (host → cron → host → …) until the stack blew,
+  // multiplying every cron echo into dozens of Discord messages.
+  constructor(store, logger, deliver) { this.store = store; this.log = logger; this.deliver = deliver; this.handler = null; }
   listen(onMessage) { this.handler = onMessage; }
   async connect() {
     this.timer = setInterval(() => void this.tick().catch((e) => this.log.error(`tick failed: ${e?.message ?? e}`)), TICK_MS);
@@ -79,7 +106,9 @@ class CronAdapter {
       if (job.runAt) this.store.save(this.store.all().filter((j) => j.id !== job.id)); // one-shot: done → gone
       else this.store.patch(job.id, { lastResult: String(reply ?? '').slice(0, 500) });
       // Echo the outcome to the notification channel (Discord) so it reaches the user proactively.
-      if (reply) await this.notify(`⏰ **${job.name}**\n${String(reply).slice(0, 1800)}`).catch(() => {});
+      // A job with nothing to say answers with a quiet marker (isQuietReply) and stays silent.
+      const trimmed = String(reply ?? '').trim();
+      if (trimmed && !isQuietReply(trimmed)) await this.deliver(`⏰ **${job.name}**\n${String(reply).slice(0, 1800)}`, job.notifyChannelId).catch(() => {});
     }
   }
 }
@@ -100,19 +129,24 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'cron_add', label: 'Schedule job',
-    description: 'Schedule a recurring prompt for yourself. Schedule formats: "every 15m", "every 2h", "daily 07:30". Admin only.',
+    description: 'Schedule a recurring prompt for yourself. Schedule formats: "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00". Admin only.',
     parameters: Type.Object({
       name: Type.String({ description: 'Short human name for the job' }),
-      schedule: Type.String({ description: '"every <N>m", "every <N>h" or "daily HH:MM"' }),
+      schedule: Type.String({ description: '"every <N>m", "every <N>h", "daily HH:MM" or "weekly <mon..sun> HH:MM"' }),
       prompt: Type.String({ description: 'The prompt to run on schedule' }),
+      hours: Type.Optional(Type.String({ description: 'Active-hours window "H-H" (e.g. "5-21") — outside it the job stays quiet' })),
+      notifyChannelId: Type.Optional(Type.String({ description: 'Deliver results to this channel/thread instead of the default notification channel' })),
+      enabled: Type.Optional(Type.Boolean({ description: 'false = create the job paused' })),
     }),
     execute: async (_id, p) => {
       try {
         adminOnly();
-        if (!parseSchedule(p.schedule)) return ok('Error: invalid schedule — use "every 15m", "every 2h" or "daily 07:30".');
+        if (!parseSchedule(p.schedule)) return ok('Error: invalid schedule — use "every 15m", "every 2h", "daily 07:30" or "weekly sun 20:00".');
         const jobs = store.all();
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-        jobs.push({ id, name: p.name, schedule: p.schedule, prompt: p.prompt, createdAt: new Date().toISOString() });
+        // lastRun starts at creation time so a fresh job waits for its NEXT natural slot — a
+        // "daily 06:00" created at 15:00 must not fire immediately.
+        jobs.push({ id, name: p.name, schedule: p.schedule, prompt: p.prompt, hours: p.hours, notifyChannelId: p.notifyChannelId, enabled: p.enabled, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() });
         store.save(jobs);
         return ok(`Scheduled "${p.name}" (${p.schedule}) — id ${id}. Results accumulate in its own conversation.`);
       } catch (e) { return fail(e); }

@@ -228,6 +228,19 @@ export const usePlugins = () =>
 export const usePluginDetail = (name: string | null) =>
   useQuery({ queryKey: ['plugin', name], queryFn: () => orcaClient.pluginDetail(name as string), enabled: !!name });
 
+/** The cronjob plugin's scheduled jobs (admin, the cronjob plugin detail). */
+export const useCronJobs = () =>
+  useQuery({ queryKey: ['cron-jobs'], queryFn: orcaClient.cronJobs });
+
+/** The skills plugin's markdown skills — bundled + user (admin, the skills plugin detail). */
+export const usePluginSkills = () =>
+  useQuery({ queryKey: ['plugin-skills'], queryFn: orcaClient.pluginSkills });
+
+/** Text channels + active threads of the configured Discord guild (the cron destination picker).
+ *  The daemon caches upstream for 60 s; match that so the pills don't refetch per keystroke. */
+export const useDiscordChannels = () =>
+  useQuery({ queryKey: ['discord-channels'], queryFn: orcaClient.discordChannels, staleTime: 60_000 });
+
 /** The caller's brain conversations (web chat session picker). */
 export const useBrainSessions = () =>
   useQuery({ queryKey: ['brain-sessions'], queryFn: orcaClient.brainSessions });

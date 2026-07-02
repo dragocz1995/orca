@@ -54,6 +54,15 @@ describe('cronjob plugin', () => {
     expect(isDue({ ...job, lastRun: new Date(now + 21 * 60_000).toISOString() }, now + 30 * 60_000)).toBe(false); // ran → never again
   });
 
+  it('the cron platform never exposes a `notify` method (the host broadcast would recurse into itself)', async () => {
+    const dataRoot = freshDataRoot();
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log });
+    // BrainService.notify() calls every platform whose `notify` is a function; the cron adapter holds
+    // the host's own notify sink, so exposing it under that name loops host → cron → host until the
+    // stack blows — every cron echo then lands dozens of times on Discord.
+    expect(typeof (reg.platforms[0] as { notify?: unknown }).notify).toBe('undefined');
+  });
+
   it('cron_add/list/remove work in an admin session and are refused otherwise', async () => {
     const dataRoot = freshDataRoot();
     const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log });

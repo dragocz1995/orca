@@ -13,8 +13,8 @@ describe('listBrainModels', () => {
     const f = vi.fn() as unknown as typeof fetch;
     const cfg: BrainRuntimeConfig = { providers: [openaiProvider(['a', 'b'])] };
     expect(await listBrainModels(cfg, f)).toEqual([
-      { provider: 'relay', providerLabel: 'Relay', model: 'a' },
-      { provider: 'relay', providerLabel: 'Relay', model: 'b' },
+      { provider: 'relay', providerLabel: 'Relay', model: 'a', source: 'api-key' },
+      { provider: 'relay', providerLabel: 'Relay', model: 'b', source: 'api-key' },
     ]);
     expect(f).not.toHaveBeenCalled();
   });
@@ -49,5 +49,14 @@ describe('listBrainModels', () => {
     const models = await listBrainModels(cfg, f);
     expect(models.length).toBeGreaterThan(0);
     expect(models.every((m) => m.provider === 'claude')).toBe(true);
+  });
+
+  it('propagates the provider origin as the model source', async () => {
+    const f = vi.fn() as unknown as typeof fetch;
+    const cfg: BrainRuntimeConfig = { providers: [
+      { ...openaiProvider(['m']), origin: 'oauth' as const },
+      { ...openaiProvider(['n']), id: 'r2', origin: 'relay' as const },
+    ] };
+    expect((await listBrainModels(cfg, f)).map((m) => m.source)).toEqual(['oauth', 'relay']);
   });
 });

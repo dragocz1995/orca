@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BrainService } from '../../src/brain/brainService.js';
+import { personalityText } from '../../src/brain/personality.js';
 import { openDb } from '../../src/store/db.js';
 import { BrainStore } from '../../src/store/brainStore.js';
 import { PluginRegistry } from '../../src/plugins/registry.js';
@@ -41,7 +42,7 @@ describe('BrainService', () => {
     expect(svc.status(1).running).toBe(true);
     expect(d.store.getSession('brain-1')).toBeDefined();
     expect(d.createSession).toHaveBeenCalledTimes(1);
-    expect(d.prompts.render).toHaveBeenCalledWith('advisor', { userName: 'Filip' }, 1);
+    expect(d.prompts.render).toHaveBeenCalledWith('advisor', { userName: 'Filip', personality: personalityText(''), agentName: 'Orca' }, 1);
   });
 
   it('composes plugin tools and appends plugin fragments to the persona', async () => {
@@ -64,6 +65,31 @@ describe('BrainService', () => {
     expect(opts.customTools.map((t) => t.name)).toContain('demo_echo');
     expect(opts.customTools.map((t) => t.name)).toContain('orca_list_tasks');
     expect(seenAppend).toContain('Follow house style.');
+  });
+
+  it('advertises registered plugin skills (name + description + file path) in the appended system prompt', async () => {
+    const d = fakeDeps();
+    const reg = new PluginRegistry();
+    const ctx = reg.contextFor('skills', {}, { info() {}, warn() {}, error() {} });
+    ctx.registerSkill({
+      name: 'deploy-checklist',
+      description: 'Use when deploying to production.',
+      filePath: '/plugins/skills/skills/deploy-checklist.md',
+      baseDir: '/plugins/skills/skills',
+      sourceInfo: { path: '/plugins/skills/skills/deploy-checklist.md', source: 'orca-plugin:skills', scope: 'user', origin: 'package' },
+      disableModelInvocation: false,
+    });
+    (d as unknown as { plugins: PluginRegistry }).plugins = reg;
+    let seenAppend: string[] | undefined;
+    d.resourceLoaderFactory = (o: { appendSystemPrompt?: string[] }) => { seenAppend = o.appendSystemPrompt; return undefined; };
+
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const block = (seenAppend ?? []).join('\n');
+    expect(block).toContain('<available_skills>');
+    expect(block).toContain('<name>deploy-checklist</name>');
+    expect(block).toContain('<description>Use when deploying to production.</description>');
+    expect(block).toContain('<location>/plugins/skills/skills/deploy-checklist.md</location>');
   });
 
   it('applies a per-user model override', async () => {
@@ -296,6 +322,50 @@ describe('BrainService', () => {
     expect(unmapped).toBeUndefined();
   });
 
+  it('channelSend passes image attachments to prompt() and marks them in history', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const policy = { allowedProjectIds: new Set([1]), allowedPaths: () => [] };
+    await svc.channelSend({ channelId: 'c-img', ownerUserId: 1, policy, images: [{ data: 'aGVsbG8=', mimeType: 'image/png' }] }, 'co je na fotce?');
+    const call = (d.session.prompt as unknown as { mock: { calls: [string, { images?: unknown }?][] } }).mock.calls.at(-1)!;
+    expect(call[0]).toContain('co je na fotce?');
+    expect(call[1]?.images).toEqual([{ type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }]);
+    // History keeps the marker, not the pixels.
+    const user = d.store.getMessages('brain-ch-c-img').find((m) => m.role === 'user');
+    expect(JSON.stringify(user)).toContain('1× obrázek');
+    expect(JSON.stringify(user)).not.toContain('aGVsbG8=');
+  });
+
+  it('platform handler injects the shared-channel fragment (room name, topic, not-the-owner rule) and forwards images', async () => {
+    const d = fakeDeps();
+    const reg = new PluginRegistry();
+    const ctx = reg.contextFor('discord', {}, { info() {}, warn() {}, error() {} });
+    let handler: ((src: unknown, text: string) => Promise<string | undefined>) | null = null;
+    ctx.registerPlatform({ name: 'discord', connect: async () => {}, listen: (h) => { handler = h; }, send: async () => {} });
+    (d as unknown as { plugins: PluginRegistry }).plugins = reg;
+    (d as unknown as { platformOwner: () => number }).platformOwner = () => 1;
+    let seenAppend: string[] | undefined;
+    d.resourceLoaderFactory = ((o: { appendSystemPrompt?: string[] }) => { seenAppend = o.appendSystemPrompt; return undefined; }) as never;
+
+    const svc = new BrainService(d as never);
+    await svc.startPlatforms();
+    await handler!({
+      platform: 'discord', userId: 'u1', userName: 'Anička', roleIds: ['r'], channelId: 'c9',
+      channelName: 'general', channelTopic: 'Team chat',
+      images: [{ data: 'aW1n', mimeType: 'image/jpeg' }],
+      access: { projectIds: [1], prompt: 'Role dev.' },
+    }, '[Anička] ahoj');
+    const frag = seenAppend?.join('\n') ?? '';
+    expect(frag).toContain('Role dev.'); // the role prompt still rides along
+    expect(frag).toContain('You are talking on Discord in #general.');
+    expect(frag).toContain('The channel topic is: "Team chat".');
+    expect(frag).toContain('usually NOT Filip'); // owner name, not the sender's
+    expect(frag).toContain('Never assume the sender is Filip');
+    const call = (d.session.prompt as unknown as { mock: { calls: [string, { images?: unknown }?][] } }).mock.calls.at(-1)!;
+    expect(call[0]).toContain('[Anička] ahoj');
+    expect(call[1]?.images).toEqual([{ type: 'image', data: 'aW1n', mimeType: 'image/jpeg' }]);
+  });
+
   it('stop disposes the session and reports not running', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
@@ -303,5 +373,24 @@ describe('BrainService', () => {
     svc.stop(1);
     expect(d.session.dispose).toHaveBeenCalled();
     expect(svc.status(1).running).toBe(false);
+  });
+});
+
+describe('channel tool filtering (per-role allowlist)', () => {
+  it('a channel session with access.tools only gets those plugin tools', async () => {
+    const d = fakeDeps();
+    const reg = new PluginRegistry();
+    const ctx = reg.contextFor('demo', {}, { info() {}, warn() {}, error() {} });
+    const mk = (name: string) => defineTool({ name, label: name, description: name, parameters: Type.Object({}), execute: async () => ({ content: [{ type: 'text' as const, text: 'ok' }], details: {} }) });
+    ctx.registerTool(mk('demo_echo'));
+    ctx.registerTool(mk('demo_danger'));
+    (d as unknown as { plugins: PluginRegistry }).plugins = reg;
+    const svc = new BrainService(d as never);
+    await svc.channelSend({ channelId: 'discord-1', ownerUserId: 1, policy: { allowedProjectIds: new Set([1]), allowedPaths: () => [] }, tools: ['demo_echo'] }, 'hi');
+    const opts = (d.createSession as unknown as { mock: { calls: [{ customTools: { name: string }[] }][] } }).mock.calls[0][0];
+    const names = opts.customTools.map((t) => t.name);
+    expect(names).toContain('demo_echo');
+    expect(names).not.toContain('demo_danger');
+    expect(reg.toolOwner.get('demo_echo')).toBe('demo');
   });
 });

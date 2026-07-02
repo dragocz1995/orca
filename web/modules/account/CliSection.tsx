@@ -1,11 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAutoSave } from '../../lib/useAutoSave';
-import { Cpu, SlidersHorizontal } from 'lucide-react';
+import { Cpu, Eye, SlidersHorizontal, MessageSquare, AtSign } from 'lucide-react';
+import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { SettingCard } from '../../components/ui/SettingCard';
+import { Input } from '../../components/ui/Input';
 import { Toggle } from '../../components/ui/Toggle';
 import { Slider } from '../../components/ui/Slider';
-import { ModelIcon } from '../../components/ui/ModelIcon';
 import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -23,15 +24,21 @@ export function CliSection() {
 
   // The dropdown value pairs provider + model; '' = the server default. '::' never appears in ids.
   const [selection, setSelection] = useState('');
+  const [visionSelection, setVisionSelection] = useState('');
   const [autoCompact, setAutoCompact] = useState(false);
   const [autoCompactAt, setAutoCompactAt] = useState(80);
+  const [advisorStyle, setAdvisorStyle] = useState('professional');
+  const [discordUserId, setDiscordUserId] = useState('');
 
   const [seeded, setSeeded] = useState(false);
   useEffect(() => {
     if (data) {
       setSelection(data.model ? `${data.modelProvider ?? ''}::${data.model}` : '');
+      setVisionSelection(data.visionModel ? `${data.visionModelProvider ?? ''}::${data.visionModel}` : '');
       setAutoCompact(data.autoCompact);
       setAutoCompactAt(data.autoCompactAt);
+      setAdvisorStyle(data.advisorStyle);
+      setDiscordUserId(data.discordUserId ?? '');
       setSeeded(true);
     }
   }, [data]);
@@ -39,47 +46,90 @@ export function CliSection() {
   // Auto-persist shortly after any change (the daemon restarts a running brain with the new model).
   const persist = () => {
     const [provider, ...rest] = selection.split('::');
+    const [vProvider, ...vRest] = visionSelection.split('::');
     save.mutate(
-      { model: selection ? rest.join('::') : '', modelProvider: selection ? (provider ?? '') : '', autoCompact, autoCompactAt },
+      {
+        model: selection ? rest.join('::') : '', modelProvider: selection ? (provider ?? '') : '',
+        visionModel: visionSelection ? vRest.join('::') : '', visionModelProvider: visionSelection ? (vProvider ?? '') : '',
+        autoCompact, autoCompactAt, advisorStyle, discordUserId,
+      },
       { onError: () => toast(t.cli.saveError, 'error') },
     );
   };
-  useAutoSave([selection, autoCompact, autoCompactAt], persist, { ready: seeded });
+  useAutoSave([selection, visionSelection, autoCompact, autoCompactAt, advisorStyle, discordUserId], persist, { ready: seeded });
+
+  const styleOptions: { value: string; label: string; hint: string }[] = [
+    { value: 'professional', label: t.cli.styleProfessional, hint: t.cli.styleProfessionalHint },
+    { value: 'friendly', label: t.cli.styleFriendly, hint: t.cli.styleFriendlyHint },
+    { value: 'concise', label: t.cli.styleConcise, hint: t.cli.styleConciseHint },
+    { value: 'detailed', label: t.cli.styleDetailed, hint: t.cli.styleDetailedHint },
+  ];
 
   if (isLoading || !data) return <LoadingState />;
 
   const options = models.data ?? [];
-  // Group by provider label for the <optgroup> rendering.
-  const groups = [...new Set(options.map((o) => o.providerLabel))];
-  const selected = options.find((o) => `${o.provider}::${o.model}` === selection);
-
+  // The picker speaks exec strings; this section stores provider::model — translate at the edges.
+  const selectedExec = options.find((o) => `${o.provider}::${o.model}` === selection)?.exec ?? '';
+  const selectedVisionExec = options.find((o) => `${o.provider}::${o.model}` === visionSelection)?.exec ?? '';
 
   return (
     <>
-      <div className="flex max-w-2xl flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <p className="text-xs text-text-muted">{t.cli.intro}</p>
 
         <SettingCard title={t.cli.modelLabel} icon={Cpu} description={t.cli.modelHint}>
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-elevated" aria-hidden>
-              <ModelIcon name={selected?.model ?? data.serverDefault ?? ''} size={18} />
-            </span>
-            <select
-              value={selection}
-              onChange={(e) => setSelection(e.target.value)}
-              aria-label={t.cli.modelLabel}
-              className="h-9 w-full rounded-md border border-border bg-bg px-3 font-mono text-sm text-text focus:border-accent"
-            >
-              <option value="">{t.cli.serverDefaultOption.replace('{model}', data.serverDefault ?? '')}</option>
-              {groups.map((g) => (
-                <optgroup key={g} label={g}>
-                  {options.filter((o) => o.providerLabel === g).map((o) => (
-                    <option key={`${o.provider}::${o.model}`} value={`${o.provider}::${o.model}`}>{o.model}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+          {/* Same grouped Orca AI picker as everywhere else (provider tabs + OAuth badge). The server
+              already scopes the catalog per-user, so what renders here is exactly what may run. */}
+          <ExecutorPicker
+            value={selectedExec}
+            onChange={(exec) => {
+              const o = options.find((x) => x.exec === exec);
+              setSelection(o ? `${o.provider}::${o.model}` : '');
+            }}
+            models={[]}
+            kind="brain"
+            defaultLabel={t.cli.serverDefaultOption.replace('{model}', data.serverDefault ?? '')}
+          />
+        </SettingCard>
+
+        <SettingCard title={t.cli.visionModelLabel} icon={Eye} description={t.cli.visionModelHint}>
+          <ExecutorPicker
+            value={selectedVisionExec}
+            onChange={(exec) => {
+              const o = options.find((x) => x.exec === exec);
+              setVisionSelection(o ? `${o.provider}::${o.model}` : '');
+            }}
+            models={[]}
+            kind="brain"
+            defaultLabel={t.cli.visionModelDefault}
+          />
+        </SettingCard>
+
+        <SettingCard title={t.cli.styleLabel} icon={MessageSquare} description={t.cli.styleHint}>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {styleOptions.map((o) => {
+                const on = advisorStyle === o.value;
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setAdvisorStyle(o.value)}
+                    aria-pressed={on}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border bg-elevated text-text-muted hover:border-border-strong hover:text-text'}`}
+                    style={{ transitionDuration: 'var(--motion-fast)' }}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-text-muted">{styleOptions.find((o) => o.value === advisorStyle)?.hint}</p>
           </div>
+        </SettingCard>
+
+        <SettingCard title={t.cli.discordId} icon={AtSign} description={t.cli.discordIdHint}>
+          <Input value={discordUserId} onChange={(e) => setDiscordUserId(e.target.value)} placeholder="123456789012345678" className="max-w-xs font-mono" aria-label={t.cli.discordId} />
         </SettingCard>
 
         <SettingCard title={t.cli.autoCompact} icon={SlidersHorizontal} description={t.cli.autoCompactHint}>

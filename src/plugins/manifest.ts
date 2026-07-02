@@ -6,11 +6,12 @@ export const PLUGIN_API_VERSION = '1';
 
 /** One declared config field of a plugin — the settings UI renders a form from these. `secret` values
  *  are write-only (the API returns only whether they are set); `rolePolicies` renders the structured
- *  role → projects + prompt mapping editor (the Discord pattern borrowed from Hermes). */
+ *  role → projects + prompt mapping editor (the Discord pattern borrowed from Hermes); `model` renders
+ *  the grouped provider→model picker sourced from the user's configured model catalog. */
 interface PluginConfigField {
   key: string;
   label: string;
-  type: 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies';
+  type: 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies' | 'model';
   hint?: string;
   required?: boolean;
 }
@@ -52,6 +53,7 @@ const ManifestSchema = Type.Object({
     type: Type.Union([
       Type.Literal('string'), Type.Literal('secret'), Type.Literal('boolean'),
       Type.Literal('number'), Type.Literal('textarea'), Type.Literal('rolePolicies'),
+      Type.Literal('model'),
     ]),
     hint: Type.Optional(Type.String()),
     required: Type.Optional(Type.Boolean()),

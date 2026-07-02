@@ -20,6 +20,8 @@ function fakeBrain() {
     subscribe: () => () => {},
     stop: (id: number) => { started.delete(id); },
     history: (_id: number) => [{ role: 'user', text: 'hi' }, { role: 'assistant', text: 'yo' }],
+    searchMessages: (id: number, q: string) =>
+      q.trim().length < 2 ? [] : [{ sessionId: `s-${id}`, sessionTitle: 'T', role: 'user', snippet: q, ts: '2026-01-01 00:00:00' }],
   };
 }
 
@@ -77,6 +79,15 @@ describe('brain routes', () => {
     expect((await app.request('/brain/start', post(agentTok, {}))).status).toBe(403);
     expect((await app.request('/brain/send', post(agentTok, { text: 'x' }))).status).toBe(403);
     expect((await app.request('/brain/messages', auth(agentTok))).status).toBe(403);
+    expect((await app.request('/brain/search?q=hi', auth(agentTok))).status).toBe(403);
+  });
+
+  it('search scopes to the caller and passes q through; short q yields []', async () => {
+    const { app, amyTok } = setup();
+    const hits = await (await app.request('/brain/search?q=daemon', auth(amyTok))).json() as { sessionId: string; snippet: string }[];
+    expect(hits).toEqual([{ sessionId: 's-2', sessionTitle: 'T', role: 'user', snippet: 'daemon', ts: '2026-01-01 00:00:00' }]);
+    expect(await (await app.request('/brain/search?q=d', auth(amyTok))).json()).toEqual([]);
+    expect(await (await app.request('/brain/search', auth(amyTok))).json()).toEqual([]);
   });
 });
 

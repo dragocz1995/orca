@@ -13,7 +13,17 @@ export function register(ctx) {
   const endpoint = typeof ctx.config.endpoint === 'string' ? ctx.config.endpoint.replace(/\/$/, '') : '';
   if (!endpoint) { ctx.logger.warn('enabled but no endpoint configured — tools not registered'); return; }
   const apiKey = typeof ctx.config.apiKey === 'string' ? ctx.config.apiKey.trim() : '';
-  const userId = (typeof ctx.config.userId === 'string' && ctx.config.userId.trim()) || 'orca';
+  const ownerId = (typeof ctx.config.userId === 'string' && ctx.config.userId.trim()) || 'orca';
+
+  /** Memory identity for the CURRENT turn: the owner/admin keeps the configured id (continuity with
+   *  any pre-Orca memory store), a linked sender gets their Orca username, an unknown platform sender
+   *  a stable `<platform>:<id>` key. Outside a turn (no identity) → the owner id. */
+  const memoryUser = () => {
+    const who = ctx.currentIdentity?.();
+    if (!who || who.admin) return ownerId;
+    if (who.orcaUsername) return who.orcaUsername;
+    return `${who.platform}:${who.userId}`;
+  };
 
   const call = async (path, body, timeoutMs = READ_TIMEOUT_MS) => {
     const res = await fetch(`${endpoint}${path}`, {
@@ -32,7 +42,7 @@ export function register(ctx) {
     parameters: Type.Object({ text: Type.String({ description: 'The fact to remember, self-contained' }) }),
     execute: async (_id, p) => {
       try {
-        await call('/memories', { messages: [{ role: 'user', content: p.text }], user_id: userId, agent_id: 'orca' }, WRITE_TIMEOUT_MS);
+        await call('/memories', { messages: [{ role: 'user', content: p.text }], user_id: memoryUser(), agent_id: 'orca' }, WRITE_TIMEOUT_MS);
         return ok('Saved to long-term memory.');
       } catch (e) { return fail(e); }
     },
@@ -44,12 +54,12 @@ export function register(ctx) {
     parameters: Type.Object({ query: Type.String({ description: 'What to look for' }) }),
     execute: async (_id, p) => {
       try {
-        const data = await call('/search', { query: p.query, user_id: userId, limit: 8 });
+        const data = await call('/search', { query: p.query, user_id: memoryUser(), limit: 8 });
         const hits = (data.results ?? data ?? []).map?.((r) => `- ${r.memory ?? r.text ?? JSON.stringify(r)}`) ?? [];
         return ok(hits.length ? hits.join('\n') : 'No relevant memories.');
       } catch (e) { return fail(e); }
     },
   }));
 
-  ctx.logger.info(`memory tools registered (mem0 @ ${endpoint}, user ${userId})`);
+  ctx.logger.info(`memory tools registered (mem0 @ ${endpoint}, owner ${ownerId})`);
 }

@@ -38,7 +38,8 @@ export const EDITABLE_PROMPTS: PromptCatalogEntry[] = [
   { name: 'decision-header', group: 'overseer', vars: ['subject', 'approveGuidance'], jsonContract: true },
   { name: 'decision-prompt', group: 'overseer', vars: ['autonomy', 'question', 'context', 'options'], jsonContract: true },
   { name: 'decision-question', group: 'overseer', vars: ['autonomy', 'question', 'context', 'options'], jsonContract: true },
-  { name: 'advisor', group: 'advisor', vars: ['userName'], jsonContract: false, appendOnly: true },
+  { name: 'advisor', group: 'advisor', vars: ['userName', 'personality', 'agentName'], jsonContract: false, appendOnly: true },
+  { name: 'advisor-channel', group: 'advisor', vars: ['ownerName', 'personality', 'agentName'], jsonContract: false, appendOnly: true },
 ];
 
 const EDITABLE_NAMES = new Set(EDITABLE_PROMPTS.map((p) => p.name));

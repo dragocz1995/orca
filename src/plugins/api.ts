@@ -1,4 +1,5 @@
 import type { Skill, ToolDefinition } from '@earendil-works/pi-coding-agent';
+import type { TurnIdentity } from './policyContext.js';
 
 /** A skill contributed by a plugin. Reuses pi's file-backed `Skill` (name/description/filePath…), so it
  *  flows straight into `formatSkillsForPrompt` — skills are inherently markdown-file based. */
@@ -14,10 +15,23 @@ export interface PluginHook { name: string; run: (payload: unknown) => void | Pr
 export interface SessionSource {
   platform: string;
   userId: string;
+  /** The sender's display name. Channel sessions are shared (one conversation per channel), so the
+   *  adapter also prefixes each message text with `[<userName>]` — this field carries it structurally. */
+  userName?: string;
   roleIds: string[];
   channelId: string;
   threadId?: string;
-  access?: { projectIds: number[]; prompt?: string; admin?: boolean; model?: { provider?: string; model?: string } };
+  /** Channel metadata (adapter-fetched, cached): lets the brain know WHERE it is talking. Injected
+   *  into the channel session's system prompt at spawn time. */
+  channelName?: string;
+  channelTopic?: string;
+  /** Image attachments (base64), ready for a vision-capable model. Adapter-capped in count and size. */
+  images?: { data: string; mimeType: string }[];
+  /** Lazy platform-history provider: called ONLY when this message opens a brand-new conversation,
+   *  so the brain can see what was said in the channel before it joined. Returns a ready context
+   *  block (or '' when nothing is available). */
+  history?: () => Promise<string>;
+  access?: { projectIds: number[]; prompt?: string; admin?: boolean; model?: { provider?: string; model?: string }; tools?: string[] };
 }
 /** A messaging channel a plugin attaches (Discord, …). The host calls `listen` + `connect` at startup;
  *  the handler returns the brain's reply (or undefined to stay silent) and the adapter delivers it. */
@@ -27,9 +41,10 @@ export interface PlatformAdapter {
   disconnect?(): void;
   listen(onMessage: (src: SessionSource, text: string, onEvent?: (e: { type: string; delta?: string; name?: string }) => void) => Promise<string | undefined>): void;
   send(channelId: string, text: string): Promise<void>;
-  /** Deliver a proactive (host-initiated) message to this platform's configured notification channel.
-   *  Optional — an adapter without a notify channel simply omits it. Used for cron/tick echoes. */
-  notify?(text: string): Promise<void>;
+  /** Deliver a proactive (host-initiated) message — to `channelId` when given, else to this
+   *  platform's configured notification channel. Optional — an adapter without a notify channel
+   *  simply omits it. Used for cron/tick echoes. */
+  notify?(text: string, channelId?: string): Promise<void>;
 }
 
 /** Scoped logger handed to a plugin (prefixed with the plugin name by the registry). */
@@ -62,9 +77,12 @@ export interface PluginContext {
   /** The current turn's access (admin flag + project ids) — a plugin forwards this when delegating to
    *  a sub-agent so the child inherits exactly the caller's scope, never more. */
   currentAccess(): { projectIds: number[]; admin: boolean };
+  /** Who is driving the current turn (platform sender, resolved Orca account, admin flag) — plugins
+   *  that persist per-user state (long-term memory) key it on this. Null outside a prompt turn. */
+  currentIdentity(): TurnIdentity | null;
   /** Push a proactive message out to every platform that has a notification channel configured (e.g.
    *  Discord). Fire-and-forget; no-op when nothing is wired. Used by cron/tick to echo results. */
-  notify(text: string): Promise<void>;
+  notify(text: string, channelId?: string): Promise<void>;
   /** Pickable brain models across every configured provider (feeds the Discord /model dropdown).
    *  Empty when nothing is wired. */
   listModels(): Promise<{ provider: string; providerLabel: string; model: string }[]>;

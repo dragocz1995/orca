@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { parseBody } from '../validation.js';
 import { brainStartSchema, brainSendSchema, brainModelSchema } from '../schemas/brain.js';
 import { brainConfigFromOrca } from '../../brain/config.js';
-import { listBrainModels } from '../../brain/models.js';
+import { listBrainModels, fetchOpenAiModels } from '../../brain/models.js';
 import { orcaExec, isExecAllowedForUser } from '../../shared/execs.js';
 import type { BrainEvent } from '../../brain/brainService.js';
 import type { OrcaApp, RouteContext } from '../context.js';
@@ -40,6 +40,14 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.brain) return c.json([]);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
     return c.json(d.brain.listSessions(c.get('user').id));
+  });
+
+  // Fulltext search across the caller's own conversations (newest first). Queries under 2 chars
+  // yield [] — the store enforces that, plus the ownership scoping.
+  app.get('/brain/search', async c => {
+    if (!d.brain) return c.json([]);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    return c.json(d.brain.searchMessages(c.get('user').id, c.req.query('q') ?? ''));
   });
 
   // Generated images (image-gen plugin) — name is strictly sanitized, path stays inside the data dir.
@@ -84,6 +92,21 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!u || u.is_admin) return c.json(models);
     const globalExecs = d.config.get().allowedExecs;
     return c.json(models.filter((m) => isExecAllowedForUser(u, globalExecs, m.exec)));
+  });
+
+  // Probe an OpenAI-compatible endpoint's /models for the provider add/edit dialog — so the admin
+  // clicks models instead of typing them. `apiKey` may be omitted when editing (`id` resolves the
+  // stored key). Admin-only: it can exercise arbitrary stored credentials.
+  app.post('/brain/providers/probe', async c => {
+    const u = d.users ? c.get('user') : undefined;
+    if (d.users && d.users.count() > 0 && (!u || !u.is_admin)) return c.json({ error: 'forbidden' }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as { baseUrl?: unknown; apiKey?: unknown; id?: unknown };
+    const baseUrl = typeof b.baseUrl === 'string' ? b.baseUrl.trim() : '';
+    if (!baseUrl) return c.json({ error: 'baseUrl required' }, 400);
+    let apiKey = typeof b.apiKey === 'string' && b.apiKey.trim() ? b.apiKey.trim() : null;
+    if (!apiKey && typeof b.id === 'string') apiKey = d.config.brainProviders().find((p) => p.id === b.id)?.apiKey ?? null;
+    const models = await fetchOpenAiModels({ id: 'probe', label: 'probe', type: 'openai', baseUrl, models: [], apiKey }, fetch);
+    return c.json({ models });
   });
 
   // Stop the streaming turn (the Esc key in chat clients).

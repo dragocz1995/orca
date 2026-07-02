@@ -5,6 +5,7 @@ import { parseBody } from '../validation.js';
 import { loginSchema, profilePatchSchema, passwordChangeSchema, userPermissionsSchema, projectAssignSchema, promptSaveSchema } from '../schemas/auth.js';
 import { EDITABLE_PROMPTS, isEditablePrompt, isAppendOnlyPrompt } from '../../prompts/catalog.js';
 import { orcaExec, isExecAllowedForUser } from '../../shared/execs.js';
+import { ADVISOR_STYLES, DEFAULT_ADVISOR_STYLE } from '../../brain/personality.js';
 import { rawTemplate } from '../../prompts/index.js';
 import type { User } from '../../store/userStore.js';
 import type { OrcaApp, RouteContext } from '../context.js';
@@ -111,21 +112,30 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
   };
   app.get('/auth/me/cli-settings', (c) => {
     const u = c.get('user');
-    const s = d.userSettings?.cliSettings(u.id) ?? { model: '', autoCompact: false, autoCompactAt: 80 };
+    const s = d.userSettings?.cliSettings(u.id) ?? { model: '', modelProvider: '', visionModel: '', visionModelProvider: '', autoCompact: false, autoCompactAt: 80, advisorStyle: DEFAULT_ADVISOR_STYLE };
     return c.json({ ...s, serverDefault: serverDefaultModel() });
   });
   app.patch('/auth/me/cli-settings', async (c) => {
     if (!d.userSettings) return c.json({ error: 'settings unavailable' }, 400);
     const u = c.get('user');
-    const b = (await c.req.json().catch(() => ({}))) as { model?: unknown; modelProvider?: unknown; autoCompact?: unknown; autoCompactAt?: unknown };
-    const patch: { model?: string; modelProvider?: string; autoCompact?: boolean; autoCompactAt?: number } = {};
+    const b = (await c.req.json().catch(() => ({}))) as { model?: unknown; modelProvider?: unknown; visionModel?: unknown; visionModelProvider?: unknown; autoCompact?: unknown; autoCompactAt?: unknown; advisorStyle?: unknown; discordUserId?: unknown };
+    const patch: { model?: string; modelProvider?: string; visionModel?: string; visionModelProvider?: string; autoCompact?: boolean; autoCompactAt?: number; advisorStyle?: string; discordUserId?: string } = {};
     if (typeof b.model === 'string') patch.model = b.model.trim();
     if (typeof b.modelProvider === 'string') patch.modelProvider = b.modelProvider.trim();
+    if (typeof b.visionModel === 'string') patch.visionModel = b.visionModel.trim();
+    if (typeof b.visionModelProvider === 'string') patch.visionModelProvider = b.visionModelProvider.trim();
     if (typeof b.autoCompact === 'boolean') patch.autoCompact = b.autoCompact;
     if (typeof b.autoCompactAt === 'number') patch.autoCompactAt = b.autoCompactAt;
+    if (typeof b.discordUserId === 'string') patch.discordUserId = b.discordUserId.trim(); // store validates the snowflake shape
+    // Communication style: only accept a known style; anything else is silently ignored.
+    if (typeof b.advisorStyle === 'string' && ADVISOR_STYLES.includes(b.advisorStyle as never)) patch.advisorStyle = b.advisorStyle;
     // A complete provider+model pick must be on the caller's allow-list (clearing is always fine).
     if (patch.model && patch.modelProvider
       && !isExecAllowedForUser(u, d.config.get().allowedExecs, orcaExec(patch.modelProvider, patch.model))) {
+      return c.json({ error: 'model not allowed' }, 400);
+    }
+    if (patch.visionModel && patch.visionModelProvider
+      && !isExecAllowedForUser(u, d.config.get().allowedExecs, orcaExec(patch.visionModelProvider, patch.visionModel))) {
       return c.json({ error: 'model not allowed' }, 400);
     }
     d.userSettings.setCliSettings(u.id, patch);
