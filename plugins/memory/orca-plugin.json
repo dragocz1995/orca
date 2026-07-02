@@ -8,7 +8,7 @@
   "provides": { "tools": ["add_memory", "search_memory"] },
   "configSchema": [
     { "key": "endpoint", "label": "mem0 endpoint", "type": "string", "required": true, "hint": "Base URL of the mem0 REST server, e.g. http://127.0.0.1:3401" },
-    { "key": "apiKey", "label": "API key", "type": "secret", "hint": "mem0 API key (Bearer). Leave empty if the server runs without auth." },
+    { "key": "apiKey", "label": "API key", "type": "secret", "hint": "mem0 API key (sent as x-api-key). Leave empty if the server runs without auth." },
     { "key": "userId", "label": "Memory user id", "type": "string", "hint": "Which mem0 user the memories belong to (default: orca)." }
   ]
 }

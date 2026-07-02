@@ -44,11 +44,11 @@ describe('memory plugin', () => {
     expect(reg.tools).toHaveLength(0);
   });
 
-  it('registers add_memory + search_memory with an endpoint and calls mem0 with Bearer auth', async () => {
+  it('registers add_memory + search_memory with an endpoint and calls mem0 with x-api-key auth', async () => {
     const calls: { url: string; body: unknown; auth: string | null }[] = [];
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      calls.push({ url: String(url), body: JSON.parse(String(init?.body)), auth: (init?.headers as Record<string, string>)?.authorization ?? null });
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)), auth: (init?.headers as Record<string, string>)?.['x-api-key'] ?? null });
       return new Response(JSON.stringify({ results: [{ memory: 'Filip má rád teal.' }] }), { status: 200 });
     }) as typeof fetch;
     try {
@@ -61,7 +61,7 @@ describe('memory plugin', () => {
       const res = await search.execute('t1', { query: 'barva' }, undefined as never, undefined as never);
       expect((res.content[0] as { text: string }).text).toContain('Filip má rád teal.');
       expect(calls[0]!.url).toBe('http://127.0.0.1:3401/search'); // trailing slash normalized
-      expect(calls[0]!.auth).toBe('Bearer k');
+      expect(calls[0]!.auth).toBe('k');
       const add = reg.tools.find((t) => t.name === 'add_memory')!;
       await add.execute('t2', { text: 'fakt' }, undefined as never, undefined as never);
       expect(calls[1]!.url).toBe('http://127.0.0.1:3401/memories');
