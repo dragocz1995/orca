@@ -86,9 +86,9 @@ export interface RunChatOpts {
 
 const HELP = [
   '/new — new conversation',
-  '/sessions — list conversations',
-  '/resume [n] — resume a conversation (no argument opens the picker)',
-  '/delete <n> — delete a conversation',
+  '/sessions — pick a conversation (arrows)',
+  '/resume [n] — resume a conversation (picker without argument)',
+  '/delete [n] — delete a conversation (picker + confirm)',
   '/model — switch the model (picker)',
   '/compact — summarize the conversation to free context',
   '/quit — exit',
@@ -150,9 +150,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   };
   const SLASH_COMMANDS: SlashCommand[] = [
     { name: 'new', description: 'new conversation' },
-    { name: 'sessions', description: 'list conversations' },
+    { name: 'sessions', description: 'pick a conversation' },
     { name: 'resume', description: 'resume a conversation', argumentHint: '[n]', getArgumentCompletions: numberCompletions },
-    { name: 'delete', description: 'delete a conversation', argumentHint: '<n>', getArgumentCompletions: numberCompletions },
+    { name: 'delete', description: 'delete a conversation', argumentHint: '[n]', getArgumentCompletions: numberCompletions },
     { name: 'model', description: 'switch the model' },
     { name: 'compact', description: 'summarize the conversation to free context' },
     { name: 'help', description: 'show commands' },
@@ -246,20 +246,12 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           void switchTo({ fresh: true }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         case 'sessions':
-          void client.sessions().then((list) => {
-            listed = list.map((s) => ({ id: s.id, title: s.title }));
-            notice = list.length === 0
-              ? color.dim('no conversations')
-              : list.map((s, i) => `${s.active ? color.accent('▸') : ' '} ${i + 1}. ${s.title || color.dim('(untitled)')}  ${color.dim(s.model)}`).join('\n')
-                + '\n' + color.dim('/resume <n> to switch');
-            render();
-          }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
-          return;
         case 'resume': {
           if (!command.arg) {
-            // No argument → arrow-key picker over the stored conversations.
+            // Both open the arrow-key picker over the stored conversations (select = resume).
             void client.sessions().then((list) => {
               listed = list.map((s) => ({ id: s.id, title: s.title }));
+              if (list.length === 0) { notice = color.dim('no conversations'); render(); return; }
               openPicker({
                 tui, slot: editorSlot, editor, title: 'Resume conversation', items: sessionItems(list),
                 onPick: (id) => void switchTo({ session: id }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); }),
@@ -269,7 +261,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           }
           const n = Number(command.arg);
           const target = Number.isInteger(n) && n >= 1 ? listed[n - 1]?.id : command.arg;
-          if (!target) { notice = color.dim('use /sessions then /resume <n>'); render(); return; }
+          if (!target) { notice = color.dim('use /resume and pick with the arrows'); render(); return; }
           void switchTo({ session: target }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         }
@@ -297,12 +289,37 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           return;
         }
         case 'delete': {
+          const doDelete = (target: string): void => {
+            void client.deleteSession(target)
+              .then(() => { listed = listed.filter((s) => s.id !== target); notice = color.dim('conversation deleted'); render(); })
+              .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+          };
+          // Deleting is destructive → always a two-step picker: choose the conversation, then confirm.
+          const confirmDelete = (id: string, title: string): void => {
+            openPicker({
+              tui, slot: editorSlot, editor, title: `Delete "${title || '(untitled)'}"?`,
+              items: [
+                { value: 'no', label: 'Cancel', description: 'keep the conversation' },
+                { value: 'yes', label: 'Delete', description: 'cannot be undone' },
+              ],
+              onPick: (v) => { if (v === 'yes') doDelete(id); },
+            });
+          };
+          if (!command.arg) {
+            void client.sessions().then((list) => {
+              listed = list.map((s) => ({ id: s.id, title: s.title }));
+              if (list.length === 0) { notice = color.dim('no conversations'); render(); return; }
+              openPicker({
+                tui, slot: editorSlot, editor, title: 'Delete conversation', items: sessionItems(list),
+                onPick: (id) => confirmDelete(id, list.find((s) => s.id === id)?.title ?? ''),
+              });
+            }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+            return;
+          }
           const n = Number(command.arg);
           const target = Number.isInteger(n) && n >= 1 ? listed[n - 1]?.id : command.arg;
-          if (!target) { notice = color.dim('use /sessions then /delete <n>'); render(); return; }
-          void client.deleteSession(target)
-            .then(() => { listed = listed.filter((s) => s.id !== target); notice = color.dim('conversation deleted'); render(); })
-            .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+          if (!target) { notice = color.dim('use /delete and pick with the arrows'); render(); return; }
+          confirmDelete(target, listed.find((s) => s.id === target)?.title ?? '');
           return;
         }
         case 'compact': {
