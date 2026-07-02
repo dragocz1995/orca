@@ -163,6 +163,18 @@ describe('BrainService', () => {
     expect(typeof st.usage!.totalTokens).toBe('number');
   });
 
+  it('send passes image attachments to prompt() and marks them in history', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'co je na obrázku?', [{ data: 'aGVsbG8=', mimeType: 'image/png' }]);
+    const spawned = await (d.createSession as unknown as { mock: { results: { value: Promise<{ session: { prompt: { mock: { calls: [string, { images?: unknown }?][] } } } }> }[] } }).mock.results[0]!.value;
+    const call = spawned.session.prompt.mock.calls.at(-1)!;
+    expect(call[1]?.images).toEqual([{ type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }]);
+    const hist = svc.history(1).find((m) => m.role === 'user');
+    expect(hist?.text).toContain('1× obrázek');
+  });
+
   it('rejects resuming a foreign or channel session', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

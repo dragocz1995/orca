@@ -1,0 +1,73 @@
+import { describe, it, expect } from 'vitest';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadPlugins } from '../../src/plugins/loader.js';
+
+const log = { info() {}, warn() {}, error() {} };
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const pluginsDir = join(repoRoot, 'plugins');
+
+describe('web plugin', () => {
+  it('registers web_search + web_fetch', async () => {
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['web'], logger: log });
+    expect(reg.tools.map((t) => t.name).sort()).toEqual(['web_fetch', 'web_search']);
+  });
+
+  it('web_search without an API key returns a helpful message instead of failing', async () => {
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['web'], logger: log });
+    const tool = reg.tools.find((t) => t.name === 'web_search')!;
+    const res = await tool.execute('t1', { query: 'orca' }, undefined as never, undefined as never);
+    expect((res.content[0] as { text: string }).text).toMatch(/not configured/);
+  });
+
+  it('web_fetch refuses private addresses and non-http schemes', async () => {
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['web'], logger: log });
+    const tool = reg.tools.find((t) => t.name === 'web_fetch')!;
+    for (const url of ['http://127.0.0.1/x', 'http://localhost/x', 'file:///etc/passwd', 'http://192.168.1.1/']) {
+      const res = await tool.execute('t1', { url }, undefined as never, undefined as never);
+      expect((res.content[0] as { text: string }).text).toMatch(/Error/);
+    }
+  });
+
+  it('htmlToText strips markup, scripts and entities', async () => {
+    const { htmlToText } = await import(join(pluginsDir, 'web/index.mjs')) as { htmlToText: (h: string) => string };
+    const text = htmlToText('<head><title>x</title></head><body><script>evil()</script><h1>Ahoj &amp; vítej</h1><p>Řádek</p></body>');
+    expect(text).toContain('Ahoj & vítej');
+    expect(text).toContain('Řádek');
+    expect(text).not.toContain('evil');
+  });
+});
+
+describe('memory plugin', () => {
+  it('skips tool registration without an endpoint', async () => {
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['memory'], logger: log });
+    expect(reg.tools).toHaveLength(0);
+  });
+
+  it('registers add_memory + search_memory with an endpoint and calls mem0 with Bearer auth', async () => {
+    const calls: { url: string; body: unknown; auth: string | null }[] = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)), auth: (init?.headers as Record<string, string>)?.authorization ?? null });
+      return new Response(JSON.stringify({ results: [{ memory: 'Filip má rád teal.' }] }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const reg = await loadPlugins({
+        dirs: [pluginsDir], enabled: ['memory'], logger: log,
+        config: { memory: { endpoint: 'http://127.0.0.1:3401/', apiKey: 'k', userId: 'orca' } },
+      });
+      expect(reg.tools.map((t) => t.name).sort()).toEqual(['add_memory', 'search_memory']);
+      const search = reg.tools.find((t) => t.name === 'search_memory')!;
+      const res = await search.execute('t1', { query: 'barva' }, undefined as never, undefined as never);
+      expect((res.content[0] as { text: string }).text).toContain('Filip má rád teal.');
+      expect(calls[0]!.url).toBe('http://127.0.0.1:3401/search'); // trailing slash normalized
+      expect(calls[0]!.auth).toBe('Bearer k');
+      const add = reg.tools.find((t) => t.name === 'add_memory')!;
+      await add.execute('t2', { text: 'fakt' }, undefined as never, undefined as never);
+      expect(calls[1]!.url).toBe('http://127.0.0.1:3401/memories');
+      expect((calls[1]!.body as { user_id: string }).user_id).toBe('orca');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});

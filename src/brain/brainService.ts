@@ -315,7 +315,7 @@ export class BrainService {
         ? { images: images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })) }
         : undefined;
       // Establish the user's repo Policy for any plugin tool this turn invokes (read via currentPolicy()).
-      await runWithPolicy(b.policy, () => b.session.prompt(text, options));
+      await runWithPolicy(b.policy, () => (options ? b.session.prompt(text, options) : b.session.prompt(text)));
       // Auto-compact: once the conversation fills most of the context window, summarize it so the next
       // turn keeps room. Opt-in per user; failures are non-fatal (a full window still works, just tighter).
       if (b.autoCompact) {
