@@ -4,6 +4,17 @@ import { Check, Errors } from 'typebox/value';
 /** Bump when the plugin contract changes incompatibly; a plugin's manifest must match exactly. */
 export const PLUGIN_API_VERSION = '1';
 
+/** One declared config field of a plugin — the settings UI renders a form from these. `secret` values
+ *  are write-only (the API returns only whether they are set); `rolePolicies` renders the structured
+ *  role → projects + prompt mapping editor (the Discord pattern borrowed from Hermes). */
+export interface PluginConfigField {
+  key: string;
+  label: string;
+  type: 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies';
+  hint?: string;
+  required?: boolean;
+}
+
 /** The parsed, validated shape of an `orca-plugin.json`. `provides` is declarative (display/validation
  *  hints); the authoritative contributions come from `register(ctx)` at load time. */
 export interface PluginManifest {
@@ -15,6 +26,8 @@ export interface PluginManifest {
   entry: string;
   requires?: { env?: string[]; config?: string[] };
   provides?: { tools?: string[]; skills?: string[]; hooks?: string[]; platforms?: string[] };
+  /** Declared config fields — drives the per-plugin settings form. */
+  configSchema?: PluginConfigField[];
 }
 
 const ManifestSchema = Type.Object({
@@ -33,6 +46,16 @@ const ManifestSchema = Type.Object({
     hooks: Type.Optional(Type.Array(Type.String())),
     platforms: Type.Optional(Type.Array(Type.String())),
   })),
+  configSchema: Type.Optional(Type.Array(Type.Object({
+    key: Type.String({ minLength: 1 }),
+    label: Type.String({ minLength: 1 }),
+    type: Type.Union([
+      Type.Literal('string'), Type.Literal('secret'), Type.Literal('boolean'),
+      Type.Literal('number'), Type.Literal('textarea'), Type.Literal('rolePolicies'),
+    ]),
+    hint: Type.Optional(Type.String()),
+    required: Type.Optional(Type.Boolean()),
+  }))),
 });
 
 /** Validate a raw parsed `orca-plugin.json`. Throws a descriptive Error on any problem (bad shape or an
