@@ -118,8 +118,8 @@ async function promptLine(question: string, mute = false): Promise<string> {
  *  fallback when `orca chat` finds no token in the env or cache. */
 async function interactiveLogin(env: NodeJS.ProcessEnv): Promise<string> {
   const { login } = await import('./chat/token.js');
-  const username = await promptLine('Uživatel: ');
-  const password = await promptLine('Heslo: ', true);
+  const username = await promptLine('Username: ');
+  const password = await promptLine('Password: ', true);
   return login(BASE, { username, password }, env);
 }
 
@@ -147,7 +147,7 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
     }
     case 'login': {
       await interactiveLogin(env);
-      console.log('Přihlášeno — token uložen.');
+      console.log('Signed in — token saved.');
       break;
     }
     case 'send': {

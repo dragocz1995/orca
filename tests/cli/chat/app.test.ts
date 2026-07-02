@@ -8,7 +8,7 @@ describe('viewToPlainText', () => {
     v = reduce(v, { type: 'tool', name: 'orca_create_task' });
     v = reduce(v, { type: 'text', delta: 'hotovo' });
     const lines = viewToPlainText(v);
-    expect(lines).toContain('ty');
+    expect(lines).toContain('you');
     expect(lines.some((l) => l.includes('ahoj'))).toBe(true);
     expect(lines.some((l) => l.includes('⏺ orca_create_task'))).toBe(true);
     expect(lines.some((l) => l.includes('hotovo'))).toBe(true);
@@ -37,7 +37,7 @@ describe('statusline', () => {
     expect(statusline({}, usage, 'opus')).toBe('');
     expect(statusline({ showModel: true }, usage, 'opus')).toBe('opus');
     expect(statusline({ showContext: true, showTokens: true, showCost: true }, usage, 'opus'))
-      .toBe('kontext 17% (35k/200k)  ·  Σ 1.2M tok  ·  $0.42');
+      .toBe('context 17% (35k/200k)  ·  Σ 1.2M tok  ·  $0.42');
     // unknown context tokens (right after compaction) → context part omitted
     expect(statusline({ showContext: true }, { ...usage, tokens: null, percent: null }, 'opus')).toBe('');
   });

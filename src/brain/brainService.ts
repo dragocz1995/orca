@@ -92,7 +92,9 @@ function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
     const delta = anyE.assistantMessageEvent?.type === 'text_delta' ? anyE.assistantMessageEvent.delta : undefined;
     return delta ? { type: 'text', delta } : null;
   }
-  if (typeof anyE.toolName === 'string') return { type: 'tool', name: anyE.toolName };
+  // Emit the tool name ONCE, when it starts — not on every _update (which streams the tool's output)
+  // nor on _end. Clients want "which tools ran", never the raw output.
+  if (anyE.type === 'tool_execution_start' && typeof anyE.toolName === 'string') return { type: 'tool', name: anyE.toolName };
   return null;
 }
 

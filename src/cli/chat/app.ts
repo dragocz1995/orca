@@ -11,9 +11,16 @@ import { fromHistory, pushUser, beginAssistant, reduce, type ChatView } from './
 export function viewToPlainText(view: ChatView): string[] {
   const lines: string[] = [];
   for (const turn of view.turns) {
-    lines.push(turn.role === 'you' ? 'ty' : `${glyph.whale} orca`);
-    for (const t of turn.tools) lines.push(`  ${glyph.tool} ${t}`);
-    if (turn.text) lines.push(...turn.text.split('\n').map((l) => `  ${l}`));
+    if (turn.role === 'you') {
+      lines.push('you');
+      lines.push(...turn.text.split('\n').map((l) => `  ${l}`));
+    } else {
+      lines.push(`${glyph.whale} orca`);
+      for (const seg of turn.segments) {
+        if (seg.kind === 'tools') for (const name of seg.names) lines.push(`  ${glyph.tool} ${name}`);
+        else lines.push(...seg.text.split('\n').map((l) => `  ${l}`));
+      }
+    }
     lines.push('');
   }
   return lines;
@@ -49,7 +56,7 @@ export function statusline(
   const parts: string[] = [];
   if (cfg.showModel && model) parts.push(model);
   if (cfg.showContext && usage && usage.percent != null) {
-    parts.push(`kontext ${Math.round(usage.percent)}% (${fmtK(usage.tokens ?? 0)}/${fmtK(usage.contextWindow)})`);
+    parts.push(`context ${Math.round(usage.percent)}% (${fmtK(usage.tokens ?? 0)}/${fmtK(usage.contextWindow)})`);
   }
   if (cfg.showTokens && usage) parts.push(`Σ ${fmtK(usage.totalTokens)} tok`);
   if (cfg.showCost && usage) parts.push(`$${usage.cost.toFixed(2)}`);
@@ -69,11 +76,11 @@ export interface RunChatOpts {
 }
 
 const HELP = [
-  '/new — nová konverzace',
-  '/sessions — seznam konverzací',
-  '/resume <č.> — pokračovat v konverzaci',
-  '/delete <č.> — smazat konverzaci',
-  '/quit — konec',
+  '/new — new conversation',
+  '/sessions — list conversations',
+  '/resume <n> — resume a conversation',
+  '/delete <n> — delete a conversation',
+  '/quit — exit',
 ].join('\n');
 
 /** Launch the interactive Orca chat TUI — an opencode-style layout (user blocks with a teal rail,
@@ -115,10 +122,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const titleBar = new TitleBar();
   const messages = new Container();
   const spacer = new Spacer();
-  const loader = new Loader(tui, color.accent, color.dim, 'přemýšlím…');
+  const loader = new Loader(tui, color.accent, color.dim, 'thinking…');
   const editor = new Editor(tui, { borderColor: color.accent, selectList: getSelectListTheme() }, {});
   const statusUnder = new Text('', 1, 0);
-  const bottomBar = new StatusBar(color.faint('  ⏎ odeslat   ·   /help příkazy'), color.faint('ctrl+c konec  '));
+  const bottomBar = new StatusBar(color.faint('  ⏎ send   ·   /help commands'), color.faint('ctrl+c quit  '));
 
   const render = (): void => {
     for (const c of [...messages.children]) messages.removeChild(c);
@@ -130,11 +137,14 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         messages.addChild(new UserBlock(turn.text));
         messages.addChild(new Text('', 0, 0));
       } else {
-        // No speaker label — tool chips (if any), the markdown reply, then a compact model footer.
-        for (const t of turn.tools) messages.addChild(new Text(toolChip(t), 1, 0));
-        if (turn.text) messages.addChild(new Markdown(turn.text, 2, 0, mdTheme));
-        else if (turn.streaming) messages.addChild(new Text(color.faint('  …'), 1, 0));
-        if (turn.text && !turn.streaming) messages.addChild(new Text(metaLine(modelName), 1, 0));
+        // No speaker label — render segments in order: grouped tool chips, then markdown text.
+        let hasText = false;
+        for (const seg of turn.segments) {
+          if (seg.kind === 'tools') for (const name of seg.names) messages.addChild(new Text(toolChip(name), 1, 0));
+          else { hasText = true; messages.addChild(new Markdown(seg.text, 2, 0, mdTheme)); }
+        }
+        if (!hasText && turn.streaming) messages.addChild(new Text(color.faint('  …'), 1, 0));
+        if (hasText && !turn.streaming) messages.addChild(new Text(metaLine(modelName), 1, 0));
         messages.addChild(new Text('', 0, 0));
       }
     }
@@ -181,32 +191,32 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         case 'quit': quit(); return;
         case 'help': notice = color.dim(HELP).split('\n').join('\n'); render(); return;
         case 'new':
-          void switchTo({ fresh: true }).catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+          void switchTo({ fresh: true }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         case 'sessions':
           void client.sessions().then((list) => {
             listed = list.map((s) => ({ id: s.id, title: s.title }));
             notice = list.length === 0
-              ? color.dim('žádné konverzace')
-              : list.map((s, i) => `${s.active ? color.accent('▸') : ' '} ${i + 1}. ${s.title || color.dim('(bez názvu)')}  ${color.dim(s.model)}`).join('\n')
-                + '\n' + color.dim('/resume <č.> pro přepnutí');
+              ? color.dim('no conversations')
+              : list.map((s, i) => `${s.active ? color.accent('▸') : ' '} ${i + 1}. ${s.title || color.dim('(untitled)')}  ${color.dim(s.model)}`).join('\n')
+                + '\n' + color.dim('/resume <n> to switch');
             render();
-          }).catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+          }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         case 'resume': {
           const n = Number(command.arg);
           const target = Number.isInteger(n) && n >= 1 ? listed[n - 1]?.id : command.arg;
-          if (!target) { notice = color.dim('použij /sessions a pak /resume <č.>'); render(); return; }
-          void switchTo({ session: target }).catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+          if (!target) { notice = color.dim('use /sessions then /resume <n>'); render(); return; }
+          void switchTo({ session: target }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         }
         case 'delete': {
           const n = Number(command.arg);
           const target = Number.isInteger(n) && n >= 1 ? listed[n - 1]?.id : command.arg;
-          if (!target) { notice = color.dim('použij /sessions a pak /delete <č.>'); render(); return; }
+          if (!target) { notice = color.dim('use /sessions then /delete <n>'); render(); return; }
           void client.deleteSession(target)
-            .then(() => { listed = listed.filter((s) => s.id !== target); notice = color.dim('konverzace smazána'); render(); })
-            .catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+            .then(() => { listed = listed.filter((s) => s.id !== target); notice = color.dim('conversation deleted'); render(); })
+            .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         }
       }

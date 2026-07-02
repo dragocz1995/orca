@@ -56,11 +56,10 @@ describe('chat components', () => {
     expect(toolChip('read_file')).toContain('→ read_file');
   });
 
-  it('banner renders a bordered box with the brand and model', () => {
+  it('banner renders the ORCA block-letter logo and the model', () => {
     const lines = banner('opus');
-    expect(lines.join('\n')).toContain('Orca AI');
+    expect(lines.some((l) => l.includes('█'))).toBe(true); // block-letter art
     expect(lines.join('\n')).toContain('opus');
-    expect(lines.some((l) => l.includes('╭'))).toBe(true);
-    expect(lines.some((l) => l.includes('╰'))).toBe(true);
+    expect(lines.join('\n')).toContain('/help for commands');
   });
 });

@@ -4,16 +4,16 @@ import type { Component } from '@earendil-works/pi-tui';
 /** opencode-style visual building blocks, hand-rolled on pi-tui's Component contract (render(width)
  *  → lines). Kept separate from app.ts so the layout logic stays readable and these are unit-testable. */
 
-const TEAL = '38;5;44';
+const BLUE = '38;5;75';                    // opencode-style accent blue
 const FAINT = '38;5;240';
-const BAR = `\x1b[${TEAL}m▌\x1b[0m`;       // teal left rail (half-block, reads as a clean edge)
+const BAR = `\x1b[${BLUE}m▌\x1b[0m`;        // blue left rail (half-block, reads as a clean edge)
 const BG = '48;5;236';                     // subtle raised background (title bar)
-const BG_USER = '48;5;238';                // slightly stronger gray for the user message block
+const BG_USER = '48;5;237';                // gray background for the user message block
 const BG_CLOSE = '\x1b[0m';
 /** Bold that resets ONLY bold (\x1b[22m), so it never clears the surrounding background. */
 const bold = (s: string): string => `\x1b[1m${s}\x1b[22m`;
 
-const ACCENT = (t: string): string => `\x1b[${TEAL}m${t}\x1b[0m`;
+const ACCENT = (t: string): string => `\x1b[${BLUE}m${t}\x1b[0m`;
 const DIM = (t: string): string => `\x1b[90m${t}\x1b[0m`;
 const FAINTC = (t: string): string => `\x1b[${FAINT}m${t}\x1b[0m`;
 
@@ -43,7 +43,7 @@ export class UserBlock implements Component {
       return `${BAR}\x1b[${BG_USER}m${body}${' '.repeat(pad)}${BG_CLOSE}`;
     };
     const wrapped = wrapTextWithAnsi(this.text, Math.max(1, width - 3));
-    const rows = wrapped.map((l) => railed(` ${bold(l)}`));
+    const rows = wrapped.map((l) => railed(` ${l}`));
     return [railed(''), ...rows, railed('')];
   }
 }
@@ -59,20 +59,31 @@ export class StatusBar implements Component {
   }
 }
 
-/** The empty-conversation welcome banner: a bordered box with the brand, model and a hint line. */
+/** Block-letter "ORCA" logo (5 rows, each letter 5 cells wide) shown on an empty conversation. */
+const ORCA_ART = [
+  '█████ █████ █████  ███ ',
+  '█   █ █   █ █     █   █',
+  '█   █ ████  █     █████',
+  '█   █ █  █  █     █   █',
+  '█████ █   █ █████ █   █',
+];
+
+/** The empty-conversation welcome: a centered ANSI "ORCA" logo, the model, and a one-line hint. */
 export function banner(model?: string): string[] {
-  const inner = [
-    `${ACCENT('🐋  Orca AI')}  ${FAINTC('— tvůj agent nad celou flotilou')}`,
+  const cols = process.stdout.columns || 80;
+  const pad = Math.max(0, Math.floor((cols - ORCA_ART[0]!.length) / 2));
+  const indent = ' '.repeat(pad);
+  const art = ORCA_ART.map((l) => `${indent}${ACCENT(l)}`);
+  const centered = (t: string): string => `${' '.repeat(Math.max(0, Math.floor((cols - visibleWidth(t)) / 2)))}${t}`;
+  return [
+    '', '',
+    ...art,
     '',
-    `${FAINTC('model')}  ${DIM(model || '—')}`,
-    FAINTC('Zeptej se na cokoli — tasky, mise, plán, stav agentů, soubory, web…'),
+    centered(`${FAINTC('model')}  ${DIM(model || '—')}`),
+    centered(FAINTC('Ask me anything — tasks, missions, plans, agents, files, the web…')),
+    centered(FAINTC('/help for commands')),
+    '',
   ];
-  const width = Math.max(40, ...inner.map((l) => visibleWidth(l))) + 4;
-  const bar = '─'.repeat(width - 2);
-  const top = ACCENT(`╭${bar}╮`);
-  const bottom = ACCENT(`╰${bar}╯`);
-  const rows = inner.map((l) => `${ACCENT('│')} ${l}${' '.repeat(Math.max(0, width - 4 - visibleWidth(l)))} ${ACCENT('│')}`);
-  return ['', top, ...rows, bottom, `${FAINTC('  /help')} ${FAINTC('pro příkazy')}`, ''];
 }
 
 /** Compact number with thousands separators: 39413 → "39,413". */
@@ -82,7 +93,7 @@ export function fmtCount(n: number): string {
 
 /** The top title-bar content: the conversation title (left) and usage stats (right, when available). */
 export function titleBarContent(title: string, usage?: { totalTokens: number; percent: number | null; cost: number } | null): { left: string; right: string } {
-  const left = bold(title || 'Nová konverzace');
+  const left = bold(title || 'New conversation');
   if (!usage) return { left, right: '' };
   const parts = [FAINTC(fmtCount(usage.totalTokens))];
   if (usage.percent != null) parts.push(FAINTC(`${Math.round(usage.percent)}%`));
