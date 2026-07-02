@@ -23,6 +23,54 @@ export interface OrcaConfig {
   /** Which plugins the admin has enabled. Per-plugin config (which may hold secrets) is NOT exposed here
    *  — read it daemon-side via `pluginConfig(name)`. */
   plugins: { enabled: string[] };
+  /** The brain's dedicated model providers (public view: API keys stripped to `apiKeySet`). Empty →
+   *  the brain falls back to the autopilot relay endpoint. */
+  brain: { providers: BrainProviderPublic[] };
+}
+
+/** How a brain provider authenticates/talks upstream. `openai` = any OpenAI-compatible endpoint;
+ *  `anthropic` = the Anthropic Messages API; `oauth-*` = a pi-ai OAuth account (no API key stored here —
+ *  tokens live in the brain's AuthStorage file). */
+export type BrainProviderType = 'openai' | 'anthropic' | 'oauth-anthropic' | 'oauth-github-copilot' | 'oauth-openai-codex';
+
+export interface BrainProviderPublic {
+  id: string;
+  label: string;
+  type: BrainProviderType;
+  baseUrl: string;
+  /** Models offered in the picker. For `openai` providers an empty list means "auto-fetch /models". */
+  models: string[];
+  apiKeySet: boolean;
+}
+
+interface BrainProviderStored {
+  id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[];
+  apiKey: string | null;
+}
+
+/** Keep only well-formed brain provider entries; drop anything with a missing id/type so a loose PUT
+ *  can't persist a row the registry would choke on. */
+function sanitizeBrainProviders(input: unknown): BrainProviderStored[] {
+  if (!Array.isArray(input)) return [];
+  const out: BrainProviderStored[] = [];
+  const seen = new Set<string>();
+  const TYPES: BrainProviderType[] = ['openai', 'anthropic', 'oauth-anthropic', 'oauth-github-copilot', 'oauth-openai-codex'];
+  for (const v of input) {
+    if (!v || typeof v !== 'object') continue;
+    const p = v as Partial<BrainProviderStored>;
+    if (typeof p.id !== 'string' || !p.id || seen.has(p.id)) continue;
+    if (!TYPES.includes(p.type as BrainProviderType)) continue;
+    seen.add(p.id);
+    out.push({
+      id: p.id,
+      label: typeof p.label === 'string' && p.label ? p.label : p.id,
+      type: p.type as BrainProviderType,
+      baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl : '',
+      models: Array.isArray(p.models) ? p.models.filter((m): m is string => typeof m === 'string' && !!m) : [],
+      apiKey: typeof p.apiKey === 'string' && p.apiKey ? p.apiKey : null,
+    });
+  }
+  return out;
 }
 
 // Default executable name per agent program (resolveExecutor program ids). Derived from the shared
@@ -66,6 +114,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   autoUpdate: false,
   webPush: { publicKey: '', publicKeySet: false },
   plugins: { enabled: [] },
+  brain: { providers: [] },
 };
 
 interface Stored {
@@ -84,6 +133,8 @@ interface Stored {
   webPush: { publicKey: string; privateKey: string } | null;
   /** Enabled plugin names + each plugin's own config slice (secrets included, never serialized to API). */
   plugins: { enabled: string[]; config: Record<string, Record<string, unknown>> };
+  /** Brain provider entries with plaintext API keys — stripped to `apiKeySet` in the public view. */
+  brain: { providers: BrainProviderStored[] };
 }
 
 const defaultStored = (): Stored => ({
@@ -100,6 +151,7 @@ const defaultStored = (): Stored => ({
   autoUpdate: false,
   webPush: null,
   plugins: { enabled: [], config: {} },
+  brain: { providers: [] },
 });
 
 export interface ConfigPatch {
@@ -113,6 +165,9 @@ export interface ConfigPatch {
   security?: { tokenTtlDays?: number };
   autoUpdate?: boolean;
   plugins?: { enabled?: string[]; config?: Record<string, Record<string, unknown>> };
+  /** Brain providers replace wholesale (the UI edits the full list). A patched entry with an empty/absent
+   *  apiKey KEEPS the currently stored key for that id — the UI never sees (or resends) secrets. */
+  brain?: { providers?: unknown };
 }
 
 export class ConfigStore {
@@ -152,6 +207,7 @@ export class ConfigStore {
                 ? (p.plugins.config as Record<string, Record<string, unknown>>) : {},
             }
           : { enabled: [], config: {} },
+        brain: { providers: sanitizeBrainProviders(p.brain?.providers) },
       };
     } catch { return defaultStored(); } // corrupt row → defaults, never throw
   }
@@ -177,6 +233,7 @@ export class ConfigStore {
       webPush: { publicKey: s.webPush?.publicKey ?? '', publicKeySet: !!s.webPush },
       // Only the enabled list surfaces; per-plugin config (possible secrets) stays daemon-side.
       plugins: { enabled: s.plugins.enabled },
+      brain: { providers: s.brain.providers.map(({ apiKey, ...pub }) => ({ ...pub, apiKeySet: !!apiKey })) },
     };
   }
 
@@ -230,8 +287,23 @@ export class ConfigStore {
         // Merge per-plugin config so a patch touching one plugin never wipes another's slice.
         config: patch.plugins?.config ? { ...cur.plugins.config, ...patch.plugins.config } : cur.plugins.config,
       },
+      brain: patch.brain?.providers !== undefined
+        ? {
+            providers: sanitizeBrainProviders(patch.brain.providers).map((p) => ({
+              ...p,
+              // An entry arriving without a key keeps the stored one — the public view never carries
+              // secrets, so the UI round-trips entries keyless and only sets apiKey when (re)entered.
+              apiKey: p.apiKey ?? cur.brain.providers.find((c) => c.id === p.id)?.apiKey ?? null,
+            })),
+          }
+        : cur.brain,
     });
     return this.get();
+  }
+
+  /** Daemon-side brain provider list including plaintext API keys. Never routed to any client. */
+  brainProviders(): { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; apiKey: string | null }[] {
+    return this.read().brain.providers;
   }
 
   /** A plugin's own config slice (secrets included). Daemon-side only — never routed to any client. */
