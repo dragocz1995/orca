@@ -60,6 +60,7 @@ import { BrainOAuthManager } from '../brain/oauth.js';
 import { AuthStorage } from '@earendil-works/pi-coding-agent';
 import { BrainStore } from '../store/brainStore.js';
 import { brainConfigFromOrca } from '../brain/config.js';
+import { listBrainModels } from '../brain/models.js';
 import { loadPlugins } from '../plugins/loader.js';
 import { resolvePolicy } from '../plugins/policy.js';
 import { fileURLToPath } from 'node:url';
@@ -349,7 +350,12 @@ export function buildApp(opts: BuildOpts) {
         loadPlugins: () => {
           const enabled = config.get().plugins.enabled;
           const pluginConfig = Object.fromEntries(enabled.map((n) => [n, config.pluginConfig(n)]));
-          return loadPlugins({ dirs: pluginDirs, enabled, config: pluginConfig, dataRoot: pluginDataRoot, notify: (t) => brain?.notify(t) ?? Promise.resolve(), logger: log });
+          return loadPlugins({
+            dirs: pluginDirs, enabled, config: pluginConfig, dataRoot: pluginDataRoot,
+            notify: (t) => brain?.notify(t) ?? Promise.resolve(),
+            listModels: () => { const c = brainConfig(); return c ? listBrainModels(c) : Promise.resolve([]); },
+            logger: log,
+          });
         },
         policy: (userId) => resolvePolicy({ userProjects, projects }, userId),
         userSettings: (userId) => userSettings.cliSettings(userId),

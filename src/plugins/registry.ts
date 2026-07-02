@@ -25,7 +25,7 @@ export class PluginRegistry {
 
   /** Build the context passed to one plugin's `register()`. `config` is that plugin's own slice;
    *  `dataRoot` hosts per-plugin writable dirs (tests fall back to the OS tmpdir). */
-  contextFor(name: string, config: Record<string, unknown>, logger: PluginLogger, dataRoot?: string, notify?: (text: string) => Promise<void>): PluginContext {
+  contextFor(name: string, config: Record<string, unknown>, logger: PluginLogger, dataRoot?: string, notify?: (text: string) => Promise<void>, listModels?: () => Promise<{ provider: string; providerLabel: string; model: string }[]>): PluginContext {
     const scoped: PluginLogger = {
       info: (m) => logger.info(`[plugin:${name}] ${m}`),
       warn: (m) => logger.warn(`[plugin:${name}] ${m}`),
@@ -42,6 +42,7 @@ export class PluginRegistry {
       isAdminSession: isAllAccess,
       currentAccess,
       notify: notify ?? (async () => { /* no notification sink wired */ }),
+      listModels: listModels ?? (async () => []),
       dataDir: () => {
         const dir = join(dataRoot ?? join(tmpdir(), 'orca-plugins-data'), name);
         mkdirSync(dir, { recursive: true });

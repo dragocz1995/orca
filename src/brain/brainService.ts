@@ -372,7 +372,7 @@ export class BrainService {
     const plugins = await this.resolvePlugins();
     for (const adapter of plugins?.platforms ?? []) {
       try {
-        adapter.listen(async (src, text) => {
+        adapter.listen(async (src, text, onEvent) => {
           const owner = this.d.platformOwner?.();
           if (owner === undefined || !src.access) return undefined; // unmapped sender → stay silent
           // Owner-authored automation (cron) runs with the owner's full powers; foreign senders get
@@ -382,7 +382,7 @@ export class BrainService {
             : this.d.policyForProjects?.(src.access.projectIds)
               ?? { allowedProjectIds: new Set(src.access.projectIds), allowedPaths: () => [] };
           const promptAppend = src.access.prompt ? [src.access.prompt] : undefined;
-          return this.channelSend({ channelId: `${src.platform}-${src.threadId ?? src.channelId}`, ownerUserId: owner, policy, promptAppend, trusted: src.access.admin }, text);
+          return this.channelSend({ channelId: `${src.platform}-${src.threadId ?? src.channelId}`, ownerUserId: owner, policy, promptAppend, trusted: src.access.admin, model: src.access.model, onEvent }, text);
         });
         await adapter.connect();
         this.startedPlatforms.push(adapter);
@@ -401,12 +401,14 @@ export class BrainService {
    *  stays in SQLite and rehydrates on the next message), so a busy server can't leak sessions. */
   private static readonly MAX_CHANNELS = 32;
 
-  async channelSend(opts: { channelId: string; ownerUserId: number; policy: Policy; promptAppend?: string[]; trusted?: boolean }, text: string): Promise<string> {
+  async channelSend(opts: { channelId: string; ownerUserId: number; policy: Policy; promptAppend?: string[]; trusted?: boolean; model?: { provider?: string; model?: string }; onEvent?: (e: BrainEvent) => void }, text: string): Promise<string> {
     const sessionId = `brain-ch-${opts.channelId}`;
     // Serialized per channel: two rapid Discord messages must not prompt() one PI session concurrently
     // (and must not both spawn it).
     return this.serial(sessionId, async () => {
       let ch = this.channels.get(opts.channelId);
+      // A model switch mid-conversation rebuilds the session on the new model (history rehydrates).
+      if (ch && opts.model?.model && ch.model !== opts.model.model) { ch.session.dispose(); this.channels.delete(opts.channelId); ch = undefined; }
       if (!ch) {
         if (this.channels.size >= BrainService.MAX_CHANNELS) {
           const oldest = this.channels.entries().next().value;
@@ -415,7 +417,7 @@ export class BrainService {
         ch = await this.spawnLive({
           sessionId,
           ownerUserId: opts.ownerUserId,
-          selection: {},
+          selection: opts.model ?? {},
           policy: opts.policy,
           extraAppend: opts.promptAppend,
           channel: !opts.trusted, // foreign platform senders never get the orca_* control-plane tools
@@ -427,7 +429,12 @@ export class BrainService {
       }
       this.channels.set(opts.channelId, ch);
       projectUserTurn(this.d.store, sessionId, text);
-      await runWithPolicy(opts.policy, () => ch.session.prompt(text));
+      // Optional live streaming (Discord edit-in-place): forward this turn's events to the caller.
+      const onEvent = opts.onEvent;
+      const detach = onEvent ? (ch.listeners.add(onEvent), () => ch.listeners.delete(onEvent)) : undefined;
+      try {
+        await runWithPolicy(opts.policy, () => ch.session.prompt(text));
+      } finally { detach?.(); }
       const usage = ch.session.getContextUsage();
       if (usage?.tokens && usage.contextWindow > 0 && usage.tokens / usage.contextWindow >= ch.autoCompactAt) {
         try { await ch.session.compact(); } catch { /* best-effort */ }

@@ -17,7 +17,7 @@ export interface SessionSource {
   roleIds: string[];
   channelId: string;
   threadId?: string;
-  access?: { projectIds: number[]; prompt?: string; admin?: boolean };
+  access?: { projectIds: number[]; prompt?: string; admin?: boolean; model?: { provider?: string; model?: string } };
 }
 /** A messaging channel a plugin attaches (Discord, …). The host calls `listen` + `connect` at startup;
  *  the handler returns the brain's reply (or undefined to stay silent) and the adapter delivers it. */
@@ -25,7 +25,7 @@ export interface PlatformAdapter {
   name: string;
   connect(): Promise<void>;
   disconnect?(): void;
-  listen(onMessage: (src: SessionSource, text: string) => Promise<string | undefined>): void;
+  listen(onMessage: (src: SessionSource, text: string, onEvent?: (e: { type: string; delta?: string; name?: string }) => void) => Promise<string | undefined>): void;
   send(channelId: string, text: string): Promise<void>;
   /** Deliver a proactive (host-initiated) message to this platform's configured notification channel.
    *  Optional — an adapter without a notify channel simply omits it. Used for cron/tick echoes. */
@@ -62,6 +62,9 @@ export interface PluginContext {
   /** Push a proactive message out to every platform that has a notification channel configured (e.g.
    *  Discord). Fire-and-forget; no-op when nothing is wired. Used by cron/tick to echo results. */
   notify(text: string): Promise<void>;
+  /** Pickable brain models across every configured provider (feeds the Discord /model dropdown).
+   *  Empty when nothing is wired. */
+  listModels(): Promise<{ provider: string; providerLabel: string; model: string }[]>;
   /** This plugin's own config slice (`config.plugins.config[name]`), secrets included daemon-side. */
   readonly config: Record<string, unknown>;
   readonly logger: PluginLogger;
