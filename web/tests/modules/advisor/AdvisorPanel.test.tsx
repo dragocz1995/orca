@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LanguageProvider } from '../../../lib/i18n';
 import { AdvisorPanel } from '../../../modules/advisor/AdvisorPanel';
@@ -10,6 +10,9 @@ vi.mock('../../../modules/advisor/AdvisorPane', () => ({
 vi.mock('../../../modules/advisor/SessionPicker', () => ({
   SessionPicker: ({ open }: { open: boolean }) => (open ? <div data-testid="picker" /> : null),
 }));
+vi.mock('../../../modules/advisor/BrainChat', () => ({ BrainChat: () => <div data-testid="brain-chat" /> }));
+// The dock defaults to chat mode; these pane-stack tests exercise the terminal mode.
+beforeEach(() => localStorage.setItem('orca.dock.mode', 'terminal'));
 
 function fakeDock(over: Partial<UseDockState['state']> = {}): UseDockState {
   return {

@@ -46,6 +46,8 @@ describe('AccountView', () => {
     render(<Wrapper><UiScaleProvider><ToastProvider><AccountView /></ToastProvider></UiScaleProvider></Wrapper>);
 
     fireEvent.click(await screen.findByRole('radio', { name: 'Prompts' }));
-    expect(await screen.findByDisplayValue('DEFAULT worker')).toBeTruthy();
+    // The redesigned section lists compact rows; the editor itself opens in a modal.
+    expect(await screen.findByText('worker')).toBeTruthy();
+    expect(screen.getByText('DEFAULT worker')).toBeTruthy();
   });
 });
