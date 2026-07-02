@@ -1,6 +1,8 @@
 import { streamSSE } from 'hono/streaming';
 import { parseBody } from '../validation.js';
 import { brainStartSchema, brainSendSchema } from '../schemas/brain.js';
+import { brainConfigFromOrca } from '../../brain/config.js';
+import { listBrainModels } from '../../brain/models.js';
 import type { BrainEvent } from '../../brain/brainService.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
@@ -29,6 +31,14 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.brain) return c.json([]);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
     return c.json(d.brain.history(c.get('user').id));
+  });
+
+  // The pickable models across every configured brain provider (feeds the Account → CLI dropdown).
+  app.get('/brain/models', async c => {
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const cfg = brainConfigFromOrca(d.config);
+    if (!cfg) return c.json([]);
+    return c.json(await listBrainModels(cfg));
   });
 
   app.post('/brain/send', async c => {
