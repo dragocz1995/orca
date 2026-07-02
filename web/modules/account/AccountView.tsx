@@ -125,8 +125,8 @@ export function AccountView() {
 
   const sections: { id: 'profile' | 'prompts' | 'cli'; icon: LucideIcon; label: string }[] = [
     { id: 'profile', icon: UserCog, label: t.account.tabProfile },
-    { id: 'prompts', icon: MessagesSquare, label: t.account.tabPrompts },
     { id: 'cli', icon: TerminalSquare, label: t.account.tabCli },
+    { id: 'prompts', icon: MessagesSquare, label: t.account.tabPrompts },
   ];
 
   return (
