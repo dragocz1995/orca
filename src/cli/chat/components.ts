@@ -112,9 +112,28 @@ function toolGlyph(name: string): string {
   return /read|glob|list|ls|cat|open|dir|file|scan/i.test(name) ? '→' : '*';
 }
 
-/** A single muted tool-call line above an assistant reply: `* web_search` / `→ read_file`. */
-export function toolChip(name: string): string {
-  return `  ${DIM(`${toolGlyph(name)} ${name}`)}`;
+/** A single muted tool-call line, opencode-style with the argument summary:
+ *  `* grep "Home"` / `→ read src/foo.ts`. */
+export function toolChip(name: string, detail?: string): string {
+  const line = detail ? `${toolGlyph(name)} ${name} ${detail}` : `${toolGlyph(name)} ${name}`;
+  return `  ${DIM(line)}`;
+}
+
+// Diff line colors — the opencode diffAdded/diffRemoved pairing (green / red on the dark bg).
+const DIFF_ADD = (t: string): string => `\x1b[38;2;127;216;143m${t}\x1b[0m`;
+const DIFF_DEL = (t: string): string => `\x1b[38;2;224;108;117m${t}\x1b[0m`;
+
+/** Render an edit's display diff: + lines green, - lines red, context muted; indented under the tool
+ *  line and capped so a huge edit can't flood the conversation. */
+export function diffBlock(diff: string, maxLines = 60): string[] {
+  const lines = diff.replace(/\n+$/, '').split('\n');
+  const shown = lines.slice(0, maxLines).map((l) => {
+    if (l.startsWith('+')) return `    ${DIFF_ADD(l)}`;
+    if (l.startsWith('-')) return `    ${DIFF_DEL(l)}`;
+    return `    ${FAINTC(l)}`;
+  });
+  if (lines.length > maxLines) shown.push(`    ${FAINTC(`… +${lines.length - maxLines} more lines`)}`);
+  return shown;
 }
 
 /** The compact footer under an assistant reply: `▪ <model>` (small blue square + muted model). */

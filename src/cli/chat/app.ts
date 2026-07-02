@@ -2,7 +2,7 @@ import { TUI, ProcessTerminal, Text, Markdown, Loader, Container, Spacer, matche
 import { Editor } from '@earendil-works/pi-tui';
 import { initTheme, getMarkdownTheme, getSelectListTheme } from '@earendil-works/pi-coding-agent';
 import { color, glyph } from './theme.js';
-import { UserBlock, StatusBar, TitleBar, banner, toolChip, metaLine, titleBarContent } from './components.js';
+import { UserBlock, StatusBar, TitleBar, banner, toolChip, diffBlock, metaLine, titleBarContent } from './components.js';
 import { BrainClient } from './brainClient.js';
 import { fromHistory, pushUser, beginAssistant, reduce, type ChatView } from './render.js';
 
@@ -17,8 +17,14 @@ export function viewToPlainText(view: ChatView): string[] {
     } else {
       lines.push(`${glyph.whale} orca`);
       for (const seg of turn.segments) {
-        if (seg.kind === 'tools') for (const name of seg.names) lines.push(`  ${glyph.tool} ${name}`);
-        else lines.push(...seg.text.split('\n').map((l) => `  ${l}`));
+        if (seg.kind === 'tools') {
+          for (const item of seg.items) {
+            lines.push(`  ${glyph.tool} ${item.name}${item.detail ? ` ${item.detail}` : ''}`);
+            if (item.diff) lines.push(...item.diff.replace(/\n+$/, '').split('\n').map((l) => `    ${l}`));
+          }
+        } else {
+          lines.push(...seg.text.split('\n').map((l) => `  ${l}`));
+        }
       }
     }
     lines.push('');
@@ -137,11 +143,15 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         messages.addChild(new UserBlock(turn.text));
         messages.addChild(new Text('', 0, 0));
       } else {
-        // No speaker label — render segments in order: grouped tool chips, then markdown text.
+        // No speaker label — render segments in order: grouped tool lines (with edit diffs), markdown text.
         let hasText = false;
         for (const seg of turn.segments) {
-          if (seg.kind === 'tools') for (const name of seg.names) messages.addChild(new Text(toolChip(name), 1, 0));
-          else { hasText = true; messages.addChild(new Markdown(seg.text, 2, 0, mdTheme)); }
+          if (seg.kind === 'tools') {
+            for (const item of seg.items) {
+              messages.addChild(new Text(toolChip(item.name, item.detail), 1, 0));
+              if (item.diff) for (const line of diffBlock(item.diff)) messages.addChild(new Text(line, 1, 0));
+            }
+          } else { hasText = true; messages.addChild(new Markdown(seg.text, 2, 0, mdTheme)); }
         }
         if (!hasText && turn.streaming) messages.addChild(new Text(color.faint('  …'), 1, 0));
         if (hasText && !turn.streaming) messages.addChild(new Text(metaLine(modelName), 1, 0));

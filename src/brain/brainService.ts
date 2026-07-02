@@ -14,7 +14,8 @@ import { projectEvent, projectUserTurn, rehydrate } from './persistence.js';
  *  underlying PI event shape — the mapping lives in one place (`toBrainEvent`). */
 export type BrainEvent =
   | { type: 'text'; delta: string }
-  | { type: 'tool'; name: string }
+  | { type: 'tool'; name: string; detail?: string }
+  | { type: 'diff'; diff: string }
   | { type: 'idle'; usage?: BrainUsage }
   | { type: 'error'; message: string };
 
@@ -27,8 +28,15 @@ export interface BrainUsage {
   cost: number;
 }
 
-/** A stored turn shaped for display (the `GET /brain/messages` payload consumed by channels). */
-export interface BrainMessageView { role: string; text: string }
+/** One display piece of an assistant turn, in the order it happened: a text block, or a tool call
+ *  (with a short argument summary and, for edits, the display diff). */
+type BrainSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; name: string; detail?: string; diff?: string };
+
+/** A stored turn shaped for display (the `GET /brain/messages` payload consumed by channels).
+ *  `text` is the flat reply (title derivation, plain clients); `segments` preserve the true order. */
+export interface BrainMessageView { role: string; text: string; segments?: BrainSegment[] }
 
 export interface BrainDeps {
   store: BrainStore;
@@ -85,16 +93,33 @@ const DEFAULT_AUTO_COMPACT_AT = 0.8;
 
 /** Translate a PI session event into the stable BrainEvent contract. Defensive: unknown event types
  *  are dropped. Streaming shapes are refined by the Task 8 smoke; the contract never changes. */
+/** A short, human-scannable summary of a tool call's most salient argument (the file path, command,
+ *  query…), opencode-style: `read src/foo.ts`, `bash "npm test"`. */
+function toolDetail(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object') return undefined;
+  const a = args as Record<string, unknown>;
+  const raw = a.path ?? a.file_path ?? a.filename ?? a.command ?? a.pattern ?? a.query ?? a.url ?? a.text;
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  const s = raw.replace(/\s+/g, ' ').trim();
+  return s.length > 60 ? `${s.slice(0, 59)}…` : s;
+}
+
 function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   if (e.type === 'agent_end') return { type: 'idle' };
-  const anyE = e as { type: string; toolName?: string; delta?: string; assistantMessageEvent?: { type?: string; delta?: string } };
+  const anyE = e as { type: string; toolName?: string; args?: unknown; result?: { details?: { diff?: unknown } }; delta?: string; assistantMessageEvent?: { type?: string; delta?: string } };
   if (anyE.type === 'message_update') {
     const delta = anyE.assistantMessageEvent?.type === 'text_delta' ? anyE.assistantMessageEvent.delta : undefined;
     return delta ? { type: 'text', delta } : null;
   }
-  // Emit the tool name ONCE, when it starts — not on every _update (which streams the tool's output)
-  // nor on _end. Clients want "which tools ran", never the raw output.
-  if (anyE.type === 'tool_execution_start' && typeof anyE.toolName === 'string') return { type: 'tool', name: anyE.toolName };
+  // Emit the tool name ONCE, when it starts — never the raw streamed output (_update noise).
+  if (anyE.type === 'tool_execution_start' && typeof anyE.toolName === 'string') {
+    return { type: 'tool', name: anyE.toolName, detail: toolDetail(anyE.args) };
+  }
+  // Edits carry a display diff in their result details — that's the one tool output worth showing.
+  if (anyE.type === 'tool_execution_end') {
+    const diff = anyE.result?.details?.diff;
+    if (typeof diff === 'string' && diff.trim()) return { type: 'diff', diff };
+  }
   return null;
 }
 
@@ -468,16 +493,45 @@ export class BrainService {
   /** The user's stored conversation, shaped for display (channels render this on connect). Reads the
    *  sole store; no live session required, so it works before/independently of `start`. */
   history(userId: number): BrainMessageView[] {
-    return this.d.store.getMessages(this.activeSessionId(userId))
-      // Only user + assistant turns are shown. toolResult / bashExecution / summary rows are persisted
-      // for rehydration (the model needs them for context) but must NEVER surface as chat text.
-      .filter((row) => row.role === 'user' || row.role === 'assistant')
-      .map((row) => {
-        let text = '';
-        try { text = extractText(JSON.parse(row.content)); } catch { /* malformed row → empty text */ }
-        return { role: row.role, text };
-      })
-      .filter((m) => m.text.trim().length > 0); // drop tool-only assistant turns (no visible text)
+    const rows = this.d.store.getMessages(this.activeSessionId(userId));
+    // Edit diffs live on the toolResult rows (never shown raw) — index them so the matching
+    // assistant toolCall segment can carry its diff.
+    const diffs = new Map<string, string>();
+    for (const row of rows) {
+      if (row.role !== 'toolResult') continue;
+      try {
+        const m = JSON.parse(row.content) as { toolCallId?: string; details?: { diff?: unknown } };
+        if (m.toolCallId && typeof m.details?.diff === 'string' && m.details.diff.trim()) diffs.set(m.toolCallId, m.details.diff);
+      } catch { /* malformed row → no diff */ }
+    }
+    const views: BrainMessageView[] = [];
+    for (const row of rows) {
+      // Only user + assistant turns are shown. toolResult / summary rows are persisted for
+      // rehydration (the model needs them for context) but must NEVER surface as chat text.
+      if (row.role !== 'user' && row.role !== 'assistant') continue;
+      let msg: { content?: unknown } = {};
+      try { msg = JSON.parse(row.content) as { content?: unknown }; } catch { /* malformed row → skipped below */ }
+      if (row.role === 'user') {
+        const text = extractText(msg);
+        if (text.trim()) views.push({ role: 'user', text });
+        continue;
+      }
+      // Assistant: the content array preserves the true order of text and tool calls.
+      const segments: BrainSegment[] = [];
+      let text = '';
+      for (const part of Array.isArray(msg.content) ? msg.content : []) {
+        const p = part as { type?: string; text?: unknown; id?: string; name?: string; arguments?: unknown };
+        if (p.type === 'text' && typeof p.text === 'string' && p.text.trim()) {
+          text += p.text;
+          segments.push({ kind: 'text', text: p.text });
+        } else if (p.type === 'toolCall' && typeof p.name === 'string') {
+          segments.push({ kind: 'tool', name: p.name, detail: toolDetail(p.arguments), diff: p.id ? diffs.get(p.id) : undefined });
+        }
+      }
+      if (typeof msg.content === 'string' && msg.content.trim()) { text = msg.content; segments.push({ kind: 'text', text }); }
+      if (segments.length > 0) views.push({ role: 'assistant', text, segments });
+    }
+    return views;
   }
 }
 

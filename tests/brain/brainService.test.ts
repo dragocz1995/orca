@@ -89,13 +89,26 @@ describe('BrainService', () => {
     expect(roles).toContain('assistant');
   });
 
-  it('history extracts display text from stored string and array content', () => {
+  it('history builds ordered segments: text + tool calls (with edit diffs), never raw tool output', () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     d.store.createSession({ id: 'brain-1', userId: 1, model: 'm' });
     d.store.appendMessage({ id: 'a', sessionId: 'brain-1', parentId: null, role: 'user', content: { role: 'user', content: 'ahoj' } });
-    d.store.appendMessage({ id: 'b', sessionId: 'brain-1', parentId: null, role: 'assistant', content: { role: 'assistant', content: [{ type: 'text', text: 'čau' }] } });
-    expect(svc.history(1)).toEqual([{ role: 'user', text: 'ahoj' }, { role: 'assistant', text: 'čau' }]);
+    d.store.appendMessage({ id: 'b', sessionId: 'brain-1', parentId: null, role: 'assistant', content: { role: 'assistant', content: [
+      { type: 'text', text: 'čau' },
+      { type: 'toolCall', id: 'tc1', name: 'edit', arguments: { path: 'src/a.ts' } },
+    ] } });
+    d.store.appendMessage({ id: 'c', sessionId: 'brain-1', parentId: null, role: 'toolResult', content: { role: 'toolResult', toolCallId: 'tc1', toolName: 'edit', content: [{ type: 'text', text: 'RAW OUTPUT' }], details: { diff: '-old\n+new' } } });
+    const h = svc.history(1);
+    expect(h).toEqual([
+      { role: 'user', text: 'ahoj' },
+      { role: 'assistant', text: 'čau', segments: [
+        { kind: 'text', text: 'čau' },
+        { kind: 'tool', name: 'edit', detail: 'src/a.ts', diff: '-old\n+new' },
+      ] },
+    ]);
+    // The raw toolResult content never leaks into the view.
+    expect(JSON.stringify(h)).not.toContain('RAW OUTPUT');
   });
 
   it('fresh start opens a new conversation; session param resumes; list shows both', async () => {

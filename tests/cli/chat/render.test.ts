@@ -25,7 +25,7 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'tool', name: 'grep' });
     v = reduce(v, { type: 'tool', name: 'read_file' });
     const turn = v.turns.at(-1)!;
-    expect(turn.role === 'orca' && turn.segments).toEqual([{ kind: 'tools', names: ['grep', 'read_file'] }]);
+    expect(turn.role === 'orca' && turn.segments).toEqual([{ kind: 'tools', items: [{ name: 'grep', detail: undefined }, { name: 'read_file', detail: undefined }] }]);
   });
 
   it('interleaves text and tools in order (text → tools → text = three segments)', () => {
@@ -36,8 +36,18 @@ describe('chat render reducer', () => {
     const turn = v.turns.at(-1)!;
     expect(turn.role === 'orca' && turn.segments).toEqual([
       { kind: 'text', text: 'looking' },
-      { kind: 'tools', names: ['grep'] },
+      { kind: 'tools', items: [{ name: 'grep', detail: undefined }] },
       { kind: 'text', text: 'found it' },
+    ]);
+  });
+
+  it('diff event attaches to the most recent tool call', () => {
+    let v = beginAssistant(emptyView());
+    v = reduce(v, { type: 'tool', name: 'edit', detail: 'src/a.ts' });
+    v = reduce(v, { type: 'diff', diff: '-old\n+new' });
+    const turn = v.turns.at(-1)!;
+    expect(turn.role === 'orca' && turn.segments).toEqual([
+      { kind: 'tools', items: [{ name: 'edit', detail: 'src/a.ts', diff: '-old\n+new' }] },
     ]);
   });
 

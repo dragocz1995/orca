@@ -8,7 +8,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useToast } from '../../components/ui/Toast';
 import { useBrainSessions } from '../../lib/queries';
 import { orcaClient, BASE } from '../../lib/orcaClient';
-import type { BrainMessage, BrainUsage, StatuslineConfig } from '../../lib/types';
+import type { BrainUsage, StatuslineConfig } from '../../lib/types';
 
 /** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
 const fmtK = (n: number): string => (n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
@@ -42,7 +42,8 @@ async function readAttachment(file: File): Promise<Attachment | null> {
 /** An assistant turn is an ordered list of segments so text and tool calls render in the sequence they
  *  actually happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment
  *  → the Claude-Code "grouped pills" look. */
-type Segment = { kind: 'text'; text: string } | { kind: 'tools'; names: string[] };
+type ToolPill = { name: string; detail?: string };
+type Segment = { kind: 'text'; text: string } | { kind: 'tools'; tools: ToolPill[] };
 type Turn = { role: 'user'; text: string } | { role: 'assistant'; segments: Segment[] };
 
 /** Append a text delta to the running assistant turn, extending its last text segment or starting one. */
@@ -57,13 +58,13 @@ function appendText(cur: Turn[], delta: string): Turn[] {
 }
 
 /** Append a tool call, grouping it with the immediately preceding tool calls (no text in between). */
-function appendTool(cur: Turn[], name: string): Turn[] {
+function appendTool(cur: Turn[], tool: ToolPill): Turn[] {
   const last = cur[cur.length - 1];
-  if (last?.role !== 'assistant') return [...cur, { role: 'assistant', segments: [{ kind: 'tools', names: [name] }] }];
+  if (last?.role !== 'assistant') return [...cur, { role: 'assistant', segments: [{ kind: 'tools', tools: [tool] }] }];
   const segs = [...last.segments];
   const tail = segs[segs.length - 1];
-  if (tail?.kind === 'tools') segs[segs.length - 1] = { kind: 'tools', names: [...tail.names, name] };
-  else segs.push({ kind: 'tools', names: [name] });
+  if (tail?.kind === 'tools') segs[segs.length - 1] = { kind: 'tools', tools: [...tail.tools, tool] };
+  else segs.push({ kind: 'tools', tools: [tool] });
   return [...cur.slice(0, -1), { role: 'assistant', segments: segs }];
 }
 
@@ -73,13 +74,15 @@ function TextSegment({ text }: { text: string }) {
   return <div className="chat-markdown text-sm leading-relaxed text-text" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-/** A grouped row of tool-call pills (one segment = tools that ran together). */
-function ToolPills({ names }: { names: string[] }) {
+/** A grouped row of tool-call pills (one segment = tools that ran together). The argument summary
+ *  (file path, query…) rides muted next to the name, opencode-style. */
+function ToolPills({ tools }: { tools: ToolPill[] }) {
   return (
     <span className="flex flex-wrap gap-1">
-      {names.map((name, i) => (
-        <span key={i} className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-2 py-0.5 font-mono text-tiny text-text-muted">
-          <Wrench size={9} aria-hidden />{name}
+      {tools.map((tool, i) => (
+        <span key={i} title={tool.detail} className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-elevated px-2 py-0.5 font-mono text-tiny text-text-muted">
+          <Wrench size={9} aria-hidden className="shrink-0" />{tool.name}
+          {tool.detail ? <span className="truncate opacity-60">{tool.detail}</span> : null}
         </span>
       ))}
     </span>
@@ -100,7 +103,7 @@ function Message({ turn }: { turn: Turn }) {
     <div className="mr-4 flex flex-col gap-1.5 self-start">
       {turn.segments.map((seg, i) => (seg.kind === 'text'
         ? <TextSegment key={i} text={seg.text} />
-        : <ToolPills key={i} names={seg.names} />))}
+        : <ToolPills key={i} tools={seg.tools} />))}
     </div>
   );
 }
@@ -139,8 +142,28 @@ export function BrainChat() {
 
   const loadHistory = async () => {
     const msgs = await orcaClient.brainMessages();
-    setTurns(msgs.filter((m: BrainMessage) => m.text).map((m: BrainMessage): Turn =>
-      m.role === 'user' ? { role: 'user', text: m.text } : { role: 'assistant', segments: [{ kind: 'text', text: m.text }] }));
+    const turns: Turn[] = [];
+    for (const m of msgs) {
+      if (m.role === 'user') {
+        if (m.text) turns.push({ role: 'user', text: m.text });
+        continue;
+      }
+      // Server-built segments preserve the true text/tool order; older rows fall back to flat text.
+      const source = m.segments ?? (m.text ? [{ kind: 'text' as const, text: m.text }] : []);
+      const segments: Segment[] = [];
+      for (const seg of source) {
+        if (seg.kind === 'text') {
+          segments.push({ kind: 'text', text: seg.text });
+        } else {
+          const tail = segments[segments.length - 1];
+          const pill = { name: seg.name, detail: seg.detail };
+          if (tail?.kind === 'tools') tail.tools.push(pill);
+          else segments.push({ kind: 'tools', tools: [pill] });
+        }
+      }
+      if (segments.length > 0) turns.push({ role: 'assistant', segments });
+    }
+    setTurns(turns);
   };
 
   // Boot: start (resume) the brain, load history, open the stream. Re-runs when the conversation flips.
@@ -157,8 +180,8 @@ export function BrainChat() {
       setTurns((cur) => appendText(cur, delta));
     });
     es.addEventListener('tool', (e) => {
-      const { name } = JSON.parse((e as MessageEvent).data) as { name: string };
-      setTurns((cur) => appendTool(cur, name));
+      const { name, detail } = JSON.parse((e as MessageEvent).data) as { name: string; detail?: string };
+      setTurns((cur) => appendTool(cur, { name, detail }));
     });
     es.addEventListener('idle', (e) => {
       setBusy(false);

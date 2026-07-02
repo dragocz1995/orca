@@ -59,7 +59,10 @@ export interface BrainModelOption { provider: string; providerLabel: string; mod
 /** One brain conversation in the session picker (web chat + CLI). */
 export interface BrainSessionInfo { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean }
 /** A stored brain turn shaped for display. */
-export interface BrainMessage { role: string; text: string }
+export type BrainSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; name: string; detail?: string; diff?: string };
+export interface BrainMessage { role: string; text: string; segments?: BrainSegment[] }
 /** Live statusline numbers for the active conversation. */
 export interface BrainUsage { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
 /** The statusline plugin's display toggles (null = plugin disabled). */

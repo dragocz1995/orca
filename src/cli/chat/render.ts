@@ -2,8 +2,9 @@ import type { BrainEvent, BrainMessageView } from '../../brain/brainService.js';
 
 /** An assistant turn is an ordered list of segments so text and tool calls render in the sequence they
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment — the
- *  Claude-Code "grouped" look. Tool OUTPUT is never shown, only the invoked tool names. */
-type Segment = { kind: 'text'; text: string } | { kind: 'tools'; names: string[] };
+ *  Claude-Code "grouped" look. Tool OUTPUT is never shown; only names, argument summaries and edit diffs. */
+interface ToolItem { name: string; detail?: string; diff?: string }
+type Segment = { kind: 'text'; text: string } | { kind: 'tools'; items: ToolItem[] };
 type YouTurn = { role: 'you'; text: string };
 type OrcaTurn = { role: 'orca'; segments: Segment[]; streaming: boolean };
 type ChatTurn = YouTurn | OrcaTurn;
@@ -13,13 +14,28 @@ export interface ChatView { turns: ChatTurn[]; thinking: boolean }
 
 export const emptyView = (): ChatView => ({ turns: [], thinking: false });
 
-/** Build the initial view from stored history (user → you, everything else → orca). */
+/** Build the initial view from stored history. Assistant turns keep their server-built segments
+ *  (ordered text + tool calls with diffs), so a resumed conversation looks exactly like a live one. */
 export function fromHistory(msgs: BrainMessageView[]): ChatView {
-  const turns: ChatTurn[] = msgs
-    .filter((m) => m.text.trim().length > 0)
-    .map((m): ChatTurn => (m.role === 'user'
-      ? { role: 'you', text: m.text }
-      : { role: 'orca', segments: [{ kind: 'text', text: m.text }], streaming: false }));
+  const turns: ChatTurn[] = [];
+  for (const m of msgs) {
+    if (m.role === 'user') {
+      if (m.text.trim()) turns.push({ role: 'you', text: m.text });
+      continue;
+    }
+    const segments: Segment[] = [];
+    for (const seg of m.segments ?? (m.text.trim() ? [{ kind: 'text' as const, text: m.text }] : [])) {
+      if (seg.kind === 'text') {
+        segments.push({ kind: 'text', text: seg.text });
+      } else {
+        const item: ToolItem = { name: seg.name, detail: seg.detail, diff: seg.diff };
+        const tail = segments[segments.length - 1];
+        if (tail?.kind === 'tools') tail.items.push(item);
+        else segments.push({ kind: 'tools', items: [item] });
+      }
+    }
+    if (segments.length > 0) turns.push({ role: 'orca', segments, streaming: false });
+  }
   return { turns, thinking: false };
 }
 
@@ -60,9 +76,23 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     }
     case 'tool': {
       const t = ensureOrca();
+      const item: ToolItem = { name: e.name, detail: e.detail };
       const tail = t.segments[t.segments.length - 1];
-      if (tail?.kind === 'tools') t.segments[t.segments.length - 1] = { kind: 'tools', names: [...tail.names, e.name] };
-      else t.segments.push({ kind: 'tools', names: [e.name] });
+      if (tail?.kind === 'tools') t.segments[t.segments.length - 1] = { kind: 'tools', items: [...tail.items, item] };
+      else t.segments.push({ kind: 'tools', items: [item] });
+      return { turns, thinking: true };
+    }
+    case 'diff': {
+      // An edit finished — attach its diff to the most recent tool call of the streaming turn.
+      const t = ensureOrca();
+      for (let i = t.segments.length - 1; i >= 0; i--) {
+        const seg = t.segments[i]!;
+        if (seg.kind !== 'tools') continue;
+        const items = seg.items.slice();
+        items[items.length - 1] = { ...items[items.length - 1]!, diff: e.diff };
+        t.segments[i] = { kind: 'tools', items };
+        break;
+      }
       return { turns, thinking: true };
     }
     case 'idle': {
