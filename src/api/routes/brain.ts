@@ -33,10 +33,11 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(d.brain.history(c.get('user').id));
   });
 
-  // The pickable models across every configured brain provider (feeds the Account → CLI dropdown).
+  // The pickable models across every configured brain provider — dedicated entries, connected OAuth
+  // accounts, or the relay fallback (feeds the Account → CLI dropdown).
   app.get('/brain/models', async c => {
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const cfg = brainConfigFromOrca(d.config);
+    const cfg = brainConfigFromOrca(d.config, d.brainAuth);
     if (!cfg) return c.json([]);
     return c.json(await listBrainModels(cfg));
   });

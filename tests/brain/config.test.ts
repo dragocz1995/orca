@@ -18,6 +18,22 @@ describe('brainConfigFromOrca', () => {
     ]);
   });
 
+  it('surfaces a connected OAuth account as a synthetic provider', () => {
+    const config = new ConfigStore(openDb(':memory:'));
+    const auth = { get: (p: string) => (p === 'anthropic' ? { type: 'oauth' } : undefined) } as never;
+    const cfg = brainConfigFromOrca(config, auth);
+    expect(cfg?.providers).toEqual([
+      { id: 'anthropic', label: 'Claude account', type: 'oauth-anthropic', baseUrl: '', models: [], apiKey: null },
+    ]);
+  });
+
+  it('an explicit oauth entry wins over the synthetic one', () => {
+    const config = new ConfigStore(openDb(':memory:'));
+    config.update({ brain: { providers: [{ id: 'muj-claude', label: 'Můj Claude', type: 'oauth-anthropic', baseUrl: '', models: ['claude-opus-4-5'] }] } });
+    const auth = { get: (p: string) => (p === 'anthropic' ? { type: 'oauth' } : undefined) } as never;
+    expect(brainConfigFromOrca(config, auth)?.providers.map((p) => p.id)).toEqual(['muj-claude']);
+  });
+
   it('dedicated brain.providers win over the relay fallback', () => {
     const config = new ConfigStore(openDb(':memory:'));
     config.update({

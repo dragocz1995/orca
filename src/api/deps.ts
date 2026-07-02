@@ -28,6 +28,7 @@ import type { SkillService } from './services/skillService.js';
 import type { TaskUsageStore } from '../store/taskUsageStore.js';
 import type { GitReader } from '../git/gitReader.js';
 import type { BrainOAuthManager } from '../brain/oauth.js';
+import type { AuthStorage } from '@earendil-works/pi-coding-agent';
 
 /** Everything the daemon injects into the REST server. Lives in its own module (rather than server.ts)
  *  so the route context and the route families can depend on the dependency shape without importing
@@ -63,6 +64,8 @@ export interface ServerDeps {
   pluginDirs?: string[];
   /** Brain provider OAuth flows (connect Anthropic/Copilot/OpenAI accounts). Absent → routes degrade. */
   brainOauth?: BrainOAuthManager;
+  /** The brain's credential store — lets /brain/models surface connected OAuth accounts' catalogs. */
+  brainAuth?: AuthStorage;
   /** User-aware prompt renderer (resolves a user's override else the file default). Absent → callers
    *  fall back to the plain file `render`, i.e. defaults for everyone. */
   prompts?: PromptService;

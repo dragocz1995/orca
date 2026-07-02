@@ -27,7 +27,9 @@ export interface BrainDeps {
     ensureAdvisorToken(userId: number): string;
     get(userId: number): { name?: string; username?: string } | null | undefined;
   };
-  config: BrainRuntimeConfig;
+  /** The provider set, or a live resolver so provider/OAuth changes apply without a daemon restart.
+   *  A resolver returning null means "nothing configured yet" — `start` fails with a clear error. */
+  config: BrainRuntimeConfig | (() => BrainRuntimeConfig | null);
   /** Credential store for the brain's providers (OAuth tokens live here). Default: in-memory. */
   authStorage?: AuthStorage;
   /** Renders the brain's system prompt from the editable `advisor` template (per-user override aware). */
@@ -86,10 +88,18 @@ function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
  *  user for step #1 (session id `brain-<userId>`); multi-conversation is a later sub-project. */
 export class BrainService {
   private live = new Map<number, LiveBrain>();
+  private channels = new Map<string, LiveBrain>();
   private pluginsMemo?: PluginRegistry;
   constructor(private d: BrainDeps) {}
 
   private sessionIdFor(userId: number): string { return `brain-${userId}`; }
+
+  /** The current provider set (live-resolved when a thunk was injected). */
+  private runtimeConfig(): BrainRuntimeConfig {
+    const cfg = typeof this.d.config === 'function' ? this.d.config() : this.d.config;
+    if (!cfg || cfg.providers.length === 0) throw new Error('no brain provider configured — add one in Settings → Brain');
+    return cfg;
+  }
 
   /** The plugin registry: a directly-injected one (tests) or the memoized result of the async loader. */
   private async resolvePlugins(): Promise<PluginRegistry | undefined> {
@@ -104,46 +114,50 @@ export class BrainService {
     return { running: !!b, sessionId: b?.sessionId ?? null, model: b?.model ?? '' };
   }
 
-  async start(userId: number, opts?: { provider?: string }): Promise<{ sessionId: string }> {
-    const existing = this.live.get(userId);
-    if (existing) return { sessionId: existing.sessionId }; // idempotent
-    const sessionId = this.sessionIdFor(userId);
-
-    // Model selection: an explicit start option wins, else the user's saved provider+model override,
-    // else the first configured provider's first model.
-    const userCfg = this.d.userSettings?.(userId);
-    const selection = { provider: opts?.provider ?? userCfg?.modelProvider, model: userCfg?.model };
+  /** Everything shared by a user session and a channel session: registry + store row + rehydration +
+   *  persona/plugins composition + PI session construction + persistence subscription. */
+  private async spawnLive(opts: {
+    sessionId: string;
+    ownerUserId: number;
+    selection: { provider?: string; model?: string };
+    policy: Policy;
+    /** Extra system-prompt chunks appended after the plugin fragments (e.g. a Discord role prompt). */
+    extraAppend?: string[];
+    autoCompact: boolean;
+    autoCompactAt: number;
+  }): Promise<LiveBrain> {
+    const { sessionId, ownerUserId } = opts;
 
     // Ensure the store row (sole source of truth) exists before rehydration.
-    const registry = buildBrainRegistry(this.d.config, this.d.authStorage);
-    const model = resolveBrainModel(registry, this.d.config, selection);
+    const cfg = this.runtimeConfig();
+    const registry = buildBrainRegistry(cfg, this.d.authStorage);
+    const model = resolveBrainModel(registry, cfg, opts.selection);
     if (!this.d.store.getSession(sessionId)) {
-      this.d.store.createSession({ id: sessionId, userId, model: model.id });
+      this.d.store.createSession({ id: sessionId, userId: ownerUserId, model: model.id });
     } else {
       this.d.store.touchSession(sessionId, model.id);
     }
 
     const cwd = this.d.cwd ?? process.cwd();
     const sessionManager = rehydrate(this.d.store, sessionId, cwd);
-    const token = this.d.users.ensureAdvisorToken(userId);
+    const token = this.d.users.ensureAdvisorToken(ownerUserId);
     const tools = buildOrcaTools({ url: this.d.url, token });
 
     // Enabled plugins contribute tools, skills, and system-prompt fragments. Their tools read the active
-    // Policy at call time via AsyncLocalStorage (set in `send`), so they need no per-user construction.
+    // Policy at call time via AsyncLocalStorage (set around each prompt), no per-session construction.
     const plugins = await this.resolvePlugins();
     const pluginTools = plugins?.tools ?? [];
     const allTools = [...tools, ...pluginTools];
     const skills = plugins?.skills ?? [];
     const skillsBlock = skills.length ? formatSkillsForPrompt(skills) : '';
     const fragments = plugins?.promptFragments ?? [];
-    const append = [skillsBlock, ...fragments].filter((s) => s.length > 0);
-    const policy = this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] };
+    const append = [skillsBlock, ...fragments, ...(opts.extraAppend ?? [])].filter((s) => s.length > 0);
 
     // Orca identity: the editable `advisor` prompt (per-user override aware) becomes the system prompt,
     // so the brain knows it is Orca — not the underlying model's default persona.
-    const u = this.d.users.get(userId);
+    const u = this.d.users.get(ownerUserId);
     const userName = u?.name || u?.username || 'Filip';
-    const persona = this.d.prompts.render('advisor', { userName }, userId);
+    const persona = this.d.prompts.render('advisor', { userName }, ownerUserId);
     const resourceLoader = (this.d.resourceLoaderFactory ?? defaultResourceLoaderFactory)({ cwd, systemPrompt: persona, appendSystemPrompt: append });
     // A resource loader passed to createAgentSession is NOT auto-reloaded (only one it builds itself is),
     // so its system prompt stays empty unless we reload it here. Without this the brain falls back to
@@ -169,9 +183,26 @@ export class BrainService {
       if (be) for (const l of listeners) l(be);
     });
 
-    const autoCompactAt = userCfg?.autoCompactAt ? userCfg.autoCompactAt / 100 : DEFAULT_AUTO_COMPACT_AT;
-    this.live.set(userId, { session, sessionId, model: model.id, policy, autoCompact: !!userCfg?.autoCompact, autoCompactAt, listeners });
-    return { sessionId };
+    return { session, sessionId, model: model.id, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners };
+  }
+
+  async start(userId: number, opts?: { provider?: string }): Promise<{ sessionId: string }> {
+    const existing = this.live.get(userId);
+    if (existing) return { sessionId: existing.sessionId }; // idempotent
+
+    // Model selection: an explicit start option wins, else the user's saved provider+model override,
+    // else the first configured provider's first model.
+    const userCfg = this.d.userSettings?.(userId);
+    const live = await this.spawnLive({
+      sessionId: this.sessionIdFor(userId),
+      ownerUserId: userId,
+      selection: { provider: opts?.provider ?? userCfg?.modelProvider, model: userCfg?.model },
+      policy: this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] },
+      autoCompact: !!userCfg?.autoCompact,
+      autoCompactAt: userCfg?.autoCompactAt ? userCfg.autoCompactAt / 100 : DEFAULT_AUTO_COMPACT_AT,
+    });
+    this.live.set(userId, live);
+    return { sessionId: live.sessionId };
   }
 
   subscribe(userId: number, listener: (e: BrainEvent) => void): () => void {
@@ -206,10 +237,43 @@ export class BrainService {
   }
 
   /** Drop the memoized plugin registry and restart every live session — called when the admin flips a
-   *  plugin on/off so the change applies without a daemon restart. */
+   *  plugin on/off so the change applies without a daemon restart. Channel sessions are simply dropped;
+   *  the next inbound message re-opens them with the fresh registry. */
   async reloadPlugins(): Promise<void> {
     this.pluginsMemo = undefined;
     for (const userId of [...this.live.keys()]) await this.restart(userId);
+    for (const [id, ch] of [...this.channels]) { ch.session.dispose(); this.channels.delete(id); }
+  }
+
+  /** Send one channel message (e.g. a Discord mention) into that channel's own conversation and return
+   *  the final assistant text. The session is keyed by the channel — NOT the Orca user — and runs with
+   *  the caller-resolved Policy (role → projects) plus optional role prompt fragments. Persisted like
+   *  any brain conversation (`brain-ch-<id>`), owned by `ownerUserId` (whose token drives the tools). */
+  async channelSend(opts: { channelId: string; ownerUserId: number; policy: Policy; promptAppend?: string[] }, text: string): Promise<string> {
+    const sessionId = `brain-ch-${opts.channelId}`;
+    let ch = this.channels.get(opts.channelId);
+    if (!ch) {
+      ch = await this.spawnLive({
+        sessionId,
+        ownerUserId: opts.ownerUserId,
+        selection: {},
+        policy: opts.policy,
+        extraAppend: opts.promptAppend,
+        autoCompact: true, // channels are long-lived and unattended — keep their context bounded
+        autoCompactAt: DEFAULT_AUTO_COMPACT_AT,
+      });
+      this.channels.set(opts.channelId, ch);
+    }
+    projectUserTurn(this.d.store, sessionId, text);
+    await runWithPolicy(opts.policy, () => ch.session.prompt(text));
+    const usage = ch.session.getContextUsage();
+    if (usage?.tokens && usage.contextWindow > 0 && usage.tokens / usage.contextWindow >= ch.autoCompactAt) {
+      try { await ch.session.compact(); } catch { /* best-effort */ }
+    }
+    // The reply = the last assistant message of the settled turn.
+    const msgs = ch.session.messages as { role?: string }[];
+    const last = [...msgs].reverse().find((m) => m.role === 'assistant');
+    return last ? extractText(last) : '';
   }
 
   stop(userId: number): void {

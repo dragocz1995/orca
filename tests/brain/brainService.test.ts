@@ -8,13 +8,16 @@ import { Type } from 'typebox';
 
 function fakeDeps() {
   const listeners: ((e: unknown) => void)[] = [];
+  const messages: { role: string; content: string }[] = [];
   const session = {
     sessionId: 'sess-1',
     prompt: vi.fn(async (t: string) => {
+      messages.push({ role: 'user', content: t }, { role: 'assistant', content: `echo:${t}` });
       listeners.forEach((l) => l({ type: 'agent_end', willRetry: false, messages: [{ role: 'assistant', content: `echo:${t}` }] }));
     }),
     subscribe: (l: (e: unknown) => void) => { listeners.push(l); return () => {}; },
-    setModel: vi.fn(), dispose: vi.fn(), messages: [], isStreaming: false,
+    setModel: vi.fn(), dispose: vi.fn(), messages, isStreaming: false,
+    getContextUsage: () => undefined, compact: vi.fn(async () => {}),
   };
   const createSession = vi.fn(async () => ({ session }));
   return {
@@ -93,6 +96,19 @@ describe('BrainService', () => {
     d.store.appendMessage({ id: 'a', sessionId: 'brain-1', parentId: null, role: 'user', content: { role: 'user', content: 'ahoj' } });
     d.store.appendMessage({ id: 'b', sessionId: 'brain-1', parentId: null, role: 'assistant', content: { role: 'assistant', content: [{ type: 'text', text: 'čau' }] } });
     expect(svc.history(1)).toEqual([{ role: 'user', text: 'ahoj' }, { role: 'assistant', text: 'čau' }]);
+  });
+
+  it('channelSend opens a channel session, applies its policy, and returns the reply', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const policy = { allowedProjectIds: new Set([1]), allowedPaths: () => ['/repo/a'] };
+    const reply = await svc.channelSend({ channelId: 'disc-42', ownerUserId: 1, policy, promptAppend: ['Role: dev tým.'] }, 'ahoj');
+    expect(d.session.prompt).toHaveBeenCalledWith('ahoj');
+    expect(reply).toBe('echo:ahoj');
+    // Channel history persisted under its own session id, separate from the user session.
+    const roles = d.store.getMessages('brain-ch-disc-42').map((m) => m.role);
+    expect(roles).toContain('user');
+    expect(roles).toContain('assistant');
   });
 
   it('stop disposes the session and reports not running', async () => {
