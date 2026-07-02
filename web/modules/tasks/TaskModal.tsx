@@ -268,24 +268,22 @@ export function TaskModal({ task, onClose, initialSchedule, initialMode, initial
                 className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
               />
             </Field>
+            <Field label={t.tasks.fieldType}>
+              <Segmented
+                value={type}
+                onChange={setType}
+                options={TASK_TYPES.map((taskType) => ({ value: taskType, label: taskTypeLabel(t, taskType), icon: taskTypeMeta(taskType).icon }))}
+              />
+            </Field>
             <div className="grid grid-cols-2 gap-4">
-              <Field label={t.tasks.fieldType}>
-                <Segmented
-                  value={type}
-                  onChange={setType}
-                  options={TASK_TYPES.map((taskType) => ({ value: taskType, label: taskTypeLabel(t, taskType), icon: taskTypeMeta(taskType).icon }))}
-                />
-              </Field>
               <Field label={t.tasks.fieldPriority}>
                 <Segmented value={priority} onChange={setPriority} options={PRIORITIES.map((p) => ({ value: p, label: p }))} />
               </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {execSelect}
               <Field label={t.tasks.fieldSchedule} hint={t.tasks.scheduleHint}>
                 <Input type="datetime-local" value={schedule} onChange={(e) => setSchedule(e.target.value)} />
               </Field>
             </div>
+            {execSelect}
             {scheduleConflict && (
               <p className="-mt-2 flex items-center gap-1.5 text-xs text-warning">
                 <AlertTriangle size={13} aria-hidden />
