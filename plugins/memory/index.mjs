@@ -3,7 +3,9 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
-const TIMEOUT_MS = 30_000;
+// mem0 writes run LLM fact-extraction server-side — they are slow by design (Hermes budgets 120 s).
+const READ_TIMEOUT_MS = 30_000;
+const WRITE_TIMEOUT_MS = 120_000;
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
@@ -13,12 +15,12 @@ export function register(ctx) {
   const apiKey = typeof ctx.config.apiKey === 'string' ? ctx.config.apiKey.trim() : '';
   const userId = (typeof ctx.config.userId === 'string' && ctx.config.userId.trim()) || 'orca';
 
-  const call = async (path, body) => {
+  const call = async (path, body, timeoutMs = READ_TIMEOUT_MS) => {
     const res = await fetch(`${endpoint}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(apiKey ? { 'x-api-key': apiKey } : {}) },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`mem0 HTTP ${res.status} on ${path}`);
     return res.json();
@@ -30,7 +32,7 @@ export function register(ctx) {
     parameters: Type.Object({ text: Type.String({ description: 'The fact to remember, self-contained' }) }),
     execute: async (_id, p) => {
       try {
-        await call('/memories', { messages: [{ role: 'user', content: p.text }], user_id: userId, agent_id: 'orca' });
+        await call('/memories', { messages: [{ role: 'user', content: p.text }], user_id: userId, agent_id: 'orca' }, WRITE_TIMEOUT_MS);
         return ok('Saved to long-term memory.');
       } catch (e) { return fail(e); }
     },
