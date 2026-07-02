@@ -935,6 +935,8 @@ export const en = {
     modeNav: 'Dock mode',
     modeChat: 'Chat',
     modeTerminal: 'Terminal',
+    deleteChat: 'Delete conversation',
+    context: 'context',
     newChat: 'New chat',
     untitled: 'Untitled',
     empty: 'Ask Orca anything — tasks, missions, your repositories.',

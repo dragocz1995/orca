@@ -29,7 +29,8 @@ export class UserBlock implements Component {
 /** A bottom status bar: left text and right text justified to the two edges. */
 export class StatusBar implements Component {
   constructor(private left: string, private right: string) {}
-  invalidate(): void { /* stateless */ }
+  invalidate(): void { /* re-rendered on the next frame */ }
+  setLeft(left: string): void { this.left = left; }
   render(width: number): string[] {
     const gap = Math.max(1, width - visibleWidth(this.left) - visibleWidth(this.right));
     return [this.left + ' '.repeat(gap) + this.right];

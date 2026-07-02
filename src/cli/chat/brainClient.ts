@@ -7,6 +7,11 @@ export class Unauthorized extends Error {
 
 export interface BrainClientOpts { base: string; token: string; fetchImpl?: typeof fetch }
 
+/** Statusline display toggles (the statusline plugin's config; null when the plugin is disabled). */
+export interface StatuslineConfig { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean }
+export interface BrainUsageView { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
+export interface BrainStatus { running: boolean; sessionId: string | null; model: string; usage: BrainUsageView | null; statusline: StatuslineConfig | null }
+
 /** Parse accumulated SSE text into complete frames, returning the events and the unconsumed tail.
  *  Pure and buffer-safe (a frame split across chunks stays in `rest` until its blank-line terminator).
  *  Comment lines (`: ping`) yield no data and are skipped. */
@@ -63,10 +68,17 @@ export class BrainClient {
     await this.post('/brain/send', { text });
   }
 
-  async status(): Promise<{ running: boolean; sessionId: string | null; model: string }> {
+  async status(): Promise<BrainStatus> {
     const res = await this.f(`${this.o.base}/brain/status`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    return (await res.json()) as { running: boolean; sessionId: string | null; model: string };
+    return (await res.json()) as BrainStatus;
+  }
+
+  /** Delete a stored conversation (404 → Error). */
+  async deleteSession(id: string): Promise<void> {
+    const res = await this.f(`${this.o.base}/brain/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/sessions`);
   }
 
   async history(): Promise<BrainMessageView[]> {

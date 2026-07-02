@@ -1,0 +1,14 @@
+{
+  "name": "statusline",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Chat statusline: shows context usage, session token totals and cost under the conversation — in the web dock and the orca chat CLI. Pick what to display below.",
+  "entry": "index.mjs",
+  "provides": {},
+  "configSchema": [
+    { "key": "showModel", "label": "Model", "type": "boolean", "hint": "Show the active model name." },
+    { "key": "showContext", "label": "Context usage", "type": "boolean", "hint": "Show how full the context window is (percent + tokens)." },
+    { "key": "showTokens", "label": "Total tokens", "type": "boolean", "hint": "Show the conversation's cumulative token count." },
+    { "key": "showCost", "label": "Cost", "type": "boolean", "hint": "Show the conversation's cumulative cost (API-key providers report it; subscriptions show $0)." }
+  ]
+}

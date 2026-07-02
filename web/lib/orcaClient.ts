@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, CliSettings, PluginInfo, PluginDetail, BrainModelOption, BrainSessionInfo, BrainMessage, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, CliSettings, PluginInfo, PluginDetail, BrainModelOption, BrainSessionInfo, BrainMessage, BrainStatus, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, HermesStatus, HermesInstallInput, HermesInstallResult, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
 import { clearToken } from './token';
 
 // Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
@@ -143,10 +143,11 @@ export const orcaClient = {
   pluginDetail: (name: string) => req<PluginDetail>(`/plugins/${encodeURIComponent(name)}`),
   savePluginConfig: (name: string, values: Record<string, unknown>) => req<{ ok: boolean }>(`/plugins/${encodeURIComponent(name)}/config`, json({ values }, 'PATCH')),
   brainModels: () => req<BrainModelOption[]>('/brain/models'),
-  brainStatus: () => req<{ running: boolean; sessionId: string | null; model: string }>('/brain/status'),
+  brainStatus: () => req<BrainStatus>('/brain/status'),
   brainStart: (opts: { session?: string; fresh?: boolean } = {}) => req<{ sessionId: string }>('/brain/start', json(opts)),
   brainSend: (text: string) => req<{ ok: boolean }>('/brain/send', json({ text })),
   brainSessions: () => req<BrainSessionInfo[]>('/brain/sessions'),
+  brainDeleteSession: (id: string) => req<{ ok: boolean }>(`/brain/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   brainMessages: () => req<BrainMessage[]>('/brain/messages'),
   brainOauthStatus: () => req<Record<string, boolean>>('/brain/oauth/status'),
   brainOauthStart: (type: string) => req<OAuthFlowState>(`/brain/oauth/${encodeURIComponent(type)}/start`, { method: 'POST' }),

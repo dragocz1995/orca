@@ -14,9 +14,14 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   const forbidden = (c: { get: (k: 'tokenScope') => string }) => c.get('tokenScope') === 'agent';
 
   app.get('/brain/status', async c => {
-    if (!d.brain) return c.json({ running: false, sessionId: null, model: '' });
+    if (!d.brain) return c.json({ running: false, sessionId: null, model: '', usage: null, statusline: null });
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    return c.json(d.brain.status(c.get('user').id));
+    // The statusline plugin's display toggles ride along (no secrets in there), so any chat client —
+    // web dock or CLI — renders the same user-configured statusline without an admin-only call.
+    const statusline = d.config.get().plugins.enabled.includes('statusline')
+      ? d.config.pluginConfig('statusline')
+      : null;
+    return c.json({ ...d.brain.status(c.get('user').id), statusline });
   });
 
   app.post('/brain/start', async c => {
@@ -32,6 +37,13 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!d.brain) return c.json([]);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
     return c.json(d.brain.listSessions(c.get('user').id));
+  });
+
+  app.delete('/brain/sessions/:id', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    try { d.brain.deleteSession(c.get('user').id, c.req.param('id')); return c.json({ ok: true }); }
+    catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
   app.get('/brain/messages', async c => {

@@ -15,8 +15,17 @@ import { projectEvent, projectUserTurn, rehydrate } from './persistence.js';
 export type BrainEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool'; name: string }
-  | { type: 'idle' }
+  | { type: 'idle'; usage?: BrainUsage }
   | { type: 'error'; message: string };
+
+/** Statusline data for one live conversation: current context fill + session totals. */
+export interface BrainUsage {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+  totalTokens: number;
+  cost: number;
+}
 
 /** A stored turn shaped for display (the `GET /brain/messages` payload consumed by channels). */
 export interface BrainMessageView { role: string; text: string }
@@ -87,9 +96,20 @@ function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   return null;
 }
 
+/** Snapshot a session's statusline numbers: context fill from PI plus per-message usage totals. */
+function usageOf(session: AgentSession): BrainUsage {
+  const ctx = session.getContextUsage();
+  let totalTokens = 0;
+  let cost = 0;
+  for (const m of session.messages as { usage?: { totalTokens?: number; cost?: { total?: number } } }[]) {
+    totalTokens += m.usage?.totalTokens ?? 0;
+    cost += m.usage?.cost?.total ?? 0;
+  }
+  return { tokens: ctx?.tokens ?? null, contextWindow: ctx?.contextWindow ?? 0, percent: ctx?.percent ?? null, totalTokens, cost };
+}
+
 /** Per-user embedded brain lifecycle. Mirrors AdvisorService's shape so daemon wiring is familiar,
- *  but holds an in-process PI AgentSession instead of spawning an external CLI. One conversation per
- *  user for step #1 (session id `brain-<userId>`); multi-conversation is a later sub-project. */
+ *  but holds in-process PI AgentSessions (one per conversation) instead of spawning an external CLI. */
 export class BrainService {
   /** Live user sessions keyed by session id; `active` points at each user's current conversation. */
   private live = new Map<string, LiveBrain>();
@@ -137,9 +157,21 @@ export class BrainService {
     return this.pluginsMemo;
   }
 
-  status(userId: number): { running: boolean; sessionId: string | null; model: string } {
+  status(userId: number): { running: boolean; sessionId: string | null; model: string; usage: BrainUsage | null } {
     const b = this.activeLive(userId);
-    return { running: !!b, sessionId: b?.sessionId ?? null, model: b?.model ?? '' };
+    return { running: !!b, sessionId: b?.sessionId ?? null, model: b?.model ?? '', usage: b ? usageOf(b.session) : null };
+  }
+
+  /** Delete one of the user's stored conversations (never a channel session, never someone else's).
+   *  A live session is disposed first; deleting the active conversation just clears the pointer —
+   *  the next start() falls back to the most recent remaining one. */
+  deleteSession(userId: number, sessionId: string): void {
+    const row = this.d.store.getSession(sessionId);
+    if (!row || row.user_id !== userId || sessionId.startsWith('brain-ch-')) throw new Error('unknown session');
+    const live = this.live.get(sessionId);
+    if (live) { live.session.dispose(); this.live.delete(sessionId); }
+    if (this.active.get(userId) === sessionId) this.active.delete(userId);
+    this.d.store.deleteSession(sessionId);
   }
 
   /** The user's conversations (channel sessions excluded), most recent first, with live/active flags. */
@@ -219,7 +251,9 @@ export class BrainService {
     session.subscribe((e: AgentSessionEvent) => {
       projectEvent(this.d.store, sessionId, e); // persist settled turns (agent_end)
       const be = toBrainEvent(e);
-      if (be) for (const l of listeners) l(be);
+      if (!be) return;
+      if (be.type === 'idle') be.usage = usageOf(session); // statusline data rides the idle event
+      for (const l of listeners) l(be);
     });
 
     return { session, sessionId, model: model.id, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners };

@@ -60,6 +60,11 @@ export interface BrainModelOption { provider: string; providerLabel: string; mod
 export interface BrainSessionInfo { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean }
 /** A stored brain turn shaped for display. */
 export interface BrainMessage { role: string; text: string }
+/** Live statusline numbers for the active conversation. */
+export interface BrainUsage { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
+/** The statusline plugin's display toggles (null = plugin disabled). */
+export interface StatuslineConfig { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean }
+export interface BrainStatus { running: boolean; sessionId: string | null; model: string; usage: BrainUsage | null; statusline: StatuslineConfig | null }
 /** A running OAuth connect flow, as polled by the settings UI. */
 export interface OAuthFlowState {
   id: string;

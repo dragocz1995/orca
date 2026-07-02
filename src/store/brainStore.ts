@@ -58,6 +58,12 @@ export class BrainStore {
     }
   }
 
+  /** Delete one conversation and its messages. */
+  deleteSession(id: string): void {
+    this.db.prepare('DELETE FROM brain_messages WHERE session_id = ?').run(id);
+    this.db.prepare('DELETE FROM brain_sessions WHERE id = ?').run(id);
+  }
+
   removeForUser(userId: number): void {
     this.db.prepare('DELETE FROM brain_messages WHERE session_id IN (SELECT id FROM brain_sessions WHERE user_id = ?)').run(userId);
     this.db.prepare('DELETE FROM brain_sessions WHERE user_id = ?').run(userId);

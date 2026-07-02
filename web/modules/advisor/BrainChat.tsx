@@ -2,12 +2,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { Send, Plus, ChevronDown, Wrench } from 'lucide-react';
+import { Send, Plus, ChevronDown, Wrench, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../lib/i18n';
 import { useBrainSessions } from '../../lib/queries';
 import { orcaClient, BASE } from '../../lib/orcaClient';
-import type { BrainMessage } from '../../lib/types';
+import type { BrainMessage, BrainUsage, StatuslineConfig } from '../../lib/types';
+
+/** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
+const fmtK = (n: number): string => (n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
 
 interface Turn { role: 'user' | 'assistant'; text: string; tools?: string[] }
 
@@ -54,6 +57,8 @@ export function BrainChat() {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [usage, setUsage] = useState<BrainUsage | null>(null);
+  const [lineCfg, setLineCfg] = useState<StatuslineConfig | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
 
@@ -70,6 +75,8 @@ export function BrainChat() {
     setReady(false);
     await orcaClient.brainStart({});
     await loadHistory();
+    const st = await orcaClient.brainStatus().catch(() => null);
+    if (st) { setUsage(st.usage); setLineCfg(st.statusline); }
     const es = new EventSource(`${BASE}/brain/stream`);
     es.addEventListener('text', (e) => {
       const { delta } = JSON.parse((e as MessageEvent).data) as { delta: string };
@@ -87,7 +94,14 @@ export function BrainChat() {
         return [...cur, { role: 'assistant', text: '', tools: [name] }];
       });
     });
-    es.addEventListener('idle', () => { setBusy(false); void qc.invalidateQueries({ queryKey: ['brain-sessions'] }); });
+    es.addEventListener('idle', (e) => {
+      setBusy(false);
+      try {
+        const { usage: u } = JSON.parse((e as MessageEvent).data) as { usage?: BrainUsage };
+        if (u) setUsage(u);
+      } catch { /* idle without payload — statusline just stays put */ }
+      void qc.invalidateQueries({ queryKey: ['brain-sessions'] });
+    });
     esRef.current = es;
     setReady(true);
   };
@@ -116,6 +130,13 @@ export function BrainChat() {
     await connect();
   };
 
+  const deleteSession = async (id: string, wasActive: boolean) => {
+    await orcaClient.brainDeleteSession(id).catch(() => undefined);
+    await qc.invalidateQueries({ queryKey: ['brain-sessions'] });
+    // Deleting the open conversation re-targets to the most recent remaining one (or a fresh state).
+    if (wasActive) { setPickerOpen(false); await connect(); }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Conversation bar: current title + picker + new chat. */}
@@ -140,15 +161,25 @@ export function BrainChat() {
         {pickerOpen ? (
           <div className="absolute left-2 right-2 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-elevated p-1 shadow-lg">
             {(sessions.data ?? []).map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => void switchSession({ session: s.id })}
-                className={`flex w-full flex-col rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface ${s.active ? 'bg-surface' : ''}`}
-              >
-                <span className="truncate text-sm text-text">{s.title || t.brainChat.untitled}</span>
-                <span className="truncate font-mono text-tiny text-text-muted">{s.model}</span>
-              </button>
+              <div key={s.id} className={`group flex items-center rounded-md transition-colors hover:bg-surface ${s.active ? 'bg-surface' : ''}`}>
+                <button
+                  type="button"
+                  onClick={() => void switchSession({ session: s.id })}
+                  className="flex min-w-0 flex-1 flex-col px-2 py-1.5 text-left"
+                >
+                  <span className="truncate text-sm text-text">{s.title || t.brainChat.untitled}</span>
+                  <span className="truncate font-mono text-tiny text-text-muted">{s.model}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteSession(s.id, s.active)}
+                  aria-label={t.brainChat.deleteChat}
+                  title={t.brainChat.deleteChat}
+                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted opacity-0 transition-all hover:bg-elevated hover:text-red-400 group-hover:opacity-100"
+                >
+                  <Trash2 size={13} aria-hidden />
+                </button>
+              </div>
             ))}
           </div>
         ) : null}
@@ -162,6 +193,18 @@ export function BrainChat() {
         {turns.map((turn, i) => <Bubble key={i} turn={turn} />)}
         {busy ? <span className="ml-1 animate-pulse text-xs text-text-muted">{t.brainChat.thinking}</span> : null}
       </div>
+
+      {/* Statusline (the statusline plugin's toggles decide what shows; hidden when disabled). */}
+      {lineCfg && (lineCfg.showModel || lineCfg.showContext || lineCfg.showTokens || lineCfg.showCost) ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-border px-3 py-1 font-mono text-tiny text-text-muted">
+          {lineCfg.showModel && active?.model ? <span>{active.model}</span> : null}
+          {lineCfg.showContext && usage && usage.percent != null ? (
+            <span>{t.brainChat.context} {Math.round(usage.percent)}% ({fmtK(usage.tokens ?? 0)}/{fmtK(usage.contextWindow)})</span>
+          ) : null}
+          {lineCfg.showTokens && usage ? <span>Σ {fmtK(usage.totalTokens)} tok</span> : null}
+          {lineCfg.showCost && usage ? <span>${usage.cost.toFixed(2)}</span> : null}
+        </div>
+      ) : null}
 
       {/* Composer. */}
       <form

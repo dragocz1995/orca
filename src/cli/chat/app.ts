@@ -21,7 +21,7 @@ export function viewToPlainText(view: ChatView): string[] {
 
 /** Local slash-command routing: returns the recognized command (with its argument) or null for a
  *  regular chat message. Pure, so the command surface is unit-testable without a TTY. */
-export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'sessions' | 'resume' | 'help'; arg?: string } | null {
+export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'sessions' | 'resume' | 'delete' | 'help'; arg?: string } | null {
   const m = /^\/(\w+)(?:\s+(.+))?$/.exec(text.trim());
   if (!m) return null;
   switch (m[1]) {
@@ -29,9 +29,31 @@ export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'sessions' |
     case 'new': return { cmd: 'new' };
     case 'sessions': return { cmd: 'sessions' };
     case 'resume': return { cmd: 'resume', arg: m[2] };
+    case 'delete': return { cmd: 'delete', arg: m[2] };
     case 'help': return { cmd: 'help' };
     default: return null;
   }
+}
+
+/** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
+const fmtK = (n: number): string => n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`;
+
+/** Render the bottom statusline from the plugin's display toggles + live usage. Empty string when the
+ *  statusline plugin is disabled or nothing is toggled on. Pure — unit-testable without a TTY. */
+export function statusline(
+  cfg: { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean } | null,
+  usage: { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number } | null,
+  model: string,
+): string {
+  if (!cfg) return '';
+  const parts: string[] = [];
+  if (cfg.showModel && model) parts.push(model);
+  if (cfg.showContext && usage && usage.percent != null) {
+    parts.push(`kontext ${Math.round(usage.percent)}% (${fmtK(usage.tokens ?? 0)}/${fmtK(usage.contextWindow)})`);
+  }
+  if (cfg.showTokens && usage) parts.push(`Σ ${fmtK(usage.totalTokens)} tok`);
+  if (cfg.showCost && usage) parts.push(`$${usage.cost.toFixed(2)}`);
+  return parts.join('  ·  ');
 }
 
 export interface RunChatOpts {
@@ -50,6 +72,7 @@ const HELP = [
   '/new — nová konverzace',
   '/sessions — seznam konverzací',
   '/resume <č.> — pokračovat v konverzaci',
+  '/delete <č.> — smazat konverzaci',
   '/quit — konec',
 ].join('\n');
 
@@ -66,7 +89,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   const client = opts.client ?? new BrainClient({ base: opts.base, token: opts.token });
   await client.start({ provider: opts.model, session: opts.session, fresh: opts.fresh });
-  let modelName = (await client.status().catch(() => ({ model: '' }))).model || opts.model || '';
+  const boot = await client.status().catch(() => null);
+  let modelName = boot?.model || opts.model || '';
+  let lineCfg = boot?.statusline ?? null;
+  let usage = boot?.usage ?? null;
   let sessionTitle = '';
   let view = fromHistory(await client.history().catch(() => []));
   /** The last /sessions listing, so /resume <n> can address by number. */
@@ -76,10 +102,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   const refreshMeta = async (): Promise<void> => {
     const [st, sessions] = await Promise.all([
-      client.status().catch(() => ({ model: modelName })),
+      client.status().catch(() => null),
       client.sessions().catch(() => []),
     ]);
-    modelName = st.model || modelName;
+    if (st) { modelName = st.model || modelName; lineCfg = st.statusline; usage = st.usage; }
     sessionTitle = sessions.find((s) => s.active)?.title ?? '';
   };
   await refreshMeta();
@@ -115,12 +141,18 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     if (view.thinking) { messages.addChild(loader); loader.start(); } else { loader.stop(); }
     const title = sessionTitle ? ` ${color.dim('·')} ${color.dim(sessionTitle.slice(0, 40))}` : '';
     statusUnder.setText(`  ${color.accent(`${glyph.whale} orca`)} ${color.dim('·')} ${color.accentDim(modelName || '—')}${title}`);
+    const line = statusline(lineCfg, usage, modelName);
+    bottomBar.setLeft(color.dim(line ? `  ${line}` : '  ⏎ odeslat   /help příkazy'));
     tui.requestRender();
   };
 
   let streamAc = new AbortController();
   const openStream = (): void => {
-    void client.stream((e) => { view = reduce(view, e); render(); }, streamAc.signal).catch(() => { /* aborted/gone */ });
+    void client.stream((e) => {
+      if (e.type === 'idle' && e.usage) usage = e.usage;
+      view = reduce(view, e);
+      render();
+    }, streamAc.signal).catch(() => { /* aborted/gone */ });
   };
 
   /** Switch conversations: retarget the server session, then swap history + the event stream. */
@@ -162,6 +194,15 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           const target = Number.isInteger(n) && n >= 1 ? listed[n - 1]?.id : command.arg;
           if (!target) { notice = color.dim('použij /sessions a pak /resume <č.>'); render(); return; }
           void switchTo({ session: target }).catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+          return;
+        }
+        case 'delete': {
+          const n = Number(command.arg);
+          const target = Number.isInteger(n) && n >= 1 ? listed[n - 1]?.id : command.arg;
+          if (!target) { notice = color.dim('použij /sessions a pak /delete <č.>'); render(); return; }
+          void client.deleteSession(target)
+            .then(() => { listed = listed.filter((s) => s.id !== target); notice = color.dim('konverzace smazána'); render(); })
+            .catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
           return;
         }
       }

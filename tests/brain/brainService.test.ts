@@ -140,6 +140,29 @@ describe('BrainService', () => {
     expect(b).toBe('echo:two');
   });
 
+  it('deleteSession removes an owned conversation, refuses foreign/channel ones', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const first = await svc.start(1);
+    await svc.send(1, 'ahoj');
+    const second = await svc.start(1, { fresh: true });
+    svc.deleteSession(1, first.sessionId);
+    expect(svc.listSessions(1).map((s) => s.id)).toEqual([second.sessionId]);
+    expect(d.store.getMessages(first.sessionId)).toHaveLength(0);
+    d.store.createSession({ id: 'brain-77', userId: 77, model: 'm' });
+    expect(() => svc.deleteSession(1, 'brain-77')).toThrow(/unknown session/);
+    expect(() => svc.deleteSession(1, 'brain-ch-x')).toThrow(/unknown session/);
+  });
+
+  it('status exposes usage numbers for the active conversation', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const st = svc.status(1);
+    expect(st.usage).not.toBeNull();
+    expect(typeof st.usage!.totalTokens).toBe('number');
+  });
+
   it('rejects resuming a foreign or channel session', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

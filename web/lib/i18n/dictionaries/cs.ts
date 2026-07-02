@@ -935,6 +935,8 @@ export const cs = {
     modeNav: 'Režim panelu',
     modeChat: 'Chat',
     modeTerminal: 'Terminál',
+    deleteChat: 'Smazat konverzaci',
+    context: 'kontext',
     newChat: 'Nová konverzace',
     untitled: 'Bez názvu',
     empty: 'Zeptejte se Orcy na cokoliv — úkoly, mise, vaše repozitáře.',
