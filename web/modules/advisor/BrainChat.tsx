@@ -2,15 +2,42 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { Send, Plus, ChevronDown, Wrench, Trash2 } from 'lucide-react';
+import { Send, Plus, ChevronDown, Wrench, Trash2, Paperclip, X, FileText } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../lib/i18n';
+import { useToast } from '../../components/ui/Toast';
 import { useBrainSessions } from '../../lib/queries';
 import { orcaClient, BASE } from '../../lib/orcaClient';
 import type { BrainMessage, BrainUsage, StatuslineConfig } from '../../lib/types';
 
 /** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
 const fmtK = (n: number): string => (n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
+
+/** A staged attachment: images travel as base64 to the model's vision input; text files get their
+ *  content inlined into the message (fenced), which works with any model. */
+interface Attachment { name: string; kind: 'image' | 'text'; mimeType: string; data: string; preview?: string }
+
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_TEXT_BYTES = 256 * 1024;
+
+async function readAttachment(file: File): Promise<Attachment | null> {
+  if (file.type.startsWith('image/')) {
+    if (file.size > MAX_IMAGE_BYTES) return null;
+    const dataUrl = await new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result));
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(file);
+    });
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    return { name: file.name || 'obrazek.png', kind: 'image', mimeType: file.type, data: base64, preview: dataUrl };
+  }
+  if (file.size > MAX_TEXT_BYTES) return null;
+  const text = await file.text();
+  if (text.includes('\u0000')) return null; // binary — not inlinable
+  return { name: file.name, kind: 'text', mimeType: file.type || 'text/plain', data: text };
+}
 
 interface Turn { role: 'user' | 'assistant'; text: string; tools?: string[] }
 
@@ -50,6 +77,7 @@ function Bubble({ turn }: { turn: Turn }) {
  *  the daemon's SSE, keeps multiple conversations (new/resume via the session picker). */
 export function BrainChat() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const qc = useQueryClient();
   const sessions = useBrainSessions();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -59,6 +87,19 @@ export function BrainChat() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [usage, setUsage] = useState<BrainUsage | null>(null);
   const [lineCfg, setLineCfg] = useState<StatuslineConfig | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = async (files: Iterable<File>) => {
+    for (const f of files) {
+      const a = await readAttachment(f).catch(() => null);
+      if (!a) { toast(t.brainChat.attachTooBig, 'error'); continue; }
+      setAttachments((cur) => {
+        if (a.kind === 'image' && cur.filter((x) => x.kind === 'image').length >= MAX_IMAGES) return cur;
+        return [...cur, a];
+      });
+    }
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
 
@@ -115,12 +156,21 @@ export function BrainChat() {
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [turns]);
 
   const submit = async () => {
-    const text = input.trim();
-    if (!text || busy) return;
+    const typed = input.trim();
+    if ((!typed && attachments.length === 0) || busy) return;
+    // Text files inline as fenced blocks (works with any model); images ride the vision input.
+    const textFiles = attachments.filter((a) => a.kind === 'text');
+    const images = attachments.filter((a) => a.kind === 'image').map((a) => ({ data: a.data, mimeType: a.mimeType }));
+    const text = [
+      typed || t.brainChat.attachOnly,
+      ...textFiles.map((a) => `\n\`${a.name}\`:\n\`\`\`\n${a.data}\n\`\`\``),
+    ].join('\n');
+    const shown = [typed || t.brainChat.attachOnly, ...attachments.map((a) => `📎 ${a.name}`)].join('\n');
     setInput('');
+    setAttachments([]);
     setBusy(true);
-    setTurns((cur) => [...cur, { role: 'user', text }]);
-    try { await orcaClient.brainSend(text); } catch { setBusy(false); }
+    setTurns((cur) => [...cur, { role: 'user', text: shown }]);
+    try { await orcaClient.brainSend(text, images); } catch { setBusy(false); }
   };
 
   const switchSession = async (opts: { session?: string; fresh?: boolean }) => {
@@ -206,22 +256,65 @@ export function BrainChat() {
         </div>
       ) : null}
 
+      {/* Staged attachments. */}
+      {attachments.length > 0 ? (
+        <div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
+          {attachments.map((a, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated py-1 pl-1.5 pr-1 text-tiny text-text">
+              {a.kind === 'image' && a.preview
+                ? <img src={a.preview} alt={a.name} className="h-6 w-6 rounded object-cover" />
+                : <FileText size={13} className="text-text-muted" aria-hidden />}
+              <span className="max-w-[140px] truncate">{a.name}</span>
+              <button
+                type="button"
+                onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i))}
+                aria-label={t.brainChat.attachRemove}
+                className="flex h-4 w-4 items-center justify-center rounded text-text-muted hover:text-text"
+              >
+                <X size={11} aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {/* Composer. */}
       <form
         className="flex items-end gap-2 border-t border-border p-2"
         onSubmit={(e) => { e.preventDefault(); void submit(); }}
       >
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept="image/*,.txt,.md,.log,.json,.yaml,.yml,.csv,.ts,.tsx,.js,.py,.php,.sql,.sh,.env.example"
+          className="hidden"
+          onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ''; }}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          aria-label={t.brainChat.attach}
+          title={t.brainChat.attach}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:bg-elevated hover:text-text"
+        >
+          <Paperclip size={16} aria-hidden />
+        </button>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
+            if (files.length) { e.preventDefault(); void addFiles(files); }
+          }}
           rows={Math.min(5, input.split('\n').length)}
           placeholder={t.brainChat.placeholder}
           className="max-h-40 flex-1 resize-none rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent"
         />
         <button
           type="submit"
-          disabled={!input.trim() || busy}
+          disabled={(!input.trim() && attachments.length === 0) || busy}
           aria-label={t.brainChat.send}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent bg-accent/15 text-accent transition-colors hover:bg-accent/25 disabled:opacity-40"
         >

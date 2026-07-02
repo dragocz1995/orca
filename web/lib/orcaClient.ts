@@ -145,7 +145,8 @@ export const orcaClient = {
   brainModels: () => req<BrainModelOption[]>('/brain/models'),
   brainStatus: () => req<BrainStatus>('/brain/status'),
   brainStart: (opts: { session?: string; fresh?: boolean } = {}) => req<{ sessionId: string }>('/brain/start', json(opts)),
-  brainSend: (text: string) => req<{ ok: boolean }>('/brain/send', json({ text })),
+  brainSend: (text: string, images?: { data: string; mimeType: string }[]) =>
+    req<{ ok: boolean }>('/brain/send', json(images?.length ? { text, images } : { text })),
   brainSessions: () => req<BrainSessionInfo[]>('/brain/sessions'),
   brainDeleteSession: (id: string) => req<{ ok: boolean }>(`/brain/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   brainMessages: () => req<BrainMessage[]>('/brain/messages'),

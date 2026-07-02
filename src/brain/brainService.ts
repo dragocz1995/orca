@@ -300,7 +300,7 @@ export class BrainService {
     return () => b.listeners.delete(listener);
   }
 
-  async send(userId: number, text: string): Promise<void> {
+  async send(userId: number, text: string, images?: { data: string; mimeType: string }[]): Promise<void> {
     const b = this.activeLive(userId);
     if (!b) throw new Error('brain not started for user');
     // Serialized per conversation: concurrent prompt() calls on one PI session corrupt turn state.
@@ -308,9 +308,14 @@ export class BrainService {
       // First user message names the conversation (once) so the session list reads naturally.
       const row = this.d.store.getSession(b.sessionId);
       if (row && !row.title) this.d.store.setTitle(b.sessionId, text.slice(0, 60));
-      projectUserTurn(this.d.store, b.sessionId, text);
+      // History stores the text plus an attachment marker; the image bytes live only in the live
+      // context (a rehydrated conversation keeps the marker, not the pixels).
+      projectUserTurn(this.d.store, b.sessionId, images?.length ? `${text}\n[📎 ${images.length}× obrázek]` : text);
+      const options = images?.length
+        ? { images: images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })) }
+        : undefined;
       // Establish the user's repo Policy for any plugin tool this turn invokes (read via currentPolicy()).
-      await runWithPolicy(b.policy, () => b.session.prompt(text));
+      await runWithPolicy(b.policy, () => b.session.prompt(text, options));
       // Auto-compact: once the conversation fills most of the context window, summarize it so the next
       // turn keeps room. Opt-in per user; failures are non-fatal (a full window still works, just tighter).
       if (b.autoCompact) {
