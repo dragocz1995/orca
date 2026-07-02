@@ -2,7 +2,7 @@ import { TUI, ProcessTerminal, Text, Markdown, Loader, Container, Spacer, matche
 import { Editor } from '@earendil-works/pi-tui';
 import { initTheme, getMarkdownTheme, getSelectListTheme } from '@earendil-works/pi-coding-agent';
 import { color, glyph } from './theme.js';
-import { UserBlock, StatusBar, metaLine } from './components.js';
+import { UserBlock, StatusBar, metaLine, banner } from './components.js';
 import { BrainClient } from './brainClient.js';
 import { fromHistory, pushUser, beginAssistant, reduce, type ChatView } from './render.js';
 
@@ -19,16 +19,43 @@ export function viewToPlainText(view: ChatView): string[] {
   return lines;
 }
 
+/** Local slash-command routing: returns the recognized command (with its argument) or null for a
+ *  regular chat message. Pure, so the command surface is unit-testable without a TTY. */
+export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'sessions' | 'resume' | 'help'; arg?: string } | null {
+  const m = /^\/(\w+)(?:\s+(.+))?$/.exec(text.trim());
+  if (!m) return null;
+  switch (m[1]) {
+    case 'quit': case 'exit': return { cmd: 'quit' };
+    case 'new': return { cmd: 'new' };
+    case 'sessions': return { cmd: 'sessions' };
+    case 'resume': return { cmd: 'resume', arg: m[2] };
+    case 'help': return { cmd: 'help' };
+    default: return null;
+  }
+}
+
 export interface RunChatOpts {
   base: string;
   token: string;
   model?: string;
+  /** Open a brand-new conversation instead of resuming the last one. */
+  fresh?: boolean;
+  /** Resume this stored conversation id. */
+  session?: string;
   /** Injected for tests; defaults to a real BrainClient. */
   client?: BrainClient;
 }
 
+const HELP = [
+  '/new — nová konverzace',
+  '/sessions — seznam konverzací',
+  '/resume <č.> — pokračovat v konverzaci',
+  '/quit — konec',
+].join('\n');
+
 /** Launch the interactive Orca chat TUI — an opencode-style layout (user blocks with a teal rail,
- *  markdown replies with a metadata line, a bottom status bar) rendered on pi-tui + pi's markdown theme. */
+ *  markdown replies with a metadata line, a bottom status bar) rendered on pi-tui + pi's markdown theme.
+ *  Conversations are server-side: /new opens one, /sessions + /resume switch between them. */
 export async function runChat(opts: RunChatOpts): Promise<void> {
   if (!process.stdout.isTTY) {
     process.stderr.write('orca chat needs an interactive terminal (a TTY).\n');
@@ -38,9 +65,24 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const mdTheme = getMarkdownTheme();
 
   const client = opts.client ?? new BrainClient({ base: opts.base, token: opts.token });
-  await client.start(opts.model === 'anthropic' || opts.model === 'openai' ? opts.model : undefined);
-  const modelName = (await client.status().catch(() => ({ model: '' }))).model || opts.model || '';
+  await client.start({ provider: opts.model, session: opts.session, fresh: opts.fresh });
+  let modelName = (await client.status().catch(() => ({ model: '' }))).model || opts.model || '';
+  let sessionTitle = '';
   let view = fromHistory(await client.history().catch(() => []));
+  /** The last /sessions listing, so /resume <n> can address by number. */
+  let listed: { id: string; title: string }[] = [];
+  /** Transient system lines (help, session list, errors) rendered under the conversation. */
+  let notice = '';
+
+  const refreshMeta = async (): Promise<void> => {
+    const [st, sessions] = await Promise.all([
+      client.status().catch(() => ({ model: modelName })),
+      client.sessions().catch(() => []),
+    ]);
+    modelName = st.model || modelName;
+    sessionTitle = sessions.find((s) => s.active)?.title ?? '';
+  };
+  await refreshMeta();
 
   const term = new ProcessTerminal();
   const tui = new TUI(term);
@@ -48,15 +90,13 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const spacer = new Spacer();
   const loader = new Loader(tui, color.accent, color.dim, 'přemýšlím…');
   const editor = new Editor(tui, { borderColor: color.accent, selectList: getSelectListTheme() }, {});
-  const statusUnder = new Text(`  ${color.accent(`${glyph.whale} orca`)}   ${color.dim('·')}   ${color.dim(modelName || '—')}`, 1, 0);
-  const bottomBar = new StatusBar(color.dim('  enter ⏎ odeslat'), color.dim('ctrl+c konec  '));
+  const statusUnder = new Text('', 1, 0);
+  const bottomBar = new StatusBar(color.dim('  ⏎ odeslat   /help příkazy'), color.dim('ctrl+c konec  '));
 
   const render = (): void => {
     for (const c of [...messages.children]) messages.removeChild(c);
     if (view.turns.length === 0) {
-      messages.addChild(new Text('', 0, 1));
-      messages.addChild(new Text(`  ${color.accent(`${glyph.whale} orca`)}`, 1, 0));
-      messages.addChild(new Text(color.dim('  Zeptej se na cokoli — tasky, mise, plán, stav agentů…'), 1, 0));
+      for (const line of banner(modelName)) messages.addChild(new Text(line, 1, 0));
     }
     for (const turn of view.turns) {
       if (turn.role === 'you') {
@@ -70,16 +110,62 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         messages.addChild(new Text('', 0, 0));
       }
     }
+    if (notice) for (const line of notice.split('\n')) messages.addChild(new Text(`  ${line}`, 1, 0));
     // Spinner lives INSIDE the rebuilt message list, so it vanishes the moment the turn goes idle.
     if (view.thinking) { messages.addChild(loader); loader.start(); } else { loader.stop(); }
+    const title = sessionTitle ? ` ${color.dim('·')} ${color.dim(sessionTitle.slice(0, 40))}` : '';
+    statusUnder.setText(`  ${color.accent(`${glyph.whale} orca`)} ${color.dim('·')} ${color.accentDim(modelName || '—')}${title}`);
     tui.requestRender();
+  };
+
+  let streamAc = new AbortController();
+  const openStream = (): void => {
+    void client.stream((e) => { view = reduce(view, e); render(); }, streamAc.signal).catch(() => { /* aborted/gone */ });
+  };
+
+  /** Switch conversations: retarget the server session, then swap history + the event stream. */
+  const switchTo = async (target: { session?: string; fresh?: boolean }): Promise<void> => {
+    streamAc.abort();
+    streamAc = new AbortController();
+    await client.start(target);
+    view = fromHistory(await client.history().catch(() => []));
+    await refreshMeta();
+    openStream();
+    render();
   };
 
   editor.onSubmit = (text: string): void => {
     const trimmed = text.trim();
     if (!trimmed) return;
     editor.setText('');
-    if (trimmed === '/quit' || trimmed === '/exit') { quit(); return; }
+    notice = '';
+    const command = parseCommand(trimmed);
+    if (command) {
+      switch (command.cmd) {
+        case 'quit': quit(); return;
+        case 'help': notice = color.dim(HELP).split('\n').join('\n'); render(); return;
+        case 'new':
+          void switchTo({ fresh: true }).catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+          return;
+        case 'sessions':
+          void client.sessions().then((list) => {
+            listed = list.map((s) => ({ id: s.id, title: s.title }));
+            notice = list.length === 0
+              ? color.dim('žádné konverzace')
+              : list.map((s, i) => `${s.active ? color.accent('▸') : ' '} ${i + 1}. ${s.title || color.dim('(bez názvu)')}  ${color.dim(s.model)}`).join('\n')
+                + '\n' + color.dim('/resume <č.> pro přepnutí');
+            render();
+          }).catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+          return;
+        case 'resume': {
+          const n = Number(command.arg);
+          const target = Number.isInteger(n) && n >= 1 ? listed[n - 1]?.id : command.arg;
+          if (!target) { notice = color.dim('použij /sessions a pak /resume <č.>'); render(); return; }
+          void switchTo({ session: target }).catch((e: Error) => { notice = color.error(`chyba: ${e.message}`); render(); });
+          return;
+        }
+      }
+    }
     view = beginAssistant(pushUser(view, trimmed));
     render();
     void client.send(trimmed).catch((e: Error) => { view = reduce(view, { type: 'error', message: e.message }); render(); });
@@ -92,17 +178,15 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   tui.addChild(bottomBar);
   tui.setFocus(editor);
 
-  const ac = new AbortController();
   let done: () => void;
   const finished = new Promise<void>((r) => { done = r; });
-  const quit = (): void => { ac.abort(); tui.stop(); done(); };
+  const quit = (): void => { streamAc.abort(); tui.stop(); done(); };
 
   tui.addInputListener((data) => (matchesKey(data, 'ctrl+c') ? (quit(), { consume: true }) : undefined));
 
   tui.start();
   render();
-
-  void client.stream((e) => { view = reduce(view, e); render(); }, ac.signal).catch(() => { /* aborted/gone */ });
+  openStream();
 
   await finished;
 }

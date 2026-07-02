@@ -14,3 +14,17 @@ describe('viewToPlainText', () => {
     expect(lines.some((l) => l.includes('hotovo'))).toBe(true);
   });
 });
+
+describe('parseCommand', () => {
+  it('routes slash commands and passes the resume argument through', async () => {
+    const { parseCommand } = await import('../../../src/cli/chat/app.js');
+    expect(parseCommand('/new')).toEqual({ cmd: 'new' });
+    expect(parseCommand('/sessions')).toEqual({ cmd: 'sessions' });
+    expect(parseCommand('/resume 2')).toEqual({ cmd: 'resume', arg: '2' });
+    expect(parseCommand('/quit')).toEqual({ cmd: 'quit' });
+    expect(parseCommand('/exit')).toEqual({ cmd: 'quit' });
+    expect(parseCommand('/help')).toEqual({ cmd: 'help' });
+    expect(parseCommand('/unknown')).toBeNull();
+    expect(parseCommand('běžná zpráva')).toBeNull();
+  });
+});

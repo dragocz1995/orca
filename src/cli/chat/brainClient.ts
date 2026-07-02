@@ -46,9 +46,17 @@ export class BrainClient {
     return res;
   }
 
-  async start(which?: 'openai' | 'anthropic'): Promise<{ sessionId: string }> {
-    const res = await this.post('/brain/start', which ? { which } : {});
+  async start(opts: { provider?: string; session?: string; fresh?: boolean } = {}): Promise<{ sessionId: string }> {
+    const res = await this.post('/brain/start', opts);
     return (await res.json()) as { sessionId: string };
+  }
+
+  /** The caller's stored conversations, most recent first (drives /sessions in the TUI). */
+  async sessions(): Promise<{ id: string; title: string; model: string; updated_at: string; active: boolean }[]> {
+    const res = await this.f(`${this.o.base}/brain/sessions`, { headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/sessions`);
+    return (await res.json()) as { id: string; title: string; model: string; updated_at: string; active: boolean }[];
   }
 
   async send(text: string): Promise<void> {

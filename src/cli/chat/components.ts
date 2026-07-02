@@ -36,6 +36,25 @@ export class StatusBar implements Component {
   }
 }
 
+const ACCENT = (t: string): string => `\x1b[${TEAL}m${t}\x1b[0m`;
+const DIM = (t: string): string => `\x1b[90m${t}\x1b[0m`;
+
+/** The empty-conversation welcome banner: a rounded box with the brand, model, and a hint line. */
+export function banner(model?: string): string[] {
+  const inner = [
+    `${ACCENT('🐋 Orca')} ${DIM('— tvůj agent nad celou flotilou')}`,
+    DIM(model ? `model ${model}` : 'model —'),
+    '',
+    DIM('Zeptej se na cokoli — tasky, mise, plán, stav agentů…'),
+    DIM('/help pro příkazy'),
+  ];
+  const width = Math.max(...inner.map((l) => visibleWidth(l))) + 4;
+  const top = ACCENT(`╭${'─'.repeat(width - 2)}╮`);
+  const bottom = ACCENT(`╰${'─'.repeat(width - 2)}╯`);
+  const rows = inner.map((l) => `${ACCENT('│')} ${l}${' '.repeat(Math.max(0, width - 4 - visibleWidth(l)))} ${ACCENT('│')}`);
+  return ['', top, ...rows, bottom, ''];
+}
+
 /** The dim metadata line under an assistant reply: `▪ orca · <model> · <duration>`. */
 export function metaLine(model?: string, durationMs?: number): string {
   const parts = ['orca'];

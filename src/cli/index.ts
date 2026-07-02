@@ -137,7 +137,12 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       let token: string;
       try { token = resolveToken(env); }
       catch (e) { if (e instanceof NeedsLogin) token = await interactiveLogin(env); else throw e; }
-      await runChat({ base: BASE, token, model: flag(argv.slice(1), '--model') });
+      await runChat({
+        base: BASE, token,
+        model: flag(argv.slice(1), '--model'),
+        session: flag(argv.slice(1), '--session'),
+        fresh: argv.includes('--new'),
+      });
       break;
     }
     case 'login': {
