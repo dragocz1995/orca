@@ -1,0 +1,249 @@
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import { BrainCircuit, Plus, Pencil, Trash2, KeyRound, Link2, Unlink, ExternalLink, Check } from 'lucide-react';
+import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Field } from '../../components/ui/Field';
+import { Segmented } from '../../components/ui/Segmented';
+import { ModelIcon } from '../../components/ui/ModelIcon';
+import { LoadingState } from '../../components/ui/states';
+import { useToast } from '../../components/ui/Toast';
+import { useTranslation } from '../../lib/i18n';
+import { useConfig, useBrainOauthStatus } from '../../lib/queries';
+import { useSaveBrainProviders, useBrainOauthDisconnect } from '../../lib/mutations';
+import { orcaClient } from '../../lib/orcaClient';
+import type { BrainProvider, BrainProviderType, OAuthFlowState } from '../../lib/types';
+
+const OAUTH_TYPES: { type: BrainProviderType; icon: string }[] = [
+  { type: 'oauth-anthropic', icon: 'claude' },
+  { type: 'oauth-openai-codex', icon: 'gpt' },
+  { type: 'oauth-github-copilot', icon: 'copilot' },
+];
+const API_TYPES: BrainProviderType[] = ['openai', 'anthropic'];
+
+type Draft = { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string; apiKey: string };
+const emptyDraft = (): Draft => ({ id: '', label: '', type: 'openai', baseUrl: '', models: '', apiKey: '' });
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+
+/** Connect dialog: shows the provider's auth URL (+ device code), collects the pasted code when the
+ *  flow asks for one, and polls the flow until it settles. */
+function OAuthConnectDialog({ flow: initial, onDone }: { flow: OAuthFlowState; onDone: (ok: boolean) => void }) {
+  const { t } = useTranslation();
+  const [flow, setFlow] = useState(initial);
+  const [code, setCode] = useState('');
+  const done = useRef(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void orcaClient.brainOauthFlow(flow.id).then((f) => {
+        setFlow(f);
+        if ((f.status === 'success' || f.status === 'error') && !done.current) {
+          done.current = true;
+          clearInterval(timer);
+          onDone(f.status === 'success');
+        }
+      }).catch(() => {});
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [flow.id, onDone]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+      <div className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+        <span className="flex items-center gap-2 text-sm font-semibold text-text"><Link2 size={15} aria-hidden />{t.brain.connectTitle}</span>
+        {flow.authUrl ? (
+          <a href={flow.authUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 break-all rounded-md border border-accent/40 bg-accent/10 p-3 text-xs text-accent hover:bg-accent/20">
+            <ExternalLink size={14} className="shrink-0" aria-hidden />{flow.authUrl}
+          </a>
+        ) : <p className="text-xs text-text-muted">{t.brain.connectStarting}</p>}
+        {flow.userCode ? (
+          <p className="text-sm text-text">{t.brain.connectUserCode}: <span className="font-mono text-lg font-semibold tracking-widest text-accent">{flow.userCode}</span></p>
+        ) : null}
+        {flow.instructions ? <p className="text-xs text-text-muted">{flow.instructions}</p> : null}
+        {flow.needsInput ? (
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) { void orcaClient.brainOauthInput(flow.id, code.trim()); setCode(''); } }}>
+            <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder={t.brain.connectCodePlaceholder} className="font-mono" />
+            <Button type="submit" variant="accent" disabled={!code.trim()}>{t.brain.connectSubmitCode}</Button>
+          </form>
+        ) : flow.status === 'action-required' ? <p className="text-xs italic text-text-muted">{t.brain.connectWaiting}</p> : null}
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={() => onDone(false)}>{t.common.cancel}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Add/edit dialog for one provider entry. API-key types take endpoint + key + models; OAuth types
+ *  only need a label (auth lives in the connected account, models default to the built-in catalog). */
+function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
+  draft: Draft; existingIds: string[]; onSave: (d: Draft) => void; onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [d, setD] = useState(initial);
+  const isNew = !initial.id;
+  const isOauth = d.type.startsWith('oauth-');
+  const id = isNew ? slug(d.label) : d.id;
+  const idTaken = isNew && existingIds.includes(id);
+  const valid = d.label.trim() && id && !idTaken && (isOauth || d.type === 'anthropic' || d.baseUrl.trim());
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+      <div className="flex w-full max-w-lg flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+        <span className="text-sm font-semibold text-text">{isNew ? t.brain.addProvider : t.brain.editProvider}</span>
+        <Field label={t.brain.providerLabel}>
+          <Input value={d.label} onChange={(e) => setD({ ...d, label: e.target.value })} placeholder="CoreSynth Proxy" />
+          {isNew && id ? <p className="mt-1 font-mono text-tiny text-text-muted">id: {id}{idTaken ? ` — ${t.brain.idTaken}` : ''}</p> : null}
+        </Field>
+        <Field label={t.brain.providerType}>
+          <Segmented
+            aria-label={t.brain.providerType}
+            size="sm"
+            options={[...API_TYPES, ...OAUTH_TYPES.map((o) => o.type)].map((v) => ({ value: v, label: t.brain.types[v] }))}
+            value={d.type}
+            onChange={(v) => setD({ ...d, type: v as BrainProviderType })}
+          />
+        </Field>
+        {!isOauth ? (
+          <>
+            <Field label={t.brain.baseUrl} hint={d.type === 'openai' ? t.brain.baseUrlHintOpenai : t.brain.baseUrlHintAnthropic}>
+              <Input value={d.baseUrl} onChange={(e) => setD({ ...d, baseUrl: e.target.value })} placeholder={d.type === 'openai' ? 'https://ai.example.com/v1' : 'https://api.anthropic.com'} className="font-mono" />
+            </Field>
+            <Field label={t.brain.apiKey} hint={isNew ? undefined : t.brain.apiKeyKeepHint}>
+              <Input type="password" value={d.apiKey} onChange={(e) => setD({ ...d, apiKey: e.target.value })} placeholder={isNew ? 'sk-…' : '••••••'} autoComplete="off" />
+            </Field>
+          </>
+        ) : (
+          <p className="text-xs text-text-muted">{t.brain.oauthProviderHint}</p>
+        )}
+        <Field label={t.brain.models} hint={d.type === 'openai' ? t.brain.modelsHintAuto : t.brain.modelsHint}>
+          <textarea
+            value={d.models}
+            onChange={(e) => setD({ ...d, models: e.target.value })}
+            rows={3}
+            className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent"
+            placeholder={'claude-opus-4-8\nollama/kimi-k2.7-code'}
+          />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="accent" icon={Check} disabled={!valid} onClick={() => onSave({ ...d, id })}>{t.common.save}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Settings → Brain: the model providers behind `orca chat` (custom endpoints + OAuth accounts). */
+export function BrainSection() {
+  const { data: config } = useConfig();
+  const oauth = useBrainOauthStatus();
+  const save = useSaveBrainProviders();
+  const disconnect = useBrainOauthDisconnect();
+  const { toast } = useToast();
+  const { t } = useTranslation();
+  const [modal, setModal] = useState<Draft | null>(null);
+  const [flow, setFlow] = useState<OAuthFlowState | null>(null);
+
+  if (!config) return <LoadingState />;
+  const providers = config.brain?.providers ?? [];
+
+  const persist = (next: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]) =>
+    save.mutate(next, {
+      onSuccess: () => toast(t.brain.saved),
+      onError: () => toast(t.brain.saveError, 'error'),
+    });
+
+  const upsert = (d: Draft) => {
+    const entry = {
+      id: d.id, label: d.label.trim(), type: d.type, baseUrl: d.baseUrl.trim(),
+      models: d.models.split('\n').map((m) => m.trim()).filter(Boolean),
+      ...(d.apiKey.trim() ? { apiKey: d.apiKey.trim() } : {}),
+    };
+    const keyless = providers.map(({ apiKeySet, ...p }) => p);
+    persist(keyless.some((p) => p.id === entry.id) ? keyless.map((p) => (p.id === entry.id ? entry : p)) : [...keyless, entry]);
+    setModal(null);
+  };
+
+  const remove = (id: string) => persist(providers.filter((p) => p.id !== id).map(({ apiKeySet, ...p }) => p));
+
+  const startConnect = (type: string) =>
+    void orcaClient.brainOauthStart(type)
+      .then((f) => setFlow(f))
+      .catch(() => toast(t.brain.connectError, 'error'));
+
+  return (
+    <div className="flex flex-col gap-6">
+      <p className="text-xs text-text-muted">{t.brain.intro}</p>
+
+      {/* OAuth accounts: one row per supported account type, connect/disconnect. */}
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-text">{t.brain.accounts}</span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {OAUTH_TYPES.map(({ type, icon }) => {
+            const connected = oauth.data?.[type] ?? false;
+            return (
+              <div key={type} className={`flex items-center gap-3 rounded-lg border p-3 ${connected ? 'border-accent/40 bg-accent/5' : 'border-border bg-surface'}`}>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
+                  <ModelIcon name={icon} size={22} />
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-sm font-medium text-text">{t.brain.types[type]}</span>
+                  {connected ? <Badge tone="accent">{t.brain.connected}</Badge> : <span className="text-tiny text-text-muted">{t.brain.notConnected}</span>}
+                </div>
+                {connected ? (
+                  <Button variant="ghost" icon={Unlink} onClick={() => disconnect.mutate(type, { onSuccess: () => toast(t.brain.disconnected) })}>{t.brain.disconnect}</Button>
+                ) : (
+                  <Button variant="accent" icon={Link2} onClick={() => startConnect(type)}>{t.brain.connect}</Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Provider entries the picker exposes. */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-text">{t.brain.providers}</span>
+          <Button variant="accent" icon={Plus} onClick={() => setModal(emptyDraft())}>{t.brain.addProvider}</Button>
+        </div>
+        {providers.length === 0 ? (
+          <p className="text-xs italic text-text-muted">{t.brain.noProviders}</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {providers.map((p) => (
+              <div key={p.id} className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
+                <div className="flex items-center gap-2">
+                  <BrainCircuit size={16} className="shrink-0 text-accent" aria-hidden />
+                  <span className="truncate text-sm font-semibold text-text">{p.label}</span>
+                  <Badge>{t.brain.types[p.type]}</Badge>
+                  {p.apiKeySet ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
+                  <span className="ml-auto flex gap-1">
+                    <Button variant="ghost" icon={Pencil} aria-label={`${t.brain.editProvider}: ${p.label}`} onClick={() => setModal({ id: p.id, label: p.label, type: p.type, baseUrl: p.baseUrl, models: p.models.join('\n'), apiKey: '' })} />
+                    <Button variant="ghost" icon={Trash2} aria-label={`${t.brain.removeProvider}: ${p.label}`} onClick={() => remove(p.id)} />
+                  </span>
+                </div>
+                {p.baseUrl ? <span className="truncate font-mono text-tiny text-text-muted">{p.baseUrl}</span> : null}
+                <span className="text-tiny text-text-muted">{p.models.length > 0 ? t.brain.modelCount.replace('{n}', String(p.models.length)) : t.brain.modelsAuto}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {modal ? <ProviderModal draft={modal} existingIds={providers.map((p) => p.id)} onSave={upsert} onClose={() => setModal(null)} /> : null}
+      {flow ? (
+        <OAuthConnectDialog
+          flow={flow}
+          onDone={(ok) => {
+            setFlow(null);
+            void oauth.refetch();
+            toast(ok ? t.brain.connectedToast : t.brain.connectFailed, ok ? undefined : 'error');
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}

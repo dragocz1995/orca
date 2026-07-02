@@ -191,6 +191,18 @@ export function useTogglePlugin() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (v: { name: string; enabled: boolean }) => orcaClient.togglePlugin(v.name, v.enabled), onSuccess: () => qc.invalidateQueries({ queryKey: ['plugins'] }) });
 }
+/** Replace the brain provider list (Settings → Brain). Refreshes the config and the models dropdown. */
+export function useSaveBrainProviders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providers: NonNullable<NonNullable<ConfigPatch['brain']>['providers']>) => orcaClient.updateConfig({ brain: { providers } }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: QUERY_KEYS.config }); void qc.invalidateQueries({ queryKey: ['brain-models'] }); },
+  });
+}
+export function useBrainOauthDisconnect() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (type: string) => orcaClient.brainOauthDisconnect(type), onSuccess: () => qc.invalidateQueries({ queryKey: ['brain-oauth'] }) });
+}
 export function useResetMyPrompt() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (name: string) => orcaClient.resetMyPrompt(name), onSuccess: () => qc.invalidateQueries({ queryKey: ['my-prompts'] }) });

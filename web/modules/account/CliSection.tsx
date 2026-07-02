@@ -2,39 +2,53 @@
 import { useState, useEffect } from 'react';
 import { Cpu, SlidersHorizontal, Save } from 'lucide-react';
 import { SettingCard } from '../../components/ui/SettingCard';
-import { Input } from '../../components/ui/Input';
 import { Toggle } from '../../components/ui/Toggle';
 import { Slider } from '../../components/ui/Slider';
 import { Button } from '../../components/ui/Button';
 import { FormFooter } from '../../components/ui/FormFooter';
+import { ModelIcon } from '../../components/ui/ModelIcon';
 import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
-import { useMyCliSettings } from '../../lib/queries';
+import { useMyCliSettings, useBrainModels } from '../../lib/queries';
 import { useSaveMyCliSettings } from '../../lib/mutations';
 
 /** Account → CLI: per-user settings for the Orca brain (`orca chat`). Model override + auto-compact,
  *  mirroring the self-contained PromptsSection shape (own load/save, its own footer). */
 export function CliSection() {
   const { data, isLoading } = useMyCliSettings();
+  const models = useBrainModels();
   const save = useSaveMyCliSettings();
   const { toast } = useToast();
   const { t } = useTranslation();
 
-  const [model, setModel] = useState('');
+  // The dropdown value pairs provider + model; '' = the server default. '::' never appears in ids.
+  const [selection, setSelection] = useState('');
   const [autoCompact, setAutoCompact] = useState(false);
   const [autoCompactAt, setAutoCompactAt] = useState(80);
 
   useEffect(() => {
-    if (data) { setModel(data.model); setAutoCompact(data.autoCompact); setAutoCompactAt(data.autoCompactAt); }
+    if (data) {
+      setSelection(data.model ? `${data.modelProvider ?? ''}::${data.model}` : '');
+      setAutoCompact(data.autoCompact);
+      setAutoCompactAt(data.autoCompactAt);
+    }
   }, [data]);
 
   if (isLoading || !data) return <LoadingState />;
 
-  const onSave = () => save.mutate(
-    { model: model.trim(), autoCompact, autoCompactAt },
-    { onSuccess: () => toast(t.cli.saved), onError: () => toast(t.cli.saveError, 'error') },
-  );
+  const options = models.data ?? [];
+  // Group by provider label for the <optgroup> rendering.
+  const groups = [...new Set(options.map((o) => o.providerLabel))];
+  const selected = options.find((o) => `${o.provider}::${o.model}` === selection);
+
+  const onSave = () => {
+    const [provider, ...rest] = selection.split('::');
+    save.mutate(
+      { model: selection ? rest.join('::') : '', modelProvider: selection ? (provider ?? '') : '', autoCompact, autoCompactAt },
+      { onSuccess: () => toast(t.cli.saved), onError: () => toast(t.cli.saveError, 'error') },
+    );
+  };
 
   return (
     <>
@@ -42,10 +56,26 @@ export function CliSection() {
         <p className="text-xs text-text-muted">{t.cli.intro}</p>
 
         <SettingCard title={t.cli.modelLabel} icon={Cpu} description={t.cli.modelHint}>
-          <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t.cli.modelPlaceholder} className="font-mono" />
-          {data.serverDefault ? (
-            <p className="mt-2 text-xs text-text-muted">{t.cli.serverDefault}: <span className="font-mono">{data.serverDefault}</span></p>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-elevated" aria-hidden>
+              <ModelIcon name={selected?.model ?? data.serverDefault ?? ''} size={18} />
+            </span>
+            <select
+              value={selection}
+              onChange={(e) => setSelection(e.target.value)}
+              aria-label={t.cli.modelLabel}
+              className="h-9 w-full rounded-md border border-border bg-bg px-3 font-mono text-sm text-text focus:border-accent"
+            >
+              <option value="">{t.cli.serverDefaultOption.replace('{model}', data.serverDefault ?? '')}</option>
+              {groups.map((g) => (
+                <optgroup key={g} label={g}>
+                  {options.filter((o) => o.providerLabel === g).map((o) => (
+                    <option key={`${o.provider}::${o.model}`} value={`${o.provider}::${o.model}`}>{o.model}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
         </SettingCard>
 
         <SettingCard title={t.cli.autoCompact} icon={SlidersHorizontal} description={t.cli.autoCompactHint}>

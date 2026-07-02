@@ -220,6 +220,14 @@ export const useMyCliSettings = () =>
 export const usePlugins = () =>
   useQuery({ queryKey: ['plugins'], queryFn: orcaClient.plugins });
 
+/** Pickable brain models across all configured providers (the Account → CLI dropdown source). */
+export const useBrainModels = () =>
+  useQuery({ queryKey: ['brain-models'], queryFn: orcaClient.brainModels });
+
+/** Which brain OAuth accounts are connected (admin, Settings → Brain). */
+export const useBrainOauthStatus = () =>
+  useQuery({ queryKey: ['brain-oauth'], queryFn: orcaClient.brainOauthStatus });
+
 export const useUserProjects = (userId: number | null, enabled = true) =>
   useQuery({ queryKey: ['user-projects', userId], queryFn: () => orcaClient.userProjects(userId as number), enabled: !!userId && enabled });
 

@@ -40,6 +40,32 @@ export interface OrcaConfig {
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
   autoUpdate: boolean;
+  plugins?: { enabled: string[] };
+  brain?: { providers: BrainProvider[] };
+}
+
+/** How a brain provider talks upstream: a custom endpoint (API key) or a connected OAuth account. */
+export type BrainProviderType = 'openai' | 'anthropic' | 'oauth-anthropic' | 'oauth-github-copilot' | 'oauth-openai-codex';
+export interface BrainProvider {
+  id: string;
+  label: string;
+  type: BrainProviderType;
+  baseUrl: string;
+  models: string[];
+  apiKeySet: boolean;
+}
+/** One pickable brain model (Account → CLI dropdown), grouped by provider. */
+export interface BrainModelOption { provider: string; providerLabel: string; model: string }
+/** A running OAuth connect flow, as polled by the settings UI. */
+export interface OAuthFlowState {
+  id: string;
+  provider: string;
+  status: 'pending' | 'action-required' | 'success' | 'error';
+  authUrl?: string;
+  instructions?: string;
+  userCode?: string;
+  needsInput: boolean;
+  error?: string;
 }
 export interface ConfigPatch {
   allowedExecs?: string[];
@@ -51,6 +77,8 @@ export interface ConfigPatch {
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
   security?: { tokenTtlDays?: number };
   autoUpdate?: boolean;
+  /** Wholesale brain provider list; an entry may carry `apiKey` to (re)set that provider's secret. */
+  brain?: { providers?: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[] };
 }
 export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null; labels?: string[]; outcome?: TaskOutcome | null }
 interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }
@@ -82,7 +110,7 @@ export interface UserPrompt {
 
 /** Per-user CLI/brain settings surfaced in Account → CLI. `model` empty → the configured brain default
  *  (`serverDefault`, response-only). */
-export interface CliSettings { model: string; autoCompact: boolean; autoCompactAt: number; serverDefault?: string }
+export interface CliSettings { model: string; modelProvider: string; autoCompact: boolean; autoCompactAt: number; serverDefault?: string }
 
 /** One installed daemon plugin as listed by GET /plugins (admin). */
 export interface PluginInfo {
