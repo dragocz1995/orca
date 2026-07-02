@@ -77,13 +77,27 @@ export interface BrainModelSelection { provider?: string; model?: string }
 
 /** Resolve the Model to run on. For custom endpoints an unknown model id is registered on the fly
  *  (OpenAI-compatible proxies accept arbitrary ids — the picker list is advisory, not exhaustive). */
+/** Sensible default for a provider with no explicitly configured models (a bare connected OAuth
+ *  account): the catalog is alphabetical, so "first" would be the OLDEST model. Prefer a known-good
+ *  current model; fall back to the first catalog entry if it ever disappears. */
+const PREFERRED_DEFAULT: Record<string, string> = {
+  anthropic: 'claude-opus-4-8',
+  'openai-codex': 'gpt-5.5',
+  'github-copilot': 'claude-opus-4.8',
+};
+function defaultCatalogModel(registry: ModelRegistry, providerName: string): string | undefined {
+  const models = registry.getAll().filter((m) => m.provider === providerName);
+  const preferred = PREFERRED_DEFAULT[providerName];
+  return (preferred && models.some((m) => m.id === preferred) ? preferred : models[0]?.id);
+}
+
 export function resolveBrainModel(
   registry: ModelRegistry, cfg: BrainRuntimeConfig, sel?: BrainModelSelection,
 ): Model<Api> {
   const entry = (sel?.provider ? cfg.providers.find((p) => p.id === sel.provider) : undefined) ?? cfg.providers[0];
   if (!entry) throw new Error('no brain provider configured');
   const providerName = registryProviderName(entry);
-  const modelId = sel?.model || entry.models[0] || registry.getAll().find((m) => m.provider === providerName)?.id;
+  const modelId = sel?.model || entry.models[0] || defaultCatalogModel(registry, providerName);
   if (!modelId) throw new Error(`brain provider '${entry.id}' has no models configured`);
   const model = registry.find(providerName, modelId);
   if (model) return model;
