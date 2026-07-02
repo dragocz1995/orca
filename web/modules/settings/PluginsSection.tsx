@@ -1,6 +1,9 @@
 'use client';
-import { Puzzle, Package, User as UserIcon } from 'lucide-react';
+import { useState } from 'react';
+import { Puzzle, Package, User as UserIcon, Settings2 } from 'lucide-react';
+import { PluginDetail } from './PluginDetail';
 import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
 import { Toggle } from '../../components/ui/Toggle';
 import { LoadingState, EmptyState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
@@ -32,7 +35,9 @@ export function PluginsSection() {
   const toggle = useTogglePlugin();
   const { toast } = useToast();
   const { t } = useTranslation();
+  const [detail, setDetail] = useState<string | null>(null);
 
+  if (detail) return <PluginDetail name={detail} onBack={() => setDetail(null)} />;
   if (isLoading) return <LoadingState />;
   if (!data || data.length === 0) return <EmptyState title={t.plugins.empty} />;
 
@@ -67,7 +72,12 @@ export function PluginsSection() {
               <Toggle checked={p.enabled} onChange={(v) => flip(p, v)} label={`${p.name}: ${p.enabled ? t.plugins.disable : t.plugins.enable}`} disabled={toggle.isPending} />
             </div>
             <p className="text-xs leading-relaxed text-text-muted">{p.description}</p>
-            <ProvidesBadges p={p} />
+            <div className="flex items-center justify-between">
+              <ProvidesBadges p={p} />
+              {p.configurable ? (
+                <Button variant="ghost" icon={Settings2} onClick={() => setDetail(p.name)}>{t.plugins.configure}</Button>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>

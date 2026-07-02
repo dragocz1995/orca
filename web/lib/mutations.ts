@@ -191,6 +191,13 @@ export function useTogglePlugin() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (v: { name: string; enabled: boolean }) => orcaClient.togglePlugin(v.name, v.enabled), onSuccess: () => qc.invalidateQueries({ queryKey: ['plugins'] }) });
 }
+export function useSavePluginConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; values: Record<string, unknown> }) => orcaClient.savePluginConfig(v.name, v.values),
+    onSuccess: (_r, v) => { void qc.invalidateQueries({ queryKey: ['plugin', v.name] }); void qc.invalidateQueries({ queryKey: ['plugins'] }); },
+  });
+}
 /** Replace the brain provider list (Settings → Brain). Refreshes the config and the models dropdown. */
 export function useSaveBrainProviders() {
   const qc = useQueryClient();

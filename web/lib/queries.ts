@@ -220,6 +220,10 @@ export const useMyCliSettings = () =>
 export const usePlugins = () =>
   useQuery({ queryKey: ['plugins'], queryFn: orcaClient.plugins });
 
+/** One plugin's settings detail (schema + values, secrets masked). */
+export const usePluginDetail = (name: string | null) =>
+  useQuery({ queryKey: ['plugin', name], queryFn: () => orcaClient.pluginDetail(name as string), enabled: !!name });
+
 /** Pickable brain models across all configured providers (the Account → CLI dropdown source). */
 export const useBrainModels = () =>
   useQuery({ queryKey: ['brain-models'], queryFn: orcaClient.brainModels });

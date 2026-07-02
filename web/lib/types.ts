@@ -120,6 +120,26 @@ export interface PluginInfo {
   provides: { tools?: string[]; skills?: string[]; hooks?: string[]; platforms?: string[] };
   source: 'bundled' | 'user';
   enabled: boolean;
+  configurable: boolean;
+}
+
+/** One declared plugin config field (drives the per-plugin settings form). */
+export interface PluginConfigField {
+  key: string;
+  label: string;
+  type: 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies';
+  hint?: string;
+  required?: boolean;
+}
+
+/** One role → access mapping row in a plugin's `rolePolicies` config (the Discord pattern). */
+export interface RolePolicy { roleId: string; name: string; projectIds: number[]; prompt: string }
+
+/** GET /plugins/:name — the detail behind each plugin's own settings section. */
+export interface PluginDetail extends PluginInfo {
+  configSchema: PluginConfigField[];
+  config: Record<string, unknown>;
+  secretsSet: string[];
 }
 // Login no longer surfaces a token to the browser — the proxy sets it as an httpOnly cookie and
 // returns only a success flag.
