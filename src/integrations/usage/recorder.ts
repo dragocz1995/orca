@@ -49,6 +49,9 @@ export class UsageRecorder {
     if (!task) return;
     const exec = execOfLabels(task.labels);
     if (!exec) return; // nothing to attribute (no exec label → no model)
+    // Embedded-brain workers have no CLI session on disk: BrainWorkerService records their usage
+    // itself at close, and there is nothing to capture for resume (rehydration is store-driven).
+    if (exec.startsWith('orca:')) return;
     const siblings = this.d.tasks.list({ project_id: task.project_id });
     const projectPath = this.d.pathFor(task);
     // Stamp the CLI session id for resume FIRST, independent of usage: even if token parsing comes up

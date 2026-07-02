@@ -93,6 +93,10 @@ export interface ServerDeps {
   advisor?: import('../advisor/service.js').AdvisorService;
   /** Per-user embedded brain (PI agent) — the new advisor engine. Absent → brain routes degrade to 503. */
   brain?: import('../brain/brainService.js').BrainService;
+  /** Orca exec engine (embedded-brain workers): kill controls + task transcripts. */
+  brainWorkers?: { isLive(session: string): boolean; abort(session: string): Promise<void> };
+  /** Brain message store — feeds GET /tasks/:id/conversation for orca workers. */
+  brainStore?: import('../store/brainStore.js').BrainStore;
   /** Single-use ticket store backing the terminal WebSocket stream. Shared with the daemon's
    *  `/ws/terminal` handler so a ticket minted here is redeemable there. Defaulted when absent. */
   tickets?: TicketStore;

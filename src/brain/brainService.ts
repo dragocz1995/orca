@@ -10,6 +10,8 @@ import { buildBrainRegistry, resolveBrainModel } from './providers.js';
 import { orcaExec } from '../shared/execs.js';
 import { buildOrcaTools } from './tools/index.js';
 import { projectEvent, projectUserTurn, rehydrate } from './persistence.js';
+import { shapeBrainMessages, toolDetail, extractText } from './messageView.js';
+import type { BrainMessageView } from './messageView.js';
 
 /** What a channel (web/terminal, later Discord) receives from the brain. Stable regardless of the
  *  underlying PI event shape — the mapping lives in one place (`toBrainEvent`). */
@@ -29,15 +31,7 @@ export interface BrainUsage {
   cost: number;
 }
 
-/** One display piece of an assistant turn, in the order it happened: a text block, or a tool call
- *  (with a short argument summary and, for edits, the display diff). */
-type BrainSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'tool'; name: string; detail?: string; diff?: string };
-
-/** A stored turn shaped for display (the `GET /brain/messages` payload consumed by channels).
- *  `text` is the flat reply (title derivation, plain clients); `segments` preserve the true order. */
-export interface BrainMessageView { role: string; text: string; segments?: BrainSegment[] }
+export type { BrainSegment, BrainMessageView } from './messageView.js';
 
 export interface BrainDeps {
   store: BrainStore;
@@ -98,16 +92,6 @@ const DEFAULT_AUTO_COMPACT_AT = 0.8;
 
 /** Translate a PI session event into the stable BrainEvent contract. Defensive: unknown event types
  *  are dropped. Streaming shapes are refined by the Task 8 smoke; the contract never changes. */
-/** A short, human-scannable summary of a tool call's most salient argument (the file path, command,
- *  query…), opencode-style: `read src/foo.ts`, `bash "npm test"`. */
-function toolDetail(args: unknown): string | undefined {
-  if (!args || typeof args !== 'object') return undefined;
-  const a = args as Record<string, unknown>;
-  const raw = a.path ?? a.file_path ?? a.filename ?? a.command ?? a.pattern ?? a.query ?? a.url ?? a.text;
-  if (typeof raw !== 'string' || !raw.trim()) return undefined;
-  const s = raw.replace(/\s+/g, ' ').trim();
-  return s.length > 60 ? `${s.slice(0, 59)}…` : s;
-}
 
 function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   if (e.type === 'agent_end') return { type: 'idle' };
@@ -166,7 +150,7 @@ export class BrainService {
   private activeSessionId(userId: number): string {
     const set = this.active.get(userId);
     if (set) return set;
-    const recent = this.d.store.listSessions(userId).find((s) => !s.id.startsWith('brain-ch-'));
+    const recent = this.d.store.listSessions(userId).find((s) => !s.id.startsWith('brain-ch-') && !s.id.startsWith('brain-task-'));
     return recent?.id ?? `brain-${userId}`;
   }
 
@@ -247,7 +231,7 @@ export class BrainService {
    *  the next start() falls back to the most recent remaining one. */
   deleteSession(userId: number, sessionId: string): void {
     const row = this.d.store.getSession(sessionId);
-    if (!row || row.user_id !== userId || sessionId.startsWith('brain-ch-')) throw new Error('unknown session');
+    if (!row || row.user_id !== userId || sessionId.startsWith('brain-ch-') || sessionId.startsWith('brain-task-')) throw new Error('unknown session');
     const live = this.live.get(sessionId);
     if (live) { live.session.dispose(); this.live.delete(sessionId); }
     if (this.active.get(userId) === sessionId) this.active.delete(userId);
@@ -258,7 +242,7 @@ export class BrainService {
   listSessions(userId: number): { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean }[] {
     const activeId = this.activeSessionId(userId);
     return this.d.store.listSessions(userId)
-      .filter((s) => !s.id.startsWith('brain-ch-'))
+      .filter((s) => !s.id.startsWith('brain-ch-') && !s.id.startsWith('brain-task-'))
       .map((s) => ({ id: s.id, title: s.title, model: s.model, updated_at: s.updated_at, running: this.live.has(s.id), active: s.id === activeId }));
   }
 
@@ -355,7 +339,7 @@ export class BrainService {
       sessionId = `brain-${userId}-${Date.now().toString(36)}`;
     } else if (opts?.session) {
       const row = this.d.store.getSession(opts.session);
-      if (!row || row.user_id !== userId || opts.session.startsWith('brain-ch-')) throw new Error('unknown session');
+      if (!row || row.user_id !== userId || opts.session.startsWith('brain-ch-') || opts.session.startsWith('brain-task-')) throw new Error('unknown session');
       sessionId = opts.session;
     } else {
       sessionId = this.activeSessionId(userId);
@@ -549,55 +533,7 @@ export class BrainService {
   /** The user's stored conversation, shaped for display (channels render this on connect). Reads the
    *  sole store; no live session required, so it works before/independently of `start`. */
   history(userId: number): BrainMessageView[] {
-    const rows = this.d.store.getMessages(this.activeSessionId(userId));
-    // Edit diffs live on the toolResult rows (never shown raw) — index them so the matching
-    // assistant toolCall segment can carry its diff.
-    const diffs = new Map<string, string>();
-    for (const row of rows) {
-      if (row.role !== 'toolResult') continue;
-      try {
-        const m = JSON.parse(row.content) as { toolCallId?: string; details?: { diff?: unknown } };
-        if (m.toolCallId && typeof m.details?.diff === 'string' && m.details.diff.trim()) diffs.set(m.toolCallId, m.details.diff);
-      } catch { /* malformed row → no diff */ }
-    }
-    const views: BrainMessageView[] = [];
-    for (const row of rows) {
-      // Only user + assistant turns are shown. toolResult / summary rows are persisted for
-      // rehydration (the model needs them for context) but must NEVER surface as chat text.
-      if (row.role !== 'user' && row.role !== 'assistant') continue;
-      let msg: { content?: unknown } = {};
-      try { msg = JSON.parse(row.content) as { content?: unknown }; } catch { /* malformed row → skipped below */ }
-      if (row.role === 'user') {
-        const text = extractText(msg);
-        if (text.trim()) views.push({ role: 'user', text });
-        continue;
-      }
-      // Assistant: the content array preserves the true order of text and tool calls.
-      const segments: BrainSegment[] = [];
-      let text = '';
-      for (const part of Array.isArray(msg.content) ? msg.content : []) {
-        const p = part as { type?: string; text?: unknown; id?: string; name?: string; arguments?: unknown };
-        if (p.type === 'text' && typeof p.text === 'string' && p.text.trim()) {
-          text += p.text;
-          segments.push({ kind: 'text', text: p.text });
-        } else if (p.type === 'toolCall' && typeof p.name === 'string') {
-          segments.push({ kind: 'tool', name: p.name, detail: toolDetail(p.arguments), diff: p.id ? diffs.get(p.id) : undefined });
-        }
-      }
-      if (typeof msg.content === 'string' && msg.content.trim()) { text = msg.content; segments.push({ kind: 'text', text }); }
-      if (segments.length > 0) views.push({ role: 'assistant', text, segments });
-    }
-    return views;
+    return shapeBrainMessages(this.d.store.getMessages(this.activeSessionId(userId)));
   }
 }
 
-/** Pull display text out of a stored message's content JSON. Content is either a plain string or an
- *  array of parts ({type:'text', text}); anything else yields an empty string. */
-function extractText(msg: unknown): string {
-  const content = (msg as { content?: unknown }).content;
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content.map((p) => (p && typeof p === 'object' && 'text' in p ? String((p as { text: unknown }).text) : '')).join('');
-  }
-  return '';
-}

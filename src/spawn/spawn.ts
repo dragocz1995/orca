@@ -23,6 +23,9 @@ export interface BrainWorkerLauncher {
 
 export class SpawnService {
   constructor(private d: { tmux: TmuxDriver; agents: AgentStore; orca?: OrcaCliConfig; providers?: ProviderResolver; prompts?: PromptService; brainWorker?: BrainWorkerLauncher }) {}
+  /** Late wiring: the brain worker is constructed after SpawnService in bootstrap (it shares the
+   *  brain's config/auth built further down), so it attaches here instead of via the constructor. */
+  attachBrainWorker(w: BrainWorkerLauncher): void { this.d.brainWorker = w; }
   async launch(input: { projectId: number; projectPath: string; taskId: string; agentName: string; spec: AgentSpec; taskTitle?: string; taskDescription?: string; resumeNote?: string; epicId?: string; extraEnv?: Record<string, string>; rawPrompt?: string; resume?: PendingResume; ownerId?: number | null; mcpUrl?: string }): Promise<{ session: string }> {
     // `orca:<provider>/<model>` execs run on the embedded brain — no binary, no tmux pane. The one
     // seam for every caller (scheduler, mission engine, session routes); task states flow identically.

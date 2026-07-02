@@ -68,6 +68,7 @@ import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { isExecAllowedForUser } from '../shared/execs.js';
+import { BrainWorkerService } from '../brain/worker/brainWorker.js';
 
 const log = logger('daemon');
 
@@ -341,9 +342,10 @@ export function buildApp(opts: BuildOpts) {
   // Live provider resolver: adding a provider / connecting an account in Settings applies to the next
   // brain start without a daemon restart.
   const brainConfig = () => brainConfigFromOrca(config, brainAuth);
+  const brainStore = new BrainStore(db);
   const brain: BrainService | undefined = opts.dbPath !== ':memory:'
     ? new BrainService({
-        store: new BrainStore(db), users, config: brainConfig, prompts, url: orcaCli.url,
+        store: brainStore, users, config: brainConfig, prompts, url: orcaCli.url,
         authStorage: brainAuth,
         cwd: brainDir,
         // Plugin loading is async and buildApp is sync, so hand the brain a loader thunk it resolves +
@@ -372,16 +374,37 @@ export function buildApp(opts: BuildOpts) {
         platformOwner: () => users.list().find((u) => u.is_admin)?.id,
       })
     : undefined;
+  // The orca exec engine: tasks with an `orca:` exec run on an embedded PI session instead of a
+  // spawned CLI. Shares the brain's providers/auth/plugins; closes tasks through the same REST route.
+  const brainWorkers = new BrainWorkerService({
+    store: brainStore, tasks, bus, taskUsage,
+    config: brainConfig, authStorage: brainAuth, prompts,
+    url: orcaCli.url, token: orcaCli.token,
+    loadPlugins: () => {
+      const enabled = config.get().plugins.enabled;
+      const pluginConfig = Object.fromEntries(enabled.map((n) => [n, config.pluginConfig(n)]));
+      return loadPlugins({
+        dirs: pluginDirs, enabled, config: pluginConfig, dataRoot: pluginDataRoot,
+        notify: (t) => brain?.notify(t) ?? Promise.resolve(),
+        listModels: () => { const c = brainConfig(); return c ? listBrainModels(c) : Promise.resolve([]); },
+        logger: log,
+      });
+    },
+  });
+  spawn.attachBrainWorker(brainWorkers);
+  // Brain workers have no tmux pane — the stuck detector and startup reconcile must see their live
+  // sessions or they would reap every running orca task as dead.
+  const liveSessions = { list: async () => [...(await tmux.list()), ...brainWorkers.liveSessionNames()] };
   // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
   // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
   const tickets = createTicketStore();
-  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, userSettings, pluginDirs, pluginDataRoot, brainOauth, brainAuth, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, tickets });
+  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, userSettings, pluginDirs, pluginDataRoot, brainOauth, brainAuth, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, brainWorkers, brainStore, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace
   // or relaunch counter here: a restart isn't an agent death, so it shouldn't spend the budget.
   const reconcileZombies = async () => {
-    const live = new Set((await tmux.list()).filter((s) => s.startsWith('orca-')));
+    const live = new Set((await liveSessions.list()).filter((s) => s.startsWith('orca-')));
     for (const t of deadAgentTasks(live, tasks.list({ status: 'in_progress' }))) {
       tasks.setStatus(t.id, 'open');
       bus.publish({ type: 'task', taskId: t.id, status: 'open' });
@@ -437,7 +460,7 @@ export function buildApp(opts: BuildOpts) {
     // dead session; revert it so the mission re-spawns (bounded), else escalate. 2-min grace
     // covers the spawn→session window; relaunch at most twice before escalating to a human.
     const stopStuck = clock.setInterval(() => {
-      void sweepStuckTasks({ tmux, tasks, bus, now: clock.now(), graceMs: 120000, maxRelaunch: 2,
+      void sweepStuckTasks({ tmux: liveSessions, tasks, bus, now: clock.now(), graceMs: 120000, maxRelaunch: 2,
         // Stamp the dead agent's session for resume so the relaunch continues it (best-effort).
         onReap: (t) => { try { captureResumeLabel({ tasks, pathFor: usagePathFor, fallback: resumeFallback }, t); } catch (e) { log.warn(`resume capture failed for stuck task ${t.id}`, e); } } })
         .then(({ reverted, escalated }) => {
@@ -581,7 +604,8 @@ export function buildApp(opts: BuildOpts) {
         .then((ids) => { if (ids.length) log.info(`PR feedback re-engaged ${ids.length} mission(s): ${ids.join(', ')}`); })
         .catch((e) => log.error('PR feedback sweep failed', e));
     }, 60_000);
-    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopDecisionSweep(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); stopPrFeedback(); };
+    const stopBrainWorkerWatchdog = brainWorkers.startWatchdog();
+    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopDecisionSweep(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); stopPrFeedback(); stopBrainWorkerWatchdog(); };
   };
   return { app, startLoops, tickets, tmux };
 }

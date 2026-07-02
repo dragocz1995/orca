@@ -47,6 +47,8 @@ export function registerSessionRoutes(app: OrcaApp, ctx: RouteContext): void {
       await d.advisor.stop(info.userId);
       return c.json({ ok: true });
     }
+    // Embedded-brain workers have no tmux pane — kill controls route to the in-process session.
+    if (d.brainWorkers?.isLive(name)) { await d.brainWorkers.abort(name); return c.json({ ok: true }); }
     await d.tmux.kill(name); return c.json({ ok: true });
   });
   app.post('/sessions/:name/keys', async c => {

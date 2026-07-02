@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import { shapeBrainMessages } from '../../brain/messageView.js';
 import { readTaskUsage } from '../../integrations/usage/index.js';
 import { projectRangeFileDiff, projectRangeLog, projectCommitFileDiff } from '../../integrations/projectFiles.js';
 import { decompose, parsePhases, modelsBlock, parallelismBlock, VALID_TYPES as VALID_PHASE_TYPES, type Phase } from '../../overseer/planner.js';
@@ -80,6 +81,17 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     return c.json({ ok: true, cleared: d.taskUsage?.deleteAll() ?? 0 });
   });
+  // The transcript of an embedded-brain (orca:) worker run — the task detail's conversation tab.
+  // CLI-run tasks have no brain session, so this returns an empty list for them.
+  app.get('/tasks/:id/conversation', (c) => {
+    const id = c.req.param('id');
+    const task = d.tasks.get(id);
+    if (!task) return c.json({ error: 'not found' }, 404);
+    if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
+    if (!d.brainStore) return c.json([]);
+    return c.json(shapeBrainMessages(d.brainStore.getMessages(`brain-task-${id}`)));
+  });
+
   app.patch('/tasks/:id', async c => {
     const b = await parseBody(c, patchTaskSchema);
     const id = c.req.param('id');

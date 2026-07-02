@@ -165,6 +165,11 @@ export const useProjectChanged = (id: number | null) =>
 export const useTaskConversation = (taskId: string | null) =>
   useQuery({ queryKey: ['task-activity', taskId], queryFn: () => orcaClient.activity({ target: taskId as string }), enabled: !!taskId });
 
+/** An orca (embedded-brain) worker's transcript for the task detail. Polled lightly while the task
+ *  runs; brain messages persist only on settled turns, so there is no SSE signal to invalidate on. */
+export const useTaskBrainConversation = (taskId: string | null, enabled: boolean) =>
+  useQuery({ queryKey: ['task-brain-conversation', taskId], queryFn: () => orcaClient.taskBrainConversation(taskId as string), enabled: !!taskId && enabled, refetchInterval: 15000 });
+
 /** The commits a task landed (live git history). SSE `change` events invalidate ['task-commits']; no poll. */
 export const useTaskCommits = (taskId: string | null) =>
   useQuery({ queryKey: ['task-commits', taskId], queryFn: () => orcaClient.taskCommits(taskId as string), enabled: !!taskId });

@@ -143,6 +143,7 @@ export const orcaClient = {
   pluginDetail: (name: string) => req<PluginDetail>(`/plugins/${encodeURIComponent(name)}`),
   savePluginConfig: (name: string, values: Record<string, unknown>) => req<{ ok: boolean }>(`/plugins/${encodeURIComponent(name)}/config`, json({ values }, 'PATCH')),
   brainModels: () => req<BrainModelOption[]>('/brain/models'),
+  taskBrainConversation: (taskId: string) => req<BrainMessage[]>(`/tasks/${encodeURIComponent(taskId)}/conversation`),
   brainStatus: () => req<BrainStatus>('/brain/status'),
   brainStart: (opts: { session?: string; fresh?: boolean } = {}) => req<{ sessionId: string }>('/brain/start', json(opts)),
   brainSend: (text: string, images?: { data: string; mimeType: string }[]) =>

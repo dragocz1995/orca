@@ -56,3 +56,30 @@ describe('SpawnService', () => {
     expect(tmux.commandFor('orca-Nova')).not.toContain('--resume');
   });
 });
+
+describe('SpawnService orca seam', () => {
+  const mk = () => {
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    return { agents: new AgentStore(db), tmux: new FakeTmuxDriver() };
+  };
+
+  it('routes program orca to the brain worker — tmux never spawns', async () => {
+    const { agents, tmux } = mk();
+    const launched: unknown[] = [];
+    const svc = new SpawnService({ tmux, agents, brainWorker: { launch: async (i) => { launched.push(i); return { session: `orca-${i.agentName}` }; } } });
+    const res = await svc.launch({ projectId: 1, projectPath: '/o', taskId: 'T-1', agentName: 'a9', spec: { program: 'orca', model: 'relay/kimi' } });
+    expect(res.session).toBe('orca-a9');
+    expect(launched).toHaveLength(1);
+    expect(await tmux.list()).toEqual([]);
+    expect(agents.programFor('a9')).toBe('orca');
+  });
+
+  it('throws clearly when no brain worker is wired or a rawPrompt caller asks for orca', async () => {
+    const { agents, tmux } = mk();
+    await expect(new SpawnService({ tmux, agents }).launch({ projectId: 1, projectPath: '/o', taskId: 't', agentName: 'a', spec: { program: 'orca', model: 'm' } }))
+      .rejects.toThrow(/not available/);
+    const withWorker = new SpawnService({ tmux, agents, brainWorker: { launch: async () => ({ session: 's' }) } });
+    await expect(withWorker.launch({ projectId: 1, projectPath: '/o', taskId: 't', agentName: 'a', spec: { program: 'orca', model: 'm' }, rawPrompt: 'PILOT' }))
+      .rejects.toThrow(/raw prompt/i);
+  });
+});
