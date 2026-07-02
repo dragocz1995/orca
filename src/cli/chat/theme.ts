@@ -5,18 +5,20 @@
 const wrap = (code: string) => (s: string): string => `\x1b[${code}m${s}\x1b[0m`;
 
 export const color = {
-  accent: wrap('38;5;44'),   // Orca teal
-  accentDim: wrap('38;5;30'),
+  accent: wrap('38;5;44'),    // Orca teal — primary brand
+  accentDim: wrap('38;5;30'), // muted teal — secondary
   bold: wrap('1'),
-  dim: wrap('90'),
-  error: wrap('31'),
-  success: wrap('32'),
+  dim: wrap('90'),            // secondary text
+  faint: wrap('38;5;240'),    // tertiary text (dividers, hints) — quieter than dim
+  error: wrap('38;5;203'),    // soft red
+  success: wrap('38;5;114'),  // soft green
 };
 
 /** Brand glyphs and labels. */
 export const glyph = {
   whale: '🐋',
-  tool: '⚙',
+  tool: '⏺',      // filled dot — a tool call (Claude-Code style)
   you: 'ty',
   orca: 'orca',
+  dot: '·',
 };

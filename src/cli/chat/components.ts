@@ -5,13 +5,15 @@ import type { Component } from '@earendil-works/pi-tui';
  *  → lines). Kept separate from app.ts so the layout logic stays readable and these are unit-testable. */
 
 const TEAL = '38;5;44';
-const BAR = `\x1b[${TEAL}m▎\x1b[0m`;      // thin teal left rail
+const FAINT = '38;5;240';
+const BAR = `\x1b[${TEAL}m▌\x1b[0m`;       // teal left rail (half-block, reads as a clean edge)
 const BG_OPEN = '\x1b[48;5;236m';          // subtle raised background for the user block
 const BG_CLOSE = '\x1b[0m';
 /** Bold that resets ONLY bold (\x1b[22m), so it never clears the surrounding background. */
 const bold = (s: string): string => `\x1b[1m${s}\x1b[22m`;
 
-/** A full-width user message: a teal left rail and a raised background with bold text, padded to width. */
+/** A full-width user message: a teal left rail and a raised background with bold text, padded to width.
+ *  The raised rows are wrapped in one blank raised row top and bottom for breathing room. */
 export class UserBlock implements Component {
   constructor(private text: string) {}
   invalidate(): void { /* stateless — rebuilt fresh each render */ }
@@ -39,24 +41,36 @@ export class StatusBar implements Component {
 
 const ACCENT = (t: string): string => `\x1b[${TEAL}m${t}\x1b[0m`;
 const DIM = (t: string): string => `\x1b[90m${t}\x1b[0m`;
+const FAINTC = (t: string): string => `\x1b[${FAINT}m${t}\x1b[0m`;
 
-/** The empty-conversation welcome banner: a rounded box with the brand, model, and a hint line. */
+/** The empty-conversation welcome banner: a rounded box with the brand, model and hint lines. */
 export function banner(model?: string): string[] {
   const inner = [
-    `${ACCENT('🐋 Orca')} ${DIM('— tvůj agent nad celou flotilou')}`,
-    DIM(model ? `model ${model}` : 'model —'),
+    `${ACCENT('🐋  Orca AI')}  ${FAINTC('— tvůj agent nad celou flotilou')}`,
     '',
-    DIM('Zeptej se na cokoli — tasky, mise, plán, stav agentů…'),
-    DIM('/help pro příkazy'),
+    `${FAINTC('model')}  ${DIM(model || '—')}`,
+    FAINTC('Zeptej se na cokoli — tasky, mise, plán, stav agentů, soubory, web…'),
   ];
-  const width = Math.max(...inner.map((l) => visibleWidth(l))) + 4;
-  const top = ACCENT(`╭${'─'.repeat(width - 2)}╮`);
-  const bottom = ACCENT(`╰${'─'.repeat(width - 2)}╯`);
+  const width = Math.max(40, ...inner.map((l) => visibleWidth(l))) + 4;
+  const bar = '─'.repeat(width - 2);
+  const top = ACCENT(`╭${bar}╮`);
+  const bottom = ACCENT(`╰${bar}╯`);
   const rows = inner.map((l) => `${ACCENT('│')} ${l}${' '.repeat(Math.max(0, width - 4 - visibleWidth(l)))} ${ACCENT('│')}`);
-  return ['', top, ...rows, bottom, ''];
+  return ['', top, ...rows, bottom, `${FAINTC('  /help')} ${FAINTC('pro příkazy')}`, ''];
 }
 
-/** The dim metadata line under an assistant reply: `▪ orca · <model> · <duration>`. */
+/** The speaker header shown above each assistant reply: `🐋 orca · <model>`. */
+export function assistantHeader(model?: string): string {
+  return `${ACCENT('🐋 orca')}${model ? FAINTC(`  ·  ${model}`) : ''}`;
+}
+
+/** A single tool-call chip under the assistant header: `⏺ <tool>`. */
+export function toolChip(name: string): string {
+  return `  ${ACCENT('⏺')} ${DIM(name)}`;
+}
+
+/** The dim metadata line for an assistant reply: `▪ orca · <model> · <duration>` (kept for callers
+ *  that want a compact footer; the live UI uses assistantHeader instead). */
 export function metaLine(model?: string, durationMs?: number): string {
   const parts = ['orca'];
   if (model) parts.push(model);

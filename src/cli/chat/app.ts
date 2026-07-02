@@ -2,7 +2,7 @@ import { TUI, ProcessTerminal, Text, Markdown, Loader, Container, Spacer, matche
 import { Editor } from '@earendil-works/pi-tui';
 import { initTheme, getMarkdownTheme, getSelectListTheme } from '@earendil-works/pi-coding-agent';
 import { color, glyph } from './theme.js';
-import { UserBlock, StatusBar, metaLine, banner } from './components.js';
+import { UserBlock, StatusBar, banner, assistantHeader, toolChip } from './components.js';
 import { BrainClient } from './brainClient.js';
 import { fromHistory, pushUser, beginAssistant, reduce, type ChatView } from './render.js';
 
@@ -117,7 +117,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const loader = new Loader(tui, color.accent, color.dim, 'přemýšlím…');
   const editor = new Editor(tui, { borderColor: color.accent, selectList: getSelectListTheme() }, {});
   const statusUnder = new Text('', 1, 0);
-  const bottomBar = new StatusBar(color.dim('  ⏎ odeslat   /help příkazy'), color.dim('ctrl+c konec  '));
+  const bottomBar = new StatusBar(color.faint('  ⏎ odeslat   ·   /help příkazy'), color.faint('ctrl+c konec  '));
 
   const render = (): void => {
     for (const c of [...messages.children]) messages.removeChild(c);
@@ -129,20 +129,21 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         messages.addChild(new UserBlock(turn.text));
         messages.addChild(new Text('', 0, 0));
       } else {
-        for (const t of turn.tools) messages.addChild(new Text(color.dim(`  ${glyph.tool} ${t}`), 2, 0));
-        if (turn.text) messages.addChild(new Markdown(turn.text, 2, 0, mdTheme));
-        else if (turn.streaming) messages.addChild(new Text(color.dim('  …'), 2, 0));
-        messages.addChild(new Text(metaLine(modelName), 1, 0));
+        // Speaker header once, then any tool chips, then the markdown reply indented to align under it.
+        messages.addChild(new Text(assistantHeader(modelName), 1, 0));
+        for (const t of turn.tools) messages.addChild(new Text(toolChip(t), 1, 0));
+        if (turn.text) messages.addChild(new Markdown(turn.text, 3, 0, mdTheme));
+        else if (turn.streaming) messages.addChild(new Text(color.faint('   …'), 1, 0));
         messages.addChild(new Text('', 0, 0));
       }
     }
     if (notice) for (const line of notice.split('\n')) messages.addChild(new Text(`  ${line}`, 1, 0));
     // Spinner lives INSIDE the rebuilt message list, so it vanishes the moment the turn goes idle.
     if (view.thinking) { messages.addChild(loader); loader.start(); } else { loader.stop(); }
-    const title = sessionTitle ? ` ${color.dim('·')} ${color.dim(sessionTitle.slice(0, 40))}` : '';
-    statusUnder.setText(`  ${color.accent(`${glyph.whale} orca`)} ${color.dim('·')} ${color.accentDim(modelName || '—')}${title}`);
+    const title = sessionTitle ? `${color.faint('  ·  ')}${color.dim(sessionTitle.slice(0, 40))}` : '';
+    statusUnder.setText(`  ${color.accent(`${glyph.whale} Orca AI`)}${color.faint('  ·  ')}${color.accentDim(modelName || '—')}${title}`);
     const line = statusline(lineCfg, usage, modelName);
-    bottomBar.setLeft(color.dim(line ? `  ${line}` : '  ⏎ odeslat   /help příkazy'));
+    bottomBar.setLeft(line ? color.faint(`  ${line}`) : color.faint('  ⏎ odeslat   ·   /help příkazy'));
     tui.requestRender();
   };
 

@@ -11,6 +11,6 @@ describe('chat theme', () => {
 
   it('exposes the Orca brand glyphs', () => {
     expect(glyph.whale).toBe('🐋');
-    expect(glyph.tool).toBe('⚙');
+    expect(glyph.tool).toBe('⏺');
   });
 });

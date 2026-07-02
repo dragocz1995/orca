@@ -10,7 +10,7 @@ describe('viewToPlainText', () => {
     const lines = viewToPlainText(v);
     expect(lines).toContain('ty');
     expect(lines.some((l) => l.includes('ahoj'))).toBe(true);
-    expect(lines.some((l) => l.includes('⚙ orca_create_task'))).toBe(true);
+    expect(lines.some((l) => l.includes('⏺ orca_create_task'))).toBe(true);
     expect(lines.some((l) => l.includes('hotovo'))).toBe(true);
   });
 });
