@@ -56,6 +56,8 @@ import { logger } from '../shared/logger.js';
 import { AdvisorService } from '../advisor/service.js';
 import { writeMcpConfig } from '../advisor/mcpConfig.js';
 import { BrainService } from '../brain/brainService.js';
+import { BrainOAuthManager } from '../brain/oauth.js';
+import { AuthStorage } from '@earendil-works/pi-coding-agent';
 import { BrainStore } from '../store/brainStore.js';
 import { brainConfigFromOrca } from '../brain/config.js';
 import { loadPlugins } from '../plugins/loader.js';
@@ -329,10 +331,16 @@ export function buildApp(opts: BuildOpts) {
   // Plugin scan roots: the bundled dist/plugins dir + the instance data-dir plugins/. Shared by the
   // brain's lazy loader and the admin /plugins listing so both always see the same set.
   const pluginDirs = [join(dirname(fileURLToPath(import.meta.url)), '..', 'plugins'), join(dirname(opts.dbPath), 'plugins')];
+  // The brain's credential store: OAuth tokens (Anthropic/Copilot/OpenAI accounts) persist here and
+  // pi refreshes them in place. Lives next to the brain's cwd, never inside a repo checkout.
+  const brainDir = (() => { const p = join(dirname(opts.dbPath), 'brain'); mkdirSync(p, { recursive: true }); return p; })();
+  const brainAuth = opts.dbPath === ':memory:' ? AuthStorage.inMemory() : AuthStorage.create(join(brainDir, 'auth.json'));
+  const brainOauth = new BrainOAuthManager(brainAuth);
   const brain = brainConfig
     ? new BrainService({
         store: new BrainStore(db), users, config: brainConfig, prompts, url: orcaCli.url,
-        cwd: (() => { const p = join(dirname(opts.dbPath), 'brain'); mkdirSync(p, { recursive: true }); return p; })(),
+        authStorage: brainAuth,
+        cwd: brainDir,
         // Plugin loading is async and buildApp is sync, so hand the brain a loader thunk it resolves +
         // memoizes on first use (re-resolved after reloadPlugins()).
         loadPlugins: () => {
@@ -347,7 +355,7 @@ export function buildApp(opts: BuildOpts) {
   // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
   // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
   const tickets = createTicketStore();
-  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, userSettings, pluginDirs, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, tickets });
+  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, userSettings, pluginDirs, brainOauth, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace

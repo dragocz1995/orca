@@ -27,6 +27,7 @@ import type { PromptService } from '../prompts/promptService.js';
 import type { SkillService } from './services/skillService.js';
 import type { TaskUsageStore } from '../store/taskUsageStore.js';
 import type { GitReader } from '../git/gitReader.js';
+import type { BrainOAuthManager } from '../brain/oauth.js';
 
 /** Everything the daemon injects into the REST server. Lives in its own module (rather than server.ts)
  *  so the route context and the route families can depend on the dependency shape without importing
@@ -60,6 +61,8 @@ export interface ServerDeps {
   userSettings?: UserSettingStore;
   /** Plugin scan roots (bundled first, then user) for the admin /plugins listing. Absent → empty list. */
   pluginDirs?: string[];
+  /** Brain provider OAuth flows (connect Anthropic/Copilot/OpenAI accounts). Absent → routes degrade. */
+  brainOauth?: BrainOAuthManager;
   /** User-aware prompt renderer (resolves a user's override else the file default). Absent → callers
    *  fall back to the plain file `render`, i.e. defaults for everyone. */
   prompts?: PromptService;

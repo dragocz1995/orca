@@ -13,6 +13,8 @@ import { ConfigStore } from '../../src/store/configStore.js';
 import { UserStore } from '../../src/store/userStore.js';
 import { ProjectStore } from '../../src/store/projectStore.js';
 import { UserProjectStore } from '../../src/store/userProjectStore.js';
+import { BrainOAuthManager } from '../../src/brain/oauth.js';
+import { AuthStorage } from '@earendil-works/pi-coding-agent';
 
 function makePlugin(root: string, name: string) {
   const dir = join(root, name);
@@ -42,6 +44,7 @@ function setup() {
     clock: new FakeClock(0), config, users, projects: new ProjectStore(db), userProjects: new UserProjectStore(db),
     pluginDirs: [root],
     brain: { reloadPlugins } as never,
+    brainOauth: new BrainOAuthManager(AuthStorage.inMemory()),
   });
   return { app, config, reloadPlugins, adminTok: users.issueToken(admin.id), amyTok: users.issueToken(amy.id) };
 }
@@ -81,5 +84,25 @@ describe('plugin routes', () => {
   it('validates the enabled field (400)', async () => {
     const { app, adminTok } = setup();
     expect((await app.request('/plugins/skills', patch(adminTok, { enabled: 'yes' }))).status).toBe(400);
+  });
+});
+
+describe('brain oauth routes', () => {
+  function oauthSetup() {
+    const base = setup();
+    return base;
+  }
+
+  it('status maps oauth types to connected flags (admin only)', async () => {
+    const { app, adminTok, amyTok } = oauthSetup();
+    expect((await app.request('/brain/oauth/status', auth(amyTok))).status).toBe(403);
+    const res = await app.request('/brain/oauth/status', auth(adminTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ 'oauth-anthropic': false, 'oauth-github-copilot': false, 'oauth-openai-codex': false });
+  });
+
+  it('start rejects an unknown type (404)', async () => {
+    const { app, adminTok } = oauthSetup();
+    expect((await app.request('/brain/oauth/bogus/start', { method: 'POST', headers: { authorization: `Bearer ${adminTok}` } })).status).toBe(404);
   });
 });
