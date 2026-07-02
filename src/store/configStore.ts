@@ -33,7 +33,7 @@ export interface OrcaConfig {
  *  tokens live in the brain's AuthStorage file). */
 export type BrainProviderType = 'openai' | 'anthropic' | 'oauth-anthropic' | 'oauth-github-copilot' | 'oauth-openai-codex';
 
-export interface BrainProviderPublic {
+interface BrainProviderPublic {
   id: string;
   label: string;
   type: BrainProviderType;
