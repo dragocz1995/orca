@@ -106,6 +106,7 @@ export const cs = {
     passwordPlaceholder: 'Heslo',
   },
   tasks: {
+    brainTranscript: 'Konverzace workera',
     newTask: 'Nový úkol',
     searchPlaceholder: 'Hledat úkoly…',
     filterAll: 'Vše',

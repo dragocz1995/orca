@@ -2,7 +2,7 @@ import type { BrainMessageRow } from '../store/brainStore.js';
 
 /** One display piece of an assistant turn, in the order it happened: a text block, or a tool call
  *  (with a short argument summary and, for edits, the display diff). */
-export type BrainSegment =
+type BrainSegment =
   | { kind: 'text'; text: string }
   | { kind: 'tool'; name: string; detail?: string; diff?: string };
 

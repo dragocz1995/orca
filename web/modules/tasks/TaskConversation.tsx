@@ -1,8 +1,8 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { Bot, GitCommit, Check, TriangleAlert, User } from 'lucide-react';
+import { Bot, GitCommit, Check, TriangleAlert, User, Wrench } from 'lucide-react';
 import type { CommitLogEntry } from '../../lib/types';
-import { useTaskConversation, useTaskCommits, useTaskCommitFileDiff, useTasks, useConfig } from '../../lib/queries';
+import { useTaskConversation, useTaskBrainConversation, useTaskCommits, useTaskCommitFileDiff, useTasks, useConfig } from '../../lib/queries';
 import { taskExec } from '../../lib/agentUtils';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { useTranslation } from '../../lib/i18n';
@@ -77,6 +77,9 @@ export function TaskConversation({ task }: { task: { id: string } }) {
   // cumulative base..head diff — the feed is per-commit history.
   const [openFile, setOpenFile] = useState<{ hash: string; path: string } | null>(null);
   const fileDiff = useTaskCommitFileDiff(task.id, openFile?.hash ?? null, openFile?.path ?? null);
+  // Embedded-brain workers have no terminal pane — their transcript IS the work log.
+  const isBrainWorker = workerExec.startsWith('orca:');
+  const brainChat = useTaskBrainConversation(task.id, isBrainWorker);
 
   const items = useMemo<FeedItem[]>(() => {
     const out: FeedItem[] = [];
@@ -100,13 +103,42 @@ export function TaskConversation({ task }: { task: { id: string } }) {
     return out.sort((a, b) => a.ts - b.ts);
   }, [conversation.data, commits.data]);
 
-  if (items.length === 0) return null;
+  const brainTurns = isBrainWorker ? (brainChat.data ?? []) : [];
+  if (items.length === 0 && brainTurns.length === 0) return null;
 
   const outcomeLabel = (o: DecisionPayload['outcome']) =>
     o === 'approved' ? t.tasks.decisionApproved : o === 'chose' ? t.tasks.decisionChose : t.tasks.decisionEscalated;
 
   return (
     <div className="flex flex-col gap-1.5">
+      {brainTurns.length > 0 ? (
+        <>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t.tasks.brainTranscript}</span>
+          <ul className="flex flex-col gap-1.5">
+            {brainTurns.map((m, i) => (
+              <li key={i} className="rounded-lg border border-border bg-surface p-2.5 text-xs">
+                <div className="flex items-start gap-2">
+                  {m.role === 'user'
+                    ? <User size={14} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
+                    : <span className="mt-0.5 shrink-0"><ModelIcon name={workerExec.slice(workerExec.indexOf('/') + 1)} size={14} /></span>}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    {(m.segments ?? [{ kind: 'text' as const, text: m.text }]).map((seg, j) => seg.kind === 'text'
+                      ? <p key={j} className="whitespace-pre-wrap break-words leading-relaxed text-text">{seg.text}</p>
+                      : (
+                        <span key={j} className="inline-flex max-w-full items-center gap-1.5 self-start rounded-md border border-border bg-elevated/60 px-2 py-0.5 font-mono text-[11px] text-text-muted">
+                          <Wrench size={10} aria-hidden />
+                          <span className="truncate">{seg.name}{seg.detail ? ` ${seg.detail}` : ''}</span>
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {items.length > 0 ? (
+      <>
       <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t.tasks.activityLog}</span>
       <ul className="flex flex-col gap-1.5">
         {items.map((it) => {
@@ -181,6 +213,8 @@ export function TaskConversation({ task }: { task: { id: string } }) {
           );
         })}
       </ul>
+      </>
+      ) : null}
 
       {openFile ? (
         <Modal title={baseName(openFile.path)} description={openFile.path} icon={fileIcon(openFile.path)} size="lg" onClose={() => setOpenFile(null)}>

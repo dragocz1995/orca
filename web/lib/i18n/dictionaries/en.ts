@@ -106,6 +106,7 @@ export const en = {
     passwordPlaceholder: 'Password',
   },
   tasks: {
+    brainTranscript: 'Worker conversation',
     newTask: 'New task',
     searchPlaceholder: 'Search tasks…',
     filterAll: 'All',

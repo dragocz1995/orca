@@ -31,7 +31,7 @@ export interface BrainUsage {
   cost: number;
 }
 
-export type { BrainSegment, BrainMessageView } from './messageView.js';
+export type { BrainMessageView } from './messageView.js';
 
 export interface BrainDeps {
   store: BrainStore;
