@@ -13,6 +13,44 @@ describe('viewToPlainText', () => {
     expect(lines.some((l) => l.includes('⏺ orca_create_task'))).toBe(true);
     expect(lines.some((l) => l.includes('hotovo'))).toBe(true);
   });
+
+  it('renders a reasoning segment prefixed and distinct from the answer', () => {
+    let v = beginAssistant(pushUser(emptyView(), 'ahoj'));
+    v = reduce(v, { type: 'reasoning', delta: 'let me think' });
+    v = reduce(v, { type: 'text', delta: 'answer' });
+    const lines = viewToPlainText(v);
+    expect(lines.some((l) => l.includes('💭 let me think'))).toBe(true);
+    expect(lines.some((l) => l.includes('answer') && !l.includes('💭'))).toBe(true);
+  });
+});
+
+describe('reduce — reasoning + notice', () => {
+  it('accumulates reasoning into its own segment, separate from text', () => {
+    let v = beginAssistant(pushUser(emptyView(), 'x'));
+    v = reduce(v, { type: 'reasoning', delta: 'think ' });
+    v = reduce(v, { type: 'reasoning', delta: 'more' });
+    const turn = v.turns[v.turns.length - 1];
+    expect(turn.role === 'orca' && turn.segments).toEqual([{ kind: 'reasoning', text: 'think more' }]);
+  });
+
+  it('shows a transient notice and clears it on done + on idle', () => {
+    let v = beginAssistant(pushUser(emptyView(), 'x'));
+    v = reduce(v, { type: 'notice', kind: 'retry', message: 'retrying — attempt 1/5…' });
+    expect(v.notice).toBe('retrying — attempt 1/5…');
+    v = reduce(v, { type: 'notice', kind: 'retry', message: 'retry succeeded', done: true });
+    expect(v.notice).toBeUndefined();
+    v = reduce(v, { type: 'notice', kind: 'compaction', message: 'compacting context…' });
+    expect(v.notice).toBe('compacting context…');
+    v = reduce(v, { type: 'idle' });
+    expect(v.notice).toBeUndefined(); // settled turn drops the transient line
+  });
+
+  it('first answer text clears a pending notice', () => {
+    let v = beginAssistant(pushUser(emptyView(), 'x'));
+    v = reduce(v, { type: 'notice', kind: 'compaction', message: 'compacting context…' });
+    v = reduce(v, { type: 'text', delta: 'done' });
+    expect(v.notice).toBeUndefined();
+  });
 });
 
 describe('parseCommand', () => {
@@ -22,6 +60,8 @@ describe('parseCommand', () => {
     expect(parseCommand('/sessions')).toEqual({ cmd: 'sessions' });
     expect(parseCommand('/resume 2')).toEqual({ cmd: 'resume', arg: '2' });
     expect(parseCommand('/model')).toEqual({ cmd: 'model' });
+    expect(parseCommand('/think')).toEqual({ cmd: 'think', arg: undefined });
+    expect(parseCommand('/think high')).toEqual({ cmd: 'think', arg: 'high' });
     expect(parseCommand('/compact')).toEqual({ cmd: 'compact' });
     expect(parseCommand('/quit')).toEqual({ cmd: 'quit' });
     expect(parseCommand('/exit')).toEqual({ cmd: 'quit' });

@@ -19,11 +19,17 @@ import type { BrainMessageView } from './messageView.js';
  *  underlying PI event shape — the mapping lives in one place (`toBrainEvent`). */
 export type BrainEvent =
   | { type: 'text'; delta: string }
+  /** The model's reasoning/thinking stream (extended-thinking models) — shown as a dim, separate
+   *  segment. Surfaced from PI's `thinking_delta`; channels may choose to ignore it. */
+  | { type: 'reasoning'; delta: string }
   | { type: 'tool'; name: string; detail?: string }
   | { type: 'diff'; diff: string }
   /** A tool produced a stored image (`/api/brain/images/…`) — channels attach it even when the
    *  model's final text forgets to repeat the markdown link. */
   | { type: 'image'; ref: string }
+  /** A transient runtime notice (rate-limit retry, context compaction) — so a stalled turn explains
+   *  itself instead of just hanging on the spinner. `done` marks the end of that phase. */
+  | { type: 'notice'; kind: 'retry' | 'compaction'; message: string; done?: boolean }
   | { type: 'idle'; usage?: BrainUsage; model?: string }
   | { type: 'error'; message: string };
 
@@ -105,11 +111,26 @@ const DEFAULT_AUTO_COMPACT_AT = 0.8;
 
 function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   if (e.type === 'agent_end') return { type: 'idle' };
-  const anyE = e as { type: string; toolName?: string; args?: unknown; result?: { details?: { diff?: unknown } }; delta?: string; assistantMessageEvent?: { type?: string; delta?: string } };
+  const anyE = e as {
+    type: string; toolName?: string; args?: unknown; result?: { details?: { diff?: unknown } }; delta?: string;
+    assistantMessageEvent?: { type?: string; delta?: string };
+    attempt?: number; maxAttempts?: number; errorMessage?: string; success?: boolean; reason?: string;
+  };
   if (anyE.type === 'message_update') {
-    const delta = anyE.assistantMessageEvent?.type === 'text_delta' ? anyE.assistantMessageEvent.delta : undefined;
-    return delta ? { type: 'text', delta } : null;
+    const ev = anyE.assistantMessageEvent;
+    if (ev?.type === 'text_delta' && ev.delta) return { type: 'text', delta: ev.delta };
+    // The model's reasoning stream (extended-thinking models) — a first-class, separately-rendered event.
+    if (ev?.type === 'thinking_delta' && ev.delta) return { type: 'reasoning', delta: ev.delta };
+    return null;
   }
+  // Runtime notices so a stalled turn explains itself instead of hanging silently on the spinner.
+  if (anyE.type === 'auto_retry_start') {
+    const detail = anyE.errorMessage ? ` (${String(anyE.errorMessage).slice(0, 80)})` : '';
+    return { type: 'notice', kind: 'retry', message: `retrying${detail} — attempt ${anyE.attempt ?? 1}/${anyE.maxAttempts ?? 1}…` };
+  }
+  if (anyE.type === 'auto_retry_end') return { type: 'notice', kind: 'retry', message: anyE.success ? 'retry succeeded' : 'retry failed', done: true };
+  if (anyE.type === 'compaction_start') return { type: 'notice', kind: 'compaction', message: 'compacting context…' };
+  if (anyE.type === 'compaction_end') return { type: 'notice', kind: 'compaction', message: 'context compacted', done: true };
   // Emit the tool name ONCE, when it starts — never the raw streamed output (_update noise).
   if (anyE.type === 'tool_execution_start' && typeof anyE.toolName === 'string') {
     return { type: 'tool', name: anyE.toolName, detail: toolDetail(anyE.args) };
@@ -247,9 +268,30 @@ export class BrainService {
     });
   }
 
-  status(userId: number): { running: boolean; sessionId: string | null; model: string; usage: BrainUsage | null } {
+  /** Set the reasoning effort of the ACTIVE conversation live (the /think command) — PI applies it to
+   *  the running session without a respawn, unlike a model switch. A level the current model doesn't
+   *  support is clamped by PI. Returns the effective level. Session-scoped (like /model): the saved
+   *  per-user default in Account → CLI is unchanged. */
+  async setThinkingLevel(userId: number, level: string): Promise<{ thinkingLevel: string }> {
     const b = this.activeLive(userId);
-    return { running: !!b, sessionId: b?.sessionId ?? null, model: b?.model ?? '', usage: b ? usageOf(b.session) : null };
+    if (!b) throw new Error('brain not started');
+    const sess = b.session as { setThinkingLevel?: (l: string) => void; thinkingLevel?: string; getAvailableThinkingLevels?: () => string[] };
+    const available = new Set(sess.getAvailableThinkingLevels?.() ?? ['minimal', 'low', 'medium', 'high', 'xhigh']);
+    if (!available.has(level)) throw new Error(`model does not support reasoning effort "${level}"`);
+    sess.setThinkingLevel?.(level);
+    b.thinkingLevel = level;
+    return { thinkingLevel: (sess.thinkingLevel as string) ?? level };
+  }
+
+  status(userId: number): { running: boolean; sessionId: string | null; model: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[] } {
+    const b = this.activeLive(userId);
+    const sess = b?.session as { thinkingLevel?: string; supportsThinking?: () => boolean; getAvailableThinkingLevels?: () => string[] } | undefined;
+    const supports = sess?.supportsThinking?.() ?? false;
+    return {
+      running: !!b, sessionId: b?.sessionId ?? null, model: b?.model ?? '', usage: b ? usageOf(b.session) : null,
+      thinkingLevel: (sess?.thinkingLevel as string) ?? b?.thinkingLevel ?? '',
+      thinkingLevels: supports ? (sess?.getAvailableThinkingLevels?.() ?? []) : [],
+    };
   }
 
   /** Delete one of the user's stored conversations (never a channel session, never someone else's).

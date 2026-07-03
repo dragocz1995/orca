@@ -686,6 +686,18 @@ export class LiveMessage {
     this.text = '';       // accumulated only as the finalize fallback (handler may return undefined)
     this.imageRefs = [];  // generated-image refs from tool results — attached even if the reply omits them
     this.idle = null;     // the turn's settle event (model + context usage) → runtime footer
+    this.reasoning = '';  // reasoning stream, only rendered when cfg.showReasoning (off by default)
+  }
+  /** Re-render the progress bubble = tool lines + (opt-in) a truncated reasoning tail. */
+  renderProgress() {
+    const lines = this.toolCalls.map(toolLine);
+    if (this.a.cfg?.showReasoning && this.reasoning.trim()) {
+      const tail = this.reasoning.trim().slice(-280).replace(/\s+/g, ' ');
+      lines.push(`💭 _${tail}_`);
+    }
+    if (!lines.length) return;
+    this.progress ??= new EditableMessage(this.a, this.channelId);
+    this.progress.update(lines.join('\n'));
   }
   onEvent(e) {
     if (e.type === 'tool' && e.name) {
@@ -696,8 +708,12 @@ export class LiveMessage {
       } else {
         this.toolCalls.push({ name: e.name, detail: e.detail, count: 1 });
       }
-      this.progress ??= new EditableMessage(this.a, this.channelId);
-      this.progress.update(this.toolCalls.map(toolLine).join('\n'));
+      this.renderProgress();
+    } else if (e.type === 'reasoning' && e.delta) {
+      // Off by default — reasoning is noise on Discord. When cfg.showReasoning is on it rides the
+      // progress bubble as a dim tail. Always accumulated so toggling mid-turn has content to show.
+      this.reasoning += e.delta;
+      if (this.a.cfg?.showReasoning) this.renderProgress();
     } else if (e.type === 'text' && e.delta) {
       this.text += e.delta;
     } else if (e.type === 'image' && e.ref) {

@@ -44,7 +44,7 @@ async function readAttachment(file: File): Promise<Attachment | null> {
  *  actually happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment
  *  → the Claude-Code "grouped pills" look. */
 type ToolPill = { name: string; detail?: string; diff?: string };
-type Segment = { kind: 'text'; text: string } | { kind: 'tools'; tools: ToolPill[] };
+type Segment = { kind: 'text'; text: string } | { kind: 'reasoning'; text: string } | { kind: 'tools'; tools: ToolPill[] };
 type Turn = { role: 'user'; text: string } | { role: 'assistant'; segments: Segment[] };
 
 /** Append a text delta to the running assistant turn, extending its last text segment or starting one. */
@@ -55,6 +55,17 @@ function appendText(cur: Turn[], delta: string): Turn[] {
   const tail = segs[segs.length - 1];
   if (tail?.kind === 'text') segs[segs.length - 1] = { kind: 'text', text: tail.text + delta };
   else segs.push({ kind: 'text', text: delta });
+  return [...cur.slice(0, -1), { role: 'assistant', segments: segs }];
+}
+
+/** Append a reasoning delta to the running assistant turn (its own dim segment, separate from text). */
+function appendReasoning(cur: Turn[], delta: string): Turn[] {
+  const last = cur[cur.length - 1];
+  if (last?.role !== 'assistant') return [...cur, { role: 'assistant', segments: [{ kind: 'reasoning', text: delta }] }];
+  const segs = [...last.segments];
+  const tail = segs[segs.length - 1];
+  if (tail?.kind === 'reasoning') segs[segs.length - 1] = { kind: 'reasoning', text: tail.text + delta };
+  else segs.push({ kind: 'reasoning', text: delta });
   return [...cur.slice(0, -1), { role: 'assistant', segments: segs }];
 }
 
@@ -144,6 +155,8 @@ function Message({ turn }: { turn: Turn }) {
     <div className="mr-4 flex flex-col gap-1.5 self-start">
       {turn.segments.map((seg, i) => (seg.kind === 'text'
         ? <TextSegment key={i} text={seg.text} />
+        : seg.kind === 'reasoning'
+        ? <p key={i} className="whitespace-pre-wrap border-l-2 border-border pl-2 text-tiny italic text-text-muted">{seg.text}</p>
         : <ToolPills key={i} tools={seg.tools} />))}
     </div>
   );
@@ -234,6 +247,10 @@ export function BrainChat() {
     es.addEventListener('text', (e) => {
       const { delta } = JSON.parse((e as MessageEvent).data) as { delta: string };
       setTurns((cur) => appendText(cur, delta));
+    });
+    es.addEventListener('reasoning', (e) => {
+      const { delta } = JSON.parse((e as MessageEvent).data) as { delta: string };
+      setTurns((cur) => appendReasoning(cur, delta));
     });
     es.addEventListener('tool', (e) => {
       const { name, detail } = JSON.parse((e as MessageEvent).data) as { name: string; detail?: string };

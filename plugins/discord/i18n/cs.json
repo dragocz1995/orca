@@ -48,6 +48,10 @@
     "runtimeFooter": {
       "label": "Stavový řádek",
       "hint": "Připojit pod finální odpověď malý řádek „model · % kontextu“."
+    },
+    "showReasoning": {
+      "label": "Zobrazit uvažování",
+      "hint": "Streamovat uvažování modelu do průběžné bubliny (modely s extended thinking). Výchozí = vypnuto — na Discordu je to většinou šum."
     }
   }
 }

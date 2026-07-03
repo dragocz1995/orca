@@ -19,9 +19,15 @@ function fakeDeps() {
     subscribe: (l: (e: unknown) => void) => { listeners.push(l); return () => {}; },
     setModel: vi.fn(), dispose: vi.fn(), abort: vi.fn(async () => {}), messages, isStreaming: false,
     getContextUsage: () => undefined, compact: vi.fn(async () => {}),
+    thinkingLevel: '' as string,
+    supportsThinking: () => true,
+    getAvailableThinkingLevels: () => ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    setThinkingLevel: vi.fn(function (this: { thinkingLevel: string }, l: string) { session.thinkingLevel = l; }),
   };
   const createSession = vi.fn(async () => ({ session }));
   return {
+    /** Push a raw PI session event through everything subscribed via spawnLive (tests event mapping). */
+    emit: (e: unknown) => listeners.forEach((l) => l(e)),
     store: new BrainStore(openDb(':memory:')),
     users: { ensureAdvisorToken: () => 'full-token', get: () => ({ name: 'Filip', username: 'filip' }) },
     config: { providers: [{ id: 'relay', label: 'Relay', type: 'openai' as const, baseUrl: 'http://x/v1', models: ['m'], apiKey: 'k' }] },
@@ -99,6 +105,39 @@ describe('BrainService', () => {
     const svc = new BrainService(d as never);
     await svc.start(1);
     expect(svc.status(1).model).toBe('ollama/kimi-k2.7-code');
+  });
+
+  it('setThinkingLevel applies live (no respawn) and status reports it', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    expect(svc.status(1).thinkingLevel).toBe('');
+    expect(svc.status(1).thinkingLevels).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh']);
+    const r = await svc.setThinkingLevel(1, 'high');
+    expect(r.thinkingLevel).toBe('high');
+    expect(d.session.setThinkingLevel).toHaveBeenCalledWith('high');
+    expect(d.createSession).toHaveBeenCalledTimes(1); // live change — session was NOT rebuilt
+    expect(svc.status(1).thinkingLevel).toBe('high');
+    await expect(svc.setThinkingLevel(1, 'bogus')).rejects.toThrow(/does not support/);
+  });
+
+  it('maps the thinking + retry + compaction PI events to reasoning/notice brain events', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const seen: { type: string; delta?: string; kind?: string; done?: boolean; message?: string }[] = [];
+    svc.subscribe(1, (e) => seen.push(e as { type: string }));
+    d.emit({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: 'hmm' } });
+    d.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'hi' } });
+    d.emit({ type: 'auto_retry_start', attempt: 2, maxAttempts: 5, errorMessage: 'rate limit' });
+    d.emit({ type: 'compaction_start', reason: 'threshold' });
+    d.emit({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: false });
+    expect(seen.find((e) => e.type === 'reasoning')?.delta).toBe('hmm');
+    expect(seen.find((e) => e.type === 'text')?.delta).toBe('hi');
+    const retry = seen.find((e) => e.type === 'notice' && e.kind === 'retry');
+    expect(retry?.message ?? '').toMatch(/attempt 2\/5/);
+    expect(seen.some((e) => e.type === 'notice' && e.kind === 'compaction' && !e.done)).toBe(true);
+    expect(seen.some((e) => e.type === 'notice' && e.kind === 'compaction' && e.done)).toBe(true);
   });
 
   it('send forwards to the PI session, persists the turn, and emits events', async () => {

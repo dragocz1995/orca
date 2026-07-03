@@ -4,13 +4,18 @@ import type { BrainEvent, BrainMessageView } from '../../brain/brainService.js';
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment — the
  *  Claude-Code "grouped" look. Tool OUTPUT is never shown; only names, argument summaries and edit diffs. */
 interface ToolItem { name: string; detail?: string; diff?: string }
-type Segment = { kind: 'text'; text: string } | { kind: 'tools'; items: ToolItem[] };
+type Segment =
+  | { kind: 'text'; text: string }
+  /** The model's reasoning/thinking stream — rendered dim + separate from the answer. */
+  | { kind: 'reasoning'; text: string }
+  | { kind: 'tools'; items: ToolItem[] };
 type YouTurn = { role: 'you'; text: string };
 type OrcaTurn = { role: 'orca'; segments: Segment[]; streaming: boolean };
 type ChatTurn = YouTurn | OrcaTurn;
 
-/** The whole view model the TUI renders. Pure data — the reducer never touches the terminal. */
-export interface ChatView { turns: ChatTurn[]; thinking: boolean }
+/** The whole view model the TUI renders. Pure data — the reducer never touches the terminal. `notice`
+ *  is a transient runtime line (retry/compaction) cleared when the turn goes idle. */
+export interface ChatView { turns: ChatTurn[]; thinking: boolean; notice?: string }
 
 export const emptyView = (): ChatView => ({ turns: [], thinking: false });
 
@@ -69,10 +74,23 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     if (tail?.kind === 'text') t.segments[t.segments.length - 1] = { kind: 'text', text: tail.text + delta };
     else t.segments.push({ kind: 'text', text: delta });
   };
+  const addReasoning = (t: OrcaTurn, delta: string): void => {
+    const tail = t.segments[t.segments.length - 1];
+    if (tail?.kind === 'reasoning') t.segments[t.segments.length - 1] = { kind: 'reasoning', text: tail.text + delta };
+    else t.segments.push({ kind: 'reasoning', text: delta });
+  };
   switch (e.type) {
     case 'text': {
       addText(ensureOrca(), e.delta);
-      return { turns, thinking: true };
+      return { turns, thinking: true, notice: undefined }; // first answer text clears any transient notice
+    }
+    case 'reasoning': {
+      addReasoning(ensureOrca(), e.delta);
+      return { turns, thinking: true, notice: view.notice };
+    }
+    case 'notice': {
+      // Transient runtime line (retry/compaction); `done` clears it, otherwise it shows until the next.
+      return { turns, thinking: view.thinking, notice: e.done ? undefined : e.message };
     }
     case 'tool': {
       const t = ensureOrca();
@@ -80,7 +98,7 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
       const tail = t.segments[t.segments.length - 1];
       if (tail?.kind === 'tools') t.segments[t.segments.length - 1] = { kind: 'tools', items: [...tail.items, item] };
       else t.segments.push({ kind: 'tools', items: [item] });
-      return { turns, thinking: true };
+      return { turns, thinking: true, notice: view.notice };
     }
     case 'diff': {
       // An edit finished — attach its diff to the most recent tool call of the streaming turn.
@@ -93,18 +111,18 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
         t.segments[i] = { kind: 'tools', items };
         break;
       }
-      return { turns, thinking: true };
+      return { turns, thinking: true, notice: view.notice };
     }
     case 'idle': {
       const last = turns[turns.length - 1];
       if (last && last.role === 'orca') turns[turns.length - 1] = { ...last, streaming: false };
-      return { turns, thinking: false };
+      return { turns, thinking: false, notice: undefined }; // turn settled → drop any transient notice
     }
     case 'error': {
       const t = ensureOrca();
       addText(t, `\n[error: ${e.message}]`);
       t.streaming = false;
-      return { turns, thinking: false };
+      return { turns, thinking: false, notice: undefined };
     }
     default:
       return view;

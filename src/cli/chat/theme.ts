@@ -18,6 +18,7 @@ export const color = {
 export const glyph = {
   whale: '🐋',
   tool: '⏺',      // filled dot — a tool call
+  think: '💭',    // reasoning / thinking stream
   you: 'you',
   orca: 'orca',
   dot: '·',

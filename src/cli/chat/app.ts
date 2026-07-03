@@ -23,6 +23,8 @@ export function viewToPlainText(view: ChatView): string[] {
             lines.push(`  ${glyph.tool} ${item.name}${item.detail ? ` ${item.detail}` : ''}`);
             if (item.diff) lines.push(...item.diff.replace(/\n+$/, '').split('\n').map((l) => `    ${l}`));
           }
+        } else if (seg.kind === 'reasoning') {
+          lines.push(...seg.text.split('\n').map((l) => `  ${glyph.think} ${l}`));
         } else {
           lines.push(...seg.text.split('\n').map((l) => `  ${l}`));
         }
@@ -35,7 +37,7 @@ export function viewToPlainText(view: ChatView): string[] {
 
 /** Local slash-command routing: returns the recognized command (with its argument) or null for a
  *  regular chat message. Pure, so the command surface is unit-testable without a TTY. */
-export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'sessions' | 'resume' | 'delete' | 'model' | 'compact' | 'help'; arg?: string } | null {
+export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'sessions' | 'resume' | 'delete' | 'model' | 'think' | 'compact' | 'help'; arg?: string } | null {
   const m = /^\/(\w+)(?:\s+(.+))?$/.exec(text.trim());
   if (!m) return null;
   switch (m[1]) {
@@ -45,6 +47,7 @@ export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'sessions' |
     case 'resume': return { cmd: 'resume', arg: m[2] };
     case 'delete': return { cmd: 'delete', arg: m[2] };
     case 'model': return { cmd: 'model' };
+    case 'think': return { cmd: 'think', arg: m[2] };
     case 'compact': return { cmd: 'compact' };
     case 'help': return { cmd: 'help' };
     default: return null;
@@ -90,6 +93,7 @@ const HELP = [
   '/resume [n] — resume a conversation (picker without argument)',
   '/delete [n] — delete a conversation (picker + confirm)',
   '/model — switch the model (picker)',
+  '/think — set reasoning effort (picker)',
   '/compact — summarize the conversation to free context',
   '/quit — exit',
 ].join('\n');
@@ -111,6 +115,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   let modelName = boot?.model || opts.model || '';
   let lineCfg = boot?.statusline ?? null;
   let usage = boot?.usage ?? null;
+  let thinkingLevel = boot?.thinkingLevel ?? '';
+  let thinkingLevels = boot?.thinkingLevels ?? [];
   let sessionTitle = '';
   let view = fromHistory(await client.history().catch(() => []));
   /** The last /sessions listing, so /resume <n> can address by number. */
@@ -123,7 +129,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       client.status().catch(() => null),
       client.sessions().catch(() => []),
     ]);
-    if (st) { modelName = st.model || modelName; lineCfg = st.statusline; usage = st.usage; }
+    if (st) { modelName = st.model || modelName; lineCfg = st.statusline; usage = st.usage; thinkingLevel = st.thinkingLevel ?? ''; thinkingLevels = st.thinkingLevels ?? []; }
     sessionTitle = sessions.find((s) => s.active)?.title ?? '';
   };
   await refreshMeta();
@@ -154,6 +160,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     { name: 'resume', description: 'resume a conversation', argumentHint: '[n]', getArgumentCompletions: numberCompletions },
     { name: 'delete', description: 'delete a conversation', argumentHint: '[n]', getArgumentCompletions: numberCompletions },
     { name: 'model', description: 'switch the model' },
+    { name: 'think', description: 'set reasoning effort' },
     { name: 'compact', description: 'summarize the conversation to free context' },
     { name: 'help', description: 'show commands' },
     { name: 'quit', description: 'exit' },
@@ -179,6 +186,11 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
               messages.addChild(new Text(toolChip(item.name, item.detail), 1, 0));
               if (item.diff) for (const line of diffBlock(item.diff)) messages.addChild(new Text(line, 1, 0));
             }
+          } else if (seg.kind === 'reasoning') {
+            // Reasoning stream: dim, prefixed, visually distinct from the answer. Only shown while it
+            // is the freshest content of a still-streaming turn (a settled turn keeps the answer clean).
+            const showReasoning = turn.streaming && seg === turn.segments[turn.segments.length - 1];
+            if (showReasoning) for (const l of seg.text.split('\n')) messages.addChild(new Text(color.faint(`  ${glyph.think} ${l}`), 1, 0));
           } else { hasText = true; messages.addChild(new Markdown(seg.text, 2, 0, mdTheme)); }
         }
         if (!hasText && turn.streaming) messages.addChild(new Text(color.faint('  …'), 1, 0));
@@ -189,6 +201,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       }
     }
     if (notice) for (const line of notice.split('\n')) messages.addChild(new Text(`  ${line}`, 1, 0));
+    // Transient runtime line (rate-limit retry, context compaction) so a stalled turn explains itself.
+    if (view.notice) messages.addChild(new Text(color.faint(`  ${glyph.dot} ${view.notice}`), 1, 0));
     // Spinner lives INSIDE the rebuilt message list, so it vanishes the moment the turn goes idle.
     if (view.thinking) {
       if (!thinkStart) thinkStart = Date.now();
@@ -206,9 +220,13 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     // Top bar: conversation title on the left, usage stats (tokens · ctx% · cost) on the right.
     const bar = titleBarContent(sessionTitle, usage);
     titleBar.set(bar.left, bar.right);
-    // The line above the input shows the model; the statusline plugin adds context/tokens when enabled.
+    // The line above the input shows the model; the statusline plugin adds context/tokens when enabled,
+    // and the active reasoning effort rides on the end when the model has one set.
     const line = statusline(lineCfg, usage, modelName);
-    statusUnder.setText(line ? color.faint(`  ${line}`) : `  ${color.accentDim(modelName || '—')}`);
+    const think = thinkingLevel ? `think:${thinkingLevel}` : '';
+    const base = line || (modelName || '—');
+    const full = think ? `${base}  ·  ${think}` : base;
+    statusUnder.setText(line ? color.faint(`  ${full}`) : `  ${color.accentDim(modelName || '—')}${think ? color.faint(`  ·  ${think}`) : ''}`);
     tui.requestRender();
   };
 
@@ -286,6 +304,24 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
               },
             });
           }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+          return;
+        }
+        case 'think': {
+          if (thinkingLevels.length === 0) { notice = color.dim('this model has no reasoning-effort levels'); render(); return; }
+          const apply = (level: string): void => {
+            void client.setThinkingLevel(level).then((r) => {
+              thinkingLevel = r.thinkingLevel;
+              notice = color.dim(`reasoning effort: ${r.thinkingLevel}`);
+              render();
+            }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+          };
+          // A bare "/think high" applies directly; "/think" opens the picker over the model's levels.
+          if (command.arg && thinkingLevels.includes(command.arg.trim())) { apply(command.arg.trim()); return; }
+          openPicker({
+            tui, slot: editorSlot, editor, title: 'Reasoning effort',
+            items: thinkingLevels.map((lv) => ({ value: lv, label: lv, description: lv === thinkingLevel ? 'current' : undefined })),
+            onPick: (value) => apply(value),
+          });
           return;
         }
         case 'delete': {

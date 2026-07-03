@@ -10,7 +10,7 @@ export interface BrainClientOpts { base: string; token: string; fetchImpl?: type
 /** Statusline display toggles (the statusline plugin's config; null when the plugin is disabled). */
 interface StatuslineConfig { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean }
 interface BrainUsageView { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
-export interface BrainStatus { running: boolean; sessionId: string | null; model: string; usage: BrainUsageView | null; statusline: StatuslineConfig | null }
+export interface BrainStatus { running: boolean; sessionId: string | null; model: string; usage: BrainUsageView | null; statusline: StatuslineConfig | null; thinkingLevel?: string; thinkingLevels?: string[] }
 
 /** Parse accumulated SSE text into complete frames, returning the events and the unconsumed tail.
  *  Pure and buffer-safe (a frame split across chunks stays in `rest` until its blank-line terminator).
@@ -88,6 +88,12 @@ export class BrainClient {
   async setModel(sel: { provider?: string; model?: string }): Promise<{ model: string }> {
     const res = await this.post('/brain/model', sel);
     return (await res.json()) as { model: string };
+  }
+
+  /** Set the active conversation's reasoning effort live (the /think picker); resolves with the level. */
+  async setThinkingLevel(level: string): Promise<{ thinkingLevel: string }> {
+    const res = await this.post('/brain/think', { level });
+    return (await res.json()) as { thinkingLevel: string };
   }
 
   /** The pickable models across every configured brain provider (drives the /model picker). */

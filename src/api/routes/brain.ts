@@ -127,6 +127,16 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
+  // Set the active conversation's reasoning effort live (the /think command) — no session rebuild.
+  app.post('/brain/think', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as { level?: unknown };
+    if (typeof b.level !== 'string') return c.json({ error: 'level must be a string' }, 400);
+    try { return c.json(await d.brain.setThinkingLevel(c.get('user').id, b.level)); }
+    catch (e) { return c.json({ error: (e as Error).message }, 409); }
+  });
+
   // Manual context compaction (the /compact command in chat clients). Returns the fresh usage numbers.
   app.post('/brain/compact', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);

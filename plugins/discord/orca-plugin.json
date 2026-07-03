@@ -86,6 +86,12 @@
       "hint": "Append a small \"model · context %\" line under the final reply."
     },
     {
+      "key": "showReasoning",
+      "label": "Show reasoning",
+      "type": "boolean",
+      "hint": "Stream the model's reasoning into the progress bubble (extended-thinking models). Off by default — it's usually noise on Discord."
+    },
+    {
       "key": "rolePolicies",
       "label": "Role policies",
       "type": "rolePolicies",
