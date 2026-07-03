@@ -2,7 +2,11 @@ import type { Memory, MemoryCategory } from '../../lib/types';
 
 /** Neural memory-brain layout: pure, deterministic geometry that turns memories + categories into a
  *  core → category-hub → memory-leaf node/edge graph. All coordinates are container percentages (0..100)
- *  so the view scales fluidly; the component only renders. Mirrors AgentConstellation's orbit technique. */
+ *  so the view scales fluidly and aligns 1:1 with the SVG viewBox (preserveAspectRatio="none").
+ *
+ *  Placement follows the mem0 "glass brain" technique: hubs anchor to distinct lobes, their memory leaves
+ *  cluster nearby, and every point is pulled back inside the brain silhouette (a union of ellipses) so the
+ *  map reads as a filled organic brain even with very few nodes. The component only renders. */
 
 /** Hard cap on rendered leaf nodes — keeps the brain a graph, not a hairball. Hubs are never capped
  *  (categories are few) and always report their FULL memory count regardless of how many leaves show. */
@@ -12,13 +16,28 @@ const CORE_ID = 'core';
 /** Muted fallback swatch for a category whose stored color is blank (mirrors memoryMeta). */
 const FALLBACK_COLOR = 'var(--color-text-muted)';
 
-// Orbit radii, tuned like AgentConstellation (wider than tall) so labels breathe near the edges.
-const HUB_RX = 34;
-const HUB_RY = 30;
-const LEAF_RX = 8.5;
-const LEAF_RY = 11;
-const UNCAT_RX = 17;
-const UNCAT_RY = 14.5;
+/** The core cortex sits just above dead-center, matching the brain PNG's mass. */
+const CORE_X = 50;
+const CORE_Y = 49;
+
+/** Lobe anchors spread across the silhouette (frontal, temporal, top, stem, lateral). Hubs claim these in
+ *  order so the first few categories fan out into different lobes instead of bunching in the middle. */
+const LOBE_ANCHORS: ReadonlyArray<{ x: number; y: number }> = [
+  { x: 35, y: 35 }, // frontal-left
+  { x: 65, y: 36 }, // frontal-right
+  { x: 40, y: 58 }, // temporal-left
+  { x: 62, y: 57 }, // temporal-right
+  { x: 50, y: 28 }, // prefrontal top
+  { x: 51, y: 70 }, // occipital / stem
+  { x: 28, y: 47 }, // far-left
+  { x: 72, y: 47 }, // far-right
+];
+
+// Leaf clusters: memories orbit their hub on a small ellipse; uncategorized memories orbit the core wider.
+const LEAF_RX = 7;
+const LEAF_RY = 8;
+const UNCAT_RX = 12;
+const UNCAT_RY = 13;
 // Hub diameter (px) scales between these bounds by how many memories the category holds.
 const HUB_MIN_PX = 30;
 const HUB_MAX_PX = 54;
@@ -55,7 +74,53 @@ export interface BrainGraph {
   totalMemories: number;
 }
 
-/** Point on an ellipse orbit, in container percent. `startDeg` puts the first item at the top (−90°). */
+/** Brain silhouette as a union of ellipses in the 0..100 viewBox — tuned to the neural-brain-vercel.png
+ *  mass when the image is `bg-contain` centred in a 16/9 panel. A point counts as "inside" if it falls in
+ *  any lobe ellipse. */
+const BRAIN_FIELDS: ReadonlyArray<{ cx: number; cy: number; rx: number; ry: number }> = [
+  { cx: 33, cy: 37, rx: 15, ry: 17 },
+  { cx: 48, cy: 33, rx: 19, ry: 18 },
+  { cx: 65, cy: 39, rx: 16, ry: 17 },
+  { cx: 41, cy: 55, rx: 18, ry: 17 },
+  { cx: 61, cy: 57, rx: 15, ry: 15 },
+  { cx: 53, cy: 74, rx: 10, ry: 9 },
+];
+
+/** True when `(x, y)` lies within the brain silhouette. */
+export function isInsideBrain(x: number, y: number): boolean {
+  return BRAIN_FIELDS.some(({ cx, cy, rx, ry }) => {
+    const dx = (x - cx) / rx;
+    const dy = (y - cy) / ry;
+    return dx * dx + dy * dy <= 1;
+  });
+}
+
+/** Pull an out-of-silhouette point back inside by easing it toward an attractor (its hub, or the core)
+ *  until it lands in a lobe. Deterministic and bounded. Points already inside are returned untouched. */
+function clampToBrainShape(x: number, y: number, ax: number, ay: number): { x: number; y: number } {
+  if (isInsideBrain(x, y)) return { x, y };
+  let nx = x;
+  let ny = y;
+  for (let i = 0; i < 48; i += 1) {
+    nx = ax + (nx - ax) * 0.9;
+    ny = ay + (ny - ay) * 0.9;
+    if (isInsideBrain(nx, ny)) break;
+  }
+  return { x: nx, y: ny };
+}
+
+/** Anchor for the i-th hub: a lobe from the list, with a deterministic golden-angle nudge once the list
+ *  wraps so overflow categories separate instead of stacking. Always clamped inside the silhouette. */
+function hubAnchor(i: number): { x: number; y: number } {
+  const base = LOBE_ANCHORS[i % LOBE_ANCHORS.length];
+  const wrap = Math.floor(i / LOBE_ANCHORS.length);
+  if (wrap === 0) return base;
+  const angle = i * 137.5 * (Math.PI / 180);
+  const r = 3 + wrap * 2.5;
+  return clampToBrainShape(base.x + Math.cos(angle) * r, base.y + Math.sin(angle) * r, base.x, base.y);
+}
+
+/** Point on an ellipse orbit around `(cx, cy)`, in container percent. `startDeg` puts the first item up. */
 function orbitPosition(
   i: number, n: number, cx: number, cy: number, rx: number, ry: number, startDeg = -90,
 ): { x: number; y: number } {
@@ -112,10 +177,10 @@ export function buildBrainGraph(memories: Memory[], categories: MemoryCategory[]
   const catCounts = cats.map((c) => (byCat.get(c.id)?.length ?? 0));
   const maxCount = Math.max(0, ...catCounts, uncategorized.length);
 
-  const core: CoreNode = { id: CORE_ID, kind: 'core', x: 50, y: 50, color: 'var(--color-accent)', total: memories.length };
+  const core: CoreNode = { id: CORE_ID, kind: 'core', x: CORE_X, y: CORE_Y, color: 'var(--color-accent)', total: memories.length };
 
   const hubs: CategoryNode[] = cats.map((c, i) => {
-    const pos = orbitPosition(i, cats.length, 50, 50, HUB_RX, HUB_RY);
+    const pos = hubAnchor(i);
     const count = catCounts[i];
     return {
       id: `cat:${c.id}`, kind: 'category', x: pos.x, y: pos.y, color: swatch(c.color),
@@ -135,17 +200,19 @@ export function buildBrainGraph(memories: Memory[], categories: MemoryCategory[]
     edges.push({ id: `e:${core.id}-${hub.id}`, from: core.id, to: hub.id, color: hub.color });
     const pool = (byCat.get(c.id) ?? []).slice().sort(importanceSort).slice(0, allocation[i]);
     pool.forEach((m, j) => {
-      const pos = orbitPosition(j, pool.length, hub.x, hub.y, LEAF_RX, LEAF_RY, -90);
+      const orbit = orbitPosition(j, pool.length, hub.x, hub.y, LEAF_RX, LEAF_RY, -90);
+      const pos = clampToBrainShape(orbit.x, orbit.y, hub.x, hub.y);
       const id = `mem:${m.id}`;
       leaves.push({ id, kind: 'memory', x: pos.x, y: pos.y, color: hub.color, memory: m, parentId: hub.id });
       edges.push({ id: `e:${hub.id}-${id}`, from: hub.id, to: id, color: hub.color });
     });
   });
 
-  // Uncategorized leaves orbit the core directly on a tighter inner ring.
+  // Uncategorized leaves orbit the core directly on a wider inner ring, clamped to the silhouette.
   const uncatPool = uncategorized.slice().sort(importanceSort).slice(0, allocation[allocation.length - 1]);
   uncatPool.forEach((m, j) => {
-    const pos = orbitPosition(j, uncatPool.length, 50, 50, UNCAT_RX, UNCAT_RY, -90);
+    const orbit = orbitPosition(j, uncatPool.length, CORE_X, CORE_Y, UNCAT_RX, UNCAT_RY, -90);
+    const pos = clampToBrainShape(orbit.x, orbit.y, CORE_X, CORE_Y);
     const id = `mem:${m.id}`;
     leaves.push({ id, kind: 'memory', x: pos.x, y: pos.y, color: FALLBACK_COLOR, memory: m, parentId: core.id });
     edges.push({ id: `e:${core.id}-${id}`, from: core.id, to: id, color: 'var(--color-border-strong)' });

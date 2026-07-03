@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBrainGraph, neighborIds, allocateLeaves, MAX_LEAVES } from '../../../modules/memory/brainLayout';
+import { buildBrainGraph, neighborIds, allocateLeaves, isInsideBrain, MAX_LEAVES } from '../../../modules/memory/brainLayout';
 import type { Memory, MemoryCategory } from '../../../lib/types';
 
 const mem = (over: Partial<Memory> = {}): Memory => ({
@@ -49,6 +49,22 @@ describe('buildBrainGraph', () => {
     expect(g.leaves).toHaveLength(0);
     expect(g.edges).toHaveLength(0);
     expect(g.core.total).toBe(0);
+  });
+
+  it('keeps every node inside the brain silhouette so the map reads as a filled brain', () => {
+    const cats = Array.from({ length: 6 }, (_, i) => cat({ id: (i + 1) * 10, name: `C${i}` }));
+    const memories = Array.from({ length: 30 }, (_, i) => mem({ id: i + 1, category_id: cats[i % cats.length].id }));
+    const g = buildBrainGraph(memories, cats);
+    expect(isInsideBrain(g.core.x, g.core.y)).toBe(true);
+    for (const h of g.hubs) expect(isInsideBrain(h.x, h.y)).toBe(true);
+    for (const l of g.leaves) expect(isInsideBrain(l.x, l.y)).toBe(true);
+  });
+
+  it('spreads hubs into distinct lobes even with a single category and memory', () => {
+    const g = buildBrainGraph([mem({ id: 1, category_id: 10 })], [cat({ id: 10 })]);
+    const hub = g.hubs[0];
+    // The lone hub anchors to a lobe well off dead-center, not bunched on the core.
+    expect(Math.hypot(hub.x - g.core.x, hub.y - g.core.y)).toBeGreaterThan(10);
   });
 });
 

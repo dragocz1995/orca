@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Brain, Layers, Hash, Gauge } from 'lucide-react';
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { EmptyState } from '../../components/ui/states';
@@ -9,25 +9,27 @@ import {
   type BrainNode, type CategoryNode, type MemoryNode,
 } from './brainLayout';
 
-/** Curve between two orbit points, bowed slightly perpendicular so edges read as soft synapses rather
+/** Curved Bézier between two points, bowed slightly perpendicular so edges read as soft synapses rather
  *  than a straight web. Coordinates are viewBox percent (preserveAspectRatio="none" maps them to the box). */
 function synapsePath(x1: number, y1: number, x2: number, y2: number): string {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const len = Math.hypot(dx, dy) || 1;
-  const bow = Math.min(4, len * 0.09);
+  const bow = Math.min(6, len * 0.14);
   const mx = (x1 + x2) / 2 + (-dy / len) * bow;
   const my = (y1 + y2) / 2 + (dx / len) * bow;
   return `M ${x1.toFixed(2)} ${y1.toFixed(2)} Q ${mx.toFixed(2)} ${my.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
 
-/** The neural memory brain: a dark panel where the core cortex node radiates category hubs, each holding
- *  its memory leaves. Selecting a node lights its neighbors and dims the rest; a side strip inspects it.
- *  Pure presentation — layout is computed deterministically by `buildBrainGraph`. */
+/** The neural memory brain: a large dark "glass brain" panel where the core cortex radiates category hubs
+ *  spread across the lobes, each holding its memory leaves. Selecting a node lights its neighbors and dims
+ *  the rest; a side strip inspects it. Pure presentation — layout is `buildBrainGraph`, the backdrop is a
+ *  grayscale brain PNG under a synapse SVG (mem0-style). */
 export function MemoryBrainMap({ memories, categories, onSelectMemory }: {
   memories: Memory[]; categories: MemoryCategory[]; onSelectMemory?: (id: number) => void;
 }) {
   const { t } = useTranslation();
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const graph = useMemo(() => buildBrainGraph(memories, categories), [memories, categories]);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -57,46 +59,74 @@ export function MemoryBrainMap({ memories, categories, onSelectMemory }: {
     if (node.kind === 'memory') onSelectMemory?.(node.memory.id);
   };
 
+  const gid = (edgeId: string) => `${uid}-${edgeId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const selectedNode = selected ? nodeById.get(selected) ?? null : null;
 
   return (
     <div className="brain-map @container">
       <BrainStyles />
-      <div className="flex flex-col gap-4 @2xl:flex-row @2xl:items-stretch">
-        {/* Neural canvas */}
+      <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-stretch">
+        {/* Glass-brain canvas. */}
         <div
-          className="brain-canvas relative min-w-0 flex-1 overflow-hidden rounded-xl border border-border"
-          style={{ height: '30rem', boxShadow: 'var(--shadow-card)' }}
+          className="brain-canvas relative aspect-[16/9] min-h-[440px] w-full min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-black sm:min-h-[560px]"
+          style={{ boxShadow: 'var(--shadow-card)' }}
           onClick={() => setSelected(null)}
         >
-          {/* Backdrop: radial vignette + faint dot grid + concentric sonar rings. */}
-          <div aria-hidden className="brain-vignette pointer-events-none absolute inset-0" />
+          {/* Backdrop stack: faint dot grid → grayscale brain PNG (mix-blend-screen) → radial vignette. */}
           <div aria-hidden className="brain-grid pointer-events-none absolute inset-0" />
-          <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            {[420, 300, 180].map((d) => (
-              <span key={d} className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/25" style={{ width: d, height: d }} />
-            ))}
-          </div>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-[1.5%] bg-contain bg-center bg-no-repeat opacity-[0.92] mix-blend-screen grayscale"
+            style={{ backgroundImage: "url('/images/neural-brain-vercel.png')" }}
+          />
+          <div aria-hidden className="brain-vignette pointer-events-none absolute inset-0" />
 
-          {/* Synapse edge layer. */}
+          {/* Synapse edge layer — curved Bézier fibers with per-link gradient strokes + soft glow underlay. */}
           <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-            {graph.edges.map((e) => {
+            <defs>
+              {graph.edges.map((e) => {
+                const a = nodeById.get(e.from);
+                const b = nodeById.get(e.to);
+                if (!a || !b) return null;
+                return (
+                  <linearGradient key={`g-${e.id}`} id={gid(e.id)} gradientUnits="userSpaceOnUse" x1={a.x} y1={a.y} x2={b.x} y2={b.y}>
+                    <stop offset="0%" stopColor={a.color} stopOpacity="0.9" />
+                    <stop offset="50%" stopColor="#ffffff" stopOpacity="0.72" />
+                    <stop offset="100%" stopColor={b.color} stopOpacity="0.9" />
+                  </linearGradient>
+                );
+              })}
+            </defs>
+            {graph.edges.map((e, i) => {
               const a = nodeById.get(e.from);
               const b = nodeById.get(e.to);
               if (!a || !b) return null;
               const lit = isLit(e.from) && isLit(e.to);
               const hub = e.from === graph.core.id && e.to.startsWith('cat:');
+              const d = synapsePath(a.x, a.y, b.x, b.y);
+              const stroke = `url(#${gid(e.id)})`;
               return (
-                <path
-                  key={e.id}
-                  d={synapsePath(a.x, a.y, b.x, b.y)}
-                  fill="none"
-                  stroke={lit ? e.color : 'var(--color-border)'}
-                  strokeWidth={hub ? 0.34 : 0.2}
-                  strokeOpacity={lit ? (selected ? 0.85 : 0.5) : 0.12}
-                  strokeLinecap="round"
-                  className="brain-edge"
-                />
+                <g key={e.id} style={{ opacity: lit ? 1 : 0.12 }}>
+                  {/* Wide, dim glow underlay that pulses subtly. */}
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke={stroke}
+                    strokeWidth={hub ? 1.3 : 0.9}
+                    strokeLinecap="round"
+                    className="brain-edge-glow"
+                    style={{ animationDelay: `-${(i % 7) * 0.5}s` }}
+                  />
+                  {/* Crisp fiber. */}
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke={stroke}
+                    strokeWidth={hub ? 0.34 : 0.2}
+                    strokeOpacity={selected ? (lit ? 0.95 : 0.1) : 0.6}
+                    strokeLinecap="round"
+                  />
+                </g>
               );
             })}
           </svg>
@@ -110,18 +140,18 @@ export function MemoryBrainMap({ memories, categories, onSelectMemory }: {
             <HubNode key={hub.id} node={hub} lit={isLit(hub.id)} active={selected === hub.id} count={t.memory.brainCategoryCount.replace('{n}', String(hub.count))} onSelect={select} />
           ))}
           {/* Core cortex. */}
-          <CoreNodeView label={t.memory.brainCore} lit={isLit(graph.core.id)} active={selected === graph.core.id} onSelect={() => select(graph.core)} />
+          <CoreNodeView label={t.memory.brainCore} x={graph.core.x} y={graph.core.y} lit={isLit(graph.core.id)} active={selected === graph.core.id} onSelect={() => select(graph.core)} />
 
           {/* Hidden-leaf affordance. */}
           {graph.truncated > 0 ? (
-            <span className="absolute bottom-3 right-3 rounded-md border border-border bg-elevated/80 px-2 py-1 font-mono text-[10px] text-text-muted backdrop-blur-sm">
+            <span className="absolute bottom-3 right-3 rounded-md border border-white/15 bg-black/50 px-2 py-1 font-mono text-[10px] text-white/70 backdrop-blur-sm">
               {t.memory.brainMoreNodes.replace('{n}', String(graph.truncated))}
             </span>
           ) : null}
         </div>
 
         {/* Detail strip. */}
-        <aside className="w-full shrink-0 @2xl:w-72">
+        <aside className="w-full shrink-0 @3xl:w-72">
           <DetailStrip node={selectedNode} onSelectMemory={onSelectMemory} />
         </aside>
       </div>
@@ -130,28 +160,28 @@ export function MemoryBrainMap({ memories, categories, onSelectMemory }: {
 }
 
 /** The pulsing central cortex node. */
-function CoreNodeView({ label, lit, active, onSelect }: { label: string; lit: boolean; active: boolean; onSelect: () => void }) {
+function CoreNodeView({ label, x, y, lit, active, onSelect }: { label: string; x: number; y: number; lit: boolean; active: boolean; onSelect: () => void }) {
   return (
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
       title={label}
-      className="group absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 transition-opacity"
-      style={{ opacity: lit ? 1 : 0.25 }}
+      className="group absolute z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 transition-opacity"
+      style={{ left: `${x}%`, top: `${y}%`, opacity: lit ? 1 : 0.22 }}
     >
-      <span className="relative flex h-14 w-14 items-center justify-center rounded-full border border-accent/50 bg-elevated">
+      <span className="relative flex h-16 w-16 items-center justify-center rounded-full border border-accent/50 bg-black/40 backdrop-blur-[1px]">
         <span aria-hidden className="brain-core-pulse absolute inset-0 rounded-full" />
-        <span aria-hidden className="absolute -inset-2 rounded-full" style={{ boxShadow: `0 0 26px 6px color-mix(in srgb, var(--color-accent) ${active ? 55 : 32}%, transparent)` }} />
-        <Brain size={22} className="relative text-accent" aria-hidden />
+        <span aria-hidden className="absolute -inset-2 rounded-full" style={{ boxShadow: `0 0 34px 8px color-mix(in srgb, var(--color-accent) ${active ? 60 : 38}%, transparent)` }} />
+        <Brain size={26} className="relative text-accent" aria-hidden />
       </span>
-      <span className={`rounded-md bg-elevated/70 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-text backdrop-blur-sm transition-opacity ${active ? 'opacity-100' : 'opacity-80'}`}>
+      <span className={`rounded-md bg-black/55 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-white backdrop-blur-sm transition-opacity ${active ? 'opacity-100' : 'opacity-85'}`}>
         {label}
       </span>
     </button>
   );
 }
 
-/** A category hub — a colored disc sized by memory count, with a soft glow halo and an always-on label. */
+/** A category hub — a colored disc sized by memory count, with a blurred glow halo and a hover/active label. */
 function HubNode({ node, lit, active, count, onSelect }: { node: CategoryNode; lit: boolean; active: boolean; count: string; onSelect: (n: BrainNode) => void }) {
   return (
     <button
@@ -159,20 +189,21 @@ function HubNode({ node, lit, active, count, onSelect }: { node: CategoryNode; l
       onClick={(e) => { e.stopPropagation(); onSelect(node); }}
       title={`${node.label} · ${count}`}
       className="group absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 transition-opacity"
-      style={{ left: `${node.x}%`, top: `${node.y}%`, opacity: lit ? 1 : 0.2 }}
+      style={{ left: `${node.x}%`, top: `${node.y}%`, opacity: lit ? 1 : 0.18 }}
     >
+      <span aria-hidden className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-md transition-opacity" style={{ width: node.size * 1.9, height: node.size * 1.9, backgroundColor: node.color, opacity: active ? 0.4 : 0.24 }} />
       <span
-        className="relative flex items-center justify-center rounded-full border bg-elevated transition-transform group-hover:scale-105"
+        className="relative flex items-center justify-center rounded-full border bg-black/35 backdrop-blur-[1px] transition-transform group-hover:scale-105"
         style={{
           width: node.size, height: node.size,
-          borderColor: `color-mix(in srgb, ${node.color} 55%, transparent)`,
-          boxShadow: `0 0 ${active ? 22 : 14}px ${active ? 4 : 2}px color-mix(in srgb, ${node.color} ${active ? 55 : 34}%, transparent)`,
+          borderColor: `color-mix(in srgb, ${node.color} 60%, transparent)`,
+          boxShadow: `0 0 ${active ? 24 : 15}px ${active ? 5 : 3}px color-mix(in srgb, ${node.color} ${active ? 55 : 34}%, transparent)`,
         }}
       >
-        <span aria-hidden className="rounded-full" style={{ width: '38%', height: '38%', backgroundColor: node.color, opacity: 0.9 }} />
+        <span aria-hidden className="rounded-full" style={{ width: '38%', height: '38%', backgroundColor: node.color, opacity: 0.92 }} />
       </span>
       <span
-        className={`max-w-[7rem] truncate rounded-md bg-elevated/70 px-1.5 py-0.5 text-[10px] font-medium text-text backdrop-blur-sm transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        className={`max-w-[7rem] truncate rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
       >
         {node.label}
       </span>
@@ -187,19 +218,20 @@ function LeafNode({ node, lit, active, onSelect }: { node: MemoryNode; lit: bool
       type="button"
       onClick={(e) => { e.stopPropagation(); onSelect(node); }}
       title={node.memory.body}
-      className="group absolute z-10 flex h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-opacity"
-      style={{ left: `${node.x}%`, top: `${node.y}%`, opacity: lit ? 1 : 0.15 }}
+      className="group absolute z-10 flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-opacity"
+      style={{ left: `${node.x}%`, top: `${node.y}%`, opacity: lit ? 1 : 0.14 }}
     >
+      <span aria-hidden className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full blur-md transition-opacity" style={{ backgroundColor: node.color, opacity: active ? 0.55 : 0.3 }} />
       <span
-        className="h-2 w-2 rounded-full border transition-transform group-hover:scale-125"
+        className="relative h-2 w-2 rounded-full border transition-transform group-hover:scale-125"
         style={{
-          backgroundColor: `color-mix(in srgb, ${node.color} 75%, transparent)`,
+          backgroundColor: `color-mix(in srgb, ${node.color} 80%, transparent)`,
           borderColor: node.color,
-          boxShadow: `0 0 ${active ? 12 : 6}px ${active ? 3 : 1}px color-mix(in srgb, ${node.color} ${active ? 70 : 40}%, transparent)`,
+          boxShadow: `0 0 ${active ? 12 : 6}px ${active ? 3 : 1}px color-mix(in srgb, ${node.color} ${active ? 70 : 45}%, transparent)`,
         }}
       />
       <span
-        className={`pointer-events-none absolute top-4 left-1/2 max-w-[9rem] -translate-x-1/2 truncate rounded-md border border-border bg-elevated px-1.5 py-0.5 text-[10px] text-text shadow-[var(--shadow-raised)] transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        className={`pointer-events-none absolute top-5 left-1/2 max-w-[10rem] -translate-x-1/2 truncate rounded-md border border-white/12 bg-black/78 px-1.5 py-0.5 text-[10px] text-white/85 shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-sm transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
       >
         {node.memory.body}
       </span>
@@ -284,25 +316,30 @@ function DetailCard({ accent, label, icon: Icon, children }: { accent: string; l
   );
 }
 
-/** Scoped keyframes/backdrop for the brain — kept local so no shared CSS file is touched. Honors
- *  reduced-motion by freezing the core pulse. */
+/** Scoped keyframes/backdrop for the brain — kept local so no shared CSS file is touched. The panel is
+ *  intentionally dark (the glass brain is a dark-mode visual, mem0-style) in both themes. Honors
+ *  reduced-motion by freezing the pulses. */
 function BrainStyles() {
   return (
     <style>{`
-      .brain-canvas { background: radial-gradient(120% 120% at 50% 40%, #0c1424 0%, #060a12 55%, #04060b 100%); }
-      .brain-vignette { background: radial-gradient(70% 70% at 50% 45%, transparent 55%, rgba(0,0,0,0.55) 100%); }
+      .brain-vignette { background: radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.05) 58%, rgba(0,0,0,0.72) 96%); }
       .brain-grid {
-        background-image: radial-gradient(color-mix(in srgb, var(--color-border-strong) 45%, transparent) 0.5px, transparent 0.5px);
-        background-size: 22px 22px;
-        opacity: 0.35;
-        mask-image: radial-gradient(75% 75% at 50% 45%, #000 40%, transparent 100%);
+        background-image:
+          linear-gradient(to right, rgba(255,255,255,0.014) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255,255,255,0.012) 1px, transparent 1px);
+        background-size: 32px 32px;
       }
-      @keyframes brain-core { 0%, 100% { transform: scale(1); opacity: 0.55; } 50% { transform: scale(1.14); opacity: 0.15; } }
+      @keyframes brain-core { 0%, 100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.16); opacity: 0.12; } }
       .brain-core-pulse {
-        background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 40%, transparent) 0%, transparent 70%);
+        background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 45%, transparent) 0%, transparent 70%);
         animation: brain-core 3.4s ease-in-out infinite;
       }
-      @media (prefers-reduced-motion: reduce) { .brain-core-pulse { animation: none; } }
+      @keyframes brain-fiber { 0%, 100% { opacity: 0.06; } 50% { opacity: 0.16; } }
+      .brain-edge-glow { opacity: 0.1; animation: brain-fiber 4.2s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        .brain-core-pulse { animation: none; }
+        .brain-edge-glow { animation: none; }
+      }
     `}</style>
   );
 }
