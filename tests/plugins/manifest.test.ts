@@ -23,11 +23,43 @@ describe('parseManifest', () => {
         { key: 'k6', label: 'R', type: 'rolePolicies' },
         { key: 'model', label: 'Model', type: 'model' },
         { key: 'prov', label: 'Provider', type: 'provider', providerType: 'openai' },
+        { key: 'sec', label: 'Section', type: 'section' },
+        { key: 'en', label: 'Enum', type: 'enum' },
+        { key: 'ms', label: 'Multi', type: 'multiSelect' },
+        { key: 'code', label: 'Code', type: 'code' },
+        { key: 'prompt', label: 'Prompt', type: 'prompt' },
+        { key: 'json', label: 'Json', type: 'json' },
+        { key: 'emb', label: 'Embedding', type: 'embeddingModel' },
       ],
     });
-    expect(m.configSchema?.map((f) => f.type)).toContain('model');
-    expect(m.configSchema?.map((f) => f.type)).toContain('provider');
+    const types = m.configSchema?.map((f) => f.type);
+    for (const t of ['model', 'provider', 'section', 'enum', 'multiSelect', 'code', 'prompt', 'json', 'embeddingModel']) {
+      expect(types).toContain(t);
+    }
     expect(m.configSchema?.find((f) => f.type === 'provider')?.providerType).toBe('openai');
+  });
+  it('accepts options/help/risk/visibleWhen/language props', () => {
+    const m = parseManifest({
+      ...good,
+      configSchema: [
+        {
+          key: 'mode', label: 'Mode', type: 'enum',
+          options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }],
+          help: 'Pick a mode.', risk: 'high',
+        },
+        {
+          key: 'body', label: 'Body', type: 'code', language: 'python',
+          visibleWhen: { key: 'mode', equals: 'a' },
+        },
+      ],
+    });
+    const en = m.configSchema?.find((f) => f.key === 'mode');
+    expect(en?.options).toEqual([{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]);
+    expect(en?.help).toBe('Pick a mode.');
+    expect(en?.risk).toBe('high');
+    const code = m.configSchema?.find((f) => f.key === 'body');
+    expect(code?.language).toBe('python');
+    expect(code?.visibleWhen).toEqual({ key: 'mode', equals: 'a' });
   });
   it('rejects an unknown config field type', () => {
     expect(() => parseManifest({ ...good, configSchema: [{ key: 'k', label: 'L', type: 'wat' }] })).toThrow();

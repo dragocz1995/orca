@@ -9,15 +9,43 @@ export const PLUGIN_API_VERSION = '1';
  *  role → projects + prompt mapping editor (the Discord pattern borrowed from Hermes); `model` renders
  *  the grouped provider→model picker sourced from the user's configured model catalog; `provider`
  *  renders a picker of configured brain providers (its value is the provider id) so the plugin reuses
- *  that provider's central key — `providerType` narrows it to one type (e.g. `openai` for audio). */
+ *  that provider's central key — `providerType` narrows it to one type (e.g. `openai` for audio).
+ *
+ *  Additional field types:
+ *  - `section` — a labeled group header carrying no value; groups the fields that follow under `label`.
+ *  - `enum` — a single choice from `options`.
+ *  - `multiSelect` — multiple choices from `options`.
+ *  - `code` — a code editor body; `language` hints the syntax mode (e.g. `js`, `python`).
+ *  - `prompt` — a prompt/markdown editor body.
+ *  - `json` — a JSON blob, validated as text by the form.
+ *  - `embeddingModel` — an embedding-model picker (parallels `model`).
+ *
+ *  Optional presentation props:
+ *  - `options` — the choices for `enum`/`multiSelect`.
+ *  - `language` — syntax mode for `code`.
+ *  - `help` — richer help text than the one-line `hint`.
+ *  - `risk` — a per-field risk label (`low`/`medium`/`high`) surfaced in the UI.
+ *  - `visibleWhen` — conditional visibility: show only when field `key` equals `equals`. */
 interface PluginConfigField {
   key: string;
   label: string;
-  type: 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies' | 'model' | 'provider';
+  type:
+    | 'string' | 'secret' | 'boolean' | 'number' | 'textarea' | 'rolePolicies' | 'model' | 'provider'
+    | 'section' | 'enum' | 'multiSelect' | 'code' | 'prompt' | 'json' | 'embeddingModel';
   hint?: string;
   required?: boolean;
   /** For `provider` fields: restrict the picker to providers of this type (e.g. `openai`). */
   providerType?: string;
+  /** Choices for `enum`/`multiSelect` fields. */
+  options?: { value: string; label: string }[];
+  /** Syntax mode for `code` fields (e.g. `js`, `python`). */
+  language?: string;
+  /** Richer help text than the one-line `hint`. */
+  help?: string;
+  /** Per-field risk label surfaced in the UI. */
+  risk?: 'low' | 'medium' | 'high';
+  /** Conditional visibility: render this field only when field `key` currently equals `equals`. */
+  visibleWhen?: { key: string; equals: string | number | boolean };
 }
 
 /** The parsed, validated shape of an `orca-plugin.json`. `provides` is declarative (display/validation
@@ -58,10 +86,26 @@ const ManifestSchema = Type.Object({
       Type.Literal('string'), Type.Literal('secret'), Type.Literal('boolean'),
       Type.Literal('number'), Type.Literal('textarea'), Type.Literal('rolePolicies'),
       Type.Literal('model'), Type.Literal('provider'),
+      Type.Literal('section'), Type.Literal('enum'), Type.Literal('multiSelect'),
+      Type.Literal('code'), Type.Literal('prompt'), Type.Literal('json'),
+      Type.Literal('embeddingModel'),
     ]),
     hint: Type.Optional(Type.String()),
     required: Type.Optional(Type.Boolean()),
     providerType: Type.Optional(Type.String()),
+    options: Type.Optional(Type.Array(Type.Object({
+      value: Type.String(),
+      label: Type.String(),
+    }))),
+    language: Type.Optional(Type.String()),
+    help: Type.Optional(Type.String()),
+    risk: Type.Optional(Type.Union([
+      Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'),
+    ])),
+    visibleWhen: Type.Optional(Type.Object({
+      key: Type.String(),
+      equals: Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
+    })),
   }))),
 });
 
