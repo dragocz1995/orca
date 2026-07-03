@@ -112,7 +112,7 @@ export function MemoryView() {
                 value={kind}
                 onChange={(e) => setKind(e.target.value)}
                 aria-label={t.memory.filterKind}
-                className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
+                className="h-9 min-w-0 max-w-[14rem] rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
               >
                 <option value="all">{t.memory.allKinds}</option>
                 {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -123,7 +123,7 @@ export function MemoryView() {
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 aria-label={t.memory.categoryFilter}
-                className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
+                className="h-9 min-w-0 max-w-[14rem] rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
               >
                 <option value="all">{t.memory.categoryAll}</option>
                 <option value="none">{t.memory.categoryUncategorized}</option>

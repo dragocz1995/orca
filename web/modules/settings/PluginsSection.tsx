@@ -98,14 +98,18 @@ function PluginCard({ p, onDetail, onFlip, busy }: { p: PluginInfo; onDetail: ()
             </span>
           </div>
         </div>
-        {showHealth ? (
-          <Badge tone={health === 'error' ? 'danger' : 'success'}>{health === 'error' ? t.plugins.healthError : t.plugins.healthOk}</Badge>
-        ) : null}
-        {/* Isolate the toggle so flipping enable never bubbles up into the card's open-detail click. */}
-        <span onClick={(e) => e.stopPropagation()} className="shrink-0">
-          <Toggle checked={p.enabled} onChange={onFlip} label={`${p.name}: ${p.enabled ? t.plugins.disable : t.plugins.enable}`} disabled={busy} />
-        </span>
-        <IconButton icon={ChevronRight} label={`${p.name}: ${t.common.goTo}`} onClick={onDetail} />
+        {/* Trailing controls stay one shrink-0 cluster so the name block (flex-1 min-w-0) absorbs any
+            squeeze first — the badge, toggle and chevron never clip or spill past the card edge. */}
+        <div className="flex shrink-0 items-center gap-2">
+          {showHealth ? (
+            <Badge tone={health === 'error' ? 'danger' : 'success'}>{health === 'error' ? t.plugins.healthError : t.plugins.healthOk}</Badge>
+          ) : null}
+          {/* Isolate the toggle so flipping enable never bubbles up into the card's open-detail click. */}
+          <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+            <Toggle checked={p.enabled} onChange={onFlip} label={`${p.name}: ${p.enabled ? t.plugins.disable : t.plugins.enable}`} disabled={busy} />
+          </span>
+          <IconButton icon={ChevronRight} label={`${p.name}: ${t.common.goTo}`} onClick={onDetail} />
+        </div>
       </div>
       <ProvidesBadges p={p} />
       <p className="line-clamp-1 text-xs text-text-muted" title={description}>{description}</p>
@@ -172,7 +176,7 @@ export function PluginsSection() {
         <EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} />
       ) : (
         <div className="@container">
-          <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2 @5xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
             {filtered.map((p) => (
               <PluginCard key={p.name} p={p} busy={toggle.isPending} onFlip={(enabled) => flip(p, enabled)} onDetail={() => setDetail(p.name)} />
             ))}

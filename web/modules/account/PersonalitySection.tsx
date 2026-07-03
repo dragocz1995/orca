@@ -66,7 +66,7 @@ export function PersonalitySection() {
     <div className="flex flex-col gap-4">
       <p className="text-xs text-text-muted">{t.personality.intro}</p>
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1.5">
           <span className="text-tiny font-semibold uppercase tracking-wide text-text-muted">{t.personality.platformLabel}</span>
           <Segmented options={platformOptions} value={platform} onChange={(v) => setPlatform(v as Platform)} aria-label={t.personality.platformLabel} />

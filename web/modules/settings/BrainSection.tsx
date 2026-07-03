@@ -264,20 +264,20 @@ export function BrainSection() {
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-text">{t.brain.accounts}</span>
         <div className="@container">
-        <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-3">
           {OAUTH_TYPES.map(({ type, icon }) => {
             const connected = oauth.data?.[type] ?? false;
             return (
-              <div key={type} className={`flex items-center gap-3 rounded-lg border p-3 ${connected ? 'border-accent/40 bg-accent/5' : 'border-border bg-surface'}`}>
+              <div key={type} className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3 ${connected ? 'border-accent/40 bg-accent/5' : 'border-border bg-surface'}`}>
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
                   <ModelIcon name={icon} size={22} />
                 </span>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm font-medium text-text">{t.brain.types[type]}</span>
+                <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                  <span className="w-full truncate text-sm font-medium text-text">{t.brain.types[type]}</span>
                   {connected ? <Badge tone="accent">{t.brain.connected}</Badge> : <span className="text-tiny text-text-muted">{t.brain.notConnected}</span>}
                 </div>
                 {connected ? (
-                  <span className="flex shrink-0 gap-1">
+                  <span className="flex shrink-0 flex-wrap justify-end gap-1">
                     <Button variant="ghost" icon={ListChecks} aria-label={`${t.brain.pickModels}: ${t.brain.types[type]}`} onClick={() => setModelsFor(type)}>{t.brain.pickModels}</Button>
                     <Button variant="ghost" icon={Unlink} aria-label={`${t.brain.disconnect}: ${t.brain.types[type]}`} onClick={() => disconnect.mutate(type, { onSuccess: () => toast(t.brain.disconnected) })} />
                   </span>
@@ -293,7 +293,7 @@ export function BrainSection() {
 
       {/* Provider entries the picker exposes. */}
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm font-medium text-text">{t.brain.providers}</span>
           <Button variant="accent" icon={Plus} onClick={() => setModal(emptyDraft())}>{t.brain.addProvider}</Button>
         </div>
@@ -301,15 +301,15 @@ export function BrainSection() {
           <p className="text-xs italic text-text-muted">{t.brain.noProviders}</p>
         ) : (
           <div className="@container">
-          <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
             {apiProviders.map((p) => (
               <div key={p.id} className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <BrainCircuit size={16} className="shrink-0 text-accent" aria-hidden />
-                  <span className="truncate text-sm font-semibold text-text">{p.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{p.label}</span>
                   <Badge>{t.brain.types[p.type]}</Badge>
                   {p.apiKeySet ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
-                  <span className="ml-auto flex gap-1">
+                  <span className="ml-auto flex shrink-0 gap-1">
                     <Button variant="ghost" icon={Pencil} aria-label={`${t.brain.editProvider}: ${p.label}`} onClick={() => setModal({ id: p.id, label: p.label, type: p.type, baseUrl: p.baseUrl, models: p.models.join('\n'), apiKey: '' })} />
                     <Button variant="ghost" icon={Trash2} aria-label={`${t.brain.removeProvider}: ${p.label}`} onClick={() => remove(p.id)} />
                   </span>

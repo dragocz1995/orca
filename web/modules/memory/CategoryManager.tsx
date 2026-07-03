@@ -43,14 +43,14 @@ export function CategoryManager({ memories }: { memories: Memory[] }) {
           {rows.map((c) => (
             <li
               key={c.id}
-              className="group inline-flex items-center gap-2 rounded-full border border-border bg-elevated py-1 pl-2.5 pr-1.5"
+              className="group inline-flex min-w-0 max-w-full items-center gap-2 rounded-full border border-border bg-elevated py-1 pl-2.5 pr-1.5"
             >
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: categorySwatch(c.color) }} aria-hidden />
-              <span className="text-sm text-text">{c.name}</span>
-              <span className="font-mono text-[11px] text-text-muted" title={c.description || undefined}>
+              <span className="min-w-0 truncate text-sm text-text">{c.name}</span>
+              <span className="shrink-0 font-mono text-[11px] text-text-muted" title={c.description || undefined}>
                 {t.memory.memoryCount.replace('{n}', String(counts.byId.get(c.id) ?? 0))}
               </span>
-              <span className="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
+              <span className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
                 <IconButton icon={Pencil} label={t.memory.categoryEdit} onClick={() => setEditing(c)} />
                 {!c.is_builtin ? <DeleteCategory category={c} /> : null}
               </span>
