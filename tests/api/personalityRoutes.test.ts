@@ -70,6 +70,28 @@ describe('personality routes', () => {
     expect(updated).toMatchObject({ name: 'B', prompt: 'x', enabled: false });
   });
 
+  it('PATCH cannot change a profile\'s platform (field is stripped)', async () => {
+    const { app, amyTok } = setup();
+    const row = await (await app.request('/personality/profiles', post(amyTok, { platform: 'discord', name: 'A', prompt: 'x' }))).json();
+    const res = await app.request(`/personality/profiles/${row.id}`, patch(amyTok, { platform: 'web', name: 'B' }));
+    expect(res.status).toBe(200);
+    const updated = await res.json();
+    expect(updated).toMatchObject({ name: 'B', platform: 'discord' });
+  });
+
+  it('list response marks the active profile per platform', async () => {
+    const { app, amyTok } = setup();
+    const a = await (await app.request('/personality/profiles', post(amyTok, { platform: 'discord', name: 'A', prompt: 'x' }))).json();
+    await app.request('/personality/profiles', post(amyTok, { platform: 'discord', name: 'B', prompt: 'y' }));
+    // Before activation nothing is active.
+    let list = await (await app.request('/personality/profiles', auth(amyTok))).json();
+    expect(list.every((r: { active: boolean }) => r.active === false)).toBe(true);
+    // Activate A → the list marks exactly A.
+    await app.request(`/personality/profiles/${a.id}/activate`, post(amyTok, {}));
+    list = await (await app.request('/personality/profiles', auth(amyTok))).json();
+    expect(Object.fromEntries(list.map((r: { name: string; active: boolean }) => [r.name, r.active]))).toEqual({ A: true, B: false });
+  });
+
   it('DELETE removes the profile and clears the active pointer', async () => {
     const { app, personalityStore, amyTok, users } = setup();
     const amyId = users.verify('amy', 'pw')!.id;

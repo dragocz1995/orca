@@ -62,6 +62,31 @@ describe('PersonalityStore', () => {
     expect(s.getActive(1, 'discord')).toBeUndefined();
   });
 
+  it('getActive ignores a stale active pointer whose platform no longer matches the profile', () => {
+    // Defensive join guard: even if an active row and its target profile drift apart on platform,
+    // getActive must never resolve a cross-platform profile.
+    const p = s.create(1, { platform: 'web', name: 'a', prompt: 'p' });
+    s['db'].prepare('INSERT INTO personality_active_profiles (user_id, platform, profile_id) VALUES (?, ?, ?)')
+      .run(1, 'discord', p.id); // stale pointer: 'discord' slot pointing at a 'web' profile
+    expect(s.getActive(1, 'discord')).toBeUndefined();
+  });
+
+  it('list marks the active profile per platform, derived from getActive (respects enabled)', () => {
+    const alpha = s.create(1, { platform: 'web', name: 'alpha', prompt: 'p' });
+    const zeta = s.create(1, { platform: 'web', name: 'zeta', prompt: 'p' });
+    const beta = s.create(1, { platform: 'discord', name: 'beta', prompt: 'p' });
+    void alpha;
+    // Nothing pinned yet → no row is active.
+    expect(s.list(1).every((r) => r.active === false)).toBe(true);
+    s.setActive(1, 'web', zeta.id);
+    s.setActive(1, 'discord', beta.id);
+    const marked = Object.fromEntries(s.list(1).map((r) => [`${r.platform}/${r.name}`, r.active]));
+    expect(marked).toEqual({ 'discord/beta': true, 'web/alpha': false, 'web/zeta': true });
+    // A pinned-but-disabled profile is not marked active (getActive hides it).
+    s.update(1, zeta.id, { enabled: false });
+    expect(s.list(1, 'web').find((r) => r.name === 'zeta')!.active).toBe(false);
+  });
+
   it('setActive throws for a foreign or platform-mismatched profile', () => {
     const p = s.create(1, { platform: 'web', name: 'a', prompt: 'p' });
     expect(() => s.setActive(1, 'discord', p.id)).toThrow();

@@ -13,9 +13,10 @@ export const personalityCreateSchema = z.object({
 });
 
 /** Partial update — every field optional, only the provided ones are written (mirrors the store patch).
- *  The trim/min guards still reject an explicitly-blank name/prompt so an update can't empty them. */
+ *  The trim/min guards still reject an explicitly-blank name/prompt so an update can't empty them.
+ *  `platform` is deliberately omitted: a profile's platform is immutable (it keys the active pointer), so
+ *  any incoming platform field is stripped rather than applied. */
 export const personalityPatchSchema = z.object({
-  platform: z.string().trim().min(1, 'platform required').max(40, 'platform too long').optional(),
   name: z.string().trim().min(1, 'name required').max(120, 'name too long').optional(),
   prompt: z.string().trim().min(1, 'prompt cannot be empty').max(100_000, 'prompt too long').optional(),
   description: z.string().max(2000, 'description too long').optional(),

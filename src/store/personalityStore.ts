@@ -43,15 +43,24 @@ export interface PersonalityProfileInput {
   enabled?: boolean;
 }
 
-/** Partial patch for update — only the provided fields are written. */
+/** Partial patch for update — only the provided fields are written. `platform` is intentionally NOT
+ *  patchable: a profile is scoped per (user, platform) and the active pointer is keyed on platform, so
+ *  moving a profile between platforms would silently orphan or mismatch its active pin. Recreate on the
+ *  target platform instead. */
 export interface PersonalityProfilePatch {
-  platform?: string;
   name?: string;
   description?: string;
   tone?: string;
   style?: string;
   prompt?: string;
   enabled?: boolean;
+}
+
+/** A list row plus the authoritative `active` flag — true when this profile is the one getActive() would
+ *  resolve for its platform (i.e. pinned AND enabled). The list API exposes this so clients don't have to
+ *  infer the active profile from preview text. */
+export interface PersonalityProfileListItem extends PersonalityProfile {
+  active: boolean;
 }
 
 function toProfile(row: PersonalityProfileRow): PersonalityProfile {
@@ -64,14 +73,23 @@ function toProfile(row: PersonalityProfileRow): PersonalityProfile {
 export class PersonalityStore {
   constructor(private db: Db) {}
 
-  /** All of a user's profiles, ordered by platform then name. Optionally filtered to one platform. */
-  list(userId: number, platform?: string): PersonalityProfile[] {
+  /** All of a user's profiles, ordered by platform then name. Optionally filtered to one platform. Each
+   *  row carries an authoritative `active` flag derived from getActive() (single source of truth for the
+   *  active-profile semantics — pinned pointer + platform match + enabled). */
+  list(userId: number, platform?: string): PersonalityProfileListItem[] {
     const rows = platform !== undefined
       ? this.db.prepare('SELECT * FROM personality_profiles WHERE user_id = ? AND platform = ? ORDER BY platform, name')
           .all(userId, platform) as PersonalityProfileRow[]
       : this.db.prepare('SELECT * FROM personality_profiles WHERE user_id = ? ORDER BY platform, name')
           .all(userId) as PersonalityProfileRow[];
-    return rows.map(toProfile);
+    const profiles = rows.map(toProfile);
+    // Resolve the active profile id once per distinct platform, then mark matching rows.
+    const activeIds = new Set<number>();
+    for (const pf of new Set(profiles.map((p) => p.platform))) {
+      const active = this.getActive(userId, pf);
+      if (active) activeIds.add(active.id);
+    }
+    return profiles.map((p) => ({ ...p, active: activeIds.has(p.id) }));
   }
 
   /** A single profile by id, scoped to the owner. */
@@ -104,7 +122,6 @@ export class PersonalityStore {
   update(userId: number, id: number, patch: PersonalityProfilePatch): PersonalityProfile | undefined {
     const sets: string[] = [];
     const params: Record<string, string | number> = { user_id: userId, id };
-    if (patch.platform !== undefined) { sets.push('platform = @platform'); params.platform = patch.platform; }
     if (patch.name !== undefined) { sets.push('name = @name'); params.name = patch.name; }
     if (patch.description !== undefined) { sets.push('description = @description'); params.description = patch.description; }
     if (patch.tone !== undefined) { sets.push('tone = @tone'); params.tone = patch.tone; }
@@ -146,7 +163,7 @@ export class PersonalityStore {
   getActive(userId: number, platform: string): PersonalityProfile | undefined {
     const row = this.db.prepare(
       `SELECT p.* FROM personality_active_profiles a
-         JOIN personality_profiles p ON p.id = a.profile_id AND p.user_id = a.user_id
+         JOIN personality_profiles p ON p.id = a.profile_id AND p.user_id = a.user_id AND p.platform = a.platform
         WHERE a.user_id = ? AND a.platform = ? AND p.enabled = 1`
     ).get(userId, platform) as PersonalityProfileRow | undefined;
     return row ? toProfile(row) : undefined;
