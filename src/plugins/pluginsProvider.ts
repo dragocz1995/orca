@@ -10,7 +10,14 @@ export class PluginRegistryProvider {
   constructor(private load: () => Promise<PluginRegistry>) {}
 
   get(): Promise<PluginRegistry> {
-    this.memo ??= this.load();
+    if (!this.memo) {
+      const p = this.load();
+      // Memoize the PROMISE (so concurrent first callers share one load), but shed it on rejection —
+      // otherwise a transient load failure (FS blip, a manifest mid-edit) would be cached forever and
+      // every consumer would stay broken until the next toggle or a daemon restart.
+      p.catch(() => { if (this.memo === p) this.memo = undefined; });
+      this.memo = p;
+    }
     return this.memo;
   }
 

@@ -10,6 +10,7 @@ import { buildBrainRegistry, resolveBrainModel } from '../providers.js';
 import { projectUserTurn } from '../persistence.js';
 import { taskSessionId } from '../sessionId.js';
 import { BrainSessionFactory } from '../session/factory.js';
+import { composeSessionTools } from '../session/capabilities.js';
 import { runWithPolicy } from '../../plugins/policyContext.js';
 import type { PluginRegistryProvider } from '../../plugins/pluginsProvider.js';
 import { callOrcaApi } from '../../shared/apiClient.js';
@@ -132,7 +133,10 @@ export class BrainWorkerService {
 
     const cwd = input.projectPath;
     const plugins = await this.d.plugins?.get();
-    const pluginTools = plugins?.tools ?? [];
+    // Run plugin tools through the shared composer so the "a task worker never gets the owner's orca_*
+    // control-plane tools" invariant is actually enforced here (not just true by construction) — the
+    // worker's own close tool is added separately below.
+    const pluginTools = composeSessionTools({ kind: 'task-worker', pluginTools: plugins?.tools ?? [] });
     const skills = plugins?.skills ?? [];
     const append = [skills.length ? formatSkillsForPrompt(skills) : '', ...(plugins?.promptFragments ?? [])].filter((s) => s.length > 0);
 

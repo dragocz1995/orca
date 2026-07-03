@@ -12,6 +12,16 @@ describe('PluginRegistryProvider (the daemon-wide shared registry)', () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it('sheds a rejected load so the next get() retries (no sticky failure)', async () => {
+    let attempt = 0;
+    const good = new PluginRegistry();
+    const load = vi.fn(async () => { if (attempt++ === 0) throw new Error('transient FS blip'); return good; });
+    const p = new PluginRegistryProvider(load);
+    await expect(p.get()).rejects.toThrow('transient FS blip');
+    expect(await p.get()).toBe(good); // memo was shed on reject → retry succeeds
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidate() makes the next get() reload — the stale-worker-registry fix', async () => {
     // Regression: BrainWorkerService used to keep its OWN memo that reloadPlugins() never touched,
     // so orca-exec workers ran on a stale registry until a daemon restart. With the shared provider,

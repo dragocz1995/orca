@@ -35,9 +35,9 @@ export interface BrainUsage {
 export function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   if (e.type === 'agent_end') return { type: 'idle' };
   const anyE = e as {
-    type: string; toolName?: string; args?: unknown; result?: { details?: { diff?: unknown } }; delta?: string;
+    type: string; toolName?: string; args?: unknown; result?: { details?: { diff?: unknown } };
     assistantMessageEvent?: { type?: string; delta?: string };
-    attempt?: number; maxAttempts?: number; errorMessage?: string; success?: boolean; reason?: string;
+    attempt?: number; maxAttempts?: number; errorMessage?: string; success?: boolean;
   };
   if (anyE.type === 'message_update') {
     const ev = anyE.assistantMessageEvent;

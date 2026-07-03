@@ -241,6 +241,7 @@ export function BrainChat() {
   const connect = async () => {
     esRef.current?.close();
     setReady(false);
+    setNotice(''); // a fresh connection (mount / session switch) starts without a stale runtime line
     await orcaClient.brainStart({});
     await loadHistory();
     const st = await orcaClient.brainStatus().catch(() => null);
@@ -257,16 +258,21 @@ export function BrainChat() {
       setNotice(done ? '' : message);
     });
     es.addEventListener('error', (e) => {
-      // EventSource fires generic 'error' events on connection drops with no payload — only handle
-      // the brain's own error frames (they carry a JSON body with a message).
+      // EventSource fires generic 'error' events on connection drops with no payload — those are the
+      // browser's own auto-reconnect, leave them be. Only the brain's error frames carry a JSON body.
       const data = (e as MessageEvent).data;
       if (typeof data !== 'string') return;
-      try {
-        const { message } = JSON.parse(data) as { message: string };
-        setTurns((cur) => appendText(cur, `\n\n⚠️ ${message}`));
-      } catch { return; }
-      setNotice('');
+      let message: string;
+      try { message = (JSON.parse(data) as { message: string }).message; } catch { return; }
+      // The server closes the stream after an error frame (e.g. "brain not started" post-restart);
+      // close our side too so EventSource stops re-firing the same frame every few seconds (which
+      // would spam the transcript), surface it once as a notice, and retry the full connect (which
+      // re-runs brainStart and revives the session) shortly. If the brain is still down, brainStart
+      // throws and the retry stops — no tight loop.
+      esRef.current?.close();
       setBusy(false);
+      setNotice(message);
+      setTimeout(() => void connect().then(() => setNotice('')).catch(() => setReady(true)), 2000);
     });
     es.addEventListener('reasoning', (e) => {
       const { delta } = JSON.parse((e as MessageEvent).data) as { delta: string };

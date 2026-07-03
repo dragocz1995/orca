@@ -28,8 +28,6 @@ import { toBrainEvent, usageOf } from './events.js';
 import type { BrainEvent, BrainUsage } from './events.js';
 import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from './sessionId.js';
 
-export type { BrainMessageView } from './messageView.js';
-
 export interface BrainDeps {
   store: BrainStore;
   users: {
@@ -416,17 +414,21 @@ export class BrainService {
    *  the next inbound message re-opens them with the fresh registry. The shared invalidation also covers
    *  the orca-exec brain workers — their next launch composes from the fresh registry. */
   async reloadPlugins(): Promise<void> {
-    this.d.plugins?.invalidate();
-    for (const userId of this.sessions.activeUserIds()) await this.restart(userId);
-    // Non-active live sessions just drop; they respawn with the new registry on next resume.
-    const activeIds = this.sessions.activeIds();
-    for (const [id] of this.sessions.liveEntries()) {
-      if (!activeIds.includes(id)) this.sessions.dispose(id);
-    }
-    this.sessions.channelDisposeAll();
-    // Platform adapters were built by the old registry — disconnect them and start the fresh set.
-    this.platforms.stopAll();
-    await this.platforms.startAll();
+    // Serialized: two rapid plugin toggles must not interleave stopAll()/startAll() and leave
+    // duplicate connected adapters (a distinct lock key from any session, so it never blocks a turn).
+    await this.serial('plugins-reload', async () => {
+      this.d.plugins?.invalidate();
+      for (const userId of this.sessions.activeUserIds()) await this.restart(userId);
+      // Non-active live sessions just drop; they respawn with the new registry on next resume.
+      const activeIds = this.sessions.activeIds();
+      for (const [id] of this.sessions.liveEntries()) {
+        if (!activeIds.includes(id)) this.sessions.dispose(id);
+      }
+      this.sessions.channelDisposeAll();
+      // Platform adapters were built by the old registry — disconnect them and start the fresh set.
+      this.platforms.stopAll();
+      await this.platforms.startAll();
+    });
   }
 
   /** Push a proactive message out through the platform adapters (cron/tick echoes). */

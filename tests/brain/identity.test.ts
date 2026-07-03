@@ -70,11 +70,9 @@ describe('composeSessionTools — the channel/tool security invariant', () => {
     }
   });
 
-  it('owner-chat and trusted-channel sessions do', () => {
-    for (const kind of ['owner-chat', 'trusted-channel'] as const) {
-      const tools = composeSessionTools({ kind, orcaTools, pluginTools });
-      expect(tools.map((t) => t.name)).toContain('orca_create_task');
-    }
+  it('owner-chat sessions do (the operator, incl. their cron automation)', () => {
+    const tools = composeSessionTools({ kind: 'owner-chat', orcaTools, pluginTools });
+    expect(tools.map((t) => t.name)).toContain('orca_create_task');
   });
 
   it('the per-role toolFilter narrows plugin tools; "*" means everything', () => {
