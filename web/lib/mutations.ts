@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
-import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings, CronJob, PersonalityCreate, PersonalityPatch } from './types';
+import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings, CronJob, PersonalityCreate, PersonalityPatch, MemoryCreate, MemoryPatch, EmbeddingSettingsPatch } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -353,6 +353,75 @@ export function useCopyProjectEntry() {
 export function useDeleteProjectEntry() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (v: { id: number; path: string }) => orcaClient.deleteProjectEntry(v.id, v.path), onSuccess: (_r, v) => invalidateProjectTree(qc, v.id) });
+}
+/** Create a memory (source 'user'). Refreshes the list and the audit feed. */
+export function useCreateMemory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MemoryCreate) => orcaClient.createMemory(body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEYS.memories }); qc.invalidateQueries({ queryKey: ['memory-events'] }); },
+  });
+}
+/** Patch a memory (body/kind/importance/confidence/status). Refreshes the list, that memory's detail
+ *  and audit trail, and the whole-user event feed. */
+export function useUpdateMemory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: number; patch: MemoryPatch }) => orcaClient.updateMemory(v.id, v.patch),
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.memories });
+      qc.invalidateQueries({ queryKey: ['memory', v.id] });
+      qc.invalidateQueries({ queryKey: ['memory-events'] });
+    },
+  });
+}
+/** Soft-delete a memory. Refreshes the list, that memory's detail and the audit feed. */
+export function useDeleteMemory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => orcaClient.deleteMemory(id),
+    onSuccess: (_r, id) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.memories });
+      qc.invalidateQueries({ queryKey: ['memory', id] });
+      qc.invalidateQueries({ queryKey: ['memory-events'] });
+    },
+  });
+}
+/** Restore a soft-deleted memory back to active. */
+export function useRestoreMemory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => orcaClient.restoreMemory(id),
+    onSuccess: (_r, id) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.memories });
+      qc.invalidateQueries({ queryKey: ['memory', id] });
+      qc.invalidateQueries({ queryKey: ['memory-events'] });
+    },
+  });
+}
+/** Merge several memories into a new one (sources soft-deleted). Refreshes the list and audit feed. */
+export function useMergeMemories() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { ids: number[]; body: string }) => orcaClient.mergeMemories(v.ids, v.body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEYS.memories }); qc.invalidateQueries({ queryKey: ['memory-events'] }); },
+  });
+}
+/** Re-embed the caller's pending memories. Refreshes the list (embedding status) and settings (counts). */
+export function useReindexMemories() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => orcaClient.reindexMemories(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEYS.memories }); qc.invalidateQueries({ queryKey: QUERY_KEYS.embeddingSettings }); },
+  });
+}
+/** Save the workspace embedding provider settings (admin). Refreshes the settings query. */
+export function useSaveEmbeddingSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: EmbeddingSettingsPatch) => orcaClient.saveEmbeddingSettings(patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.embeddingSettings }),
+  });
 }
 export function useAdvisorStart() {
   const qc = useQueryClient();

@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, PersonalityProfile, PersonalityCreate, PersonalityPatch, PersonalityPreview, CliSettings, PluginInfo, PluginDetail, PluginContributions, PluginLogs, CronJob, DiscordChannelOption, PluginSkill, BrainModelOption, BrainSessionInfo, BrainSearchHit, BrainMessage, BrainStatus, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, PersonalityProfile, PersonalityCreate, PersonalityPatch, PersonalityPreview, CliSettings, PluginInfo, PluginDetail, PluginContributions, PluginLogs, CronJob, DiscordChannelOption, PluginSkill, BrainModelOption, BrainSessionInfo, BrainSearchHit, BrainMessage, BrainStatus, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult, Memory, MemoryEvent, MemoryCreate, MemoryPatch, MemoryFilters, EmbeddingSettings, EmbeddingSettingsPatch, RetrievalResult } from './types';
 import { clearToken } from './token';
 
 // Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
@@ -231,6 +231,36 @@ export const orcaClient = {
   userProjects: (userId: number) => req<number[]>(`/users/${userId}/projects`),
   assignProject: (userId: number, projectId: number) => req<{ ok: boolean }>(`/users/${userId}/projects`, json({ projectId })),
   unassignProject: (userId: number, projectId: number) => req<{ ok: boolean }>(`/users/${userId}/projects/${projectId}`, { method: 'DELETE' }),
+  /** The caller's own memories. A non-blank `q` runs fulltext search; otherwise it lists by status
+   *  (default 'active'; pass status '' or 'all' for every status). Own only — identity is server-side. */
+  memories: (params?: MemoryFilters) => {
+    const qs = new URLSearchParams();
+    if (params?.status != null) qs.set('status', params.status);
+    if (params?.kind) qs.set('kind', params.kind);
+    if (params?.q) qs.set('q', params.q);
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const s = qs.toString();
+    return req<Memory[]>(`/memory${s ? `?${s}` : ''}`);
+  },
+  memory: (id: number) => req<Memory>(`/memory/${id}`),
+  createMemory: (body: MemoryCreate) => req<Memory>('/memory', json(body)),
+  updateMemory: (id: number, patch: MemoryPatch) => req<Memory>(`/memory/${id}`, json(patch, 'PATCH')),
+  deleteMemory: (id: number) => req<{ ok: boolean }>(`/memory/${id}`, { method: 'DELETE' }),
+  restoreMemory: (id: number) => req<{ ok: boolean }>(`/memory/${id}/restore`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
+  mergeMemories: (ids: number[], body: string) => req<Memory>('/memory/merge', json({ ids, body })),
+  /** A single memory's audit trail (`id` set) or the whole-user event feed (`id` omitted). */
+  memoryEvents: (id?: number) => req<MemoryEvent[]>(id != null ? `/memory/${id}/events` : '/memory/events'),
+  /** Run retrieval for a query and get the picked memories plus the scoring trace. POST because the
+   *  daemon marks the picked memories used (a mutation). */
+  retrievalDebug: (query: string) => req<RetrievalResult>('/memory/retrieve', json({ query })),
+  /** Re-embed the caller's memories that still need an embedding (bounded, best-effort). */
+  reindexMemories: () => req<{ embedded: number }>('/memory/reindex', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
+  embeddingSettings: () => req<EmbeddingSettings>('/memory/embedding'),
+  saveEmbeddingSettings: (patch: EmbeddingSettingsPatch) => req<EmbeddingSettings>('/memory/embedding', json(patch, 'PUT')),
+  /** Admin: probe the embedding provider with a tiny sample. An embed failure resolves 200 `{ ok:false }`
+   *  (read `ok`); the unconfigured case is a 400 that `req` throws as an OrcaApiError for the caller to catch. */
+  testEmbedding: () => req<{ ok: true; dimensions: number; provider: string | null; model: string } | { ok: false; error: string }>('/memory/embedding/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   cliStatus: () => req<CliDetectionResult>('/integrations/cli-status'),
   githubStatus: () => req<GithubAuthStatus>('/integrations/github-status'),
 };

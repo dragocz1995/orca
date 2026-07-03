@@ -359,6 +359,87 @@ export interface SkillInstallResult {
   results: Array<{ provider: string; installed: boolean; skipped: boolean; error?: string }>;
 }
 
+/** One stored memory (mirrors the daemon's MemoryRow). Per-user and private — every route derives
+ *  identity from the session, never a body/param id. */
+export interface Memory {
+  id: number;
+  user_id: number;
+  body: string;
+  kind: string;
+  importance: number;
+  confidence: number;
+  source: string;
+  status: 'active' | 'archived' | 'deleted';
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+  use_count: number;
+}
+
+/** One entry of a memory's audit trail (mirrors the daemon's MemoryEventRow). `memory_id` is null for
+ *  events whose memory was hard-removed; `before_json`/`after_json` are raw JSON snapshots. */
+export interface MemoryEvent {
+  id: number;
+  memory_id: number | null;
+  user_id: number;
+  action: string;
+  before_json: string | null;
+  after_json: string | null;
+  actor: string;
+  reason: string;
+  created_at: string;
+}
+
+/** Body for POST /memory — only `body` is required. */
+export interface MemoryCreate { body: string; kind?: string; importance?: number; confidence?: number }
+/** Any subset of the mutable fields for PATCH /memory/:id. */
+export interface MemoryPatch { body?: string; kind?: string; importance?: number; confidence?: number; status?: 'active' | 'archived' | 'deleted' }
+/** Query filters for GET /memory. A non-blank `q` switches the daemon to fulltext search. */
+export interface MemoryFilters { status?: string; kind?: string; q?: string; limit?: number; offset?: number }
+
+/** Workspace-level embedding provider settings (GET /memory/embedding). `configured` reflects whether the
+ *  provider/model/baseUrl are complete enough to embed. */
+export interface EmbeddingSettings {
+  providerId: string;
+  model: string;
+  baseUrl: string;
+  dimensions: number | null;
+  configured: boolean;
+}
+
+/** Patch for PUT /memory/embedding (admin-gated). */
+export interface EmbeddingSettingsPatch {
+  providerId?: string;
+  model?: string;
+  baseUrl?: string;
+  dimensions?: number | null;
+}
+
+/** One scored retrieval candidate in the debug breakdown. `picked` marks the memories actually returned. */
+export interface RetrievalScore {
+  id: number;
+  score: number;
+  semantic: number;
+  importanceWeight: number;
+  recencyWeight: number;
+  usageWeight: number;
+  picked: boolean;
+}
+
+/** POST /memory/retrieve result — the picked memories plus the scoring trace. `fallback` is true when
+ *  embeddings are unconfigured and the daemon fell back to keyword matching. */
+export interface RetrievalResult {
+  memories: Memory[];
+  debug: {
+    query: string;
+    fallback: boolean;
+    provider: string | null;
+    model: string | null;
+    candidates: number;
+    scores: RetrievalScore[];
+  };
+}
+
 /** Token/cost usage for a task's agent run, read from the executor CLI's local session storage. */
 export interface TokenUsage {
   input: number;

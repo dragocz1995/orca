@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { pendingEscalations, type Escalation } from './escalations';
-import type { DerivedSignal, CliDetectionResult, GithubAuthStatus, PlanJob } from './types';
+import type { DerivedSignal, CliDetectionResult, GithubAuthStatus, PlanJob, MemoryFilters } from './types';
 
 /** Poll an async plan job until it leaves the 'planning' state. The SSE `plan` handler also pushes
  *  updates into this cache (keyed by jobId) so the poll is a fallback. Disabled when jobId is null. */
@@ -26,6 +26,8 @@ export const QUERY_KEYS = {
   system: ['system'] as const,
   systemSkills: ['system-skills'] as const,
   usageByModel: ['usage-by-model'] as const,
+  memories: ['memories'] as const,
+  embeddingSettings: ['embedding-settings'] as const,
 };
 
 /** The current user's advisor session state, polled so the dock reflects start/stop/crash. */
@@ -274,6 +276,24 @@ export const useBrainOauthStatus = () =>
 
 export const useUserProjects = (userId: number | null, enabled = true) =>
   useQuery({ queryKey: ['user-projects', userId], queryFn: () => orcaClient.userProjects(userId as number), enabled: !!userId && enabled });
+
+/** The caller's own memories, filtered by status/kind/search. Private per-user — identity is server-side.
+ *  Mutations invalidate the ['memories'] prefix, so every filter view refreshes together. */
+export const useMemories = (filters?: MemoryFilters) =>
+  useQuery({ queryKey: ['memories', filters ?? {}], queryFn: () => orcaClient.memories(filters) });
+
+/** One memory (any status) for the detail pane. Disabled until an id is selected. */
+export const useMemory = (id: number | null) =>
+  useQuery({ queryKey: ['memory', id], queryFn: () => orcaClient.memory(id as number), enabled: id != null });
+
+/** A memory's audit trail (`id` set) or the whole-user event feed (`id` null). Always enabled — a null
+ *  id is the valid "everything" feed, not an unselected state. */
+export const useMemoryEvents = (id: number | null) =>
+  useQuery({ queryKey: ['memory-events', id], queryFn: () => orcaClient.memoryEvents(id ?? undefined) });
+
+/** Workspace embedding provider settings (Memory → embedding section). Mutations invalidate this key. */
+export const useEmbeddingSettings = () =>
+  useQuery({ queryKey: QUERY_KEYS.embeddingSettings, queryFn: orcaClient.embeddingSettings });
 
 export const useCliStatus = () =>
   useQuery<CliDetectionResult>({
