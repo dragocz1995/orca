@@ -158,7 +158,7 @@ export function CronJobsEditor() {
         const lastRunMs = parseTs(job.lastRun);
         const dest = channelName(job.notifyChannelId);
         return (
-          <div key={job.id} className="rounded-lg border border-border bg-elevated/40">
+          <div key={job.id} className="@container rounded-lg border border-border bg-elevated/40">
             <div className="flex items-center gap-2 p-3">
               <button type="button" onClick={() => toggleRow(job.id)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                 {open ? <ChevronDown size={15} className="shrink-0 text-text-muted" aria-hidden /> : <ChevronRight size={15} className="shrink-0 text-text-muted" aria-hidden />}
@@ -172,7 +172,7 @@ export function CronJobsEditor() {
                     destination badge and last-run hide on mobile; only the compact schedule stays. */}
                 <span className="ml-auto flex shrink-0 items-center gap-1.5">
                   {lastRunMs != null ? (
-                    <span className="hidden text-tiny text-text-muted sm:inline" title={new Date(lastRunMs).toLocaleString()}>
+                    <span className="hidden text-tiny text-text-muted @sm:inline" title={new Date(lastRunMs).toLocaleString()}>
                       {t.cron.lastRun.replace('{t}', compactElapsed(Date.now() - lastRunMs))}
                     </span>
                   ) : null}
@@ -180,7 +180,7 @@ export function CronJobsEditor() {
                     {job.runAt ? <CalendarClock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden /> : <Clock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden />}
                     {job.schedule}
                   </Badge>
-                  <span className="hidden sm:inline-flex">
+                  <span className="hidden @sm:inline-flex">
                     <Badge>
                       <Hash size={10} className="mr-1 inline-block align-[-1px]" aria-hidden />
                       {dest ?? t.cron.channelDefault}
@@ -192,7 +192,7 @@ export function CronJobsEditor() {
             </div>
             {open ? (
               <div className="flex flex-col gap-3 border-t border-border p-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
                   <Field label={t.cron.name}>
                     <Input value={job.name} onChange={(e) => patch(job.id, { name: e.target.value })} placeholder="morning-digest" />
                   </Field>

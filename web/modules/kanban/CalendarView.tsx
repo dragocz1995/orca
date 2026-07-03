@@ -93,7 +93,8 @@ export function CalendarView({ tasks, onSelect, onCreateDay, onReschedule }: { t
       )}
 
       {range === 'week' && (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-7">
+        <div className="@container">
+        <div className="grid grid-cols-1 gap-2 @sm:grid-cols-7">
           {weekDays(ref).map((d) => (
             <div key={dayKey(d)} {...dropProps(d)} className={`group flex min-h-[8rem] flex-col gap-1.5 rounded-lg border bg-surface p-2 transition-shadow ${dragDay === dayKey(d) ? 'border-accent' : sameDay(d, today) ? 'border-accent' : 'border-border'}`}>
               <div className="flex items-center justify-between px-0.5">
@@ -106,6 +107,7 @@ export function CalendarView({ tasks, onSelect, onCreateDay, onReschedule }: { t
               {dayTasks(d).map((t) => <TaskChip key={t.id} task={t} onSelect={onSelect} locale={locale} draggable={!!onReschedule} />)}
             </div>
           ))}
+        </div>
         </div>
       )}
 

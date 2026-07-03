@@ -109,7 +109,8 @@ export function ChangesOverTime({ commits, windowStart, now, multiProject }: { c
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+    <div className="@container">
+    <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
       {/* commit stream */}
       <section className="flex min-w-0 flex-col gap-2">
         <h3 className="font-mono text-[11px] uppercase tracking-widest text-text-muted">{t.timeline.changesOverTime}</h3>
@@ -165,6 +166,7 @@ export function ChangesOverTime({ commits, windowStart, now, multiProject }: { c
           </div>
         </Modal>
       ) : null}
+    </div>
     </div>
   );
 }

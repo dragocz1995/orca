@@ -150,7 +150,8 @@ export function AccountView() {
       {section === 'cli' ? <CliSection /> : section === 'prompts' ? <PromptsSection /> : null}
 
       {section === 'profile' ? (
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="@container">
+      <div className="flex flex-col gap-6 @3xl:flex-row @3xl:items-start">
       <div className="flex min-w-0 flex-1 flex-col gap-6">
         {/* Identity hero — avatar, display name, admin badge, avatar upload. */}
         <div className="flex items-center gap-4 rounded-xl border border-border bg-surface p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
@@ -166,13 +167,15 @@ export function AccountView() {
           <Button variant="ghost" icon={Upload} onClick={() => fileRef.current?.click()} disabled={uploadAvatar.isPending}>{t.account.uploadAvatar}</Button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="@container">
+        <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
           <SettingCard title={t.account.name} icon={UserIcon}>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </SettingCard>
           <SettingCard title={t.account.email} icon={Mail}>
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </SettingCard>
+        </div>
         </div>
 
         {/* Whole-app zoom — a per-device display preference, applied live via the UiScaleProvider. */}
@@ -187,7 +190,7 @@ export function AccountView() {
       </div>
 
       {/* Right rail: the models you may run, big brand icons — tap one to make it your default. */}
-      <div className="flex shrink-0 flex-col gap-2 lg:w-72">
+      <div className="flex shrink-0 flex-col gap-2 @3xl:w-72">
         <span className="flex items-center gap-2 text-sm font-medium text-text">
           <Cpu size={16} className="text-text-muted" aria-hidden />{t.account.defaultModel}
         </span>
@@ -224,6 +227,7 @@ export function AccountView() {
         )}
       </div>
       </div>
+      </div>
       ) : null}
 
       {section === 'security' ? (
@@ -236,7 +240,8 @@ export function AccountView() {
           >
             {/* Username hint helps password managers associate the credential. */}
             <input type="text" name="username" autoComplete="username" value={u.username} readOnly hidden />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="@container">
+            <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
               <Input
                 type="password"
                 autoComplete="current-password"
@@ -261,6 +266,7 @@ export function AccountView() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
+            </div>
             </div>
             <div className="flex justify-end">
               <Button type="submit" variant="accent" icon={KeyRound} disabled={!canSubmitPassword || changePassword.isPending}>

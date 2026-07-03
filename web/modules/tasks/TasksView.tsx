@@ -195,7 +195,7 @@ export function TasksView() {
   return (
     <>
       <ModuleHeader title={t.page.tasks} count={filtered.length} icon={ListChecks}>
-        <div className="relative w-40 sm:w-52">
+        <div className="relative w-40 @sm:w-52">
           <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.tasks.searchPlaceholder} className="pl-9" />
         </div>
@@ -213,9 +213,13 @@ export function TasksView() {
         : !tasks.data || tasks.data.length === 0 ? <EmptyState title={t.tasks.empty} description={t.tasks.emptyDescription} icon={ListChecks} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>} />
         : filtered.length === 0 ? <EmptyState title={t.tasks.noMatches} description={t.tasks.noMatchesDescription} icon={Search} />
         : (
-          <div className="lg:flex lg:items-start lg:gap-5">
+          // @container so the master/detail split reacts to the CONTENT width (dock-aware), not the
+          // viewport. The fixed bulk toolbar + modals below stay OUTSIDE it (siblings) so container
+          // containment never re-anchors them.
+          <div className="@container">
+          <div className="@3xl:flex @3xl:items-start @3xl:gap-5">
             {/* Left — searchable task list */}
-            <div className="flex flex-col gap-5 lg:w-[42%] lg:shrink-0">
+            <div className="flex flex-col gap-5 @3xl:w-[42%] @3xl:shrink-0">
               {groups.map((g) => (
                 <div key={g.key} className="flex flex-col gap-2">
                   <div className="flex items-center gap-3">
@@ -254,10 +258,10 @@ export function TasksView() {
 
             {/* Right — persistent detail pane. Sizes to its content and scrolls with the page (no inner
                 scrollbar); its own header is sticky below the module toolbar so it stays visible. */}
-            <aside className="mt-5 min-w-0 lg:mt-0 lg:flex-1">
+            <aside className="mt-5 min-w-0 @3xl:mt-0 @3xl:flex-1">
               {(() => {
                 if (!selectedId) {
-                  return <div className="hidden items-center justify-center gap-2 rounded-lg border border-dashed border-border py-20 text-sm text-text-muted lg:flex"><ListChecks size={14} className="shrink-0 text-text-muted/50" aria-hidden />{t.tasks.selectHint}</div>;
+                  return <div className="hidden items-center justify-center gap-2 rounded-lg border border-dashed border-border py-20 text-sm text-text-muted @3xl:flex"><ListChecks size={14} className="shrink-0 text-text-muted/50" aria-hidden />{t.tasks.selectHint}</div>;
                 }
                 const selTask = tasks.data?.find((x) => x.id === selectedId);
                 const selPhases = selTask?.type === 'epic' ? (childMap.get(selTask.id) ?? []) : [];
@@ -270,6 +274,7 @@ export function TasksView() {
                 return <div className="rounded-lg border border-border bg-surface p-4" style={{ boxShadow: 'var(--shadow-card)' }}><TaskDetailPane taskId={selectedId} onEdit={setEditing} onBack={backToEpic ? () => setSelectedId(backToEpic) : undefined} /></div>;
               })()}
             </aside>
+          </div>
           </div>
         )}
 

@@ -61,7 +61,8 @@ export function ModelModal({ initial, existingExecs, activeProviders, onClose, o
         </Field>
 
         <Field label={t.settings.fieldProvider} hint={t.settings.providerHint}>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="@container">
+          <div className="grid grid-cols-2 gap-2 @sm:grid-cols-4">
             {CHOICES.map((id) => {
               const meta = providerMeta(id);
               const active = provider === id;
@@ -81,6 +82,7 @@ export function ModelModal({ initial, existingExecs, activeProviders, onClose, o
                 </button>
               );
             })}
+          </div>
           </div>
         </Field>
 

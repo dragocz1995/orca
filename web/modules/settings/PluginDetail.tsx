@@ -135,13 +135,15 @@ function RolePoliciesEditor({ value, onChange }: { value: RolePolicy[]; onChange
             </div>
             {open ? (
               <div className="flex flex-col gap-3 border-t border-border p-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Field label={t.pluginCfg.roleId}>
-                    <Input value={r.roleId} onChange={(e) => patch(i, { roleId: e.target.value })} placeholder="1511041803225272420" className="font-mono" />
-                  </Field>
-                  <Field label={t.pluginCfg.roleName}>
-                    <Input value={r.name} onChange={(e) => patch(i, { name: e.target.value })} placeholder="dev-team" />
-                  </Field>
+                <div className="@container">
+                  <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+                    <Field label={t.pluginCfg.roleId}>
+                      <Input value={r.roleId} onChange={(e) => patch(i, { roleId: e.target.value })} placeholder="1511041803225272420" className="font-mono" />
+                    </Field>
+                    <Field label={t.pluginCfg.roleName}>
+                      <Input value={r.name} onChange={(e) => patch(i, { name: e.target.value })} placeholder="dev-team" />
+                    </Field>
+                  </div>
                 </div>
                 <label className="flex cursor-pointer items-center gap-2.5">
                   <Toggle checked={r.admin === true} onChange={(v) => patch(i, { admin: v })} label={t.pluginCfg.roleAdmin} />

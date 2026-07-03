@@ -78,7 +78,8 @@ export function SkillsEditor() {
 
       {form ? (
         <div className="flex flex-col gap-3 rounded-lg border border-border bg-elevated/40 p-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="@container">
+          <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
             <Field label={t.skills.name} hint={t.skills.nameHint}>
               <Input
                 value={form.name}
@@ -90,6 +91,7 @@ export function SkillsEditor() {
             <Field label={t.skills.description} hint={t.skills.descriptionHint}>
               <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </Field>
+          </div>
           </div>
           <Field label={t.skills.content} hint={t.skills.contentHint}>
             <textarea value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} rows={8} className={textareaClass} />

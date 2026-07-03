@@ -27,7 +27,8 @@ function Signal({ value, label, icon: Icon, tone, href }: { value: string; label
 export function SignalsRow({ agentsActive, decisionsWaiting, monthCost }: { agentsActive: number; decisionsWaiting: number; monthCost: string }) {
   const { t } = useTranslation();
   return (
-    <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="@container">
+    <section className="grid grid-cols-1 gap-4 @sm:grid-cols-3">
       <Signal
         value={String(agentsActive)}
         label={t.dashboard.signalAgentsActive}
@@ -48,5 +49,6 @@ export function SignalsRow({ agentsActive, decisionsWaiting, monthCost }: { agen
         tone="default"
       />
     </section>
+    </div>
   );
 }

@@ -189,7 +189,7 @@ function EventDetail({ point, display, onClose }: { point: AxisPoint; display: D
   const changes = useProjectChanges(projectId, true);
   return (
     <Modal title={display.label} description={`${point.detail} · ${clock(point.timestamp)}`} icon={Icon} size="lg" onClose={onClose}>
-      <div className="flex h-full flex-col gap-4 overflow-hidden p-5">
+      <div className="@container flex h-full flex-col gap-4 overflow-hidden p-5">
         <div className="flex flex-wrap items-start gap-3">
           <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-2 ${TONE_BUBBLE[tone]}`}>
             <Icon size={30} aria-hidden />
@@ -203,7 +203,7 @@ function EventDetail({ point, display, onClose }: { point: AxisPoint; display: D
             <div className="mt-1 text-sm font-medium text-text">{display.label}</div>
           </div>
           {taskId ? (
-            <Link href={`/tasks?select=${encodeURIComponent(taskId)}`} className="inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-text transition-colors hover:text-accent sm:w-auto sm:justify-start">
+            <Link href={`/tasks?select=${encodeURIComponent(taskId)}`} className="inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-text transition-colors hover:text-accent @sm:w-auto @sm:justify-start">
               <ArrowUpRight size={14} aria-hidden />{t.timeline.openTask}
             </Link>
           ) : null}
@@ -346,7 +346,7 @@ export function TimelineView() {
   ];
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="@container flex flex-col gap-4">
       <ModuleHeader title={t.page.timeline} icon={Activity}>
         <ProjectFilterPills value={selectedProject} onChange={setProject} />
         <DateRangeFilter value={range} onChange={(r) => setRangeRaw(serializeRange(r))} />
@@ -356,7 +356,7 @@ export function TimelineView() {
 
       {/* Summary strip: big-icon kind counts for the window */}
       {hasData ? (
-        <div data-testid="timeline-summary" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+        <div data-testid="timeline-summary" className="grid grid-cols-2 gap-2.5 @sm:grid-cols-3 @3xl:grid-cols-5">
           {STAT_CARDS.map((s) => <StatCard key={s.label} tone={s.tone} count={s.count} label={s.label} />)}
         </div>
       ) : null}
@@ -365,7 +365,7 @@ export function TimelineView() {
       <section className="rounded-lg border border-border border-t-2 border-t-accent/40 bg-surface p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
         <div className="mb-4 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-text-muted"><Clock size={12} className="shrink-0 text-text-muted" aria-hidden />{windowLabel}</div>
-          {hasData ? <span className="hidden text-[11px] text-text-muted sm:inline">{t.timeline.markerHint}</span> : null}
+          {hasData ? <span className="hidden text-[11px] text-text-muted @sm:inline">{t.timeline.markerHint}</span> : null}
         </div>
         {q.isLoading ? (
           <LoadingState />

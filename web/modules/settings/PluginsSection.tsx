@@ -116,10 +116,12 @@ export function PluginsSection() {
       {groups.map((g) => (
         <div key={g.key} className="flex flex-col gap-3">
           <GroupHeader icon={g.icon} title={g.title} count={g.items.length} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {g.items.map((p) => (
-              <PluginCard key={p.name} p={p} busy={toggle.isPending} onFlip={(enabled) => flip(p, enabled)} onDetail={() => setDetail(p.name)} />
-            ))}
+          <div className="@container">
+            <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2 @5xl:grid-cols-3">
+              {g.items.map((p) => (
+                <PluginCard key={p.name} p={p} busy={toggle.isPending} onFlip={(enabled) => flip(p, enabled)} onDetail={() => setDetail(p.name)} />
+              ))}
+            </div>
           </div>
         </div>
       ))}

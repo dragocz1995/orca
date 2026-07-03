@@ -91,7 +91,8 @@ function LiveMissionCard({ mission, epic, kids, sessionNames, signals, onPause, 
         <div className="text-[11px] text-text-muted">{t.missions.noTasks}</div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="@container">
+      <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
         {/* Mini terminal preview of the running phase. */}
         {previewLines.length > 0 ? (
           <div className="flex flex-col gap-1 rounded-md border border-border bg-bg p-2">
@@ -117,6 +118,7 @@ function LiveMissionCard({ mission, epic, kids, sessionNames, signals, onPause, 
             </ul>
           )}
         </div>
+      </div>
       </div>
 
       <div className="flex items-center gap-2 border-t border-border pt-2">

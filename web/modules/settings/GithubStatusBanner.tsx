@@ -26,7 +26,7 @@ export function GithubStatusBanner() {
         : t.settings.ghStatusGhNoAccount;
 
   return (
-    <div className={`sm:col-span-2 flex items-start gap-2.5 rounded-lg border px-4 py-3 ${tone}`}>
+    <div className={`@sm:col-span-2 flex items-start gap-2.5 rounded-lg border px-4 py-3 ${tone}`}>
       <Icon size={16} className="mt-0.5 shrink-0" aria-hidden />
       <div className="flex flex-col gap-0.5 text-sm">
         <span className="font-medium">{message}</span>

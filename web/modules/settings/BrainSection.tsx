@@ -297,7 +297,8 @@ export function BrainSection() {
       {/* OAuth accounts: one row per supported account type, connect/disconnect. */}
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-text">{t.brain.accounts}</span>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="@container">
+        <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
           {OAUTH_TYPES.map(({ type, icon }) => {
             const connected = oauth.data?.[type] ?? false;
             return (
@@ -321,6 +322,7 @@ export function BrainSection() {
             );
           })}
         </div>
+        </div>
       </div>
 
       {/* Provider entries the picker exposes. */}
@@ -332,7 +334,8 @@ export function BrainSection() {
         {apiProviders.length === 0 ? (
           <p className="text-xs italic text-text-muted">{t.brain.noProviders}</p>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="@container">
+          <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
             {apiProviders.map((p) => (
               <div key={p.id} className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
                 <div className="flex items-center gap-2">
@@ -349,6 +352,7 @@ export function BrainSection() {
                 <span className="text-tiny text-text-muted">{p.models.length > 0 ? t.brain.modelCount.replace('{n}', String(p.models.length)) : t.brain.modelsAuto}</span>
               </div>
             ))}
+          </div>
           </div>
         )}
       </div>

@@ -64,7 +64,7 @@ export function PhaseLogRow({ phase, index, running, signal, isActive, exec, isS
           {agent ? (
             <>
               <AgentStatusDot signal={signal} live={running} size="sm" />
-              <span className="hidden sm:inline">{agent}</span>
+              <span className="hidden @sm:inline">{agent}</span>
             </>
           ) : null}
           {elapsed ? <><Timer size={11} aria-hidden />{elapsed}</> : null}

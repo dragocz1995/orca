@@ -63,8 +63,8 @@ export function DashboardView() {
       <NeedsInputBanner />
 
       {/* ── Hero: greeting + live clock on a clean flat panel ── */}
-      <section>
-        <div className="flex flex-col gap-5 rounded-2xl border border-border bg-surface p-6 sm:p-7" style={{ boxShadow: 'var(--shadow-card)' }}>
+      <section className="@container">
+        <div className="flex flex-col gap-5 rounded-2xl border border-border bg-surface p-6 @sm:p-7" style={{ boxShadow: 'var(--shadow-card)' }}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
               <h1 className="font-display text-3xl font-semibold tracking-tight text-text">{greeting}</h1>

@@ -180,7 +180,7 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
             className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning"
           >
             <Wrench size={12} className="shrink-0" aria-hidden />
-            <span className="hidden sm:inline">{t.missions.prFixBadge.replace('{n}', String(pr.fixRounds))}</span>
+            <span className="hidden @sm:inline">{t.missions.prFixBadge.replace('{n}', String(pr.fixRounds))}</span>
           </span>
         ) : null}
         {pr?.prState === 'open' ? (
@@ -253,7 +253,7 @@ function ActionPill({ icon: Icon, label, onClick, tone = 'default', disabled }: 
       style={{ transitionDuration: 'var(--motion-fast)' }}
     >
       <Icon size={12} className="shrink-0" aria-hidden />
-      <span className="hidden sm:inline">{label}</span>
+      <span className="hidden @sm:inline">{label}</span>
     </button>
   );
 }

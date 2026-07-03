@@ -351,7 +351,8 @@ export default function SettingsPage() {
                     <span className="font-mono text-tiny text-text-muted">{enabledCount}/{groupExecs.length}</span>
                     {prov.embedded ? <span className="text-tiny text-text-muted">· {t.settings.orcaModelsHint}</span> : null}
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="@container">
+                  <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
                     {cliItems.map((p) => {
                       const isCustom = !isPresetExec(p.exec);
                       return (
@@ -359,7 +360,7 @@ export default function SettingsPage() {
                           {/* Always visible on touch (no hover exists on phones, so hover-only buttons are
                            *  unreachable — you could only toggle a model, never edit/delete it). On desktop
                            *  (sm+) keep the clean hover-reveal, plus focus-within for keyboard access. */}
-                          <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100" style={{ transitionDuration: 'var(--motion-fast)' }}>
+                          <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-100 transition-opacity @sm:opacity-0 @sm:group-hover:opacity-100 @sm:focus-within:opacity-100" style={{ transitionDuration: 'var(--motion-fast)' }}>
                             <button
                               type="button"
                               aria-label={t.settings.editLabel.replace('{exec}', p.exec)}
@@ -422,6 +423,7 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
+                  </div>
                 </div>
               );
             })}
@@ -473,7 +475,8 @@ export default function SettingsPage() {
                 <p className="mt-2 text-xs text-text-muted">{reasoningMode === 'relay' ? t.settings.modeRelayDesc : t.settings.modeAgentsDesc}</p>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="@container">
+              <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
               {reasoningMode === 'relay' ? (
                 <>
                   <SettingCard title={t.settings.plannerModel} description={t.settings.plannerModelDesc} icon={Bot}>
@@ -505,7 +508,7 @@ export default function SettingsPage() {
               <SettingCard title={t.settings.notes} description={t.settings.notesDesc} icon={FileText}>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={`${inputClass} resize-none`} />
               </SettingCard>
-              <div className="sm:col-span-2 card-interactive rounded-xl border border-border bg-surface p-5">
+              <div className="@sm:col-span-2 card-interactive rounded-xl border border-border bg-surface p-5">
                 <div className="mb-2 flex items-center gap-1.5">
                   <span className="text-sm font-medium text-text">{t.settings.testPlan}</span>
                   <HelpTip>{t.settings.testPlanHelp}</HelpTip>
@@ -535,12 +538,14 @@ export default function SettingsPage() {
                 </div>
               </div>
               </div>
+              </div>
             </div>
         )}
 
         {category === 'github' && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <p className="sm:col-span-2 text-sm text-text-muted">{t.settings.githubIntro}</p>
+          <div className="@container">
+          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
+            <p className="@sm:col-span-2 text-sm text-text-muted">{t.settings.githubIntro}</p>
             <GithubStatusBanner />
             <SettingCard title={t.settings.ghToken} description={ghTokenSet ? t.settings.ghTokenDesc : t.settings.ghTokenNotSetDesc} icon={KeyRound}>
               <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={ghTokenSet ? t.settings.apiKeySetPlaceholder : t.settings.ghTokenPlaceholder} className={inputClass} />
@@ -558,6 +563,7 @@ export default function SettingsPage() {
               <input value={prVerifyCommand} onChange={(e) => setPrVerifyCommand(e.target.value)} placeholder={t.settings.prVerifyCommandPlaceholder} className={`${inputClass} font-mono text-xs`} />
             </SettingCard>
           </div>
+          </div>
         )}
 
         {category === 'providers' && (
@@ -568,8 +574,9 @@ export default function SettingsPage() {
                 const cur = providers[p.id] ?? { bin: p.binHint, args: '', skipPermissions: true, resume: true };
                 const set = (patch: Partial<{ bin: string; args: string; skipPermissions: boolean; resume: boolean }>) => setProviders((prev) => ({ ...prev, [p.id]: { ...cur, ...patch } }));
                 return (
-                  <div key={p.id} className="card-interactive flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 sm:flex-row sm:items-start">
-                    <div className="flex items-center gap-3 sm:w-44 sm:shrink-0 sm:pt-1">
+                  <div key={p.id} className="@container">
+                  <div className="card-interactive flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 @sm:flex-row @sm:items-start">
+                    <div className="flex items-center gap-3 @sm:w-44 @sm:shrink-0 @sm:pt-1">
                       <ProviderLogo meta={p} alt={t.providers[p.id as keyof typeof t.providers]} size={56} />
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-text">{t.providers[p.id as keyof typeof t.providers]}</div>
@@ -577,7 +584,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     {p.embedded ? (
-                      <div className="flex flex-1 flex-col justify-center gap-2 sm:pt-1">
+                      <div className="flex flex-1 flex-col justify-center gap-2 @sm:pt-1">
                         <p className="text-xs leading-relaxed text-text-muted">{t.settings.embeddedProviderHint}</p>
                         <button type="button" onClick={() => setCategory('brain')} className="self-start text-xs font-medium text-accent hover:underline">
                           {t.settings.embeddedProviderLink}
@@ -585,7 +592,7 @@ export default function SettingsPage() {
                       </div>
                     ) : (
                     <div className="flex flex-1 flex-col gap-3">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
                         <Field label={t.settings.binary}>
                           <Input value={cur.bin} placeholder={p.binHint} onChange={(e) => set({ bin: e.target.value })} className="font-mono text-xs" />
                         </Field>
@@ -614,6 +621,7 @@ export default function SettingsPage() {
                     </div>
                     )}
                   </div>
+                  </div>
                 );
               })}
             </div>
@@ -621,7 +629,8 @@ export default function SettingsPage() {
         )}
 
         {category === 'defaults' && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="@container">
+            <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
               <SettingCard title={t.settings.executor} description={t.settings.executorDesc} icon={Cpu}>
                 {/* Same grouped picker the task modal uses (workers + Orca AI sections), so the
                     default executor can also be a brain model. A saved value missing from the
@@ -640,6 +649,7 @@ export default function SettingsPage() {
               <SettingCard title={t.settings.tokenTtl} description={t.settings.tokenTtlDesc} icon={KeyRound}>
                 <input type="number" min={1} value={defTokenTtl} onChange={(e) => setDefTokenTtl(Number(e.target.value))} className={inputClass} />
               </SettingCard>
+            </div>
             </div>
         )}
 
@@ -681,7 +691,8 @@ export default function SettingsPage() {
               </div>
 
               {/* Tiles — Orca-specific controls, sized to breathe and read at a glance. */}
-              <div className="grid w-full max-w-lg grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="@container w-full max-w-lg">
+              <div className="grid w-full grid-cols-1 gap-4 @sm:grid-cols-2">
                 {/* Auto-update — a full-size pill switch, no fine print. */}
                 <div className="card-interactive flex min-h-[150px] flex-col gap-4 rounded-xl border border-border bg-surface p-6">
                   <div className="flex items-center gap-2.5">
@@ -739,6 +750,7 @@ export default function SettingsPage() {
                     ))}
                   </div>
                 </div>
+              </div>
               </div>
 
               {/* Agent skills — install/verify the `orca-workflow` skill across the agent providers.

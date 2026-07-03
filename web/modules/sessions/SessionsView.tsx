@@ -56,12 +56,14 @@ export function SessionsView() {
       {sessions.isLoading ? <LoadingState variant="cards" />
         : sessions.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => sessions.refetch()} />
         : names.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="@container">
+          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2 @5xl:grid-cols-3">
             {names.map((s) => {
               const info = byName.get(s);
               if (!info) return null;
               return <SessionCard key={s} info={info} compact={compact} onOpenTerminal={() => setOpenTerm(s)} />;
             })}
+          </div>
           </div>
         ) : filter === 'needs_input' && allNames.length > 0
           ? <EmptyState title={t.sessions.filterNeedsInput} description={t.sessions.noNeedsInput} icon={TerminalSquare} />
