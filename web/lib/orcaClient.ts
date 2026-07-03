@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, CliSettings, PluginInfo, PluginDetail, CronJob, DiscordChannelOption, PluginSkill, BrainModelOption, BrainSessionInfo, BrainSearchHit, BrainMessage, BrainStatus, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, UserPrompt, PersonalityProfile, PersonalityCreate, PersonalityPatch, PersonalityPreview, CliSettings, PluginInfo, PluginDetail, CronJob, DiscordChannelOption, PluginSkill, BrainModelOption, BrainSessionInfo, BrainSearchHit, BrainMessage, BrainStatus, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SkillsInfo, SkillInstallResult } from './types';
 import { clearToken } from './token';
 
 // Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
@@ -139,6 +139,15 @@ export const orcaClient = {
   resetMyPrompt: (name: string) => req<{ ok: boolean }>(`/auth/me/prompts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   myCliSettings: () => req<CliSettings>('/auth/me/cli-settings'),
   saveMyCliSettings: (patch: Partial<CliSettings>) => req<CliSettings>('/auth/me/cli-settings', json(patch, 'PATCH')),
+  /** The caller's own personality profiles, optionally narrowed to one platform. */
+  listPersonalities: (platform?: string) => req<PersonalityProfile[]>(`/personality/profiles${platform ? `?platform=${encodeURIComponent(platform)}` : ''}`),
+  createPersonality: (body: PersonalityCreate) => req<PersonalityProfile>('/personality/profiles', json(body)),
+  updatePersonality: (id: number, patch: PersonalityPatch) => req<PersonalityProfile>(`/personality/profiles/${id}`, json(patch, 'PATCH')),
+  deletePersonality: (id: number) => req<{ ok: true }>(`/personality/profiles/${id}`, { method: 'DELETE' }),
+  /** Pin a profile active for its own platform; the daemon restarts owner chat + drops channel sessions. */
+  activatePersonality: (id: number) => req<PersonalityProfile>(`/personality/profiles/${id}/activate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
+  /** The resolved system-prompt stack (core persona + active personality chunk) for one platform. */
+  personalityPreview: (platform: string) => req<PersonalityPreview>('/personality/preview', json({ platform })),
   plugins: () => req<PluginInfo[]>('/plugins'),
   togglePlugin: (name: string, enabled: boolean) => req<PluginInfo>(`/plugins/${encodeURIComponent(name)}`, json({ enabled }, 'PATCH')),
   pluginDetail: (name: string) => req<PluginDetail>(`/plugins/${encodeURIComponent(name)}`),

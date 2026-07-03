@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
-import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings, CronJob } from './types';
+import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings, CronJob, PersonalityCreate, PersonalityPatch } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -191,6 +191,47 @@ export function useSaveMyPrompt() {
 export function useSaveMyCliSettings() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (patch: Partial<CliSettings>) => orcaClient.saveMyCliSettings(patch), onSuccess: () => qc.invalidateQueries({ queryKey: ['my-cli-settings'] }) });
+}
+/** Create a personality profile. Invalidates the profiles list (all platforms). */
+export function useCreatePersonality() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PersonalityCreate) => orcaClient.createPersonality(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personalities'] }),
+  });
+}
+/** Patch a personality profile. A rename/enable change can alter the resolved preview, so refresh both. */
+export function useUpdatePersonality() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: number; patch: PersonalityPatch }) => orcaClient.updatePersonality(v.id, v.patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['personalities'] });
+      qc.invalidateQueries({ queryKey: ['personality-preview'] });
+    },
+  });
+}
+/** Delete a personality profile (also clears any active pointer to it). Refresh list + preview. */
+export function useDeletePersonality() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => orcaClient.deletePersonality(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['personalities'] });
+      qc.invalidateQueries({ queryKey: ['personality-preview'] });
+    },
+  });
+}
+/** Pin a profile active. Refetch the preview (the active append is what marks the badge) and the list. */
+export function useActivatePersonality() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => orcaClient.activatePersonality(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['personalities'] });
+      qc.invalidateQueries({ queryKey: ['personality-preview'] });
+    },
+  });
 }
 export function useTogglePlugin() {
   const qc = useQueryClient();

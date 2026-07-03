@@ -124,6 +124,45 @@ export interface UserPrompt {
   override: string | null;
 }
 
+/** A named personality profile: a prompt body a user pins active per platform ('web'/'discord'/'cli').
+ *  Scoped per (user, platform); `enabled` gates whether the pinned profile actually applies. The active
+ *  pointer lives server-side — the UI derives which profile is active from the preview's append layer. */
+export interface PersonalityProfile {
+  id: number;
+  user_id: number;
+  platform: string;
+  name: string;
+  description: string;
+  tone: string;
+  style: string;
+  prompt: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Body for POST /personality/profiles — platform/name/prompt are required, the rest optional. */
+export interface PersonalityCreate {
+  platform: string;
+  name: string;
+  prompt: string;
+  description?: string;
+  tone?: string;
+  style?: string;
+  enabled?: boolean;
+}
+
+/** Any subset of the mutable fields for PATCH /personality/profiles/:id. */
+export type PersonalityPatch = Partial<Omit<PersonalityCreate, 'platform'>> & { platform?: string };
+
+/** Read-only render of the resolved system-prompt stack for the settings preview. `layers[0]` is the
+ *  core persona, `layers[1]` the active personality chunk (text `'no active profile'` when none). */
+export interface PersonalityPreview {
+  platform: string;
+  layers: { label: string; text: string }[];
+  resolved: string;
+}
+
 /** Per-user CLI/brain settings surfaced in Account → CLI. `model` empty → the configured brain default
  *  (`serverDefault`, response-only). */
 export interface CliSettings { model: string; modelProvider: string; visionModel: string; visionModelProvider: string; thinkingLevel: string; autoCompact: boolean; autoCompactAt: number; advisorStyle: string; discordUserId: string; serverDefault?: string }
