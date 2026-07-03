@@ -2,6 +2,7 @@ import { formatSkillsForPrompt } from '@earendil-works/pi-coding-agent';
 import type { AgentSessionEvent, ResourceLoader, createAgentSession } from '@earendil-works/pi-coding-agent';
 import type { PluginRegistry } from '../plugins/registry.js';
 import type { PluginRegistryProvider } from '../plugins/pluginsProvider.js';
+import { PluginHookBus } from '../plugins/hookBus.js';
 import type { Policy } from '../plugins/policy.js';
 import { runWithPolicy } from '../plugins/policyContext.js';
 import type { AuthStorage } from '@earendil-works/pi-coding-agent';
@@ -417,6 +418,10 @@ export class BrainService {
     // Serialized: two rapid plugin toggles must not interleave stopAll()/startAll() and leave
     // duplicate connected adapters (a distinct lock key from any session, so it never blocks a turn).
     await this.serial('plugins-reload', async () => {
+      // Let plugins observe the reload boundary. Observational only (fail-open, no mutation) — fires on
+      // the CURRENT registry's hooks before we swap it out.
+      const before = await this.d.plugins?.get();
+      if (before) await new PluginHookBus({ hooks: before.hooks }).emit('plugin.reload.before', {});
       this.d.plugins?.invalidate();
       for (const userId of this.sessions.activeUserIds()) await this.restart(userId);
       // Non-active live sessions just drop; they respawn with the new registry on next resume.
@@ -428,6 +433,9 @@ export class BrainService {
       // Platform adapters were built by the old registry — disconnect them and start the fresh set.
       this.platforms.stopAll();
       await this.platforms.startAll();
+      // reload.after fires against the freshly rebuilt registry so plugins can re-prime state.
+      const after = await this.d.plugins?.get();
+      if (after) await new PluginHookBus({ hooks: after.hooks }).emit('plugin.reload.after', {});
     });
   }
 

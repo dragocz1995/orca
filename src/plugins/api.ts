@@ -5,8 +5,22 @@ import type { TurnIdentity } from './policyContext.js';
  *  flows straight into `formatSkillsForPrompt` — skills are inherently markdown-file based. */
 export type PluginSkill = Skill;
 
-/** A named lifecycle callback. The concrete hook set stays intentionally minimal for the foundation. */
-export interface PluginHook { name: string; run: (payload: unknown) => void | Promise<void> }
+/** The observable lifecycle points a plugin hook can subscribe to. The union constrains only the NAME;
+ *  payloads stay `unknown` in v1 so adding a hook site never churns the type. Grouped by subsystem:
+ *  platform ingress, brain session/turn lifecycle, tool registry/calls, memory I/O, and plugin reloads. */
+export type PluginHookName =
+  | 'platform.message.received' | 'platform.message.normalized'
+  | 'brain.session.beforeSpawn' | 'brain.session.afterSpawn'
+  | 'brain.turn.beforeContext' | 'brain.turn.contextBuilt'
+  | 'brain.turn.beforeSend' | 'brain.turn.afterResponse'
+  | 'tools.registry.build' | 'tools.call.before' | 'tools.call.after'
+  | 'memory.retrieve.before' | 'memory.retrieve.after'
+  | 'memory.write.before' | 'memory.write.after'
+  | 'plugin.reload.before' | 'plugin.reload.after';
+
+/** A named lifecycle callback. The concrete hook set stays intentionally minimal for the foundation.
+ *  Hooks are OBSERVATIONAL in v1 — they observe/annotate, never mutate the brain hot path. */
+export interface PluginHook { name: PluginHookName; run: (payload: unknown) => void | Promise<void> }
 
 /** Where a channel message came from + what its sender may access. The adapter resolves `access` from
  *  its own role mapping (e.g. Discord role → projects + prompt); a message without `access` is ignored
