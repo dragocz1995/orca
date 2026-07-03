@@ -295,10 +295,14 @@ export function AccountView() {
           </div>
         ) : null}
 
-        {/* Default Orca AI chat (cliSettings.model) */}
+        {/* Default Orca AI model — the embedded brain used by BOTH the web chat and the orca chat
+            CLI (cliSettings.model), not just chat. */}
         {orcaGroups.length > 0 ? (
           <div className="flex flex-col gap-2.5">
-            <span className="text-tiny font-semibold uppercase tracking-wide text-text-muted">{t.account.defaultOrcaAi}</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-tiny font-semibold uppercase tracking-wide text-text-muted">{t.account.defaultOrcaAi}</span>
+              <span className="text-tiny text-text-muted">{t.account.defaultOrcaAiHint}</span>
+            </div>
             {orcaGroups.map((g) => (
               <div key={g.provider} className="flex flex-col gap-1.5">
                 <span className="text-xs text-text-muted">{g.label}</span>
