@@ -1,26 +1,44 @@
 'use client';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, Plus, Trash2, KeyRound, ChevronDown, ChevronRight, Clock, Users, SlidersHorizontal, Link2, GraduationCap, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, KeyRound, ChevronDown, ChevronRight, Clock, Users, SlidersHorizontal, Link2, GraduationCap, Info, Wrench, Webhook, ShieldCheck, HardDrive, ScrollText, Search, Globe, type LucideIcon } from 'lucide-react';
 import { useAutoSave } from '../../lib/useAutoSave';
+import { useTheme } from '../../lib/useTheme';
 import { pluginIcon } from './pluginMeta';
 import { CronJobsEditor } from './CronJobsEditor';
 import { SkillsEditor } from './SkillsEditor';
+import { MonacoEditor } from '../projects/editor/monacoLoader';
+import { defineEditorThemes } from '../projects/editor/oledTheme';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
+import { HelpTip } from '../../components/ui/HelpTip';
 import { Toggle } from '../../components/ui/Toggle';
 import { Checkbox } from '../../components/ui/Checkbox';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { Segmented } from '../../components/ui/Segmented';
-import { LoadingState } from '../../components/ui/states';
+import { EmptyState, LoadingState } from '../../components/ui/states';
+import type { Tone } from '../../components/ui/tone';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
-import { usePluginDetail, usePlugins, useProjects, useConfig } from '../../lib/queries';
-import { useSavePluginConfig, useTogglePlugin } from '../../lib/mutations';
-import type { PluginConfigField, RolePolicy } from '../../lib/types';
+import { usePluginDetail, usePluginContributions, usePluginLogs, usePlugins, useProjects, useConfig } from '../../lib/queries';
+import { useSavePluginConfig, useTogglePlugin, useClearPluginData } from '../../lib/mutations';
+import type { PluginConfigField, PluginContributions, RolePolicy } from '../../lib/types';
 
 const textareaClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent';
+
+/** Human-readable byte size for the Data section (KB/MB steps, 1 decimal above 10 units). */
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const n = bytes / 1024 ** i;
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
+
+/** Risk level → Badge tone (high danger, medium warning, low muted). */
+const RISK_TONE: Record<'low' | 'medium' | 'high', Tone> = { low: 'muted', medium: 'warning', high: 'danger' };
 
 /** A collapsible section: an icon chip + title header with a rotating chevron, and content that hides
  *  when closed. Matches SettingCard styling so a group of these reads as one system. */
@@ -206,15 +224,148 @@ function ProviderPicker({ value, onChange, providerType }: { value: string; onCh
 // Connection-ish plain keys that belong with the secrets section (endpoints/ids), not with behavior.
 const CONNECTION_KEYS = new Set(['guildId', 'threadIds', 'notifyChannelId', 'channelId', 'apiUrl', 'baseUrl', 'url', 'endpoint', 'host', 'port', 'appId', 'clientId', 'webhookUrl']);
 
-/** One plugin's own settings section: header (enable toggle) + a form generated from the manifest's
- *  configSchema, grouped into collapsible sections. Secrets are write-only (placeholder shows they are
- *  set); saving hot-reloads the brain. */
+/** Drop `json`-typed fields whose current text doesn't parse from the save payload, so a malformed blob
+ *  never round-trips to the backend (and into reloadPlugins). The field stays editable/red in the UI —
+ *  only the persisted patch skips it, so a valid edit later saves normally. */
+function sanitizeConfig(values: Record<string, unknown>, schema: PluginConfigField[]): Record<string, unknown> {
+  const jsonKeys = new Set(schema.filter((f) => f.type === 'json').map((f) => f.key));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(values)) {
+    if (jsonKeys.has(k) && typeof v === 'string' && v.trim() !== '') {
+      try { JSON.parse(v); } catch { continue; } // invalid JSON → don't persist this field
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/** A label → value pair for the read-only detail grids (Overview, Data). */
+function Meta({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-medium uppercase tracking-wide text-text-muted">{label}</span>
+      <span className="min-w-0 text-sm text-text">{children}</span>
+    </div>
+  );
+}
+
+/** A config field's label row (label + optional risk badge + help tip) above its control, with an
+ *  optional hint below. A div rather than a `<label>` so the help-tip button doesn't nest in a label. */
+function LabeledField({ label, hint, help, risk, riskLabel, children }: {
+  label: string;
+  hint?: string;
+  help?: string;
+  risk?: 'low' | 'medium' | 'high';
+  riskLabel?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-text-muted">
+        <span>{label}</span>
+        {risk && riskLabel ? <Badge tone={RISK_TONE[risk]}>{riskLabel}</Badge> : null}
+        {help ? <HelpTip align="left">{help}</HelpTip> : null}
+      </span>
+      {children}
+      {hint ? <span className="text-xs text-text-muted">{hint}</span> : null}
+    </div>
+  );
+}
+
+// A read-only pill for a contribution / hook name.
+const namePill = 'rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-text-muted';
+
+/** Tools section body: the plugin's live tools / skills / platforms, grouped and searchable by name. */
+function ContributionsList({ contributions }: { contributions?: PluginContributions }) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const groups = [
+    { key: 'tools' as const, label: t.pluginDetail.tools },
+    { key: 'skills' as const, label: t.pluginDetail.skills },
+    { key: 'platforms' as const, label: t.pluginDetail.platforms },
+  ];
+  const total = (contributions?.tools.length ?? 0) + (contributions?.skills.length ?? 0) + (contributions?.platforms.length ?? 0);
+  if (total === 0) return <EmptyState title={t.pluginDetail.toolsEmpty} icon={Wrench} />;
+  const filtered = groups
+    .map((g) => ({ ...g, items: (contributions?.[g.key] ?? []).filter((i) => i.name.toLowerCase().includes(q)) }))
+    .filter((g) => g.items.length > 0);
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-text-muted">{t.pluginDetail.toolsHint}</p>
+      <div className="relative">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" aria-hidden />
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.plugins.searchPlaceholder} className="pl-9" />
+      </div>
+      {filtered.map((g) => (
+        <div key={g.key} className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">{g.label}</span>
+          <div className="flex flex-wrap gap-1.5">
+            {g.items.map((i) => <span key={i.name} className={namePill}>{i.name}</span>)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Data section body: the plugin's on-disk footprint plus a destructive "clear" behind a confirm. */
+function DataSection({ name, summary }: { name: string; summary: { path: string; exists: boolean; files: number; bytes: number } }) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const clear = useClearPluginData();
+  const [confirm, setConfirm] = useState(false);
+  if (!summary.exists || summary.files === 0) return <EmptyState title={t.pluginDetail.dataEmpty} icon={HardDrive} />;
+  const doClear = () => {
+    setConfirm(false);
+    clear.mutate(name, {
+      onSuccess: () => toast(t.pluginDetail.dataCleared),
+      onError: () => toast(t.pluginDetail.dataClearError, 'error'),
+    });
+  };
+  return (
+    <div className="@container flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 @sm:grid-cols-3">
+        <Meta label={t.pluginDetail.dataSize}>{formatBytes(summary.bytes)}</Meta>
+        <Meta label={t.pluginDetail.dataFiles.replace('{n}', String(summary.files))}><span className="font-mono">{summary.files}</span></Meta>
+        <div className="min-w-0 @sm:col-span-3">
+          <Meta label={t.pluginDetail.dataPath}><span className="block break-all font-mono text-xs text-text-muted">{summary.path}</span></Meta>
+        </div>
+      </div>
+      <Button variant="danger" icon={Trash2} className="self-start" onClick={() => setConfirm(true)} disabled={clear.isPending}>{t.pluginDetail.dataClear}</Button>
+      <ConfirmDialog
+        open={confirm}
+        title={t.pluginDetail.dataClear}
+        description={t.pluginDetail.dataClearConfirm}
+        confirmLabel={t.pluginDetail.dataClear}
+        onConfirm={doClear}
+        onClose={() => setConfirm(false)}
+      />
+    </div>
+  );
+}
+
+// Log level → text colour for the Logs panel.
+const LOG_LEVEL_CLASS: Record<'debug' | 'info' | 'warn' | 'error', string> = {
+  debug: 'text-text-muted/70',
+  info: 'text-text-muted',
+  warn: 'text-warning',
+  error: 'text-danger',
+};
+
+/** One plugin's rich detail view: an identity hero plus collapsible Overview / Config / Tools / Hooks /
+ *  Permissions / Data / Logs sections. Config is a form generated from the manifest's `configSchema`;
+ *  secrets are write-only (a placeholder shows they are set) and saving hot-reloads the brain. */
 export function PluginDetail({ name, onBack }: { name: string; onBack: () => void }) {
   const { data, isLoading } = usePluginDetail(name);
+  const { data: contributions } = usePluginContributions(name);
+  const { data: logs } = usePluginLogs(name);
   const save = useSavePluginConfig();
   const toggle = useTogglePlugin();
   const { toast } = useToast();
   const { t, locale } = useTranslation();
+  const { resolvedTheme } = useTheme();
+  const monacoTheme = resolvedTheme === 'light' ? 'orca-light' : 'orca-oled';
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [seeded, setSeeded] = useState(false);
 
@@ -222,11 +373,12 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
 
   // Auto-persist shortly after any field change; the daemon hot-reloads the brain on save.
   useAutoSave([values], () => save.mutate(
-    { name, values },
+    { name, values: sanitizeConfig(values, data?.configSchema ?? []) },
     { onError: () => toast(t.pluginCfg.saveError, 'error') }, // auto-save is silent on success — only failures surface
   ), { ready: seeded, delay: 1200 });
 
   if (isLoading || !data) return <LoadingState />;
+  const detail = data;
 
   const set = (key: string, v: unknown) => setValues((cur) => ({ ...cur, [key]: v }));
 
@@ -244,59 +396,166 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
             type="password"
             value={String(values[f.key] ?? '')}
             onChange={(e) => set(f.key, e.target.value)}
-            placeholder={data.secretsSet.includes(f.key) ? t.pluginCfg.secretSet : ''}
+            placeholder={detail.secretsSet.includes(f.key) ? t.pluginCfg.secretSet : ''}
             autoComplete="off"
           />
         );
       case 'model':
         // Brain-only picker: full Orca AI catalog (incl. OAuth accounts) — image gen never runs a CLI worker.
         return <ExecutorPicker value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} models={[]} allowDefault={false} kind="brain" />;
+      case 'embeddingModel':
+        // Same brain catalog, used to pick the model that produces embeddings (parallels `model`).
+        return <ExecutorPicker value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} models={[]} allowDefault={false} kind="brain" />;
       case 'provider':
         // Reuse a configured brain provider's key as this plugin's credentials (voice, image gen).
         return <ProviderPicker value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} providerType={f.providerType} />;
       case 'rolePolicies':
         return <RolePoliciesEditor value={Array.isArray(values[f.key]) ? (values[f.key] as RolePolicy[]) : []} onChange={(v) => set(f.key, v)} />;
+      case 'enum':
+        return <Segmented size="sm" options={(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))} value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} />;
+      case 'multiSelect': {
+        const sel = Array.isArray(values[f.key]) ? (values[f.key] as string[]) : [];
+        return (
+          <div className="flex flex-wrap gap-1.5">
+            {(f.options ?? []).map((o) => {
+              const on = sel.includes(o.value);
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => set(f.key, on ? sel.filter((x) => x !== o.value) : [...sel, o.value])}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${on ? 'border-accent bg-accent/15 text-accent' : 'border-border text-text-muted hover:bg-elevated'}`}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+        );
+      }
+      case 'code':
+        return (
+          <div className="overflow-hidden rounded-md border border-border" style={{ height: 260 }}>
+            <MonacoEditor
+              language={f.language ?? 'plaintext'}
+              value={String(values[f.key] ?? '')}
+              onChange={(v) => set(f.key, v ?? '')}
+              theme={monacoTheme}
+              beforeMount={defineEditorThemes}
+              options={{ fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, padding: { top: 12 }, wordWrap: 'on', folding: false }}
+            />
+          </div>
+        );
+      case 'prompt':
+        return (
+          <div className="overflow-hidden rounded-md border border-border" style={{ height: 260 }}>
+            <MonacoEditor
+              language="markdown"
+              value={String(values[f.key] ?? '')}
+              onChange={(v) => set(f.key, v ?? '')}
+              theme={monacoTheme}
+              beforeMount={defineEditorThemes}
+              options={{ fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, padding: { top: 12 }, wordWrap: 'on', lineNumbers: 'off', folding: false }}
+            />
+          </div>
+        );
+      case 'json': {
+        const raw = values[f.key];
+        const text = typeof raw === 'string' ? raw : raw === undefined ? '' : JSON.stringify(raw, null, 2);
+        let invalid = false;
+        if (text.trim() !== '') { try { JSON.parse(text); } catch { invalid = true; } }
+        return (
+          <div className="flex flex-col gap-1">
+            <textarea
+              value={text}
+              onChange={(e) => set(f.key, e.target.value)}
+              rows={6}
+              spellCheck={false}
+              className={`${textareaClass}${invalid ? ' border-danger focus:border-danger' : ''}`}
+            />
+            {/* No copy for the parse error is in the locked i18n contract yet, so the invalid state is
+                signalled visually (red field + marker) rather than with a hardcoded string. */}
+            {invalid ? <span className="flex items-center gap-1 text-danger" aria-hidden><Info size={13} /></span> : null}
+          </div>
+        );
+      }
       default:
         return <Input value={String(values[f.key] ?? '')} onChange={(e) => set(f.key, e.target.value)} />;
     }
   };
 
-  const Icon = pluginIcon(data.name);
+  const HeroIcon = pluginIcon(detail.name);
   // Manifest strings are English; a plugin's own `i18n/<locale>.json` overrides description + per-field
   // label/hint. Fall back to the manifest English whenever a translation is absent.
-  const tr = data.i18n?.[locale];
+  const tr = detail.i18n?.[locale];
   const fieldLabel = (f: PluginConfigField) => tr?.fields?.[f.key]?.label ?? f.label;
   const fieldHint = (f: PluginConfigField) => tr?.fields?.[f.key]?.hint ?? f.hint;
-  const pluginDescription = tr?.description ?? data.description;
+  const pluginDescription = tr?.description ?? detail.description;
+  const riskText = (r: 'low' | 'medium' | 'high') => (r === 'high' ? t.pluginDetail.riskHigh : r === 'medium' ? t.pluginDetail.riskMedium : t.pluginDetail.riskLow);
+  // A field is shown unless its `visibleWhen` guard points at a value the form doesn't currently hold.
+  const isVisible = (f: PluginConfigField) => !f.visibleWhen || values[f.visibleWhen.key] === f.visibleWhen.equals;
+
   const fieldList = (fields: PluginConfigField[]) => (
     <div className="flex flex-col gap-4">
-      {fields.map((f) => (
-        // Complex editors carry their own section header (title + hint), so they render bare — wrapping
-        // them in a labelled Field would repeat the label above and the hint below the editor.
-        f.type === 'rolePolicies'
-          ? <div key={f.key}>{renderField(f)}</div>
-          : <Field key={f.key} label={fieldLabel(f)} hint={fieldHint(f)}>{renderField(f)}</Field>
-      ))}
+      {fields.filter(isVisible).map((f) => {
+        // A `section` field is a group heading carrying no input.
+        if (f.type === 'section') {
+          return (
+            <div key={f.key} className="border-t border-border pt-3 first:border-0 first:pt-0">
+              <span className="text-xs font-semibold uppercase tracking-wide text-text">{fieldLabel(f)}</span>
+              {fieldHint(f) ? <p className="mt-1 text-xs text-text-muted">{fieldHint(f)}</p> : null}
+            </div>
+          );
+        }
+        // Complex editors carry their own row headers, so they render bare (no outer label/hint).
+        if (f.type === 'rolePolicies') return <div key={f.key}>{renderField(f)}</div>;
+        return (
+          <LabeledField key={f.key} label={fieldLabel(f)} hint={fieldHint(f)} help={f.help} risk={f.risk} riskLabel={f.risk ? riskText(f.risk) : undefined}>
+            {renderField(f)}
+          </LabeledField>
+        );
+      })}
     </div>
   );
 
-  // Bucket the schema generically (by type / known connection keys) into collapsible sections so a
-  // plugin with many settings reads cleanly. Complex editors (rolePolicies) each get their own section.
+  // Config body: when the schema uses explicit `section` headers the author organised it, so render it
+  // in declared order. Otherwise bucket generically (connection/secrets vs behaviour vs complex editors)
+  // so a flat schema with many fields still reads cleanly.
+  const schema = detail.configSchema;
+  const hasExplicitSections = schema.some((f) => f.type === 'section');
   const isComplex = (f: PluginConfigField) => f.type === 'rolePolicies';
   const isConnection = (f: PluginConfigField) => f.type === 'secret' || CONNECTION_KEYS.has(f.key);
-  const connectionFields = data.configSchema.filter((f) => isConnection(f) && !isComplex(f));
-  const behaviorFields = data.configSchema.filter((f) => !isConnection(f) && !isComplex(f));
-  const complexFields = data.configSchema.filter(isComplex);
+  const connectionFields = schema.filter((f) => isConnection(f) && !isComplex(f));
+  const behaviorFields = schema.filter((f) => !isConnection(f) && !isComplex(f));
+  const complexFields = schema.filter(isComplex);
+  const group = (key: string, Icon: LucideIcon, title: string, hint: string | undefined, fields: PluginConfigField[]) => (
+    <div key={key} className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Icon size={14} className="text-text-muted" aria-hidden />
+        <span className="text-sm font-medium text-text">{title}</span>
+      </div>
+      {hint ? <p className="text-xs text-text-muted">{hint}</p> : null}
+      {fieldList(fields)}
+    </div>
+  );
 
-  const sections: { id: string; title: string; description?: string; icon: LucideIcon; fields: PluginConfigField[] }[] = [];
-  if (connectionFields.length) sections.push({ id: 'connection', title: t.pluginCfg.sectionConnection, description: t.pluginCfg.sectionConnectionHint, icon: Link2, fields: connectionFields });
-  if (behaviorFields.length) sections.push({ id: 'behavior', title: t.pluginCfg.sectionBehavior, icon: SlidersHorizontal, fields: behaviorFields });
-  for (const cf of complexFields) sections.push({ id: cf.key, title: fieldLabel(cf), description: fieldHint(cf), icon: Users, fields: [cf] });
+  // Permissions derived from what EXISTS in the manifest — required secret fields read as credential
+  // requirements, the rest as plain config; a coarse risk level from secrets/network/tool-count.
+  const requiredSecrets = schema.filter((f) => f.required && f.type === 'secret');
+  const requiredConfig = schema.filter((f) => f.required && f.type !== 'secret' && f.type !== 'section');
+  const hasSecrets = schema.some((f) => f.type === 'secret') || detail.secretsSet.length > 0;
+  const platformCount = detail.provides.platforms?.length ?? 0;
+  const declaresNetwork = schema.some((f) => CONNECTION_KEYS.has(f.key)) || platformCount > 0;
+  const toolCount = detail.provides.tools?.length ?? 0;
+  const anyHighRiskField = schema.some((f) => f.risk === 'high');
+  const riskLevel: 'low' | 'medium' | 'high' =
+    anyHighRiskField || (hasSecrets && (declaresNetwork || toolCount > 3)) ? 'high'
+      : hasSecrets || declaresNetwork || toolCount > 0 ? 'medium'
+        : 'low';
 
-  // Open the section with a required-but-unset secret first (the thing the user must fill in), else the
-  // first section — the rest start collapsed so the page reads calmly.
-  const hasUnsetRequiredSecret = connectionFields.some((f) => f.type === 'secret' && f.required && !data.secretsSet.includes(f.key));
-  const openId = hasUnsetRequiredSecret && connectionFields.length ? 'connection' : sections[0]?.id;
+  // Open Config first only when there's a required-but-unset secret to fill in; otherwise Overview.
+  const hasUnsetRequiredSecret = schema.some((f) => f.type === 'secret' && f.required && !detail.secretsSet.includes(f.key));
+  const health = logs?.health ?? detail.health ?? 'ok';
 
   return (
     <div className="flex flex-col gap-5">
@@ -304,45 +563,142 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
         <Button variant="ghost" icon={ArrowLeft} onClick={onBack}>{t.pluginCfg.back}</Button>
       </div>
 
-      {/* Hero header: the plugin's identity card, with the live enable toggle. */}
+      {/* Hero header: the plugin's identity card. */}
       <div className="flex items-start gap-4 rounded-xl border border-border bg-surface p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
-        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${data.enabled ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-elevated text-text-muted'}`}>
-          <Icon size={22} aria-hidden />
+        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${detail.enabled ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-elevated text-text-muted'}`}>
+          <HeroIcon size={22} aria-hidden />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text">
-            {data.name}
-            <span className="font-mono text-tiny text-text-muted">v{data.version}</span>
-            {data.secretsSet.length > 0 ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
+            {detail.name}
+            <span className="font-mono text-tiny text-text-muted">v{detail.version}</span>
+            {detail.secretsSet.length > 0 ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
           </span>
           <p className="text-xs leading-relaxed text-text-muted">{pluginDescription}</p>
         </div>
-        <span className="flex shrink-0 items-center gap-2 pt-1 text-sm text-text-muted">
-          {data.enabled ? t.plugins.disable : t.plugins.enable}
-          <Toggle checked={data.enabled} onChange={(v) => toggle.mutate({ name, enabled: v })} label={data.name} disabled={toggle.isPending} />
-        </span>
       </div>
 
-      {sections.map((s) => (
-        <Collapsible key={s.id} icon={s.icon} title={s.title} description={s.description} defaultOpen={s.id === openId}>
-          {fieldList(s.fields)}
-        </Collapsible>
-      ))}
+      {/* 1 — Overview: identity facts, health, and the live enable toggle. */}
+      <Collapsible icon={Info} title={t.pluginDetail.overview} defaultOpen>
+        <div className="@container flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-4 @sm:grid-cols-3">
+            <Meta label={t.pluginDetail.overviewVersion}><span className="font-mono">v{detail.version}</span></Meta>
+            <Meta label={t.pluginDetail.overviewSource}>{detail.source === 'bundled' ? t.plugins.bundled : t.plugins.user}</Meta>
+            <Meta label={t.pluginDetail.overviewStatus}>
+              <span className="flex flex-wrap items-center gap-2">
+                <Toggle checked={detail.enabled} onChange={(v) => toggle.mutate({ name, enabled: v })} label={detail.name} disabled={toggle.isPending} />
+                <span className="text-text-muted">{detail.enabled ? t.plugins.disable : t.plugins.enable}</span>
+                <Badge tone={health === 'error' ? 'danger' : 'success'}>{health === 'error' ? t.plugins.healthError : t.plugins.healthOk}</Badge>
+              </span>
+            </Meta>
+          </div>
+          <p className="text-sm leading-relaxed text-text-muted">{pluginDescription}</p>
+        </div>
+      </Collapsible>
+
+      {/* 2 — Config: the generated form. */}
+      <Collapsible icon={SlidersHorizontal} title={t.pluginDetail.config} defaultOpen={hasUnsetRequiredSecret}>
+        {schema.length === 0 ? (
+          <p className="text-sm text-text-muted">{t.pluginDetail.configEmpty}</p>
+        ) : hasExplicitSections ? (
+          fieldList(schema)
+        ) : (
+          <div className="flex flex-col gap-6">
+            {connectionFields.length ? group('connection', Link2, t.pluginCfg.sectionConnection, t.pluginCfg.sectionConnectionHint, connectionFields) : null}
+            {behaviorFields.length ? group('behavior', SlidersHorizontal, t.pluginCfg.sectionBehavior, undefined, behaviorFields) : null}
+            {complexFields.map((cf) => group(cf.key, Users, fieldLabel(cf), fieldHint(cf), [cf]))}
+          </div>
+        )}
+      </Collapsible>
 
       {/* The cronjob plugin's jobs are data, not config schema — a dedicated editor section. */}
-      {data.name === 'cronjob' ? (
+      {detail.name === 'cronjob' ? (
         <Collapsible icon={Clock} title={t.cron.title} description={t.cron.sectionHint} defaultOpen>
           <CronJobsEditor />
         </Collapsible>
       ) : null}
 
       {/* Same story for the skills plugin: its skills are .md files, not config schema. */}
-      {data.name === 'skills' ? (
+      {detail.name === 'skills' ? (
         <Collapsible icon={GraduationCap} title={t.skills.title} description={t.skills.sectionHint} defaultOpen>
           <SkillsEditor />
         </Collapsible>
       ) : null}
 
+      {/* 3 — Tools: the plugin's live tools / skills / platforms. */}
+      <Collapsible icon={Wrench} title={t.pluginDetail.tools}>
+        <ContributionsList contributions={contributions} />
+      </Collapsible>
+
+      {/* 4 — Hooks: the plugin's registered runtime hooks (subscriptions, not an execution audit). */}
+      <Collapsible icon={Webhook} title={t.pluginDetail.hooks}>
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-text-muted">{t.pluginDetail.hooksHint}</p>
+          {(contributions?.hooks.length ?? 0) === 0 ? (
+            <EmptyState title={t.pluginDetail.hooksEmpty} icon={Webhook} />
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {(contributions?.hooks ?? []).map((h, i) => <span key={`${h.name}-${i}`} className={namePill}>{h.name}</span>)}
+            </div>
+          )}
+        </div>
+      </Collapsible>
+
+      {/* 5 — Permissions: derived requirements + risk summary (read-only). */}
+      <Collapsible icon={ShieldCheck} title={t.pluginDetail.permissions}>
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-text-muted">{t.pluginDetail.permissionsHint}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge tone={RISK_TONE[riskLevel]}>{riskText(riskLevel)}</Badge>
+            {hasSecrets ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
+            {declaresNetwork ? <Badge><Globe size={10} className="mr-1" aria-hidden />{t.pluginDetail.platforms}</Badge> : null}
+            {toolCount > 0 ? <Badge>{`${toolCount} ${t.pluginDetail.tools}`}</Badge> : null}
+          </div>
+          {requiredSecrets.length === 0 && requiredConfig.length === 0 ? (
+            <p className="text-sm text-text-muted">{t.pluginDetail.requiresNone}</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {requiredSecrets.length ? (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">{t.pluginDetail.requiresEnv}</span>
+                  <div className="flex flex-wrap gap-1.5">{requiredSecrets.map((f) => <span key={f.key} className={namePill}>{fieldLabel(f)}</span>)}</div>
+                </div>
+              ) : null}
+              {requiredConfig.length ? (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">{t.pluginDetail.requiresConfig}</span>
+                  <div className="flex flex-wrap gap-1.5">{requiredConfig.map((f) => <span key={f.key} className={namePill}>{fieldLabel(f)}</span>)}</div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </Collapsible>
+
+      {/* 6 — Data: on-disk footprint + destructive clear. */}
+      <Collapsible icon={HardDrive} title={t.pluginDetail.data}>
+        <DataSection name={name} summary={detail.data} />
+      </Collapsible>
+
+      {/* 7 — Logs: the tail of the plugin's log ring, newest last. */}
+      <Collapsible icon={ScrollText} title={t.pluginDetail.logs}>
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-text-muted">{t.pluginDetail.logsHint}</p>
+          {!logs || logs.entries.length === 0 ? (
+            <EmptyState title={t.pluginDetail.logsEmpty} icon={ScrollText} />
+          ) : (
+            <div className="max-h-72 overflow-auto rounded-md border border-border bg-bg p-3 font-mono text-[11px] leading-relaxed">
+              {logs.entries.map((e, i) => (
+                <div key={i} className="flex gap-2 py-0.5">
+                  <span className="shrink-0 text-text-muted">{new Date(e.ts).toLocaleTimeString(locale)}</span>
+                  <span className={`shrink-0 uppercase ${LOG_LEVEL_CLASS[e.level]}`}>{e.level}</span>
+                  <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-text">{e.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Collapsible>
     </div>
   );
 }
