@@ -1,0 +1,144 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { openDb } from '../../src/store/db.js';
+import { MemoryStore, hashBody } from '../../src/store/memoryStore.js';
+
+describe('MemoryStore', () => {
+  let store: MemoryStore;
+  beforeEach(() => { store = new MemoryStore(openDb(':memory:')); });
+
+  it('add returns the full row and writes an add audit event', () => {
+    const m = store.add(1, { body: 'likes espresso', importance: 5 }, 'agent', 'observed');
+    expect(m).toMatchObject({ user_id: 1, body: 'likes espresso', kind: 'fact', importance: 5, status: 'active', use_count: 0 });
+    expect(store.get(1, m.id)).toMatchObject({ id: m.id, body: 'likes espresso' });
+
+    const events = store.listEvents(1);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ memory_id: m.id, action: 'add', actor: 'agent', reason: 'observed' });
+    expect(JSON.parse(events[0]!.after_json!)).toMatchObject({ body: 'likes espresso' });
+    expect(events[0]!.before_json).toBeNull();
+  });
+
+  it('list default excludes soft-deleted and orders updated_at DESC', () => {
+    const a = store.add(1, { body: 'a' }, 'agent', '');
+    const b = store.add(1, { body: 'b' }, 'agent', '');
+    store.softDelete(1, a.id, 'agent', '');
+    const list = store.list(1);
+    expect(list.map((m) => m.id)).toEqual([b.id]);
+    // status '' includes every status
+    expect(store.list(1, { status: '' }).map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('softDelete then restore roundtrips and audits both transitions', () => {
+    const m = store.add(1, { body: 'x' }, 'agent', '');
+    expect(store.softDelete(1, m.id, 'user:1', 'obsolete')).toBe(true);
+    expect(store.get(1, m.id)?.status).toBe('deleted');
+    expect(store.restore(1, m.id, 'user:1', 'oops')).toBe(true);
+    expect(store.get(1, m.id)?.status).toBe('active');
+
+    const actions = store.listEvents(1).map((e) => e.action);
+    expect(actions).toContain('delete');
+    expect(actions).toContain('restore');
+  });
+
+  it('merge creates a new memory, soft-deletes sources, and audits source ids', () => {
+    const a = store.add(1, { body: 'lives in Prague' }, 'agent', '');
+    const b = store.add(1, { body: 'moved to Prague 2020' }, 'agent', '');
+    const merged = store.merge(1, [a.id, b.id], 'lives in Prague since 2020', 'agent', 'dedup');
+
+    expect(merged.body).toBe('lives in Prague since 2020');
+    expect(merged.status).toBe('active');
+    expect(store.get(1, a.id)?.status).toBe('deleted');
+    expect(store.get(1, b.id)?.status).toBe('deleted');
+
+    const mergeEvent = store.listEvents(1).find((e) => e.action === 'merge')!;
+    expect(JSON.parse(mergeEvent.after_json!)).toMatchObject({ mergedId: merged.id, sourceIds: [a.id, b.id] });
+  });
+
+  it('setEmbedding/getEmbedding roundtrips a Float32 vector exactly', () => {
+    const m = store.add(1, { body: 'vec' }, 'agent', '');
+    const vec = new Float32Array([0.1, -0.5, 3.14159, 0, 42.25]);
+    store.setEmbedding(1, m.id, { provider: 'openai', model: 'text-embedding-3-small', dimensions: vec.length, vector: vec, contentHash: hashBody('vec') });
+
+    const row = store.getEmbedding(1, m.id)!;
+    expect(row.dimensions).toBe(5);
+    expect(row.provider).toBe('openai');
+    const back = new Float32Array(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength / 4);
+    expect(Array.from(back)).toEqual(Array.from(vec));
+  });
+
+  it('setEmbedding upserts (replaces) an existing embedding', () => {
+    const m = store.add(1, { body: 'vec' }, 'agent', '');
+    store.setEmbedding(1, m.id, { provider: 'a', model: 'm1', dimensions: 2, vector: new Float32Array([1, 2]), contentHash: 'h1' });
+    store.setEmbedding(1, m.id, { provider: 'b', model: 'm2', dimensions: 2, vector: new Float32Array([3, 4]), contentHash: 'h2' });
+    const row = store.getEmbedding(1, m.id)!;
+    expect(row.provider).toBe('b');
+    expect(row.content_hash).toBe('h2');
+  });
+
+  it('needsEmbedding detects missing and stale (body changed) embeddings', () => {
+    const a = store.add(1, { body: 'has no vector' }, 'agent', '');
+    const b = store.add(1, { body: 'fresh body' }, 'agent', '');
+    // b gets a current embedding
+    store.setEmbedding(1, b.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: hashBody('fresh body') });
+
+    // Only a needs one (no embedding at all)
+    expect(store.needsEmbedding(1).map((m) => m.id)).toEqual([a.id]);
+
+    // Edit b's body → its stored hash goes stale
+    store.update(1, b.id, { body: 'edited body' }, 'user:1', 'fix');
+    expect(store.needsEmbedding(1).map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('markUsed bumps use_count and sets last_used_at', () => {
+    const m = store.add(1, { body: 'x' }, 'agent', '');
+    expect(store.get(1, m.id)?.use_count).toBe(0);
+    store.markUsed(1, [m.id]);
+    store.markUsed(1, [m.id]);
+    const row = store.get(1, m.id)!;
+    expect(row.use_count).toBe(2);
+    expect(row.last_used_at).not.toBeNull();
+  });
+
+  it('removeForUser wipes memories, embeddings, and events for that user', () => {
+    const m = store.add(1, { body: 'x' }, 'agent', '');
+    store.setEmbedding(1, m.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: 'h' });
+    store.add(2, { body: 'other user' }, 'agent', '');
+
+    store.removeForUser(1);
+    expect(store.get(1, m.id)).toBeUndefined();
+    expect(store.getEmbedding(1, m.id)).toBeUndefined(); // cascaded
+    expect(store.listEvents(1)).toHaveLength(0);
+    // user 2 untouched
+    expect(store.list(2)).toHaveLength(1);
+  });
+
+  it('enforces cross-user isolation: user B cannot read or mutate user A memory', () => {
+    const a = store.add(1, { body: 'secret of A' }, 'agent', '');
+    // B cannot read
+    expect(store.get(2, a.id)).toBeUndefined();
+    // B cannot see it in lists/search
+    expect(store.list(2)).toHaveLength(0);
+    expect(store.search(2, 'secret', 10)).toHaveLength(0);
+    // B cannot mutate
+    expect(store.update(2, a.id, { body: 'hacked' }, 'user:2', 'x')).toBeUndefined();
+    expect(store.softDelete(2, a.id, 'user:2', 'x')).toBe(false);
+    // B cannot write an embedding onto A's memory, nor read A's embedding
+    store.setEmbedding(1, a.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: 'h' });
+    store.setEmbedding(2, a.id, { provider: 'evil', model: 'm', dimensions: 1, vector: new Float32Array([9]), contentHash: 'x' });
+    expect(store.getEmbedding(1, a.id)?.provider).toBe('p'); // B's write was a no-op
+    expect(store.getEmbedding(2, a.id)).toBeUndefined();
+    // A's memory is intact and unaudited by B's failed attempts
+    expect(store.get(1, a.id)?.body).toBe('secret of A');
+    expect(store.listEvents(2)).toHaveLength(0);
+  });
+
+  it('search is an active-only keyword LIKE fallback', () => {
+    const a = store.add(1, { body: 'prefers dark mode' }, 'agent', '');
+    store.add(1, { body: 'uses vim keybindings' }, 'agent', '');
+    const deleted = store.add(1, { body: 'dark theme old note' }, 'agent', '');
+    store.softDelete(1, deleted.id, 'agent', '');
+
+    const hits = store.search(1, 'dark', 10);
+    expect(hits.map((m) => m.id)).toEqual([a.id]); // deleted excluded
+  });
+});
