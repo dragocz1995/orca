@@ -16,6 +16,7 @@ import { projectUserTurn } from './persistence.js';
 import { BrainSessionFactory } from './session/factory.js';
 import { composeSessionTools } from './session/capabilities.js';
 import { IdentityResolver } from './identity.js';
+import { decideVisionHop } from './visionFallback.js';
 import { shapeBrainMessages, extractText } from './messageView.js';
 import type { BrainMessageView } from './messageView.js';
 import { toBrainEvent, usageOf } from './events.js';
@@ -364,21 +365,20 @@ export class BrainService {
     // Vision fallback (Account → CLI): an image turn on a text-only model hops onto the user's
     // configured vision model — the session respawns there (history rehydrates from SQLite) and hops
     // back on the next text-only turn, so the fallback never silently becomes the permanent model.
-    const vision = this.d.userSettings?.(userId)?.visionModel;
-    if (images?.length && !b.visionCapable && vision) {
+    const settings = this.d.userSettings?.(userId);
+    const hop = decideVisionHop({
+      hasImages: !!images?.length, visionCapable: b.visionCapable, onFallback: !!b.visionFallback,
+      visionModel: settings?.visionModel, visionModelProvider: settings?.visionModelProvider,
+    });
+    if (hop.action !== 'none') {
       this.stop(userId);
-      await this.start(userId, { provider: this.d.userSettings?.(userId)?.visionModelProvider || undefined, model: vision });
+      await this.start(userId, hop.action === 'hop' ? { provider: hop.provider, model: hop.model } : undefined);
       b = this.activeLive(userId);
       if (!b) throw new Error('brain not started for user');
       // Only mark the hop as active if it actually reached a vision-capable model — otherwise the
       // fallback model was unavailable/not allowed (start fell back to the default) and re-flagging
       // would pointlessly respawn on every following text turn.
-      b.visionFallback = b.visionCapable;
-    } else if (!images?.length && b.visionFallback) {
-      this.stop(userId);
-      await this.start(userId);
-      b = this.activeLive(userId);
-      if (!b) throw new Error('brain not started for user');
+      if (hop.action === 'hop') b.visionFallback = b.visionCapable;
     }
     const live = b;
     // Serialized per conversation: concurrent prompt() calls on one PI session corrupt turn state.
