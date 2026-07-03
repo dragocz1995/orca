@@ -69,11 +69,13 @@ describe('MemoryStore', () => {
 
   it('setEmbedding upserts (replaces) an existing embedding', () => {
     const m = store.add(1, { body: 'vec' }, 'agent', '');
-    store.setEmbedding(1, m.id, { provider: 'a', model: 'm1', dimensions: 2, vector: new Float32Array([1, 2]), contentHash: 'h1' });
-    store.setEmbedding(1, m.id, { provider: 'b', model: 'm2', dimensions: 2, vector: new Float32Array([3, 4]), contentHash: 'h2' });
+    const h = hashBody('vec');
+    store.setEmbedding(1, m.id, { provider: 'a', model: 'm1', dimensions: 2, vector: new Float32Array([1, 2]), contentHash: h });
+    store.setEmbedding(1, m.id, { provider: 'b', model: 'm2', dimensions: 2, vector: new Float32Array([3, 4]), contentHash: h });
     const row = store.getEmbedding(1, m.id)!;
     expect(row.provider).toBe('b');
-    expect(row.content_hash).toBe('h2');
+    expect(row.model).toBe('m2');
+    expect(row.content_hash).toBe(h);
   });
 
   it('listActiveWithEmbeddings returns active rows joined to their unpacked vectors, user-scoped', () => {
@@ -84,7 +86,7 @@ describe('MemoryStore', () => {
 
     const va = new Float32Array([0.25, -1.5, 3]);
     store.setEmbedding(1, a.id, { provider: 'p', model: 'm', dimensions: va.length, vector: va, contentHash: hashBody('has vector') });
-    store.setEmbedding(1, deleted.id, { provider: 'p', model: 'm', dimensions: 2, vector: new Float32Array([1, 2]), contentHash: 'h' });
+    store.setEmbedding(1, deleted.id, { provider: 'p', model: 'm', dimensions: 2, vector: new Float32Array([1, 2]), contentHash: hashBody('deleted with vector') });
     store.softDelete(1, deleted.id, 'agent', ''); // now inactive → excluded
 
     const rows = store.listActiveWithEmbeddings(1);
@@ -92,6 +94,37 @@ describe('MemoryStore', () => {
     expect(Array.from(rows[0]!.vector)).toEqual(Array.from(va));
     // user 2 sees nothing (their memory has no embedding, and A's is not theirs)
     expect(store.listActiveWithEmbeddings(2)).toHaveLength(0);
+  });
+
+  it('listActiveWithEmbeddings excludes a STALE vector until the body is re-embedded', () => {
+    const m = store.add(1, { body: 'original body' }, 'agent', '');
+    const v = new Float32Array([1, 2, 3]);
+    store.setEmbedding(1, m.id, { provider: 'p', model: 'm', dimensions: 3, vector: v, contentHash: hashBody('original body') });
+    // Fresh embedding → visible to retrieval.
+    expect(store.listActiveWithEmbeddings(1).map((r) => r.memory.id)).toEqual([m.id]);
+
+    // Edit the body: the stored vector is now stale (embedded from the old body). The row still has an
+    // embedding, but retrieval must NOT use it, or it would rank the memory against out-of-date text.
+    store.update(1, m.id, { body: 'edited body' }, 'user:1', 'fix');
+    expect(store.listActiveWithEmbeddings(1)).toHaveLength(0);
+
+    // Re-embed the new body → visible again.
+    store.setEmbedding(1, m.id, { provider: 'p', model: 'm', dimensions: 3, vector: v, contentHash: hashBody('edited body') });
+    expect(store.listActiveWithEmbeddings(1).map((r) => r.memory.id)).toEqual([m.id]);
+  });
+
+  it('setEmbedding is a compare-and-set: a vector for an outdated body is not written', () => {
+    const m = store.add(1, { body: 'v1' }, 'agent', '');
+    store.setEmbedding(1, m.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: hashBody('v1') });
+
+    // Simulate the embed-queue race: the body was edited AFTER the snapshot was embedded but BEFORE the
+    // vector is written back. The write carries the OLD body's hash → it must be rejected, leaving the
+    // fresh (v1) vector in place rather than clobbering it with a stale one.
+    store.update(1, m.id, { body: 'v2' }, 'user:1', 'edit');
+    store.setEmbedding(1, m.id, { provider: 'stale', model: 'm', dimensions: 1, vector: new Float32Array([9]), contentHash: hashBody('v1') });
+    const emb = store.getEmbedding(1, m.id)!;
+    expect(emb.provider).toBe('p'); // unchanged — the stale write was a no-op
+    expect(emb.content_hash).toBe(hashBody('v1'));
   });
 
   it('needsEmbedding detects missing and stale (body changed) embeddings', () => {
@@ -134,7 +167,7 @@ describe('MemoryStore', () => {
 
   it('removeForUser wipes memories, embeddings, and events for that user', () => {
     const m = store.add(1, { body: 'x' }, 'agent', '');
-    store.setEmbedding(1, m.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: 'h' });
+    store.setEmbedding(1, m.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: hashBody('x') });
     store.add(2, { body: 'other user' }, 'agent', '');
 
     store.removeForUser(1);
@@ -156,8 +189,8 @@ describe('MemoryStore', () => {
     expect(store.update(2, a.id, { body: 'hacked' }, 'user:2', 'x')).toBeUndefined();
     expect(store.softDelete(2, a.id, 'user:2', 'x')).toBe(false);
     // B cannot write an embedding onto A's memory, nor read A's embedding
-    store.setEmbedding(1, a.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: 'h' });
-    store.setEmbedding(2, a.id, { provider: 'evil', model: 'm', dimensions: 1, vector: new Float32Array([9]), contentHash: 'x' });
+    store.setEmbedding(1, a.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: hashBody('secret of A') });
+    store.setEmbedding(2, a.id, { provider: 'evil', model: 'm', dimensions: 1, vector: new Float32Array([9]), contentHash: hashBody('secret of A') });
     expect(store.getEmbedding(1, a.id)?.provider).toBe('p'); // B's write was a no-op
     expect(store.getEmbedding(2, a.id)).toBeUndefined();
     // A's memory is intact and unaudited by B's failed attempts

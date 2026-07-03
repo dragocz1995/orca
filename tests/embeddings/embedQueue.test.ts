@@ -124,6 +124,37 @@ describe('EmbeddingQueue', () => {
     expect(emb.calls).toHaveLength(5); // fully drained
   });
 
+  it('skips an overlapping drain — a slow in-flight drain is not double-processed', async () => {
+    store.add(1, { body: 'slow-mem' }, 'agent', '');
+    // A gated embedder: embed() blocks until release() is called, so we can hold one drain in-flight
+    // and fire a second (overlapping) tick while the first is still awaiting the provider.
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    const calls: string[] = [];
+    const emb: Embedder = {
+      async embed(_cfg, text) {
+        calls.push(text);
+        await gate;
+        return Float32Array.from([1, 2, 3, 4]);
+      },
+    };
+    const q = new EmbeddingQueue({ memoryStore: store, embeddings: emb, users: roster(1), embeddingConfig: () => CFG });
+
+    const first = q.drain();          // enters embed(), blocks on the gate
+    await Promise.resolve();          // let the first drain reach its await
+    await q.drain();                  // overlapping tick — must be skipped (returns immediately)
+    expect(calls).toEqual(['slow-mem']); // NOT double-embedded
+
+    release();
+    await first;
+    expect(calls).toEqual(['slow-mem']); // still exactly one embed total
+
+    // The guard is released after a drain finishes, so a later drain runs normally again.
+    store.add(1, { body: 'next-mem' }, 'agent', '');
+    await q.drain();
+    expect(calls).toEqual(['slow-mem', 'next-mem']);
+  });
+
   it('embeds each user under their own id (per-user scoping)', async () => {
     const a = store.add(1, { body: 'u1 memory' }, 'agent', '');
     const b = store.add(2, { body: 'u2 memory' }, 'agent', '');

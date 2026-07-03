@@ -248,29 +248,42 @@ export class MemoryStore {
     ).get(memoryId, userId) as MemoryEmbeddingRow | undefined;
   }
 
-  /** Active memories that already carry an embedding, paired with their vector unpacked back to a
+  /** Active memories that already carry a FRESH embedding, paired with their vector unpacked back to a
    *  Float32Array. User-scoped (the join keys on this user's memories). Powers vector retrieval —
-   *  MemoryService cosine-scans this set. Rows without an embedding are excluded (INNER JOIN). */
+   *  MemoryService cosine-scans this set. Rows without an embedding are excluded (INNER JOIN); rows whose
+   *  stored vector is STALE (the body was edited since it was embedded, so content_hash no longer matches
+   *  the current body) are also excluded, so retrieval never ranks against an out-of-date vector — the
+   *  memory falls back to keyword search until the embed queue re-vectorizes it. */
   listActiveWithEmbeddings(userId: number): { memory: MemoryRow; vector: Float32Array }[] {
     const rows = this.db.prepare(
-      `SELECT m.*, e.vector AS vector
+      `SELECT m.*, e.vector AS vector, e.content_hash AS embedded_hash
          FROM memories m JOIN memory_embeddings e ON e.memory_id = m.id
         WHERE m.user_id = ? AND m.status = 'active'
         ORDER BY m.updated_at DESC, m.id DESC`
-    ).all(userId) as (MemoryRow & { vector: Buffer })[];
-    return rows.map(({ vector, ...memory }) => ({
-      memory: memory as MemoryRow,
-      // Unpack the little-endian BLOB. Slice to a fresh ArrayBuffer so the view isn't tied to the
-      // BLOB's byteOffset within a shared buffer (better-sqlite3 hands back a Node Buffer).
-      vector: new Float32Array(vector.buffer.slice(vector.byteOffset, vector.byteOffset + vector.byteLength)),
-    }));
+    ).all(userId) as (MemoryRow & { vector: Buffer; embedded_hash: string })[];
+    return rows
+      .filter((r) => r.embedded_hash === hashBody(r.body)) // drop stale vectors — body edited since embed
+      .map(({ vector, embedded_hash, ...memory }) => ({
+        memory: memory as MemoryRow,
+        // Unpack the little-endian BLOB. Slice to a fresh ArrayBuffer so the view isn't tied to the
+        // BLOB's byteOffset within a shared buffer (better-sqlite3 hands back a Node Buffer).
+        vector: new Float32Array(vector.buffer.slice(vector.byteOffset, vector.byteOffset + vector.byteLength)),
+      }));
   }
 
-  /** Upsert a memory's embedding. Packs a Float32Array into a raw BLOB (a Buffer is stored as-is). No-op
-   *  if the memory isn't owned by this user — a foreign embedding must never be written. */
+  /** Upsert a memory's embedding. Packs a Float32Array into a raw BLOB (a Buffer is stored as-is).
+   *  Compare-and-set on TWO invariants, so a background embed can't persist a wrong vector:
+   *   - ownership: no-op if the memory isn't owned by this user (a foreign embedding must never be written);
+   *   - freshness: no-op if the current body no longer hashes to `input.contentHash`. The queue embeds a
+   *     snapshot body, awaits the provider, then writes back — if the body was edited during that await,
+   *     the snapshot vector is stale and writing it would clobber the current body's (or a fresher) vector.
+   *  The read+write is atomic (better-sqlite3 is synchronous — no await between them). */
   setEmbedding(userId: number, memoryId: number, input: SetEmbeddingInput): void {
-    const owned = this.db.prepare('SELECT 1 FROM memories WHERE id = ? AND user_id = ?').get(memoryId, userId);
+    const owned = this.db.prepare('SELECT body FROM memories WHERE id = ? AND user_id = ?')
+      .get(memoryId, userId) as { body: string } | undefined;
     if (!owned) return;
+    // Compare-and-set: only persist the vector if it was computed from the body still in the DB.
+    if (hashBody(owned.body) !== input.contentHash) return;
     this.db.prepare(
       `INSERT INTO memory_embeddings (memory_id, provider, model, dimensions, vector, content_hash)
        VALUES (@memory_id, @provider, @model, @dimensions, @vector, @content_hash)

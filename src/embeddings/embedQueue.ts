@@ -45,6 +45,11 @@ export class EmbeddingQueue {
   private readonly embeddingConfig: () => EmbeddingConfig;
   private readonly logger?: Logger;
   private readonly maxPerDrain: number;
+  /** In-flight guard: the drain runs on a fixed interval, but a single drain can outlast one tick when the
+   *  provider is slow or the backlog is large. Without this, an overlapping tick would re-derive the same
+   *  pending set and embed the same bodies again — double work that hammers the provider. Overlapping ticks
+   *  are skipped (they'll catch up on the next free tick). */
+  private draining = false;
 
   constructor(deps: EmbeddingQueueDeps) {
     this.memoryStore = deps.memoryStore;
@@ -60,21 +65,27 @@ export class EmbeddingQueue {
   async drain(): Promise<void> {
     const cfg = this.embeddingConfig();
     if (!isEmbeddingConfigured(cfg)) return;
-
-    let budget = this.maxPerDrain;
-    for (const user of this.users.list()) {
-      if (budget <= 0) break;
-      // Re-embed not just body-stale rows but also ones embedded under a different model/dimensions —
-      // an operator switching the embedding model must re-vectorize existing memories, else their
-      // old-width vectors cosine to 0 and silently drop out of ranking.
-      const pending = this.memoryStore.needsEmbedding(user.id, { model: cfg.model, dimensions: cfg.dimensions ?? null });
-      for (const row of pending) {
+    // Skip if a previous drain is still running — overlapping ticks would double-embed the same backlog.
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      let budget = this.maxPerDrain;
+      for (const user of this.users.list()) {
         if (budget <= 0) break;
-        // Count every attempt (success or failure) against the budget so a broken memory can't loop
-        // forever inside one tick — it retries next tick, behind the rest of the backlog.
-        budget -= 1;
-        await this.embedOne(cfg, user.id, row);
+        // Re-embed not just body-stale rows but also ones embedded under a different model/dimensions —
+        // an operator switching the embedding model must re-vectorize existing memories, else their
+        // old-width vectors cosine to 0 and silently drop out of ranking.
+        const pending = this.memoryStore.needsEmbedding(user.id, { model: cfg.model, dimensions: cfg.dimensions ?? null });
+        for (const row of pending) {
+          if (budget <= 0) break;
+          // Count every attempt (success or failure) against the budget so a broken memory can't loop
+          // forever inside one tick — it retries next tick, behind the rest of the backlog.
+          budget -= 1;
+          await this.embedOne(cfg, user.id, row);
+        }
       }
+    } finally {
+      this.draining = false;
     }
   }
 
