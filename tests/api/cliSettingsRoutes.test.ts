@@ -62,4 +62,18 @@ describe('cli-settings routes', () => {
     // Clearing the override is always fine.
     expect((await app.request('/auth/me/cli-settings', patch(bobTok, { model: '', modelProvider: '' }))).status).toBe(200);
   });
+
+  it('PATCH refuses a Discord id already linked to another user (409, no override)', async () => {
+    const { app, users, amyTok } = setup();
+    const bob = users.create('bob', 'pw');
+    const bobTok = users.issueToken(bob.id);
+    // Amy links the snowflake first.
+    expect((await app.request('/auth/me/cli-settings', patch(amyTok, { discordUserId: '123456789012345678' }))).status).toBe(200);
+    // Bob tries to squat the same id → 409, and his link stays empty.
+    const res = await app.request('/auth/me/cli-settings', patch(bobTok, { discordUserId: '123456789012345678' }));
+    expect(res.status).toBe(409);
+    expect((await app.request('/auth/me/cli-settings', auth(bobTok)).then((r) => r.json())).discordUserId).toBe('');
+    // Amy still owns it.
+    expect((await app.request('/auth/me/cli-settings', auth(amyTok)).then((r) => r.json())).discordUserId).toBe('123456789012345678');
+  });
 });

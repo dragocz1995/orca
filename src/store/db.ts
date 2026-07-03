@@ -88,6 +88,9 @@ export function openDb(path: string): Db {
   // Index created here (not schema.sql) so it runs after the column exists on migrated DBs.
   addColumn(db, 'memories', 'category_id', 'INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_memories_user_category ON memories(user_id, category_id)');
+  // A linked Discord snowflake is an identity key — enforce one-owner-per-id with a partial UNIQUE index
+  // so a squatter can't claim another user's id (see schema.sql). Created here too for pre-existing DBs.
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_settings_discord_id ON user_settings(value) WHERE key = 'discordUserId'");
   // Seed the bootstrap admin on existing DBs: the lowest-id user, if none is flagged yet.
   db.exec("UPDATE users SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM users) AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)");
   return db;

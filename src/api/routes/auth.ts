@@ -7,6 +7,7 @@ import { EDITABLE_PROMPTS, isEditablePrompt, isAppendOnlyPrompt } from '../../pr
 import { orcaExec, isExecAllowedForUser } from '../../shared/execs.js';
 import { ADVISOR_STYLES, DEFAULT_ADVISOR_STYLE } from '../../brain/personality.js';
 import { rawTemplate } from '../../prompts/index.js';
+import { DiscordIdConflictError } from '../../store/userSettingStore.js';
 import type { User } from '../../store/userStore.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
@@ -140,7 +141,17 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
       && !isExecAllowedForUser(u, d.config.get().allowedExecs, orcaExec(patch.visionModelProvider, patch.visionModel))) {
       return c.json({ error: 'model not allowed' }, 400);
     }
-    d.userSettings.setCliSettings(u.id, patch);
+    try {
+      d.userSettings.setCliSettings(u.id, patch);
+    } catch (e) {
+      // A Discord snowflake may belong to only one Orca account — reject a squatter cleanly instead of
+      // redirecting the first owner's identity/memory namespace.
+      if (e instanceof DiscordIdConflictError) {
+        console.warn(`cli-settings: user ${u.id} tried to link Discord id already claimed by another user`);
+        return c.json({ error: 'Toto Discord ID už má propojené jiný uživatel.' }, 409);
+      }
+      throw e;
+    }
     // Apply live: a running brain restarts with the new settings (history rehydrates from SQLite),
     // so a model change takes effect immediately instead of on the next daemon/chat restart.
     await d.brain?.restart(u.id);

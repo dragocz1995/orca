@@ -11,6 +11,22 @@ const CLI_DEFAULTS: CliSettings = { model: '', modelProvider: '', visionModel: '
 const THINKING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
 function isThinkingLevel(v: string): boolean { return (THINKING_LEVELS as readonly string[]).includes(v); }
 
+/** Raised when a user tries to link a Discord snowflake another user has already claimed. The route
+ *  maps it to a 409 with a Czech user message; the identity link stays with the original owner. */
+export class DiscordIdConflictError extends Error {
+  constructor(public readonly discordUserId: string) {
+    super(`discord id ${discordUserId} is already linked to another user`);
+    this.name = 'DiscordIdConflictError';
+  }
+}
+
+/** True for a better-sqlite3 UNIQUE-constraint violation — here, the partial index that keeps a Discord
+ *  snowflake owned by a single user. Lets the store reject a squatter without a check-then-act race. */
+function isUniqueViolation(err: unknown): boolean {
+  return !!err && typeof err === 'object' && 'code' in err
+    && (err as { code?: unknown }).code === 'SQLITE_CONSTRAINT_UNIQUE';
+}
+
 /** Keep the auto-compact threshold in a sane band — too low would thrash (compact every turn), too high
  *  risks overflowing before it triggers. Non-numbers fall back to the default. */
 function clampPercent(n: number): number {
@@ -67,36 +83,47 @@ export class UserSettingStore {
     };
   }
 
-  /** Apply a partial CLI-settings patch (only the provided fields are written). */
+  /** Apply a partial CLI-settings patch (only the provided fields are written). Runs in a transaction so
+   *  a rejected Discord link (see below) rolls the whole patch back instead of leaving a partial write.
+   *  Throws {@link DiscordIdConflictError} when the requested Discord snowflake is already linked to a
+   *  DIFFERENT user — enforced atomically by the partial UNIQUE index, so there is no check-then-act race. */
   setCliSettings(userId: number, patch: Partial<CliSettings>): void {
-    if (patch.model !== undefined) this.set(userId, 'model', patch.model);
-    if (patch.modelProvider !== undefined) this.set(userId, 'modelProvider', patch.modelProvider);
-    if (patch.visionModel !== undefined) this.set(userId, 'visionModel', patch.visionModel);
-    if (patch.visionModelProvider !== undefined) this.set(userId, 'visionModelProvider', patch.visionModelProvider);
-    // Empty clears the override (model default); anything else must be a known level.
-    if (patch.thinkingLevel !== undefined) {
-      if (patch.thinkingLevel === '') this.remove(userId, 'thinkingLevel');
-      else if (isThinkingLevel(patch.thinkingLevel)) this.set(userId, 'thinkingLevel', patch.thinkingLevel);
-    }
-    if (patch.autoCompact !== undefined) this.set(userId, 'autoCompact', String(patch.autoCompact));
-    if (patch.autoCompactAt !== undefined) this.set(userId, 'autoCompactAt', String(clampPercent(patch.autoCompactAt)));
-    if (patch.advisorStyle !== undefined && isAdvisorStyle(patch.advisorStyle)) this.set(userId, 'advisorStyle', patch.advisorStyle);
-    // A Discord snowflake is digits-only; anything else (or empty) clears the link. A snowflake already
-    // claimed by ANOTHER user is refused — otherwise a squatter could claim the operator's id and have
-    // that account's Discord messages (and its memory namespace / admin flag) attributed to themselves.
-    if (patch.discordUserId !== undefined) {
-      const v = String(patch.discordUserId).trim();
-      if (!/^\d{5,25}$/.test(v)) { this.remove(userId, 'discordUserId'); return; }
-      const claimant = this.userIdBySetting('discordUserId', v);
-      if (claimant === null || claimant === userId) this.set(userId, 'discordUserId', v);
-      // else: already claimed by someone else → silently ignore (the link stays with the first owner).
-    }
+    this.db.transaction(() => {
+      if (patch.model !== undefined) this.set(userId, 'model', patch.model);
+      if (patch.modelProvider !== undefined) this.set(userId, 'modelProvider', patch.modelProvider);
+      if (patch.visionModel !== undefined) this.set(userId, 'visionModel', patch.visionModel);
+      if (patch.visionModelProvider !== undefined) this.set(userId, 'visionModelProvider', patch.visionModelProvider);
+      // Empty clears the override (model default); anything else must be a known level.
+      if (patch.thinkingLevel !== undefined) {
+        if (patch.thinkingLevel === '') this.remove(userId, 'thinkingLevel');
+        else if (isThinkingLevel(patch.thinkingLevel)) this.set(userId, 'thinkingLevel', patch.thinkingLevel);
+      }
+      if (patch.autoCompact !== undefined) this.set(userId, 'autoCompact', String(patch.autoCompact));
+      if (patch.autoCompactAt !== undefined) this.set(userId, 'autoCompactAt', String(clampPercent(patch.autoCompactAt)));
+      if (patch.advisorStyle !== undefined && isAdvisorStyle(patch.advisorStyle)) this.set(userId, 'advisorStyle', patch.advisorStyle);
+      // A Discord snowflake is digits-only; anything else (or empty) clears the link. A snowflake already
+      // claimed by ANOTHER user is refused — otherwise a squatter could claim the operator's id and have
+      // that account's Discord messages (and its memory namespace / admin flag) attributed to themselves.
+      // The partial UNIQUE index on (value WHERE key='discordUserId') rejects the write; we surface that
+      // as a typed conflict so the route can answer 409. Re-setting one's OWN id stays idempotent.
+      if (patch.discordUserId !== undefined) {
+        const v = String(patch.discordUserId).trim();
+        if (!/^\d{5,25}$/.test(v)) this.remove(userId, 'discordUserId');
+        else {
+          try { this.set(userId, 'discordUserId', v); }
+          catch (e) {
+            if (isUniqueViolation(e)) throw new DiscordIdConflictError(v);
+            throw e;
+          }
+        }
+      }
+    })();
   }
 
   /** Reverse lookup: which user claimed this setting value (e.g. a Discord id → the Orca account).
-   *  Returns null when nobody has. First writer wins on duplicates (deterministic by user id). */
+   *  Returns null when nobody has. For discordUserId the partial UNIQUE index guarantees at most one row. */
   userIdBySetting(key: string, value: string): number | null {
-    const r = this.db.prepare('SELECT user_id FROM user_settings WHERE key = ? AND value = ? ORDER BY user_id LIMIT 1')
+    const r = this.db.prepare('SELECT user_id FROM user_settings WHERE key = ? AND value = ? LIMIT 1')
       .get(key, value) as { user_id: number } | undefined;
     return r ? r.user_id : null;
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from '../../src/store/db.js';
-import { UserSettingStore } from '../../src/store/userSettingStore.js';
+import { UserSettingStore, DiscordIdConflictError } from '../../src/store/userSettingStore.js';
 
 describe('UserSettingStore', () => {
   it('defaults CLI settings when nothing is stored', () => {
@@ -57,11 +57,22 @@ describe('UserSettingStore', () => {
   it('refuses a Discord id already claimed by another user (no squatting)', () => {
     const s = new UserSettingStore(openDb(':memory:'));
     s.setCliSettings(1, { discordUserId: '123456789012345678' }); // user 1 links it first
-    s.setCliSettings(2, { discordUserId: '123456789012345678' }); // user 2 tries to squat
-    expect(s.cliSettings(2).discordUserId).toBe('');               // ignored
-    expect(s.userIdBySetting('discordUserId', '123456789012345678')).toBe(1); // stays with user 1
+    // user 2 tries to squat → rejected with a typed conflict, the link stays with user 1
+    expect(() => s.setCliSettings(2, { discordUserId: '123456789012345678' })).toThrow(DiscordIdConflictError);
+    expect(s.cliSettings(2).discordUserId).toBe('');
+    expect(s.userIdBySetting('discordUserId', '123456789012345678')).toBe(1);
     // The original owner can re-set their own link idempotently.
     s.setCliSettings(1, { discordUserId: '123456789012345678' });
     expect(s.cliSettings(1).discordUserId).toBe('123456789012345678');
+  });
+
+  it('rolls the whole patch back when the Discord link is rejected (no partial write)', () => {
+    const s = new UserSettingStore(openDb(':memory:'));
+    s.setCliSettings(1, { discordUserId: '123456789012345678' }); // user 1 owns the snowflake
+    // user 2's patch bundles a model change with a squatting Discord id — the conflict must undo both.
+    expect(() => s.setCliSettings(2, { model: 'squat-model', discordUserId: '123456789012345678' }))
+      .toThrow(DiscordIdConflictError);
+    expect(s.cliSettings(2).model).toBe('');
+    expect(s.cliSettings(2).discordUserId).toBe('');
   });
 });

@@ -93,6 +93,11 @@ CREATE TABLE IF NOT EXISTS user_settings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, key)
 );
+-- A linked Discord snowflake is an identity key: at most ONE Orca user may claim a given id, else a
+-- squatter could point the victim's Discord identity (and its memory namespace / admin routing) at their
+-- own account. This partial UNIQUE index enforces one-owner-per-id atomically — only the discordUserId
+-- rows are constrained, so every other generic key/value pair stays unconstrained.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_settings_discord_id ON user_settings(value) WHERE key = 'discordUserId';
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   ts TEXT NOT NULL DEFAULT (datetime('now')),
