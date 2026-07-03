@@ -7,6 +7,7 @@ import { createSessionService, type SessionService } from './services/sessionSer
 import { createAskService, type AskService } from './services/askService.js';
 import { createGuideService, type GuideService } from './services/guideService.js';
 import { createSkillService, type SkillService } from './services/skillService.js';
+import { PersonalityService } from '../brain/personalityService.js';
 import { KeyedMutex } from '../shared/keyedMutex.js';
 import { PlanJobStore, type PlanJob } from '../overseer/planJob.js';
 import { DecisionQueue } from '../overseer/decisionQueue.js';
@@ -88,6 +89,10 @@ export interface RouteContext {
   guideService: GuideService;
   /** Installs/verifies the `orca-workflow` skill across the agent providers (System panel + startup). */
   skillService: SkillService;
+  /** Renders the personality system-prompt stack (core persona + active profile chunk) for the preview
+   *  route — the SAME chunk the brain appends at spawn. Absent when the personality store / prompts /
+   *  users seams aren't all wired (so the preview route degrades to 400). */
+  personality?: PersonalityService;
 }
 
 /** Build the shared {@link RouteContext} from the daemon's injected {@link ServerDeps}. Core reasoning
@@ -273,11 +278,24 @@ export function createRouteContext(d: ServerDeps): RouteContext {
   // the spawning user's HOME itself), so it needs no deps from `d`. Injectable for tests (no real FS writes).
   const skillService = d.skillService ?? createSkillService();
 
+  // The personality preview seam — built only when the store, the prompt renderer AND the user store are
+  // all present, since it renders the core persona with the exact same call the brain makes. Kept
+  // isolated here; CRUD routes talk to the user-scoped store directly and don't need this.
+  const personality = d.personalityStore && d.prompts && d.users
+    ? new PersonalityService({
+        store: d.personalityStore,
+        prompts: d.prompts,
+        users: d.users,
+        userSettings: (userId) => d.userSettings?.cliSettings(userId),
+        agentName: () => d.config.get().brain.agentName,
+      })
+    : undefined;
+
   return {
     d, log, planJobs, decisionQueue, tickets, gitLock,
     agentProjects, canAccessProject, notAdmin, accessibleProjects, missionAccessible,
     taskForSession, eventDeps, sessionAccessible, execAllowedForUser,
     pathFor, usagePathFor, checkoutPathFor, resolveTarget,
-    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService, sessionService, askService, guideService, skillService,
+    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService, sessionService, askService, guideService, skillService, personality,
   };
 }
