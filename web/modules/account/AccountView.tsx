@@ -113,11 +113,13 @@ export function AccountView() {
   // CLI tab's other fields are untouched) and the daemon restarts a running brain on the new model.
   const pickOrca = (provider: string, model: string) => {
     const key = `${provider}::${model}`;
+    const prev = orcaSel;
     const next = orcaSel === key ? '' : key;
     setOrcaSel(next);
     saveCli.mutate(
       { model: next ? model : '', modelProvider: next ? provider : '' },
-      { onError: () => toast(t.account.saveError, 'error') },
+      // Revert the optimistic highlight if the server rejects the pick, so it can't drift from state.
+      { onError: () => { setOrcaSel(prev); toast(t.account.saveError, 'error'); } },
     );
   };
 
