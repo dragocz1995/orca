@@ -8,6 +8,8 @@ import { createAskService, type AskService } from './services/askService.js';
 import { createGuideService, type GuideService } from './services/guideService.js';
 import { createSkillService, type SkillService } from './services/skillService.js';
 import { PersonalityService } from '../brain/personalityService.js';
+import { MemoryService } from '../brain/memoryService.js';
+import { toEmbeddingConfig } from '../store/configStore.js';
 import { KeyedMutex } from '../shared/keyedMutex.js';
 import { PlanJobStore, type PlanJob } from '../overseer/planJob.js';
 import { DecisionQueue } from '../overseer/decisionQueue.js';
@@ -93,6 +95,10 @@ export interface RouteContext {
    *  route — the SAME chunk the brain appends at spawn. Absent when the personality store / prompts /
    *  users seams aren't all wired (so the preview route degrades to 400). */
   personality?: PersonalityService;
+  /** Vector retrieval + anti-duplication over the memory store, for the retrieval-debugging route. Built
+   *  only when the memory store AND the embedder are both wired (else /memory/retrieve degrades to 400).
+   *  CRUD/audit routes talk to the user-scoped store directly and don't need this. */
+  memoryService?: MemoryService;
 }
 
 /** Build the shared {@link RouteContext} from the daemon's injected {@link ServerDeps}. Core reasoning
@@ -291,11 +297,22 @@ export function createRouteContext(d: ServerDeps): RouteContext {
       })
     : undefined;
 
+  // The retrieval-debugging seam — built only when both the memory store and the embedder are wired, so
+  // the /memory/retrieve route can rank the caller's memories. Reads the live embedding config each call
+  // (a Settings change applies without a restart), mirroring the daemon's own MemoryService.
+  const memoryService = d.memoryStore && d.embeddings
+    ? new MemoryService({
+        store: d.memoryStore,
+        embeddings: d.embeddings,
+        embeddingConfig: () => toEmbeddingConfig(d.config.embeddingConfig()),
+      })
+    : undefined;
+
   return {
     d, log, planJobs, decisionQueue, tickets, gitLock,
     agentProjects, canAccessProject, notAdmin, accessibleProjects, missionAccessible,
     taskForSession, eventDeps, sessionAccessible, execAllowedForUser,
     pathFor, usagePathFor, checkoutPathFor, resolveTarget,
-    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService, sessionService, askService, guideService, skillService, personality,
+    persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService, sessionService, askService, guideService, skillService, personality, memoryService,
   };
 }

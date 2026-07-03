@@ -12,6 +12,7 @@ import { registerConfigRoutes } from './config.js';
 import { registerPluginRoutes } from './plugins.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerPersonalityRoutes } from './personality.js';
+import { registerMemoryRoutes } from './memory.js';
 
 /** Register every route family on the app. Order matters: the auth/tenancy guards are global
  *  middleware and MUST register before any family so every downstream handler is authenticated and
@@ -30,4 +31,5 @@ export function registerRoutes(app: OrcaApp, ctx: RouteContext): void {
   registerConfigRoutes(app, ctx);
   registerPluginRoutes(app, ctx);
   registerPersonalityRoutes(app, ctx);
+  registerMemoryRoutes(app, ctx);
 }
