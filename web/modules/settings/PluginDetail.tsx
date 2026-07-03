@@ -378,7 +378,9 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [seeded, setSeeded] = useState(false);
 
-  useEffect(() => { if (data) { setValues(data.config); setSeeded(true); } }, [data]);
+  // Seed the local draft once, on first arrival. A save invalidates the detail query → refetch; re-seeding
+  // from that refetch would clobber whatever the user is still typing, so only seed while not yet seeded.
+  useEffect(() => { if (data && !seeded) { setValues(data.config); setSeeded(true); } }, [data, seeded]);
 
   // Auto-persist shortly after any field change; the daemon hot-reloads the brain on save.
   useAutoSave([values], () => save.mutate(

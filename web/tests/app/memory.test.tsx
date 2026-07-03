@@ -32,4 +32,16 @@ describe('MemoryPage', () => {
     fireEvent.click(screen.getAllByText('Filip prefers pnpm over npm')[0]);
     await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
   });
+
+  it('prunes the merge selection when a filter hides the selected row', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getAllByText('Filip prefers pnpm over npm').length).toBeGreaterThan(0));
+    // Select the row via its checkbox → the merge toolbar shows the selected count.
+    fireEvent.click(screen.getAllByLabelText('Merge')[0]);
+    await waitFor(() => expect(screen.getByText('1 selected')).toBeInTheDocument());
+    // A search that matches nothing hides the row; the stale selection must be dropped.
+    fireEvent.change(screen.getByPlaceholderText('Search memories…'), { target: { value: 'zzz-no-match' } });
+    await waitFor(() => expect(screen.queryByText('1 selected')).not.toBeInTheDocument());
+  });
 });

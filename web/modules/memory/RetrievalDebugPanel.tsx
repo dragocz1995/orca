@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Sparkles, TriangleAlert, Check } from 'lucide-react';
 import type { RetrievalResult, RetrievalScore } from '../../lib/types';
 import { orcaClient, apiErrorMessage } from '../../lib/orcaClient';
@@ -16,7 +16,18 @@ import { pct01 } from './memoryMeta';
 export function RetrievalDebugPanel() {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
-  const run = useMutation<RetrievalResult, unknown, string>({ mutationFn: (q: string) => orcaClient.retrievalDebug(q) });
+  const qc = useQueryClient();
+  // retrieve() marks candidates used (bumps use_count / last_used_at), so refresh the list, the touched
+  // details and their usage events to reflect the new counters.
+  const run = useMutation<RetrievalResult, unknown, string>({
+    mutationFn: (q: string) => orcaClient.retrievalDebug(q),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ['memories'] });
+      void qc.invalidateQueries({ queryKey: ['memory-events'] });
+      const touched = new Set<number>([...data.memories.map((m) => m.id), ...data.debug.scores.map((s) => s.id)]);
+      for (const id of touched) void qc.invalidateQueries({ queryKey: ['memory', id] });
+    },
+  });
   const result = run.data;
 
   const bodyById = useMemo(() => {

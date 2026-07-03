@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags } from 'lucide-react';
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { useMemories, useMemoryCategories } from '../../lib/queries';
@@ -65,6 +65,26 @@ export function MemoryView() {
 
   const toggleSelect = (id: number) => setSelected((cur) => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelected(new Set());
+
+  // Keep selection consistent with what's on screen. When the filter/search narrows the visible set (or a
+  // row is removed by a refetch), drop any selected ids that are no longer visible — otherwise the merge
+  // toolbar counts rows outside the current dataset and the merge modal gets mismatched sources. selectedId
+  // is pruned the same way. Keyed on `filtered` (not `tab`) so brain-map navigation, which sets selectedId
+  // then switches to the list without touching the filter, is never clobbered.
+  useEffect(() => {
+    const visible = new Set(filtered.map((m) => m.id));
+    setSelected((cur) => {
+      if (cur.size === 0) return cur;
+      const next = new Set<number>();
+      for (const id of cur) if (visible.has(id)) next.add(id);
+      return next.size === cur.size ? cur : next;
+    });
+    setSelectedId((cur) => (cur != null && !visible.has(cur) ? null : cur));
+  }, [filtered]);
+
+  // Leaving the list tab clears the merge selection so its floating toolbar never hovers over the brain
+  // map or retrieval inspector, where those rows aren't selectable.
+  useEffect(() => { if (tab !== 'list') clearSelection(); }, [tab]);
 
   const TAB_OPTIONS = [
     { value: 'list', label: t.memory.viewList, icon: ListChecks },
