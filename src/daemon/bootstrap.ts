@@ -64,6 +64,9 @@ import { PersonalityStore } from '../store/personalityStore.js';
 import { PersonalityService } from '../brain/personalityService.js';
 import { MemoryStore } from '../store/memoryStore.js';
 import { EmbeddingService } from '../embeddings/embeddingService.js';
+import { EmbeddingQueue } from '../embeddings/embedQueue.js';
+import { MemoryService } from '../brain/memoryService.js';
+import { toEmbeddingConfig } from '../store/configStore.js';
 import { brainConfigFromOrca } from '../brain/config.js';
 import { listBrainModels } from '../brain/models.js';
 import { loadPlugins } from '../plugins/loader.js';
@@ -375,6 +378,24 @@ export function buildApp(opts: BuildOpts) {
     agentName: () => config.get().brain.agentName,
   });
   const memoryStore = new MemoryStore(db);
+  // ONE embedding-config mapper shared by the retrieval service AND the background embed queue, so both
+  // read the same live config each call (a Settings change applies without a restart). Empty
+  // providerId/model → the service degrades to keyword search and the queue no-ops.
+  const embeddingConfig = () => toEmbeddingConfig(config.embeddingConfig());
+  // Vector retrieval + anti-duplication over the memory store (owner chat only — the caller gates it).
+  const memoryService = new MemoryService({ store: memoryStore, embeddings, embeddingConfig });
+  // Background embedder: fills in missing/stale memory vectors so writes never block on the provider.
+  // Driven off a startLoops tick below; no-ops until an embedding provider/model is configured.
+  const embedQueue = new EmbeddingQueue({
+    memoryStore, embeddings, users: { list: () => users.list() }, embeddingConfig, logger: log,
+  });
+  // Cheap inference for the post-turn memory curator — mirrors overseerClient but keyed on the (cheaper)
+  // planner model. Null when no relay key is set → the curator no-ops (memory still works via tools).
+  const curatorInference = () => {
+    const cfg = config.get(); const key = config.apiKey();
+    if (!key) return null;
+    return new RelayClient({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
+  };
   // ONE shared plugin registry for the whole daemon (brain chat + orca-exec workers + platforms):
   // loading is lazy (buildApp is sync), and a plugin toggle invalidates every consumer at once —
   // a per-service memo would leave the workers on a stale registry until a daemon restart.
@@ -425,6 +446,9 @@ export function buildApp(opts: BuildOpts) {
           allowedPaths: () => ids.map((id) => projects.get(id)?.path).filter((p): p is string => !!p),
         }),
         platformOwner: () => users.list().find((u) => u.is_admin)?.id,
+        // Private long-term memory: the owner-chat memory tools + per-turn retrieval injection + the
+        // post-turn curator. All owner-gated inside BrainService (channels/workers never reach them).
+        memoryStore, memoryService, inference: curatorInference,
       })
     : undefined;
   // The orca exec engine: tasks with an `orca:` exec run on an embedded PI session instead of a
@@ -649,7 +673,12 @@ export function buildApp(opts: BuildOpts) {
         .catch((e) => log.error('PR feedback sweep failed', e));
     }, 60_000);
     const stopBrainWorkerWatchdog = brainWorkers.startWatchdog();
-    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopDecisionSweep(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); stopPrFeedback(); stopBrainWorkerWatchdog(); };
+    // Memory embed queue: fill in missing/stale memory vectors in the background. No-ops until an
+    // embedding provider/model is configured; one bad memory never aborts a drain (caught + logged).
+    const stopEmbedQueue = clock.setInterval(() => {
+      void embedQueue.drain().catch((e) => log.error('embed queue drain failed', e));
+    }, 30_000);
+    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopDecisionSweep(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); stopPrFeedback(); stopBrainWorkerWatchdog(); stopEmbedQueue(); };
   };
   return { app, startLoops, tickets, tmux };
 }

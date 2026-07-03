@@ -1,0 +1,83 @@
+import { describe, it, expect } from 'vitest';
+import { buildMemoryTools } from '../../src/brain/tools/memoryTools.js';
+import { openDb } from '../../src/store/db.js';
+import { MemoryStore } from '../../src/store/memoryStore.js';
+import { MemoryService } from '../../src/brain/memoryService.js';
+import type { EmbeddingService } from '../../src/embeddings/embeddingService.js';
+import { runWithPolicy } from '../../src/plugins/policyContext.js';
+import type { TurnIdentity } from '../../src/plugins/policyContext.js';
+import type { Policy } from '../../src/plugins/policy.js';
+
+const POLICY: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
+/** The genuine operator's own Orca chat. */
+const OWNER: TurnIdentity = { platform: 'orca', userId: '1', admin: true, owner: true };
+/** A trusted platform channel: admin-role sender, owner-anchored session, but NOT the operator. */
+const CHANNEL: TurnIdentity = { platform: 'discord', userId: 'disc-9', admin: true, owner: false };
+
+/** Real store + a memory service with embeddings DISABLED (config null) → findSimilar is a no-op and
+ *  retrieve uses the keyword fallback, which is all these identity/CRUD tests need. */
+function toolset() {
+  const store = new MemoryStore(openDb(':memory:'));
+  const embeddings = { embed: async () => new Float32Array([0, 0, 0]) } as unknown as EmbeddingService;
+  const service = new MemoryService({ store, embeddings, embeddingConfig: () => null });
+  const tools = buildMemoryTools({ store, service });
+  return { store, byName: (n: string) => tools.find((t) => t.name === n)! };
+}
+
+const txt = (r: unknown) => (r as { content: { text: string }[] }).content[0]!.text;
+const run = (identity: TurnIdentity | undefined, fn: () => Promise<unknown>) => runWithPolicy(POLICY, fn, identity);
+
+describe('buildMemoryTools', () => {
+  it('exposes the expected tool names', () => {
+    const { byName } = toolset();
+    const names = ['memory_search', 'memory_add', 'memory_update', 'memory_merge', 'memory_delete', 'memory_list_recent'];
+    for (const n of names) expect(byName(n)).toBeDefined();
+  });
+
+  it('owner identity: memory_add stores and memory_search finds it', async () => {
+    const { store, byName } = toolset();
+    const add = await run(OWNER, () => byName('memory_add').execute('c1', { body: 'Filip preferuje TypeScript strict mode.' }));
+    expect(txt(add)).toMatch(/Stored memory #\d+/);
+    expect(store.list(1)).toHaveLength(1);
+    expect(store.list(1)[0]!.body).toContain('TypeScript');
+
+    const search = await run(OWNER, () => byName('memory_search').execute('c2', { query: 'TypeScript' }));
+    expect(txt(search)).toContain('TypeScript');
+  });
+
+  it('owner identity: update / delete / list_recent operate on the acting user', async () => {
+    const { store, byName } = toolset();
+    await run(OWNER, () => byName('memory_add').execute('a', { body: 'Původní fakt.' }));
+    const id = store.list(1)[0]!.id;
+    const upd = await run(OWNER, () => byName('memory_update').execute('u', { id, body: 'Opravený fakt.' }));
+    expect(txt(upd)).toContain(`#${id}`);
+    expect(store.get(1, id)!.body).toBe('Opravený fakt.');
+
+    const list = await run(OWNER, () => byName('memory_list_recent').execute('l', {}));
+    expect(txt(list)).toContain('Opravený fakt.');
+
+    const del = await run(OWNER, () => byName('memory_delete').execute('d', { id }));
+    expect(txt(del)).toContain(`Deleted memory #${id}`);
+    expect(store.get(1, id)!.status).toBe('deleted');
+  });
+
+  it('channel / non-owner identity: refused, nothing written', async () => {
+    const { store, byName } = toolset();
+    const r = await run(CHANNEL, () => byName('memory_add').execute('c1', { body: 'should not persist' }));
+    expect(txt(r)).toBe('Memory is only available in your personal chat.');
+    // No memory was written for ANY user (the channel userId is not even a valid Orca id).
+    expect(store.list(1)).toHaveLength(0);
+    expect(store.listEvents(1)).toHaveLength(0);
+
+    const search = await run(CHANNEL, () => byName('memory_search').execute('c2', { query: 'anything' }));
+    expect(txt(search)).toBe('Memory is only available in your personal chat.');
+  });
+
+  it('task-worker (no identity established): refused', async () => {
+    const { store, byName } = toolset();
+    // A task-worker turn runs without a turn identity → currentIdentity() is null.
+    const r = await run(undefined, () => byName('memory_add').execute('c1', { body: 'worker leak' }));
+    expect(txt(r)).toBe('Memory is only available in your personal chat.');
+    expect(store.list(1)).toHaveLength(0);
+  });
+});
