@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Brain, Pencil, Trash2, RotateCcw, Check, X, Hash, Gauge, ShieldCheck, Clock, Activity } from 'lucide-react';
+import { Brain, Pencil, Trash2, RotateCcw, Check, X, Hash, Gauge, Clock, Activity } from 'lucide-react';
 import type { Memory } from '../../lib/types';
 import { useMemory, useMemoryCategories } from '../../lib/queries';
-import { useUpdateMemory, useDeleteMemory, useRestoreMemory } from '../../lib/mutations';
+import { useUpdateMemory, useSetMemoryCategory, useDeleteMemory, useRestoreMemory } from '../../lib/mutations';
 import { apiErrorMessage } from '../../lib/orcaClient';
 import { useToast } from '../../components/ui/Toast';
 import { Badge } from '../../components/ui/Badge';
@@ -15,7 +15,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/states';
 import { useTranslation } from '../../lib/i18n';
 import { formatTaskTime } from '../../lib/format';
-import { memoryStatusTone, memoryStatusLabel, pct01, categorySwatch } from './memoryMeta';
+import { memoryStatusTone, memoryStatusLabel, categorySwatch } from './memoryMeta';
 import { MemoryAuditFeed } from './MemoryAuditFeed';
 
 /** Persistent memory detail: full editable body, metadata, lifecycle actions and audit trail. Resolves
@@ -33,6 +33,7 @@ export function MemoryDetail({ memoryId }: { memoryId: number }) {
 function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType<typeof useTranslation>['t']; locale: string }) {
   const { toast } = useToast();
   const update = useUpdateMemory();
+  const setCategory = useSetMemoryCategory();
   const del = useDeleteMemory();
   const restore = useRestoreMemory();
   const categories = useMemoryCategories();
@@ -41,14 +42,13 @@ function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType
   const [body, setBody] = useState(memory.body);
   const [kind, setKind] = useState(memory.kind);
   const [importance, setImportance] = useState(memory.importance);
-  const [confidence, setConfidence] = useState(memory.confidence);
   const [categoryId, setCategoryId] = useState<number | null>(memory.category_id);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Re-sync the draft whenever the underlying memory changes (a save/reselect), unless mid-edit.
   useEffect(() => {
     if (editing) return;
-    setBody(memory.body); setKind(memory.kind); setImportance(memory.importance); setConfidence(memory.confidence);
+    setBody(memory.body); setKind(memory.kind); setImportance(memory.importance);
     setCategoryId(memory.category_id);
   }, [memory, editing]);
 
@@ -59,17 +59,24 @@ function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType
   const lastUsed = memory.last_used_at ? formatTaskTime(memory.last_used_at, Date.now(), locale) : null;
 
   const cancel = () => {
-    setBody(memory.body); setKind(memory.kind); setImportance(memory.importance); setConfidence(memory.confidence);
+    setBody(memory.body); setKind(memory.kind); setImportance(memory.importance);
     setCategoryId(memory.category_id);
     setEditing(false);
   };
-  const save = () => {
+  // Two writes: the body/kind/importance PATCH, and — only when it changed — the category via the
+  // dedicated PUT /memory/:id/category (the PATCH schema ignores categoryId). Sequenced so a single
+  // success toast fires once both land, and a failure in either surfaces its own error.
+  const save = async () => {
     const next = body.trim();
     if (!next) { toast(t.memory.bodyRequired, 'error'); return; }
-    update.mutate(
-      { id: memory.id, patch: { body: next, kind: kind.trim(), importance, confidence, categoryId } },
-      { onSuccess: () => { toast(t.memory.saved); setEditing(false); }, onError: (e) => toast(apiErrorMessage(e), 'error') },
-    );
+    try {
+      await update.mutateAsync({ id: memory.id, patch: { body: next, kind: kind.trim(), importance } });
+      if (categoryId !== memory.category_id) await setCategory.mutateAsync({ id: memory.id, categoryId });
+      toast(t.memory.saved);
+      setEditing(false);
+    } catch (e) {
+      toast(apiErrorMessage(e), 'error');
+    }
   };
   const doDelete = () => {
     del.mutate(memory.id, {
@@ -113,7 +120,7 @@ function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType
         <div className="flex flex-wrap items-center gap-1">
           {editing ? (
             <>
-              <Button variant="accent" icon={Check} onClick={save} disabled={update.isPending}>{t.memory.save}</Button>
+              <Button variant="accent" icon={Check} onClick={save} disabled={update.isPending || setCategory.isPending}>{t.memory.save}</Button>
               <Button variant="ghost" icon={X} onClick={cancel}>{t.memory.cancel}</Button>
             </>
           ) : (
@@ -160,15 +167,11 @@ function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType
               </select>
             </Section>
           ) : null}
-          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
-            <RankSlider label={t.memory.fieldImportance} icon={Gauge} value={importance} onChange={setImportance} />
-            <WeightSlider label={t.memory.fieldConfidence} icon={ShieldCheck} value={confidence} onChange={setConfidence} />
-          </div>
+          <RankSlider label={t.memory.fieldImportance} icon={Gauge} value={importance} onChange={setImportance} />
         </>
       ) : (
-        <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3">
           <Metric icon={Gauge} label={t.memory.fieldImportance} value={`${memory.importance} / 5`} />
-          <Metric icon={ShieldCheck} label={t.memory.fieldConfidence} value={`${pct01(memory.confidence)} %`} />
           <Metric icon={Activity} label={t.memory.usage} value={memory.use_count > 0 ? t.memory.useCount.replace('{n}', String(memory.use_count)) : t.memory.neverUsed} />
           <Metric icon={Clock} label={t.memory.updatedAt} value={updated.label || '—'} title={updated.title} />
         </div>
@@ -206,19 +209,6 @@ function Metric({ icon: Icon, label, value, title }: { icon: typeof Gauge; label
     <div className="flex flex-col gap-1 rounded-md border border-border bg-surface p-2.5" title={title}>
       <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-text-muted"><Icon size={11} aria-hidden />{label}</span>
       <span className="truncate font-mono text-xs text-text">{value}</span>
-    </div>
-  );
-}
-
-/** A 0..1 weight edited as a 0..100 slider with a live percent readout. */
-function WeightSlider({ label, icon: Icon, value, onChange }: { label: string; icon: typeof Gauge; value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="inline-flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-        <span className="inline-flex items-center gap-1"><Icon size={11} aria-hidden />{label}</span>
-        <span className="font-mono text-text">{pct01(value)} %</span>
-      </span>
-      <Slider value={pct01(value)} min={0} max={100} step={1} onChange={(v) => onChange(v / 100)} />
     </div>
   );
 }

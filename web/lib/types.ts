@@ -449,8 +449,9 @@ export interface MemoryEvent {
 
 /** Body for POST /memory — only `body` is required. */
 export interface MemoryCreate { body: string; kind?: string; importance?: number; confidence?: number }
-/** Any subset of the mutable fields for PATCH /memory/:id. */
-export interface MemoryPatch { body?: string; kind?: string; importance?: number; confidence?: number; status?: 'active' | 'archived' | 'deleted'; categoryId?: number | null }
+/** Any subset of the mutable fields for PATCH /memory/:id. Category assignment is NOT here — it's a
+ *  separate audited write via PUT /memory/:id/category (orcaClient.setMemoryCategory). */
+export interface MemoryPatch { body?: string; kind?: string; importance?: number; confidence?: number; status?: 'active' | 'archived' | 'deleted' }
 /** Query filters for GET /memory. A non-blank `q` switches the daemon to fulltext search. `categoryId`
  *  present-and-null/empty lists uncategorized, a number lists that category, absent (key omitted) lists all. */
 export interface MemoryFilters { status?: string; kind?: string; q?: string; limit?: number; offset?: number; categoryId?: number | null }

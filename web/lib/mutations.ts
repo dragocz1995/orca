@@ -200,37 +200,28 @@ export function useCreatePersonality() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['personalities'] }),
   });
 }
-/** Patch a personality profile. A rename/enable change can alter the resolved preview, so refresh both. */
+/** Patch a personality profile. Refresh the profiles list (the server carries the authoritative active flag). */
 export function useUpdatePersonality() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { id: number; patch: PersonalityPatch }) => orcaClient.updatePersonality(v.id, v.patch),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['personalities'] });
-      qc.invalidateQueries({ queryKey: ['personality-preview'] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personalities'] }),
   });
 }
-/** Delete a personality profile (also clears any active pointer to it). Refresh list + preview. */
+/** Delete a personality profile (also clears any active pointer to it). Refresh the profiles list. */
 export function useDeletePersonality() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => orcaClient.deletePersonality(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['personalities'] });
-      qc.invalidateQueries({ queryKey: ['personality-preview'] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personalities'] }),
   });
 }
-/** Pin a profile active. Refetch the preview (the active append is what marks the badge) and the list. */
+/** Pin a profile active. Refresh the profiles list (the server's active flag marks the badge). */
 export function useActivatePersonality() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => orcaClient.activatePersonality(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['personalities'] });
-      qc.invalidateQueries({ queryKey: ['personality-preview'] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personalities'] }),
   });
 }
 export function useTogglePlugin() {
@@ -362,12 +353,25 @@ export function useCreateMemory() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEYS.memories }); qc.invalidateQueries({ queryKey: ['memory-events'] }); },
   });
 }
-/** Patch a memory (body/kind/importance/confidence/status). Refreshes the list, that memory's detail
+/** Patch a memory (body/kind/importance/status). Refreshes the list, that memory's detail
  *  and audit trail, and the whole-user event feed. */
 export function useUpdateMemory() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { id: number; patch: MemoryPatch }) => orcaClient.updateMemory(v.id, v.patch),
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.memories });
+      qc.invalidateQueries({ queryKey: ['memory', v.id] });
+      qc.invalidateQueries({ queryKey: ['memory-events'] });
+    },
+  });
+}
+/** Assign (or clear) a memory's category — a separate audited write (PUT /memory/:id/category), NOT a
+ *  PATCH field. Refreshes the list, that memory's detail and the audit feed. */
+export function useSetMemoryCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: number; categoryId: number | null }) => orcaClient.setMemoryCategory(v.id, v.categoryId),
     onSuccess: (_r, v) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.memories });
       qc.invalidateQueries({ queryKey: ['memory', v.id] });

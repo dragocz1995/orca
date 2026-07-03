@@ -249,6 +249,9 @@ export const orcaClient = {
   memory: (id: number) => req<Memory>(`/memory/${id}`),
   createMemory: (body: MemoryCreate) => req<Memory>('/memory', json(body)),
   updateMemory: (id: number, patch: MemoryPatch) => req<Memory>(`/memory/${id}`, json(patch, 'PATCH')),
+  /** Assign (or clear with null) a memory's category — a separately-audited write, not a PATCH field
+   *  (the memory PATCH schema ignores categoryId). Maps to PUT /memory/:id/category → MemoryStore.setCategory. */
+  setMemoryCategory: (id: number, categoryId: number | null) => req<Memory>(`/memory/${id}/category`, json({ categoryId }, 'PUT')),
   deleteMemory: (id: number) => req<{ ok: boolean }>(`/memory/${id}`, { method: 'DELETE' }),
   restoreMemory: (id: number) => req<{ ok: boolean }>(`/memory/${id}/restore`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   mergeMemories: (ids: number[], body: string) => req<Memory>('/memory/merge', json({ ids, body })),
