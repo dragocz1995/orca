@@ -207,16 +207,6 @@ describe('memory routes', () => {
     // test probe is admin-gated too.
     expect((await app.request('/memory/embedding/test', post(bobTok, {}))).status).toBe(403);
   });
-
-  it('admin-inspect: admin reads another user\'s memories; a non-admin is forbidden', async () => {
-    const { app, amyTok, bobTok, bobId } = setup();
-    await app.request('/memory', post(bobTok, { body: 'bob memory' }));
-    const asAdmin = await app.request(`/memory/users/${bobId}`, auth(amyTok));
-    expect(asAdmin.status).toBe(200);
-    expect((await asAdmin.json())[0].body).toBe('bob memory');
-    // amy is admin; bob cannot inspect anyone.
-    expect((await app.request(`/memory/users/${bobId}`, auth(bobTok))).status).toBe(403);
-  });
 });
 
 /** Category setup: wires the memory-category store + a categorizer whose inference is a stub returning a

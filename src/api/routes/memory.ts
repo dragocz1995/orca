@@ -117,18 +117,6 @@ export function registerMemoryRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ embedded });
   });
 
-  // Admin-only read of another user's memories (mirrors the personality admin-inspect gate). Absent user
-  // store → open mode, no admin concept.
-  app.get('/memory/users/:id', (c) => {
-    if (!store) return c.json({ error: 'memory unavailable' }, 400);
-    const users = d.users;
-    if (users) {
-      const actor = c.get('user');
-      if (!actor || !users.isAdmin(actor.id)) return c.json({ error: 'forbidden' }, 403);
-    }
-    return c.json(store.list(Number(c.req.param('id'))));
-  });
-
   // --- Memory categories (owner-scoped) + the workspace categorization model. All literal `/memory/*`
   //     sub-paths, so they MUST stay above `/memory/:id` or the id route would swallow them. ---
 

@@ -122,26 +122,6 @@ describe('personality routes', () => {
     expect(applyPersonalityChange).not.toHaveBeenCalled();
   });
 
-  it('preview returns the two-layer resolved stack', async () => {
-    const { app, amyTok } = setup();
-    const row = await (await app.request('/personality/profiles', post(amyTok, { platform: 'discord', name: 'Snarky', prompt: 'Be witty.' }))).json();
-    await app.request(`/personality/profiles/${row.id}/activate`, post(amyTok, {}));
-    const pv = await (await app.request('/personality/preview', post(amyTok, { platform: 'discord' }))).json();
-    expect(pv.platform).toBe('discord');
-    expect(pv.layers).toHaveLength(2);
-    expect(pv.layers[0].label).toBe('Core persona');
-    expect(pv.layers[1].label).toBe('User personality (discord)');
-    expect(pv.layers[1].text).toContain('Name: Snarky');
-    expect(pv.resolved).toBe(`${pv.layers[0].text}\n\n${pv.layers[1].text}`);
-  });
-
-  it('preview with no active profile is core-only', async () => {
-    const { app, amyTok } = setup();
-    const pv = await (await app.request('/personality/preview', post(amyTok, { platform: 'web' }))).json();
-    expect(pv.layers[1].text).toBe('no active profile');
-    expect(pv.resolved).toBe(pv.layers[0].text);
-  });
-
   it('ownership boundary — a user cannot read, patch, delete or activate another user\'s profile', async () => {
     const { app, amyTok, bobTok, bobId, personalityStore } = setup();
     // amy creates a profile; bob must not be able to touch it.
@@ -162,16 +142,5 @@ describe('personality routes', () => {
     expect(personalityStore.get(bobId, row.id)).toBeUndefined(); // never bob's
     const amyOwn = personalityStore.list(row.user_id);
     expect(amyOwn.find((p) => p.id === row.id)?.name).toBe('Amys');
-  });
-
-  it('admin can inspect another user\'s profiles; a non-admin is forbidden', async () => {
-    const { app, amyTok, bobTok, bobId } = setup();
-    await app.request('/personality/profiles', post(bobTok, { platform: 'web', name: 'BobVoice', prompt: 'b' }));
-    // amy is the admin.
-    const asAdmin = await app.request(`/personality/users/${bobId}/profiles`, auth(amyTok));
-    expect(asAdmin.status).toBe(200);
-    expect((await asAdmin.json())[0].name).toBe('BobVoice');
-    // bob (non-admin) cannot inspect anyone via the admin route.
-    expect((await app.request(`/personality/users/${bobId}/profiles`, auth(bobTok))).status).toBe(403);
   });
 });

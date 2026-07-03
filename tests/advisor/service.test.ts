@@ -27,7 +27,7 @@ function makeAdvisor(opts: { allowed: string[] }) {
     mcpUrl: 'http://localhost:4400/mcp',
     advisorDir: () => '/tmp/advisor',
   });
-  return { svc, spawnCalls, users, u, tmux };
+  return { svc, spawnCalls, users, u, tmux, config };
 }
 
 describe('AdvisorService', () => {
@@ -42,6 +42,15 @@ describe('AdvisorService', () => {
     expect(spawnCalls[0].mcpUrl).toBe('http://localhost:4400/mcp'); // MCP server URL passed for codex `-c` wiring
     await svc.start(u.id, 'sonnet'); // already live
     expect(spawnCalls).toHaveLength(1); // not respawned
+  });
+
+  it('substitutes the configured agentName into the advisor prompt', async () => {
+    const { svc, spawnCalls, u, config } = makeAdvisor({ allowed: ['sonnet'] });
+    config.update({ brain: { agentName: 'Jarvis' } });
+    await svc.start(u.id, 'sonnet');
+    const prompt = spawnCalls[0].rawPrompt ?? '';
+    expect(prompt).toContain('Your name is Jarvis.');
+    expect(prompt).not.toContain('{{agentName}}'); // token fully resolved
   });
 
   it('rejects an exec not in the allow-list', async () => {

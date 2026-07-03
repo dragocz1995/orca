@@ -69,9 +69,13 @@ export class AdvisorService {
     await this.d.prepareMcp?.(spec.program, cwd, token, this.d.url);
     const u = this.d.users.get(userId)!;
     const personality = personalityText(this.d.advisorStyle?.(userId) ?? '');
+    // The configured assistant identity (Settings → Orca AI) so {{agentName}} in the prompt resolves —
+    // mirrors how the brain/personality render supplies it. Absent → 'Orca'.
+    const agentName = this.d.config.get().brain.agentName || 'Orca';
+    const vars = { userName: u.name || u.username, personality, agentName };
     const rawPrompt = this.d.prompts
-      ? this.d.prompts.render('advisor', { userName: u.name || u.username, personality }, userId)
-      : render('advisor', { userName: u.name || u.username, personality });
+      ? this.d.prompts.render('advisor', vars, userId)
+      : render('advisor', vars);
     // agentName `advisor-<id>` → SpawnService names the tmux session `orca-advisor-<id>`. The full
     // advisor token overrides the daemon's agent service token via extraEnv, so the advisor acts with
     // the user's own rights. The cwd is a neutral per-user dir, not a project checkout.

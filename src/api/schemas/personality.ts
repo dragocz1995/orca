@@ -24,8 +24,3 @@ export const personalityPatchSchema = z.object({
   style: z.string().max(200, 'style too long').optional(),
   enabled: z.boolean().optional(),
 });
-
-/** Preview request: which platform's resolved personality stack to render. */
-export const personalityPreviewSchema = z.object({
-  platform: z.string().trim().min(1, 'platform required').max(40, 'platform too long'),
-});

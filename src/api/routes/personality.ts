@@ -1,5 +1,5 @@
 import { parseBody } from '../validation.js';
-import { personalityCreateSchema, personalityPatchSchema, personalityPreviewSchema } from '../schemas/personality.js';
+import { personalityCreateSchema, personalityPatchSchema } from '../schemas/personality.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
 /** Per-user personality profiles: named prompt bodies a user pins active per platform. Self-service —
@@ -54,25 +54,5 @@ export function registerPersonalityRoutes(app: OrcaApp, ctx: RouteContext): void
     store.setActive(userId, profile.platform, profile.id);
     await d.brain?.applyPersonalityChange(userId);
     return c.json(profile);
-  });
-
-  // Read-only render of the resolved system-prompt stack (core persona + active personality chunk) the
-  // runtime would apply for the caller on the given platform. Needs the PersonalityService seam.
-  app.post('/personality/preview', async (c) => {
-    if (!ctx.personality) return c.json({ error: 'personality unavailable' }, 400);
-    const { platform } = await parseBody(c, personalityPreviewSchema);
-    return c.json(ctx.personality.preview(c.get('user').id, platform));
-  });
-
-  // Admin-only inspection of another user's profiles (read-only). Mirrors the users-admin gate; the
-  // target id comes from the URL, not the caller. Absent user store → open mode, no admin concept.
-  app.get('/personality/users/:id/profiles', (c) => {
-    if (!store) return c.json({ error: 'personality unavailable' }, 400);
-    const users = d.users;
-    if (users) {
-      const actor = c.get('user');
-      if (!actor || !users.isAdmin(actor.id)) return c.json({ error: 'forbidden' }, 403);
-    }
-    return c.json(store.list(Number(c.req.param('id'))));
   });
 }
