@@ -82,12 +82,18 @@ export function MemorySection() {
     }
   }, [embedding, categorization, seeded]);
 
-  const embCatalog = useProviderCatalog(brainModels, embProvider);
+  // OAuth accounts (Claude/ChatGPT) expose no embeddings endpoint, so they can never be an embedding
+  // model — drop them from the embedding catalog. Categorization is a chat completion, so it keeps all.
+  const embeddingModels = useMemo(() => (brainModels ?? []).filter((m) => m.source !== 'oauth'), [brainModels]);
+  const embCatalog = useProviderCatalog(embeddingModels, embProvider);
   const catCatalog = useProviderCatalog(brainModels, catProvider);
 
   if (!config || !embedding || !categorization) return <LoadingState />;
 
   const providers = config.brain?.providers ?? [];
+  // Same reason: the embedding provider picker only offers providers that can actually embed
+  // (API-key / OpenAI-compatible / relay) — OAuth accounts are excluded.
+  const embeddingProviders = providers.filter((p) => !p.type.startsWith('oauth-'));
 
   // baseUrl is intentionally omitted from the UI — the referenced provider already carries the API
   // endpoint. We send '' so any previously stored override is cleared and the provider endpoint wins.
@@ -150,7 +156,7 @@ export function MemorySection() {
         <p className="text-xs text-text-muted">{t.memory.embeddingIntro}</p>
 
         <Field label={t.memory.embeddingProvider} hint={t.memory.embeddingProviderHint}>
-          <ProviderSegmented providers={providers} providerId={embProvider} onChange={setEmbProvider} label={t.memory.embeddingProvider} emptyText={t.memory.embeddingProviderPlaceholder} />
+          <ProviderSegmented providers={embeddingProviders} providerId={embProvider} onChange={setEmbProvider} label={t.memory.embeddingProvider} emptyText={t.memory.embeddingProviderPlaceholder} />
         </Field>
 
         <Field label={t.memory.embeddingModel}>
