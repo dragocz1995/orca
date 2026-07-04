@@ -29,6 +29,25 @@ describe('ConfigStore', () => {
     expect(cfg.apiKey()).toBe('k1');
     expect(cfg.get().autopilot.apiKeySet).toBe(true);
   });
+
+  describe('autopilotRelay (planner/overseer/curator credentials)', () => {
+    it('falls back to the legacy top-level apiKey + autopilot.apiUrl when no provider is picked', () => {
+      cfg.update({ autopilot: { apiUrl: 'https://relay.example/v1', apiKey: 'relay-key' } });
+      expect(cfg.autopilotRelay()).toEqual({ baseUrl: 'https://relay.example/v1', apiKey: 'relay-key' });
+    });
+    it('is null when neither a provider nor a legacy key is set', () => {
+      expect(cfg.autopilotRelay()).toBeNull();
+    });
+    it('reuses the referenced brain provider endpoint+key when providerId is set (legacy key ignored)', () => {
+      cfg.update({ brain: { providers: [{ id: 'p1', label: 'P1', type: 'openai', baseUrl: 'https://p1.example/v1', models: ['m'], apiKey: 'p1-key' }] } });
+      cfg.update({ autopilot: { providerId: 'p1', apiKey: 'legacy-should-be-ignored' } });
+      expect(cfg.autopilotRelay()).toEqual({ baseUrl: 'https://p1.example/v1', apiKey: 'p1-key' });
+    });
+    it('is null when providerId points at a missing or keyless provider', () => {
+      cfg.update({ autopilot: { providerId: 'ghost', apiKey: 'legacy' } });
+      expect(cfg.autopilotRelay()).toBeNull();
+    });
+  });
   it('exposes only the VAPID public key, never the private one', () => {
     expect(cfg.get().webPush).toEqual({ publicKey: '', publicKeySet: false });
     expect(cfg.webPushKeys()).toBeNull();

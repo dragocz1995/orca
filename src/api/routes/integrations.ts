@@ -9,7 +9,9 @@ export function registerIntegrationRoutes(app: OrcaApp, ctx: RouteContext): void
     const cfg = d.config.get();
     const detectCtx = {
       configPersisted: d.config.hasSettings(),
-      hasApiKey: cfg.autopilot.apiKeySet,
+      // Relay creds resolve either from a legacy top-level key or a picked brain provider — either
+      // counts as "configured" for the setup hint.
+      hasApiKey: d.config.autopilotRelay() !== null,
       hasCustomSetup: cfg.customModels.length > 0 || cfg.hiddenPresets.length > 0,
     };
     return c.json(await detectClis(detectCtx));

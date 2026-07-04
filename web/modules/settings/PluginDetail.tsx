@@ -18,6 +18,7 @@ import { Checkbox } from '../../components/ui/Checkbox';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { Segmented } from '../../components/ui/Segmented';
+import { ProviderPicker } from '../../components/ui/ProviderPicker';
 import { EmptyState, LoadingState } from '../../components/ui/states';
 import type { Tone } from '../../components/ui/tone';
 import { useToast } from '../../components/ui/Toast';
@@ -213,20 +214,13 @@ function RolePoliciesEditor({ value, onChange }: { value: RolePolicy[]; onChange
 
 /** Provider picker for a `provider`-type field: choose one of the configured brain providers (its key
  *  is reused as the plugin's credentials, so no key is entered twice). Filtered to those with a key set
- *  and — when the field declares `providerType` — that type (e.g. `openai`, the only one with audio). */
-function ProviderPicker({ value, onChange, providerType }: { value: string; onChange: (v: string) => void; providerType?: string }) {
+ *  and — when the field declares `providerType` — that type (e.g. `openai`, the only one with audio).
+ *  Rendering is the shared ProviderPicker; this wrapper just applies the plugin-field filter. */
+function PluginProviderField({ value, onChange, providerType }: { value: string; onChange: (v: string) => void; providerType?: string }) {
   const { data: config } = useConfig();
   const { t } = useTranslation();
   const providers = (config?.brain?.providers ?? []).filter((p) => p.apiKeySet && (!providerType || p.type === providerType));
-  if (providers.length === 0) return <p className="text-xs text-text-muted">{t.pluginCfg.noProviders}</p>;
-  return (
-    <Segmented
-      size="sm"
-      options={providers.map((p) => ({ value: p.id, label: p.label }))}
-      value={value}
-      onChange={onChange}
-    />
-  );
+  return <ProviderPicker providers={providers} value={value} onChange={onChange} emptyText={t.pluginCfg.noProviders} size="sm" />;
 }
 
 // Connection-ish plain keys that belong with the secrets section (endpoints/ids), not with behavior.
@@ -419,7 +413,7 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
         return <ExecutorPicker value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} models={[]} allowDefault={false} kind="brain" />;
       case 'provider':
         // Reuse a configured brain provider's key as this plugin's credentials (voice, image gen).
-        return <ProviderPicker value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} providerType={f.providerType} />;
+        return <PluginProviderField value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} providerType={f.providerType} />;
       case 'rolePolicies':
         return <RolePoliciesEditor value={Array.isArray(values[f.key]) ? (values[f.key] as RolePolicy[]) : []} onChange={(v) => set(f.key, v)} />;
       case 'enum':

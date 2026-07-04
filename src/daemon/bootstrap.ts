@@ -179,9 +179,9 @@ export function buildApp(opts: BuildOpts) {
   // Overseer decisions use their own model when set, else fall back to the planner model.
   // Returns null when no API key is configured (callers then keep their pre-relay behaviour).
   const overseerClient = () => {
-    const cfg = config.get(); const key = config.apiKey();
-    if (!key) return null;
-    return new RelayClient({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.overseerModel || cfg.autopilot.model });
+    const cfg = config.get(); const relay = config.autopilotRelay();
+    if (!relay) return null;
+    return new RelayClient({ baseUrl: relay.baseUrl, apiKey: relay.apiKey, model: cfg.autopilot.overseerModel || cfg.autopilot.model });
   };
   // Shared reasoning stores: the async planning job registry and the per-mission decision queue.
   // The Pilot spawns a repo-aware planning agent for agent-mode plan jobs (relay path needs none);
@@ -396,9 +396,9 @@ export function buildApp(opts: BuildOpts) {
   // Cheap inference for the post-turn memory curator — mirrors overseerClient but keyed on the (cheaper)
   // planner model. Null when no relay key is set → the curator no-ops (memory still works via tools).
   const curatorInference = () => {
-    const cfg = config.get(); const key = config.apiKey();
-    if (!key) return null;
-    return new RelayClient({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
+    const cfg = config.get(); const relay = config.autopilotRelay();
+    if (!relay) return null;
+    return new RelayClient({ baseUrl: relay.baseUrl, apiKey: relay.apiKey, model: cfg.autopilot.model });
   };
   // Per-user memory categories + the auto-categorizer. The categorizer has its OWN workspace model
   // (Settings → Memory categorization): it resolves the referenced brain provider's endpoint+key at call

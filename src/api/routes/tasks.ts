@@ -361,9 +361,9 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
       return c.json({ jobId: job.id }, 202);
     }
     // Relay backend: decompose inline and resolve the job before responding.
-    const key = d.config.apiKey();
-    if (!key) return c.json({ error: 'autopilot_key_missing' }, 400);
-    const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
+    const relay = d.config.autopilotRelay();
+    if (!relay) return c.json({ error: 'autopilot_key_missing' }, 400);
+    const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: relay.baseUrl, apiKey: relay.apiKey, model: cfg.autopilot.model });
     let phases: Phase[];
     try {
       const notes = d.projects?.get(target.project.id)?.notes;
@@ -449,9 +449,9 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
       void d.pilot(job, pathFor(epic.project_id)).catch((e) => { planJobs.fail(job.id, String(e)); d.bus.publish({ type: 'plan', jobId: job.id, status: 'failed', error: String(e) }); });
       return c.json({ jobId: job.id, epicId }, 202);
     }
-    const key = d.config.apiKey();
-    if (!key) return c.json({ error: 'autopilot_key_missing' }, 400);
-    const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: cfg.autopilot.apiUrl, apiKey: key, model: cfg.autopilot.model });
+    const relay = d.config.autopilotRelay();
+    if (!relay) return c.json({ error: 'autopilot_key_missing' }, 400);
+    const inf = (d.makeInference ?? ((rc) => new RelayClient(rc)))({ baseUrl: relay.baseUrl, apiKey: relay.apiKey, model: cfg.autopilot.model });
     let phases: Phase[];
     // Preserve the epic owner's planner override across a replan; the current user is the fallback.
     const replanUserId = epic.created_by ?? c.get('user')?.id ?? null;

@@ -5,7 +5,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
-import { Segmented } from '../../components/ui/Segmented';
+import { ProviderPicker } from '../../components/ui/ProviderPicker';
 import { ModelPillsPicker } from '../../components/ui/ModelPillsPicker';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { LoadingState } from '../../components/ui/states';
@@ -15,21 +15,6 @@ import { useConfig, useEmbeddingSettings, useCategorizationSettings, useBrainMod
 import { useSaveEmbeddingSettings, useReindexMemories, useSaveCategorizationSettings, useReclassifyMemories } from '../../lib/mutations';
 import { orcaClient, OrcaApiError } from '../../lib/orcaClient';
 import type { BrainModelOption } from '../../lib/types';
-
-/** Provider Segmented over the configured brain providers. A stale saved id (its provider later
- *  removed) is surfaced as its own option so it stays selectable. */
-function ProviderSegmented({ providers, providerId, onChange, label, emptyText }: {
-  providers: { id: string; label: string }[];
-  providerId: string;
-  onChange: (id: string) => void;
-  label: string;
-  emptyText: string;
-}) {
-  const options = providers.map((p) => ({ value: p.id, label: p.label }));
-  if (providerId && !providers.some((p) => p.id === providerId)) options.unshift({ value: providerId, label: providerId });
-  if (options.length === 0) return <p className="text-xs italic text-text-muted">{emptyText}</p>;
-  return <Segmented aria-label={label} options={options} value={providerId} onChange={onChange} />;
-}
 
 /** Deduped model ids from the brain catalog, scoped to the chosen provider (or all when none picked).
  *  The catalog only ever holds real API/chat/embedding models from configured brain providers — CLI
@@ -156,7 +141,7 @@ export function MemorySection() {
         <p className="text-xs text-text-muted">{t.memory.embeddingIntro}</p>
 
         <Field label={t.memory.embeddingProvider} hint={t.memory.embeddingProviderHint}>
-          <ProviderSegmented providers={embeddingProviders} providerId={embProvider} onChange={setEmbProvider} label={t.memory.embeddingProvider} emptyText={t.memory.embeddingProviderPlaceholder} />
+          <ProviderPicker providers={embeddingProviders} value={embProvider} onChange={setEmbProvider} label={t.memory.embeddingProvider} emptyText={t.memory.embeddingProviderPlaceholder} />
         </Field>
 
         <Field label={t.memory.embeddingModel}>
@@ -211,7 +196,7 @@ export function MemorySection() {
         <p className="text-xs text-text-muted">{t.categorization.intro}</p>
 
         <Field label={t.categorization.providerLabel}>
-          <ProviderSegmented providers={providers} providerId={catProvider} onChange={setCatProvider} label={t.categorization.providerLabel} emptyText={t.memory.embeddingProviderPlaceholder} />
+          <ProviderPicker providers={providers} value={catProvider} onChange={setCatProvider} label={t.categorization.providerLabel} emptyText={t.memory.embeddingProviderPlaceholder} />
         </Field>
 
         <Field label={t.categorization.modelLabel}>

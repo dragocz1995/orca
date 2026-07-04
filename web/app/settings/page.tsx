@@ -5,6 +5,7 @@ import { Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge
 import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
+import { ProviderPicker } from '../../components/ui/ProviderPicker';
 import { ModelModal } from '../../modules/settings/ModelModal';
 import { ModelNoteModal } from '../../modules/settings/ModelNoteModal';
 import { GithubStatusBanner } from '../../modules/settings/GithubStatusBanner';
@@ -107,6 +108,9 @@ export default function SettingsPage() {
   const [ghToken, setGhToken] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  // When set, the planner/overseer/curator reuse this brain provider's endpoint+key instead of a
+  // separately-entered relay key — so a key is never typed twice. Empty = the legacy manual apiUrl/apiKey.
+  const [apProviderId, setApProviderId] = useState('');
   const [notes, setNotes] = useState('');
   const [providers, setProviders] = useState<Record<string, { bin: string; args: string; skipPermissions?: boolean; resume?: boolean }>>({});
   const [sampleGoal, setSampleGoal] = useState('');
@@ -180,6 +184,7 @@ export default function SettingsPage() {
       setPrVerifyCommand(config.data.autopilot.prVerifyCommand ?? '');
       setReasoningMode((config.data.autopilot.pilotExec || config.data.autopilot.overseerExec) ? 'agents' : 'relay');
       setApiUrl(config.data.autopilot.apiUrl);
+      setApProviderId(config.data.autopilot.providerId ?? '');
       setNotes(config.data.autopilot.notes);
       setProviders(config.data.providers ?? {});
       setDefExec(config.data.defaults.exec);
@@ -196,7 +201,7 @@ export default function SettingsPage() {
     update.mutate(
       { autopilot: reasoningMode === 'agents'
         ? { pilotExec, overseerExec, reviewOnDone, notes }
-        : { model, overseerModel, apiUrl, pilotExec: '', overseerExec: '', notes, ...(apiKey ? { apiKey } : {}) } },
+        : { model, overseerModel, apiUrl, providerId: apProviderId, pilotExec: '', overseerExec: '', notes, ...(apiKey ? { apiKey } : {}) } },
       { onSuccess: () => { if (apiKey) setApiKey(''); }, onError: (e) => toast(String(e), 'error') },
     );
   };
@@ -481,18 +486,36 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
               {reasoningMode === 'relay' ? (
                 <>
+                  <SettingCard title={t.settings.apProvider} description={t.settings.apProviderDesc} icon={KeyRound} className="@sm:col-span-2">
+                    <ProviderPicker
+                      providers={[{ id: '', label: t.settings.apManual }, ...(config.data?.brain?.providers ?? []).filter((p) => p.apiKeySet).map((p) => ({ id: p.id, label: p.label }))]}
+                      value={apProviderId}
+                      onChange={setApProviderId}
+                      label={t.settings.apProvider}
+                    />
+                  </SettingCard>
                   <SettingCard title={t.settings.plannerModel} description={t.settings.plannerModelDesc} icon={Bot}>
                     <ModelInput value={model} onChange={setModel} placeholder={t.settings.plannerPlaceholder} />
                   </SettingCard>
                   <SettingCard title={t.settings.overseerModel} description={t.settings.overseerModelDesc} icon={Eye}>
                     <ModelInput value={overseerModel} onChange={setOverseerModel} placeholder={t.settings.overseerPlaceholder} />
                   </SettingCard>
-                  <SettingCard title={t.settings.apiUrl} description={t.settings.apiUrlDesc} icon={Link2}>
-                    <input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className={inputClass} />
-                  </SettingCard>
-                  <SettingCard title={t.settings.apiKey} description={apiKeySet ? t.settings.apiKeyDesc : t.settings.apiKeyNotSetDesc} icon={KeyRound}>
-                    <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeySet ? t.settings.apiKeySetPlaceholder : t.settings.apiKeyPlaceholder} className={inputClass} />
-                  </SettingCard>
+                  {/* Manual endpoint+key only when NO provider is picked — a chosen provider supplies both,
+                      so the key is never entered twice. */}
+                  {apProviderId === '' ? (
+                    <>
+                      <SettingCard title={t.settings.apiUrl} description={t.settings.apiUrlDesc} icon={Link2}>
+                        <input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className={inputClass} />
+                      </SettingCard>
+                      <SettingCard title={t.settings.apiKey} description={apiKeySet ? t.settings.apiKeyDesc : t.settings.apiKeyNotSetDesc} icon={KeyRound}>
+                        <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeySet ? t.settings.apiKeySetPlaceholder : t.settings.apiKeyPlaceholder} className={inputClass} />
+                      </SettingCard>
+                    </>
+                  ) : (
+                    <SettingCard title={t.settings.apiKey} description={t.settings.apInheritsKey} icon={KeyRound} className="@sm:col-span-2">
+                      <p className="text-xs italic text-text-muted">{t.settings.apInheritsKey}</p>
+                    </SettingCard>
+                  )}
                 </>
               ) : (
                 <>
