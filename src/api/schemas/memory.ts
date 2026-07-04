@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { ICON_ALLOWLIST } from '../../store/memoryCategoryStore.js';
+
+/** Optional category icon, validated against the shared allowlist (the store also clamps unknown → 'Folder'
+ *  for non-route callers like the model-driven suggest). */
+const iconSchema = z.enum(ICON_ALLOWLIST).optional();
 
 /** Create a memory. Only `body` is required; kind/importance/confidence default in the store. Generous
  *  body ceiling guards the DB row without constraining real facts. importance is a 1..5 rank, confidence
@@ -18,6 +23,11 @@ export const memoryPatchSchema = z.object({
   importance: z.number().int().min(1, 'importance 1..5').max(5, 'importance 1..5').optional(),
   confidence: z.number().min(0, 'confidence 0..1').max(1, 'confidence 0..1').optional(),
   status: z.enum(['active', 'archived', 'deleted']).optional(),
+});
+
+/** Hard-delete a batch of the caller's memories by id (any status). Owner-scoped in the store. */
+export const memoryPurgeSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(1, 'at least one id'),
 });
 
 /** Merge several source memories into one new memory carrying `body`; the sources are soft-deleted. */
@@ -47,6 +57,7 @@ export const memoryCategoryCreateSchema = z.object({
   name: z.string().trim().min(1, 'name cannot be empty').max(60, 'name too long'),
   description: z.string().trim().max(1000, 'description too long').optional(),
   color: z.string().trim().max(20, 'color too long').optional(),
+  icon: iconSchema,
 });
 
 /** Partial update of a category — every field optional, only the provided ones are written. A name
@@ -55,6 +66,12 @@ export const memoryCategoryPatchSchema = z.object({
   name: z.string().trim().min(1, 'name cannot be empty').max(60, 'name too long').optional(),
   description: z.string().trim().max(1000, 'description too long').optional(),
   color: z.string().trim().max(20, 'color too long').optional(),
+  icon: iconSchema,
+});
+
+/** Ask the server to suggest a category icon for a name (model-driven, fail-soft 'Folder'). */
+export const memoryCategorySuggestIconSchema = z.object({
+  name: z.string().trim().min(1, 'name cannot be empty').max(60, 'name too long'),
 });
 
 /** Assign (or clear with null) a memory's category. A non-null id must be one of the caller's own

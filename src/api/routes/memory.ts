@@ -4,8 +4,8 @@ import { toEmbeddingConfig } from '../../store/configStore.js';
 import { isEmbeddingConfigured } from '../../embeddings/embeddingService.js';
 import {
   memoryCreateSchema, memoryPatchSchema, memoryMergeSchema, memoryRetrieveSchema, embeddingUpdateSchema,
-  memoryCategoryCreateSchema, memoryCategoryPatchSchema, memoryCategorySetSchema,
-  categorizationUpdateSchema, memoryReclassifySchema,
+  memoryPurgeSchema, memoryCategoryCreateSchema, memoryCategoryPatchSchema, memoryCategorySetSchema,
+  memoryCategorySuggestIconSchema, categorizationUpdateSchema, memoryReclassifySchema,
 } from '../schemas/memory.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 
@@ -84,6 +84,24 @@ export function registerMemoryRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(store.merge(userId, b.ids, b.body, `user:${userId}`, 'merged via API'), 201);
   });
 
+  // Hard-delete a batch of the caller's memories by id (any status) — a real DELETE, not a soft flip.
+  // Owner-scoped in the store (a foreign id is skipped). Registered before `/memory/:id`.
+  app.post('/memory/purge', async (c) => {
+    if (!store) return c.json({ error: 'memory unavailable' }, 400);
+    const userId = c.get('user').id;
+    const { ids } = await parseBody(c, memoryPurgeSchema);
+    let purged = 0;
+    for (const id of ids) { if (store.purge(userId, id, `user:${userId}`, 'purged via API')) purged += 1; }
+    return c.json({ purged });
+  });
+
+  // Empty the trash: hard-delete ALL of the caller's soft-deleted memories. Owner-scoped, atomic.
+  app.post('/memory/empty-trash', (c) => {
+    if (!store) return c.json({ error: 'memory unavailable' }, 400);
+    const userId = c.get('user').id;
+    return c.json({ purged: store.purgeDeleted(userId, `user:${userId}`, 'emptied trash via API') });
+  });
+
   // Retrieval-debugging: rank the caller's memories against a query and return the picked set plus the
   // full scoring breakdown. POST because retrieve() mutates (markUsed) the returned memories.
   app.post('/memory/retrieve', async (c) => {
@@ -127,13 +145,25 @@ export function registerMemoryRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(cats.list(c.get('user').id));
   });
 
-  // Create a category for the caller. A duplicate name (UNIQUE(user_id,name)) → 409.
+  // Model-suggest one allowlist icon for a category name (fail-soft 'Folder'). Literal sub-path — kept
+  // above `/memory/categories/:cid`; the :cid routes are PATCH/DELETE so there is no method clash anyway.
+  app.post('/memory/categories/suggest-icon', async (c) => {
+    const categorizer = d.memoryCategorizer;
+    const { name } = await parseBody(c, memoryCategorySuggestIconSchema);
+    // No categorizer wired → fail-soft to the default glyph (the store's clamp fallback), never a 400.
+    const icon = categorizer ? await categorizer.suggestIcon(name) : 'Folder';
+    return c.json({ icon });
+  });
+
+  // Create a category for the caller. A duplicate name (UNIQUE(user_id,name)) → 409. When no icon is
+  // supplied, the server auto-suggests one from the name (model-driven, fail-soft 'Folder').
   app.post('/memory/categories', async (c) => {
     const cats = d.memoryCategoryStore;
     if (!cats) return c.json({ error: 'memory unavailable' }, 400);
     const b = await parseBody(c, memoryCategoryCreateSchema);
+    const icon = b.icon ?? (d.memoryCategorizer ? await d.memoryCategorizer.suggestIcon(b.name) : undefined);
     try {
-      return c.json(cats.create(c.get('user').id, b), 201);
+      return c.json(cats.create(c.get('user').id, { ...b, icon }), 201);
     } catch (err) {
       if (isUniqueViolation(err)) return c.json({ error: 'category name already exists' }, 409);
       throw err;
@@ -245,6 +275,16 @@ export function registerMemoryRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (!store) return c.json({ error: 'memory unavailable' }, 400);
     const userId = c.get('user').id;
     store.softDelete(userId, Number(c.req.param('id')), `user:${userId}`, 'deleted via API');
+    return c.json({ ok: true });
+  });
+
+  // Hard-delete ONE of the caller's memories (any status) — a real DELETE, not a soft flip. Owner-scoped
+  // → 404 on a foreign/missing id. The embedding cascades away; a 'purge' audit is written first.
+  app.delete('/memory/:id/purge', (c) => {
+    if (!store) return c.json({ error: 'memory unavailable' }, 400);
+    const userId = c.get('user').id;
+    const ok = store.purge(userId, Number(c.req.param('id')), `user:${userId}`, 'purged via API');
+    if (!ok) return c.json({ error: 'not found' }, 404);
     return c.json({ ok: true });
   });
 

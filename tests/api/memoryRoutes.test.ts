@@ -222,7 +222,7 @@ function setupCat(opts: { categorizeReply?: string; categorizationConfigured?: b
   const memoryStore = new MemoryStore(db);
   const memoryCategoryStore = new MemoryCategoryStore(db);
   const configured = opts.categorizationConfigured !== false;
-  const stub: InferenceClient = { decide: async () => ({ text: opts.categorizeReply ?? 'none' }) };
+  const stub: InferenceClient = { model: 'fake-model', decide: async () => ({ text: opts.categorizeReply ?? 'none' }) };
   const inference = (): InferenceClient | null => (configured ? stub : null);
   const memoryCategorizer = new MemoryCategorizer({ categories: memoryCategoryStore, memories: memoryStore, inference });
   const app = createServer({

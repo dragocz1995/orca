@@ -214,6 +214,9 @@ CREATE TABLE IF NOT EXISTS memory_events (
   after_json TEXT,
   actor TEXT NOT NULL,
   reason TEXT NOT NULL DEFAULT '',
+  -- Which model performed the mutation (curator add/update, categorizer categorize). NULL for
+  -- human/API-driven events and any mutation not backed by an inference model.
+  model TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_memory_events_memory ON memory_events(memory_id);
@@ -229,6 +232,9 @@ CREATE TABLE IF NOT EXISTS memory_categories (
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   color TEXT NOT NULL DEFAULT '',
+  -- A lucide icon name from the server-side ICON_ALLOWLIST (see memoryCategoryStore). Empty = the UI
+  -- fallback glyph ('Folder'); the store always writes a clamped allowlist value on create/update.
+  icon TEXT NOT NULL DEFAULT '',
   is_builtin INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(user_id, name)

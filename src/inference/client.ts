@@ -7,7 +7,8 @@ const chatUrl = (base: string) => `${base.replace(/\/v1$/, '')}/v1/chat/completi
 const RELAY_TIMEOUT_MS = 60_000;
 
 export class RelayClient implements InferenceClient {
-  constructor(private cfg: RelayConfig) {}
+  readonly model: string;
+  constructor(private cfg: RelayConfig) { this.model = cfg.model; }
   async decide(prompt: string): Promise<{ text: string }> {
     const res = await fetch(chatUrl(this.cfg.baseUrl), {
       method: 'POST',
@@ -26,6 +27,6 @@ export class RelayClient implements InferenceClient {
 }
 
 export class FakeInference implements InferenceClient {
-  constructor(private reply: string) {}
+  constructor(private reply: string, readonly model = 'fake') {}
   async decide(_prompt: string) { return { text: this.reply }; }
 }

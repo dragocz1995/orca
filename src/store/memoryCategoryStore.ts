@@ -1,19 +1,37 @@
 import type { Db } from './db.js';
 
+/** The server source of truth for category icons — 24 lucide names shared with the web client. Any icon
+ *  written to a category is clamped to one of these; the default/fallback is 'Folder'. */
+export const ICON_ALLOWLIST = [
+  'Briefcase', 'Server', 'Database', 'Heart', 'Code', 'Home', 'Star', 'Folder', 'Globe', 'Book',
+  'Cpu', 'Terminal', 'Rocket', 'Lightbulb', 'Target', 'Calendar', 'DollarSign', 'ShoppingCart',
+  'Music', 'Camera', 'MapPin', 'Zap', 'Flag', 'Bookmark',
+] as const;
+
+export const DEFAULT_ICON = 'Folder';
+
+/** Coerce an arbitrary icon string to a KNOWN allowlist name, falling back to 'Folder'. Used on every
+ *  create/update so a foreign name (or a model-suggested one) can never land in the DB. */
+function clampIcon(icon: string | null | undefined): string {
+  return icon && (ICON_ALLOWLIST as readonly string[]).includes(icon) ? icon : DEFAULT_ICON;
+}
+
 /** A user-scoped memory category. name is the label; description is the LLM-facing guide the categorizer
- *  classifies against; color is an optional UI hint; is_builtin marks seeded ones. */
+ *  classifies against; color is an optional UI hint; icon is a lucide name from ICON_ALLOWLIST;
+ *  is_builtin marks seeded ones. */
 export interface MemoryCategoryRow {
   id: number;
   user_id: number;
   name: string;
   description: string;
   color: string;
+  icon: string;
   is_builtin: number;
   created_at: string;
 }
 
-export interface CategoryInput { name: string; description?: string; color?: string; isBuiltin?: boolean }
-export interface CategoryPatch { name?: string; description?: string; color?: string }
+export interface CategoryInput { name: string; description?: string; color?: string; icon?: string; isBuiltin?: boolean }
+export interface CategoryPatch { name?: string; description?: string; color?: string; icon?: string }
 
 /** Persistence for per-user memory categories (v1: user-scoped). Every read/write is filtered by user_id.
  *  Category CRUD is UNaudited (per spec); a memory's category change is audited by MemoryStore.setCategory.
@@ -38,13 +56,14 @@ export class MemoryCategoryStore {
    *  the SqliteError propagates so the route maps SQLITE_CONSTRAINT_UNIQUE → 409. */
   create(userId: number, input: CategoryInput): MemoryCategoryRow {
     const info = this.db.prepare(
-      `INSERT INTO memory_categories (user_id, name, description, color, is_builtin)
-       VALUES (@user_id, @name, @description, @color, @is_builtin)`
+      `INSERT INTO memory_categories (user_id, name, description, color, icon, is_builtin)
+       VALUES (@user_id, @name, @description, @color, @icon, @is_builtin)`
     ).run({
       user_id: userId,
       name: input.name,
       description: input.description ?? '',
       color: input.color ?? '',
+      icon: clampIcon(input.icon),
       is_builtin: input.isBuiltin ? 1 : 0,
     });
     return this.db.prepare('SELECT * FROM memory_categories WHERE id = ?')
@@ -61,6 +80,7 @@ export class MemoryCategoryStore {
     if (patch.name !== undefined) { sets.push('name = @name'); params.name = patch.name; }
     if (patch.description !== undefined) { sets.push('description = @description'); params.description = patch.description; }
     if (patch.color !== undefined) { sets.push('color = @color'); params.color = patch.color; }
+    if (patch.icon !== undefined) { sets.push('icon = @icon'); params.icon = clampIcon(patch.icon); }
     if (sets.length > 0) {
       this.db.prepare(`UPDATE memory_categories SET ${sets.join(', ')} WHERE id = @id AND user_id = @user_id`).run(params);
     }

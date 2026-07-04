@@ -39,6 +39,7 @@ export interface MemoryEventRow {
   after_json: string | null;
   actor: string;
   reason: string;
+  model: string | null;
   created_at: string;
 }
 
@@ -95,8 +96,9 @@ function packVector(vector: Float32Array | Buffer): Buffer {
 export class MemoryStore {
   constructor(private db: Db) {}
 
-  /** Insert a memory and audit the 'add' (after_json = the new row). Atomic. Returns the full row. */
-  add(userId: number, input: MemoryInput, actor: string, reason: string): MemoryRow {
+  /** Insert a memory and audit the 'add' (after_json = the new row). `model` names the inference model
+   *  behind the write (curator) — null for human/API adds. Atomic. Returns the full row. */
+  add(userId: number, input: MemoryInput, actor: string, reason: string, model?: string | null): MemoryRow {
     return this.db.transaction(() => {
       const info = this.db.prepare(
         `INSERT INTO memories (user_id, body, kind, importance, confidence, source)
@@ -110,7 +112,7 @@ export class MemoryStore {
         source: input.source ?? 'agent',
       });
       const row = this.db.prepare('SELECT * FROM memories WHERE id = ?').get(Number(info.lastInsertRowid)) as MemoryRow;
-      this.audit(userId, row.id, 'add', null, row, actor, reason);
+      this.audit(userId, row.id, 'add', null, row, actor, reason, model);
       return row;
     })();
   }
@@ -162,7 +164,7 @@ export class MemoryStore {
   /** Patch a memory (owned by user), bump updated_at, audit 'update' with before/after. A body change
    *  is NOT re-embedded here — the caller re-embeds (needsEmbedding will report it stale). Returns the
    *  updated row, or undefined if the memory doesn't exist for this user. */
-  update(userId: number, id: number, patch: MemoryPatch, actor: string, reason: string): MemoryRow | undefined {
+  update(userId: number, id: number, patch: MemoryPatch, actor: string, reason: string, model?: string | null): MemoryRow | undefined {
     return this.db.transaction(() => {
       const before = this.get(userId, id);
       if (!before) return undefined;
@@ -176,7 +178,7 @@ export class MemoryStore {
       sets.push("updated_at = datetime('now')");
       this.db.prepare(`UPDATE memories SET ${sets.join(', ')} WHERE id = @id AND user_id = @user_id`).run(params);
       const after = this.get(userId, id)!;
-      this.audit(userId, id, 'update', before, after, actor, reason);
+      this.audit(userId, id, 'update', before, after, actor, reason, model);
       return after;
     })();
   }
@@ -189,6 +191,36 @@ export class MemoryStore {
   /** Restore a soft-deleted memory: set status='active' and audit 'restore'. */
   restore(userId: number, id: number, actor: string, reason: string): boolean {
     return this.setStatus(userId, id, 'active', 'restore', actor, reason);
+  }
+
+  /** HARD-delete one owned memory of ANY status (not a soft status flip) — the row is physically removed
+   *  and its embedding cascades away (memory_embeddings FK ON DELETE CASCADE). A 'purge' audit is written
+   *  first (memory_id nullable) so the trail survives the gone row. Owner-scoped: a foreign/missing id is
+   *  a no-op → false. Atomic. */
+  purge(userId: number, id: number, actor: string, reason: string): boolean {
+    return this.db.transaction(() => {
+      const before = this.get(userId, id);
+      if (!before) return false;
+      // Audit BEFORE the delete: the before_json snapshots the vanishing row; memory_id points at the
+      // id that is about to disappear (kept for the trail — the memories row is gone after this).
+      this.audit(userId, id, 'purge', before, null, actor, reason);
+      this.db.prepare('DELETE FROM memories WHERE id = ? AND user_id = ?').run(id, userId);
+      return true;
+    })();
+  }
+
+  /** HARD-delete ALL of this user's soft-deleted (status='deleted') memories — empties the trash. Each
+   *  row's embedding cascades away; each purge is audited. Owner-scoped, atomic. Returns the count purged. */
+  purgeDeleted(userId: number, actor: string, reason: string): number {
+    return this.db.transaction(() => {
+      const rows = this.db.prepare("SELECT * FROM memories WHERE user_id = ? AND status = 'deleted'")
+        .all(userId) as MemoryRow[];
+      for (const row of rows) {
+        this.audit(userId, row.id, 'purge', row, null, actor, reason);
+      }
+      this.db.prepare("DELETE FROM memories WHERE user_id = ? AND status = 'deleted'").run(userId);
+      return rows.length;
+    })();
   }
 
   /** Merge several source memories into one new memory carrying `mergedBody`; the sources are
@@ -224,7 +256,7 @@ export class MemoryStore {
 
   /** Assign (or clear with null) a memory's category. Owner-scoped; a non-null categoryId must be one
    *  of this user's own categories (else no-op → false). Bumps updated_at, audits 'categorize'. */
-  setCategory(userId: number, id: number, categoryId: number | null, actor: string, reason: string): boolean {
+  setCategory(userId: number, id: number, categoryId: number | null, actor: string, reason: string, model?: string | null): boolean {
     return this.db.transaction(() => {
       const before = this.get(userId, id);
       if (!before) return false;
@@ -235,7 +267,7 @@ export class MemoryStore {
       this.db.prepare("UPDATE memories SET category_id = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
         .run(categoryId, id, userId);
       const after = this.get(userId, id)!;
-      this.audit(userId, id, 'categorize', before, after, actor, reason);
+      this.audit(userId, id, 'categorize', before, after, actor, reason, model);
       return true;
     })();
   }
@@ -351,12 +383,13 @@ export class MemoryStore {
     })();
   }
 
-  /** Append one audit row. before/after are JSON-serialized (null passes through as SQL NULL). */
+  /** Append one audit row. before/after are JSON-serialized (null passes through as SQL NULL). `model`
+   *  names the inference model behind the mutation — omitted/null for human/API-driven events. */
   private audit(userId: number, memoryId: number | null, action: string,
-                before: unknown, after: unknown, actor: string, reason: string): void {
+                before: unknown, after: unknown, actor: string, reason: string, model?: string | null): void {
     this.db.prepare(
-      `INSERT INTO memory_events (memory_id, user_id, action, before_json, after_json, actor, reason)
-       VALUES (@memory_id, @user_id, @action, @before_json, @after_json, @actor, @reason)`
+      `INSERT INTO memory_events (memory_id, user_id, action, before_json, after_json, actor, reason, model)
+       VALUES (@memory_id, @user_id, @action, @before_json, @after_json, @actor, @reason, @model)`
     ).run({
       memory_id: memoryId,
       user_id: userId,
@@ -365,6 +398,7 @@ export class MemoryStore {
       after_json: after === null || after === undefined ? null : JSON.stringify(after),
       actor,
       reason,
+      model: model ?? null,
     });
   }
 }

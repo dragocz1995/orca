@@ -1,4 +1,5 @@
 import type { MemoryCategoryStore, MemoryCategoryRow } from '../store/memoryCategoryStore.js';
+import { ICON_ALLOWLIST, DEFAULT_ICON } from '../store/memoryCategoryStore.js';
 import type { MemoryStore } from '../store/memoryStore.js';
 import type { InferenceClient } from '../inference/types.js';
 import type { Logger } from '../shared/logger.js';
@@ -62,7 +63,8 @@ export class MemoryCategorizer {
       if (!mem || mem.status !== 'active') return;
       const catId = await this.classify(userId, mem.body);
       if (catId !== mem.category_id) {
-        this.memories.setCategory(userId, memoryId, catId, actor, 'categorizer: auto-classified');
+        this.memories.setCategory(userId, memoryId, catId, actor, 'categorizer: auto-classified',
+          this.inference()?.model ?? null);
       }
     } catch (err) {
       this.logger?.warn('memory categorizer failed', { userId, memoryId, error: String(err) });
@@ -86,7 +88,7 @@ export class MemoryCategorizer {
       try {
         const catId = await this.classify(userId, m.body);
         if (catId !== m.category_id) {
-          this.memories.setCategory(userId, m.id, catId, `user:${userId}`, 'categorizer: reclassified');
+          this.memories.setCategory(userId, m.id, catId, `user:${userId}`, 'categorizer: reclassified', inf.model);
         }
         if (catId !== null) classified += 1;
       } catch (err) {
@@ -95,6 +97,56 @@ export class MemoryCategorizer {
     }
     return { scanned: rows.length, classified };
   }
+
+  /** Pick ONE lucide icon from ICON_ALLOWLIST that best fits a category name, using the categorizer model.
+   *  Fail-soft: no model wired, a relay error, or an unrecognized reply all fall back to 'Folder'. Never
+   *  throws — safe to call inline from the category-create route. */
+  async suggestIcon(name: string): Promise<string> {
+    const label = name.trim();
+    if (label === '') return DEFAULT_ICON;
+    const inf = this.inference();
+    if (!inf) return DEFAULT_ICON;
+    try {
+      const { text } = await inf.decide(buildIconPrompt(label));
+      return coerceIcon(text);
+    } catch (err) {
+      this.logger?.warn('memory icon suggest failed', { name: label, error: String(err) });
+      return DEFAULT_ICON;
+    }
+  }
+}
+
+/** The icon prompt: strict single-token reply constrained to the allowlist, mirroring the classify tone. */
+function buildIconPrompt(name: string): string {
+  return [
+    'Vyber PRÁVĚ JEDNU ikonu z povoleného seznamu níže, která nejlépe vystihuje kategorii vzpomínek.',
+    'Odpověz POUZE názvem ikony (přesně jak je uveden), bez dalšího textu. Nevymýšlej nové názvy.',
+    '',
+    'Povolené ikony:',
+    ICON_ALLOWLIST.join(', '),
+    '',
+    `Kategorie: ${name}`,
+  ].join('\n');
+}
+
+/** Coerce the model's reply to a KNOWN allowlist icon (case-insensitive, tolerant of a fence/quotes),
+ *  else 'Folder'. Prefers an exact name match, then a whole-token hit inside a longer reply. */
+function coerceIcon(reply: string): string {
+  const cleaned = reply
+    .trim()
+    .replace(/^```[a-zA-Z]*\n?/, '')
+    .replace(/```$/, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim()
+    .toLowerCase();
+  if (cleaned === '') return DEFAULT_ICON;
+  for (const icon of ICON_ALLOWLIST) {
+    if (icon.toLowerCase() === cleaned) return icon;
+  }
+  for (const icon of ICON_ALLOWLIST) {
+    if (new RegExp(`(?:^|\\W)${icon.toLowerCase()}(?:\\W|$)`).test(cleaned)) return icon;
+  }
+  return DEFAULT_ICON;
 }
 
 /** The classify prompt: strict single-token reply, Czech-friendly, mirrors memoryCurator's tone. Lists

@@ -55,6 +55,67 @@ describe('MemoryStore', () => {
     expect(JSON.parse(mergeEvent.after_json!)).toMatchObject({ mergedId: merged.id, sourceIds: [a.id, b.id] });
   });
 
+  it('purge is a HARD delete: the row is gone from EVERY status and its embedding cascades away', () => {
+    const active = store.add(1, { body: 'still active' }, 'agent', '');
+    const trashed = store.add(1, { body: 'in trash' }, 'agent', '');
+    store.setEmbedding(1, trashed.id, { provider: 'p', model: 'm', dimensions: 1, vector: new Float32Array([1]), contentHash: hashBody('in trash') });
+    store.softDelete(1, trashed.id, 'user:1', '');
+    expect(store.getEmbedding(1, trashed.id)).toBeDefined(); // embedding present before purge
+
+    // Purge a SOFT-DELETED row: it must physically vanish (not a status flip) and its vector cascade away.
+    expect(store.purge(1, trashed.id, 'user:1', 'gone')).toBe(true);
+    expect(store.get(1, trashed.id)).toBeUndefined();                       // not readable at any status
+    expect(store.list(1, { status: 'all' }).map((m) => m.id)).toEqual([active.id]); // truly removed
+    expect(store.getEmbedding(1, trashed.id)).toBeUndefined();              // embedding cascaded
+
+    // Purge also works on an ACTIVE row (any status), leaving a 'purge' audit behind.
+    expect(store.purge(1, active.id, 'user:1', 'gone')).toBe(true);
+    expect(store.list(1, { status: 'all' })).toHaveLength(0);
+    expect(store.listEvents(1).some((e) => e.action === 'purge')).toBe(true);
+  });
+
+  it('purge is owner-scoped: a foreign id is a no-op and never deletes another user’s row', () => {
+    const mine = store.add(1, { body: 'mine' }, 'agent', '');
+    const theirs = store.add(2, { body: 'theirs' }, 'agent', '');
+    expect(store.purge(1, theirs.id, 'user:1', 'x')).toBe(false); // not owned → false
+    expect(store.get(2, theirs.id)).toBeDefined();                 // untouched
+    expect(store.purge(1, 99999, 'user:1', 'x')).toBe(false);      // missing → false
+    expect(store.get(1, mine.id)).toBeDefined();
+  });
+
+  it('purgeDeleted hard-deletes ONLY soft-deleted rows and returns the count', () => {
+    const active = store.add(1, { body: 'a' }, 'agent', '');
+    const d1 = store.add(1, { body: 'd1' }, 'agent', '');
+    const d2 = store.add(1, { body: 'd2' }, 'agent', '');
+    const otherUserDeleted = store.add(2, { body: 'other' }, 'agent', '');
+    store.softDelete(1, d1.id, 'user:1', '');
+    store.softDelete(1, d2.id, 'user:1', '');
+    store.softDelete(2, otherUserDeleted.id, 'user:2', '');
+
+    expect(store.purgeDeleted(1, 'user:1', 'trash')).toBe(2);
+    expect(store.list(1, { status: 'all' }).map((m) => m.id)).toEqual([active.id]); // active kept
+    expect(store.get(2, otherUserDeleted.id)?.status).toBe('deleted');              // other user untouched
+    // Nothing deleted left for this user → a second empty-trash returns 0.
+    expect(store.purgeDeleted(1, 'user:1', 'trash')).toBe(0);
+  });
+
+  it('add/update/setCategory record the model on the audit row; other events keep model null', () => {
+    const db = openDb(':memory:');
+    const s = new MemoryStore(db);
+    const cats = new MemoryCategoryStore(db);
+    const m = s.add(1, { body: 'fact' }, 'agent', 'observed', 'gpt-add');
+    s.update(1, m.id, { body: 'fact v2' }, 'agent', 'revised', 'gpt-update');
+    const cat = cats.create(1, { name: 'Infra' });
+    s.setCategory(1, m.id, cat.id, 'agent', 'categorized', 'gpt-cat');
+    s.softDelete(1, m.id, 'user:1', 'obsolete'); // no model passed → null
+
+    const byAction = Object.fromEntries(s.listEvents(1).map((e) => [e.action, e.model]));
+    expect(byAction.add).toBe('gpt-add');
+    expect(byAction.update).toBe('gpt-update');
+    expect(byAction.categorize).toBe('gpt-cat');
+    expect(byAction.delete).toBeNull();
+  });
+
   it('setEmbedding/getEmbedding roundtrips a Float32 vector exactly', () => {
     const m = store.add(1, { body: 'vec' }, 'agent', '');
     const vec = new Float32Array([0.1, -0.5, 3.14159, 0, 42.25]);

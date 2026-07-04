@@ -15,7 +15,7 @@ function fakeCategories(cats: MemoryCategoryRow[]): MemoryCategoryStore {
 
 /** Fake inference client whose decide() always returns `reply`. */
 function fakeInference(reply: string): InferenceClient {
-  return { decide: vi.fn(async () => ({ text: reply })) };
+  return { model: 'fake-model', decide: vi.fn(async () => ({ text: reply })) };
 }
 
 const memories = {} as unknown as MemoryStore;
@@ -62,5 +62,40 @@ describe('MemoryCategorizer.classify', () => {
   it('configured() reflects whether inference() resolves', () => {
     expect(build(CATS, () => fakeInference('x')).configured()).toBe(true);
     expect(build(CATS, () => null).configured()).toBe(false);
+  });
+});
+
+describe('MemoryCategorizer.suggestIcon', () => {
+  it('coerces a clean model reply to that allowlist icon', async () => {
+    const c = build(CATS, () => fakeInference('Server'));
+    expect(await c.suggestIcon('Infrastruktura')).toBe('Server');
+  });
+
+  it('tolerates surrounding prose / quotes (whole-token match)', async () => {
+    const c = build(CATS, () => fakeInference('Icon: "Database".'));
+    expect(await c.suggestIcon('Databáze')).toBe('Database');
+  });
+
+  it('unknown icon name → fail-soft Folder', async () => {
+    const c = build(CATS, () => fakeInference('Sparkles'));
+    expect(await c.suggestIcon('Cokoliv')).toBe('Folder');
+  });
+
+  it('no model wired → fail-soft Folder without calling the model', async () => {
+    const c = build(CATS, () => null);
+    expect(await c.suggestIcon('Práce')).toBe('Folder');
+  });
+
+  it('a throwing relay → fail-soft Folder (never rejects)', async () => {
+    const inf: InferenceClient = { model: 'm', decide: vi.fn(async () => { throw new Error('relay down'); }) };
+    const c = build(CATS, () => inf);
+    expect(await c.suggestIcon('Práce')).toBe('Folder');
+  });
+
+  it('empty name → Folder without hitting the model', async () => {
+    const inf = fakeInference('Server');
+    const c = build(CATS, () => inf);
+    expect(await c.suggestIcon('   ')).toBe('Folder');
+    expect(inf.decide).not.toHaveBeenCalled();
   });
 });

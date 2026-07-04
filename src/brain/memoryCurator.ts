@@ -62,7 +62,8 @@ export class MemoryCurator {
       const { text } = await inf.decide(buildPrompt(user, assistantText));
       const ops = parseOps(text);
       if (ops.length === 0) return;
-      await this.apply(userId, ops.slice(0, MAX_OPS_PER_TURN));
+      // Record WHICH model distilled these facts on every add/update audit row.
+      await this.apply(userId, ops.slice(0, MAX_OPS_PER_TURN), inf.model);
     } catch (err) {
       this.logger?.warn('memory curator failed', { userId, error: String(err) });
     }
@@ -71,17 +72,17 @@ export class MemoryCurator {
   /** Apply the capped op batch. Each op is independent — a single bad op is logged and skipped, never
    *  aborting the rest. `add` first checks findSimilar so a near-duplicate becomes an update, not a
    *  fresh row. Every mutation is audited as the agent. */
-  private async apply(userId: number, ops: CuratorOp[]): Promise<void> {
+  private async apply(userId: number, ops: CuratorOp[], model: string): Promise<void> {
     for (const op of ops) {
       try {
-        await this.applyOne(userId, op);
+        await this.applyOne(userId, op, model);
       } catch (err) {
         this.logger?.warn('memory curator op failed', { userId, action: op.action, error: String(err) });
       }
     }
   }
 
-  private async applyOne(userId: number, op: CuratorOp): Promise<void> {
+  private async applyOne(userId: number, op: CuratorOp, model: string): Promise<void> {
     switch (op.action) {
       case 'add': {
         const body = (op.body ?? '').trim();
@@ -90,11 +91,11 @@ export class MemoryCurator {
         const near = await this.service.findSimilar(userId, body);
         if (near.length > 0) {
           this.store.update(userId, near[0]!.memory.id, { body, kind: op.kind, importance: op.importance },
-            'agent', 'curator: refreshed near-duplicate');
+            'agent', 'curator: refreshed near-duplicate', model);
           return;
         }
         const row = this.store.add(userId, { body, kind: op.kind, importance: op.importance, source: 'agent' },
-          'agent', 'curator: new durable fact');
+          'agent', 'curator: new durable fact', model);
         // Fire-and-forget auto-categorization of the NEW memory only (not the near-duplicate refresh
         // above). classifyMemory already swallows+logs every failure; the .catch is belt-and-suspenders
         // so it never rejects into the op batch.
@@ -106,7 +107,7 @@ export class MemoryCurator {
         const body = op.body?.trim();
         this.store.update(userId, op.id,
           { body: body === '' ? undefined : body, kind: op.kind, importance: op.importance },
-          'agent', 'curator: revised fact');
+          'agent', 'curator: revised fact', model);
         return;
       }
       case 'delete': {

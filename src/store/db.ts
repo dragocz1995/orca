@@ -88,6 +88,11 @@ export function openDb(path: string): Db {
   // Index created here (not schema.sql) so it runs after the column exists on migrated DBs.
   addColumn(db, 'memories', 'category_id', 'INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_memories_user_category ON memories(user_id, category_id)');
+  // Memory category icon: a lucide name from the server ICON_ALLOWLIST. Empty on migrated rows → the UI
+  // falls back to 'Folder'. The store clamps unknown names to 'Folder' on every create/update.
+  addColumn(db, 'memory_categories', 'icon', "TEXT NOT NULL DEFAULT ''");
+  // Which model performed a memory mutation (curator/categorizer). Nullable — human/API events have none.
+  addColumn(db, 'memory_events', 'model', 'TEXT');
   // A linked Discord snowflake is an identity key — enforce one-owner-per-id with a partial UNIQUE index
   // so a squatter can't claim another user's id (see schema.sql). Created here too for pre-existing DBs.
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_settings_discord_id ON user_settings(value) WHERE key = 'discordUserId'");

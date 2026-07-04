@@ -23,6 +23,16 @@ describe('MemoryCategoryStore', () => {
     expect(b).toMatchObject({ name: 'Systém', description: 'infra', color: '#f00', is_builtin: 1 });
   });
 
+  it('icon is clamped to the allowlist on create/update (unknown/missing → Folder)', () => {
+    expect(cats.create(1, { name: 'a', icon: 'Server' }).icon).toBe('Server');   // known → kept
+    expect(cats.create(1, { name: 'b', icon: 'Sparkles' }).icon).toBe('Folder'); // unknown → clamped
+    expect(cats.create(1, { name: 'c' }).icon).toBe('Folder');                   // missing → default
+
+    const c = cats.create(1, { name: 'd', icon: 'Star' });
+    expect(cats.update(1, c.id, { icon: 'Rocket' })?.icon).toBe('Rocket');       // known patch
+    expect(cats.update(1, c.id, { icon: 'Nope' })?.icon).toBe('Folder');         // unknown patch → clamped
+  });
+
   it('list is user-scoped and name-sorted case-insensitively', () => {
     cats.create(1, { name: 'zebra' });
     cats.create(1, { name: 'Alpha' });
