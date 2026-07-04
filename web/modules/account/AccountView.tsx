@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { UserCog, Mail, Cpu, Upload, ShieldCheck, Check, User as UserIcon, KeyRound, ZoomIn, Bell, MessagesSquare, Sparkles, AtSign } from 'lucide-react';
+import { UserCog, Mail, Cpu, Upload, ShieldCheck, Check, User as UserIcon, KeyRound, ZoomIn, Bell, MessagesSquare, Sparkles, AtSign, Brain } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { OrcaApiError } from '../../lib/orcaClient';
 import { useMe, useConfig, useMyCliSettings, useBrainModels } from '../../lib/queries';
@@ -27,6 +27,7 @@ import { SettingsLayout } from '../../components/ui/SettingsLayout';
 import { PromptsSection } from './PromptsSection';
 import { PersonalitySection } from './PersonalitySection';
 import { CliSection } from './CliSection';
+import { AccountMemorySection } from './AccountMemorySection';
 
 /** One selectable model card in the default-model rail: brand icon + label + a monospace sub-line,
  *  accent-outlined + checked when it's the active default. Shared by the worker and Orca AI groups. */
@@ -67,8 +68,8 @@ export function AccountView() {
   const { scale, setScale } = useUiScale();
   const fileRef = useRef<HTMLInputElement>(null);
   const scalePct = Math.round(scale * 100);
-  const [section, setSection] = usePersistentState<'profile' | 'security' | 'notifications' | 'prompts' | 'personality' | 'cli'>(
-    'orca.account.section', 'profile', ['profile', 'security', 'notifications', 'prompts', 'personality', 'cli']);
+  const [section, setSection] = usePersistentState<'profile' | 'security' | 'notifications' | 'prompts' | 'personality' | 'cli' | 'memory'>(
+    'orca.account.section', 'profile', ['profile', 'security', 'notifications', 'prompts', 'personality', 'cli', 'memory']);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -207,11 +208,12 @@ export function AccountView() {
   };
   const canSubmitPassword = currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword;
 
-  const sections: { id: 'profile' | 'security' | 'notifications' | 'prompts' | 'personality' | 'cli'; icon: LucideIcon; label: string }[] = [
+  const sections: { id: 'profile' | 'security' | 'notifications' | 'prompts' | 'personality' | 'cli' | 'memory'; icon: LucideIcon; label: string }[] = [
     { id: 'profile', icon: UserCog, label: t.account.tabProfile },
     { id: 'security', icon: KeyRound, label: t.account.tabSecurity },
     { id: 'notifications', icon: Bell, label: t.account.tabNotifications },
     { id: 'cli', icon: Cpu, label: t.account.tabCli },
+    { id: 'memory', icon: Brain, label: t.account.tabMemory },
     { id: 'prompts', icon: MessagesSquare, label: t.account.tabPrompts },
     { id: 'personality', icon: Sparkles, label: t.account.tabPersonality },
   ];
@@ -226,7 +228,7 @@ export function AccountView() {
         value={section}
         onChange={(v) => setSection(v as typeof section)}
       >
-      {section === 'cli' ? <CliSection /> : section === 'prompts' ? <PromptsSection /> : section === 'personality' ? <PersonalitySection /> : null}
+      {section === 'cli' ? <CliSection /> : section === 'memory' ? <AccountMemorySection /> : section === 'prompts' ? <PromptsSection /> : section === 'personality' ? <PersonalitySection /> : null}
 
       {section === 'profile' ? (
       <div className="@container">

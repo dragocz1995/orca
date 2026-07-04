@@ -158,7 +158,7 @@ export type PersonalityPatch = Partial<Omit<PersonalityCreate, 'platform'>> & { 
 
 /** Per-user CLI/brain settings surfaced in Account → CLI. `model` empty → the configured brain default
  *  (`serverDefault`, response-only). */
-export interface CliSettings { model: string; modelProvider: string; visionModel: string; visionModelProvider: string; thinkingLevel: string; autoCompact: boolean; autoCompactAt: number; advisorStyle: string; discordUserId: string; serverDefault?: string }
+export interface CliSettings { model: string; modelProvider: string; visionModel: string; visionModelProvider: string; thinkingLevel: string; autoCompact: boolean; autoCompactAt: number; advisorStyle: string; discordUserId: string; autoRecall: boolean; autoSave: boolean; serverDefault?: string }
 
 /** One installed daemon plugin as listed by GET /plugins (admin). */
 export interface PluginInfo {
