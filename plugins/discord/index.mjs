@@ -1036,6 +1036,10 @@ export class LiveMessage {
       await this.progress.flush();
       this.progress.closed = true;
     }
+    // Nothing happened on this message: no streamed tool progress, no assistant text, no reply, no image
+    // refs. That's the mid-run-injection case — the message was steered into another turn that streams its
+    // own bubble — so don't post a "(no response)" placeholder here.
+    if (!reply && !this.text && !this.progress && !this.imageRefs.length) return;
     let full = reply || this.text || '(no response)';
     // Models often forget to repeat the generated-image markdown in their final text — append any
     // tool-produced refs that are missing so the files always reach the channel.

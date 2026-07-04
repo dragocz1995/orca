@@ -493,7 +493,22 @@ export class BrainService {
   }
 
   async send(userId: number, text: string, images?: { data: string; mimeType: string }[]): Promise<void> {
-    if (!this.activeLive(userId)) throw new Error('brain not started for user');
+    const active = this.activeLive(userId);
+    if (!active) throw new Error('brain not started for user');
+    // Mid-run injection: if a turn is already streaming, DON'T queue this message behind the user lock —
+    // that waits out the whole turn and then runs it as a SEPARATE turn. Instead steer it into the live
+    // turn so the agent picks it up at its next step (after the current tool calls, before the next LLM
+    // call). PI's sendUserMessage is built to be called during streaming; persist it like a normal user
+    // turn (agent_end skips re-persisting user messages, so no dup). `isStreaming` is PI's own real-time
+    // signal, so there's no flag to keep in sync.
+    if (active.session.isStreaming) {
+      projectUserTurn(this.d.store, active.sessionId, images?.length ? `${text}\n[📎 ${images.length}× image]` : text);
+      const content = images?.length
+        ? [{ type: 'text' as const, text }, ...images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType }))]
+        : text;
+      await active.session.sendUserMessage(content, { deliverAs: 'steer' });
+      return;
+    }
     // Serialized per USER for the whole turn: the vision-fallback respawn below disposes and recreates
     // the session, which MUST NOT race a concurrent send() (a double-submit would dispose a session
     // mid-prompt). This user-level lock guards the stop/start decision; the inner session lock still

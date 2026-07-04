@@ -307,7 +307,9 @@ export function BrainChat() {
 
   const submit = async () => {
     const typed = input.trim();
-    if ((!typed && attachments.length === 0) || busy) return;
+    // No busy guard: a message sent mid-turn is STEERED into the running turn server-side (delivered at
+    // its next step), so the composer stays live — same as the CLI and Discord.
+    if (!typed && attachments.length === 0) return;
     // Text files inline as fenced blocks (works with any model); images ride the vision input.
     const textFiles = attachments.filter((a) => a.kind === 'text');
     const images = attachments.filter((a) => a.kind === 'image').map((a) => ({ data: a.data, mimeType: a.mimeType }));
@@ -565,7 +567,7 @@ export function BrainChat() {
         />
         <button
           type="submit"
-          disabled={(!input.trim() && attachments.length === 0) || busy}
+          disabled={!input.trim() && attachments.length === 0}
           aria-label={t.brainChat.send}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent bg-accent/15 text-accent transition-colors hover:bg-accent/25 disabled:opacity-40"
         >

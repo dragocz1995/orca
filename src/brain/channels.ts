@@ -75,6 +75,19 @@ export class ChannelSessionService {
    *  concurrently (and must not both spawn it). */
   async send(opts: ChannelSendOpts, text: string): Promise<string> {
     const sessionId = channelSessionId(opts.channelId);
+    // Mid-run injection: if this channel's turn is already streaming, steer the message into it (delivered
+    // at the next step) instead of blocking on the channel lock — which would wait out the whole turn and
+    // then run a SEPARATE one. Persist it like a normal channel turn; the reply rides the running turn's
+    // stream, so there's nothing new to return (the caller's empty reply posts no second bubble).
+    const streaming = this.d.registry.channelGet(opts.channelId);
+    if (streaming?.session.isStreaming) {
+      projectUserTurn(this.d.store, sessionId, opts.images?.length ? `${text}\n[📎 ${opts.images.length}× image]` : text);
+      const content = opts.images?.length
+        ? [{ type: 'text' as const, text }, ...opts.images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType }))]
+        : text;
+      await streaming.session.sendUserMessage(content, { deliverAs: 'steer' });
+      return '';
+    }
     return this.d.registry.withLock(sessionId, async () => {
       // The post-turn curator must distill ONLY this sender's own words — capture the message BEFORE the
       // channel-history backfill (other members' chatter, injected as untrusted context) is prepended,

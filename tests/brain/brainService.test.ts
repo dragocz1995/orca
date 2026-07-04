@@ -23,6 +23,7 @@ function fakeDeps() {
     }),
     subscribe: (l: (e: unknown) => void) => { listeners.push(l); return () => {}; },
     setModel: vi.fn(), dispose: vi.fn(), abort: vi.fn(async () => {}), messages, isStreaming: false,
+    sendUserMessage: vi.fn(async () => {}),
     getContextUsage: () => undefined, compact: vi.fn(async () => {}),
     thinkingLevel: '' as string,
     supportsThinking: () => true,
@@ -110,6 +111,21 @@ describe('BrainService', () => {
     const svc = new BrainService(d as never);
     await svc.start(1);
     expect(svc.status(1).model).toBe('ollama/kimi-k2.7-code');
+  });
+
+  it('mid-run: a message sent while the turn streams is STEERED into it, not run as a new turn', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.session.prompt.mockClear();
+    d.session.isStreaming = true; // a turn is in flight
+    await svc.send(1, 'also check the logs');
+    // Steered into the running turn (delivered at its next step), NOT a fresh prompt().
+    expect(d.session.sendUserMessage).toHaveBeenCalledWith('also check the logs', { deliverAs: 'steer' });
+    expect(d.session.prompt).not.toHaveBeenCalled();
+    // Persisted like a normal user turn so it shows in history (agent_end skips re-persisting user msgs).
+    const stored = d.store.getMessages(sessionId).map((m) => JSON.parse(m.content).content);
+    expect(stored).toContain('also check the logs');
   });
 
   it('setThinkingLevel applies live (no respawn) and status reports it', async () => {
