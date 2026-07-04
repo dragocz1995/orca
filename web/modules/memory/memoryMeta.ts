@@ -84,28 +84,6 @@ export function categoriesById(categories: MemoryCategory[]): Map<number, Memory
   return new Map(categories.map((c) => [c.id, c]));
 }
 
-/** One bar in an overview breakdown: label, absolute count, and a max-normalized 0..100 width. */
-export interface BreakdownRow { key: string; label: string; count: number; pct: number; tone: Tone }
-
-/** Group memories by a keying function into sorted, max-normalized breakdown rows (per-kind / per-status
- *  overview bars). Pure so the view stays declarative — mirrors buildUsageSummary in stats. */
-export function buildBreakdown(
-  memories: Memory[],
-  keyOf: (m: Memory) => string,
-  labelOf: (key: string) => string,
-  toneOf: (key: string) => Tone,
-): BreakdownRow[] {
-  const counts = new Map<string, number>();
-  for (const m of memories) {
-    const k = keyOf(m) || '—';
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
-  const max = Math.max(1, ...counts.values());
-  return [...counts.entries()]
-    .map(([key, count]) => ({ key, label: labelOf(key), count, pct: (count / max) * 100, tone: toneOf(key) }))
-    .sort((a, b) => b.count - a.count);
-}
-
 /** Parse an event's before/after JSON snapshot safely (stored blob). Returns null on any malformation. */
 function parseSnapshot(json: string | null): Partial<Memory> | null {
   if (!json) return null;
