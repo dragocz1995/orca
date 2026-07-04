@@ -66,18 +66,24 @@ export function RetrievalDebugPanel() {
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             {result.debug.provider ? <Badge>{t.memory.retrievalProvider}: {result.debug.provider}</Badge> : null}
             {result.debug.model ? <Badge>{t.memory.retrievalModel}: {result.debug.model}</Badge> : null}
-            <Badge tone="muted">{t.memory.retrievalCandidates.replace('{n}', String(result.debug.candidates))}</Badge>
+            <Badge tone="muted">{t.memory.retrievalInjected.replace('{n}', String(result.debug.scores.filter((s) => s.picked).length))}</Badge>
           </div>
 
-          {result.debug.scores.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-text-muted">{t.memory.retrievalEmpty}</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {[...result.debug.scores].sort((a, b) => b.score - a.score).map((s) => (
-                <ScoreRow key={s.id} score={s} body={bodyById.get(s.id) ?? `#${s.id}`} t={t} />
-              ))}
-            </ul>
-          )}
+          {(() => {
+            // Show ONLY what the agent actually receives — the injected (picked) memories, not the
+            // full sub-threshold candidate breakdown. Every injected memory is in `memories`, so its
+            // body always resolves (no bare `#id` rows).
+            const injected = result.debug.scores.filter((s) => s.picked).sort((a, b) => b.score - a.score);
+            return injected.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-text-muted">{t.memory.retrievalEmpty}</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {injected.map((s) => (
+                  <ScoreRow key={s.id} score={s} body={bodyById.get(s.id) ?? `#${s.id}`} t={t} />
+                ))}
+              </ul>
+            );
+          })()}
         </div>
       ) : null}
     </div>
