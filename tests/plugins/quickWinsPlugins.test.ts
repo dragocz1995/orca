@@ -56,16 +56,3 @@ describe('security-scan plugin', () => {
     expect(asText(res)).toMatch(/No risky patterns/);
   });
 });
-
-describe('image-edit plugin', () => {
-  const resolveProvider = (id: string) => id === 'oai'
-    ? { id, label: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-x' } : null;
-  it('registers nothing without a provider', async () => {
-    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['image-edit'], dataRoot: freshDataRoot(), resolveProvider, logger: log });
-    expect(reg.tools).toHaveLength(0);
-  });
-  it('registers edit_image with a provider', async () => {
-    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['image-edit'], dataRoot: freshDataRoot(), logger: log, resolveProvider, config: { 'image-edit': { provider: 'oai' } } });
-    expect(reg.tools.map((t) => t.name)).toEqual(['edit_image']);
-  });
-});

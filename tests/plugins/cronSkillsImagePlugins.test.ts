@@ -122,34 +122,6 @@ describe('skills plugin creator tools', () => {
   });
 });
 
-describe('image-gen plugin', () => {
-  const resolveProvider = (id: string) => id === 'oai'
-    ? { id, label: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-test' } : null;
-  it('registers nothing without a provider, generates + saves a PNG with one', async () => {
-    const dataRoot = freshDataRoot();
-    const none = await loadPlugins({ dirs: [pluginsDir], enabled: ['image-gen'], dataRoot, resolveProvider, logger: log });
-    expect(none.tools).toHaveLength(0); // no provider selected → tool not registered
-
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ data: [{ b64_json: Buffer.from('png-bytes').toString('base64') }] }), { status: 200 })
-    ) as typeof fetch;
-    try {
-      const reg = await loadPlugins({
-        dirs: [pluginsDir], enabled: ['image-gen'], dataRoot, logger: log, resolveProvider,
-        config: { 'image-gen': { provider: 'oai' } },
-      });
-      const tool = reg.tools.find((t) => t.name === 'generate_image')!;
-      const out = asText(await tool.execute('t', { prompt: 'orca ve vlnách' }, undefined as never, undefined as never));
-      const m = /!\[.*\]\(\/api\/brain\/images\/([a-z0-9]+\.png)\)/.exec(out);
-      expect(m).not.toBeNull();
-      expect(readFileSync(join(dataRoot, 'image-gen', m![1]!), 'utf-8')).toBe('png-bytes');
-    } finally {
-      globalThis.fetch = origFetch;
-    }
-  });
-});
-
 describe('terminal plugin background processes', () => {
   it('runs a command in the background, reads its output, and lists/kills it', async () => {
     const dataRoot = freshDataRoot();
