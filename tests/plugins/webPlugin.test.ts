@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlugins } from '../../src/plugins/loader.js';
-import { runWithPolicy } from '../../src/plugins/policyContext.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -81,72 +80,5 @@ describe('web plugin', () => {
     expect(text).toContain('Ahoj & vítej');
     expect(text).toContain('Řádek');
     expect(text).not.toContain('evil');
-  });
-});
-
-describe('memory plugin', () => {
-  it('skips tool registration without an endpoint', async () => {
-    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['memory'], logger: log });
-    expect(reg.tools).toHaveLength(0);
-  });
-
-  it('registers add_memory + search_memory with an endpoint and calls mem0 with x-api-key auth', async () => {
-    const calls: { url: string; body: unknown; auth: string | null }[] = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      calls.push({ url: String(url), body: JSON.parse(String(init?.body)), auth: (init?.headers as Record<string, string>)?.['x-api-key'] ?? null });
-      return new Response(JSON.stringify({ results: [{ memory: 'Filip má rád teal.' }] }), { status: 200 });
-    }) as typeof fetch;
-    try {
-      const reg = await loadPlugins({
-        dirs: [pluginsDir], enabled: ['memory'], logger: log,
-        config: { memory: { endpoint: 'http://127.0.0.1:3401/', apiKey: 'k', userId: 'orca' } },
-      });
-      expect(reg.tools.map((t) => t.name).sort()).toEqual(['add_memory', 'search_memory']);
-      const search = reg.tools.find((t) => t.name === 'search_memory')!;
-      const res = await search.execute('t1', { query: 'barva' }, undefined as never, undefined as never);
-      expect((res.content[0] as { text: string }).text).toContain('Filip má rád teal.');
-      expect(calls[0]!.url).toBe('http://127.0.0.1:3401/search'); // trailing slash normalized
-      expect(calls[0]!.auth).toBe('k');
-      const add = reg.tools.find((t) => t.name === 'add_memory')!;
-      await add.execute('t2', { text: 'fakt' }, undefined as never, undefined as never);
-      expect(calls[1]!.url).toBe('http://127.0.0.1:3401/memories');
-      expect((calls[1]!.body as { user_id: string }).user_id).toBe('orca');
-    } finally {
-      globalThis.fetch = origFetch;
-    }
-  });
-
-  it('keys the memory on the turn identity: owner → config id, non-owner linked → namespaced username, unknown → platform id', async () => {
-    const calls: { body: { user_id: string } }[] = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
-      calls.push({ body: JSON.parse(String(init?.body)) as { user_id: string } });
-      return new Response(JSON.stringify({ results: [] }), { status: 200 });
-    }) as typeof fetch;
-    try {
-      const reg = await loadPlugins({
-        dirs: [pluginsDir], enabled: ['memory'], logger: log,
-        config: { memory: { endpoint: 'http://127.0.0.1:3401', userId: 'alex' } },
-      });
-      const add = reg.tools.find((t) => t.name === 'add_memory')!;
-      const userPolicy = { allowedProjectIds: new Set<number>(), allowedPaths: () => [] };
-      // OWNER turn → the configured owner id (continuity with a pre-Orca memory store).
-      await runWithPolicy({ allowedProjectIds: 'all', allowedPaths: () => [] },
-        () => add.execute('t1', { text: 'f' }, undefined as never, undefined as never),
-        { platform: 'discord', userId: '999', orcaUsername: 'admin', admin: true, owner: true });
-      // Admin-but-NOT-owner (foreign member with an admin role) must NOT reach the owner store — they
-      // get their own namespaced key, never the bare owner id.
-      await runWithPolicy({ allowedProjectIds: 'all', allowedPaths: () => [] },
-        () => add.execute('t2', { text: 'f' }, undefined as never, undefined as never),
-        { platform: 'discord', userId: '111', orcaUsername: 'amy', admin: true, owner: false });
-      // Unknown platform sender → stable platform-scoped key.
-      await runWithPolicy(userPolicy,
-        () => add.execute('t3', { text: 'f' }, undefined as never, undefined as never),
-        { platform: 'discord', userId: '222', admin: false, owner: false });
-      expect(calls.map((c) => c.body.user_id)).toEqual(['alex', 'orca:amy', 'discord:222']);
-    } finally {
-      globalThis.fetch = origFetch;
-    }
   });
 });

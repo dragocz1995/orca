@@ -1196,6 +1196,7 @@ export const en = {
     updateError: 'Plugin update failed',
     marketplaceEmpty: 'No additional plugins available yet',
     marketplaceError: 'Couldn’t load the plugin catalog',
+    detail: 'Detail',
   },
   pluginDetail: {
     overview: 'Overview',

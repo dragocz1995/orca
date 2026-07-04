@@ -78,7 +78,8 @@ import { MarketplaceService } from '../plugins/marketplace.js';
 import { PluginRegistryProvider } from '../plugins/pluginsProvider.js';
 import { resolvePolicy } from '../plugins/policy.js';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { isExecAllowedForUser, isModelVisibleForUser, orcaExec } from '../shared/execs.js';
@@ -496,10 +497,22 @@ export function buildApp(opts: BuildOpts) {
   // The plugin marketplace: install/update/remove plugins from the curated GitHub registry into the
   // writable user plugin dir (pluginDirs[1]), applied live via the brain's plugin hot-reload. The registry
   // repo is a shallow-clone cache next to the DB; ORCA_PLUGIN_REGISTRY overrides the repo URL (tests).
+  // The host node_modules that installed plugins symlink so their SDK imports resolve. Derived from a real
+  // dependency's resolved path (robust to the dist layout) — the SAME modules the daemon itself loads, so a
+  // plugin always sees the matching SDK version.
+  const hostNodeModules = (() => {
+    try {
+      const p = createRequire(import.meta.url).resolve('typebox');
+      const marker = `${sep}node_modules${sep}`;
+      const i = p.lastIndexOf(marker);
+      return i >= 0 ? p.slice(0, i + marker.length - 1) : undefined;
+    } catch { return undefined; }
+  })();
   const marketplace = new MarketplaceService({
     registryUrl: process.env.ORCA_PLUGIN_REGISTRY || undefined,
     cacheDir: join(dirname(opts.dbPath), 'marketplace'),
     userPluginsDir: userPluginDir,
+    hostNodeModules,
     pluginDataRoot,
     discovered: () => discoverPlugins(pluginDirs),
     getEnabled: () => config.get().plugins.enabled,

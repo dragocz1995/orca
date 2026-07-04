@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import {
   Package, User as UserIcon, Wrench, GraduationCap, MessageSquare, ChevronRight,
   Search, LayoutGrid, Database, Clock, Sparkles, ShieldCheck, Code2, Download, Trash2,
-  ArrowUpCircle, type LucideIcon,
+  ArrowUpCircle, Eye, Power, type LucideIcon,
 } from 'lucide-react';
 import { PluginDetail } from './PluginDetail';
 import { pluginIcon } from './pluginMeta';
@@ -14,6 +14,7 @@ import { Input } from '../../components/ui/Input';
 import { Segmented } from '../../components/ui/Segmented';
 import { Toggle } from '../../components/ui/Toggle';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { ContextMenu, DIVIDER, type ContextMenuState, type MenuEntry } from '../../components/ui/ContextMenu';
 import { LoadingState, EmptyState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -32,8 +33,8 @@ function categorize(name: string, platformCount: number): Category {
   if (platformCount > 0) return 'platforms';
   const n = name.toLowerCase();
   if (/secur|scan|shield|audit/.test(n)) return 'security';
-  if (/memor|embed|recall|vector/.test(n)) return 'memory';
-  if (/cron|schedul|automat/.test(n)) return 'automation';
+  if (/mem0|memor|embed|recall|vector/.test(n)) return 'memory';
+  if (/cron|schedul|automat|todo|task/.test(n)) return 'automation';
   if (/terminal|file|shell|exec|git|code|build|deploy/.test(n)) return 'development';
   if (/statusline|status|tts|voice|speech|notif|bell|theme|display|ui/.test(n)) return 'ui';
   return 'tools';
@@ -74,9 +75,9 @@ function ProvidesBadges({ counts }: { counts: { tools: number; skills: number; p
 /** One installed-plugin card: icon chip (live-dot when enabled), name + version + source glyph, a health
  *  badge, the enable toggle and a detail affordance; below sit the provides badges, description, and — for
  *  user (marketplace) plugins — an update button when a newer version is available plus an uninstall action. */
-function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, busy }: {
+function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, onContextMenu, busy }: {
   p: PluginInfo; updatable: boolean; onDetail: () => void; onFlip: (enabled: boolean) => void;
-  onUpdate: () => void; onUninstall: () => void; busy: boolean;
+  onUpdate: () => void; onUninstall: () => void; onContextMenu: (e: React.MouseEvent) => void; busy: boolean;
 }) {
   const { t, locale } = useTranslation();
   const Icon = pluginIcon(p.name);
@@ -88,6 +89,7 @@ function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, bus
   return (
     <div
       onClick={onDetail}
+      onContextMenu={onContextMenu}
       className={`card-interactive flex cursor-pointer flex-col gap-2 rounded-xl border px-4 py-3 transition-colors ${p.enabled ? 'border-accent/40' : 'border-border'} bg-surface`}
       style={{ transitionDuration: 'var(--motion-fast)' }}
     >
@@ -178,6 +180,7 @@ export function PluginsSection() {
   const [category, setCategory] = useState<Category | 'all'>('all');
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
 
   const plugins = data ?? [];
   // The catalog powers the Available view and, cross-referenced by name, the "update available" hint on
@@ -252,6 +255,21 @@ export function PluginsSection() {
       onSettled: () => setPending(null),
     });
   };
+  // Right-click a plugin card → management actions. Uninstall is user-source only (built-ins can't be
+  // removed); Update shows only when the registry has a newer version.
+  const openMenu = (e: React.MouseEvent, p: PluginInfo) => {
+    e.preventDefault();
+    const items: MenuEntry[] = [
+      { label: t.plugins.detail, icon: Eye, onClick: () => setDetail(p.name) },
+      { label: p.enabled ? t.plugins.disable : t.plugins.enable, icon: Power, onClick: () => flip(p, !p.enabled) },
+    ];
+    if (updatable.has(p.name)) items.push({ label: t.plugins.update, icon: ArrowUpCircle, onClick: () => doUpdate(p.name) });
+    if (p.source === 'user') {
+      items.push(DIVIDER);
+      items.push({ label: t.plugins.uninstall, icon: Trash2, danger: true, onClick: () => setConfirmRemove(p.name) });
+    }
+    setMenu({ x: e.clientX, y: e.clientY, items });
+  };
 
   const viewOptions = [
     { value: 'installed', label: t.plugins.tabInstalled, icon: Package },
@@ -284,6 +302,7 @@ export function PluginsSection() {
                   busy={pending === p.name || (toggle.isPending && toggle.variables?.name === p.name)}
                   onFlip={(enabled) => flip(p, enabled)} onDetail={() => setDetail(p.name)}
                   onUpdate={() => doUpdate(p.name)} onUninstall={() => setConfirmRemove(p.name)}
+                  onContextMenu={(e) => openMenu(e, p)}
                 />
               ))}
             </div>
@@ -315,6 +334,7 @@ export function PluginsSection() {
         onConfirm={() => confirmRemove && doUninstall(confirmRemove)}
         onClose={() => setConfirmRemove(null)}
       />
+      {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
     </div>
   );
 }

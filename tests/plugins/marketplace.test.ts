@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MarketplaceService, parseRegistry, MarketplaceError } from '../../src/plugins/marketplace.js';
@@ -171,6 +171,20 @@ describe('MarketplaceService.install', () => {
     expect(reload).toHaveBeenCalledOnce();
     const disk = discoverPlugins([bundledDir, userDir]).find((p) => p.manifest.name === 'weather');
     expect(disk?.source).toBe('user');
+  });
+
+  it('symlinks host node_modules into the installed plugin so its SDK imports resolve', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'orca-mkt-hostmods-'));
+    const host = join(base, 'host-node-modules');
+    mkdirSync(host, { recursive: true });
+    const { svc, userDir } = setup({ registryEntries: [{ name: 'weather', version: '1.0.0' }] });
+    // Rebuild svc with a hostNodeModules pointing at the fixture dir.
+    (svc as unknown as { opts: { hostNodeModules?: string } }).opts.hostNodeModules = host;
+    await svc.install('weather');
+    const link = join(userDir, 'weather', 'node_modules');
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(link)).toBe(host);
+    rmSync(base, { recursive: true, force: true });
   });
 
   it('honors { enable:false }', async () => {

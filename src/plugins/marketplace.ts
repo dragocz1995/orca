@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { Type } from 'typebox';
 import { Check, Errors } from 'typebox/value';
@@ -134,6 +134,10 @@ export interface MarketplaceServiceOptions {
   cacheDir: string;
   /** The WRITABLE plugin scan root (`pluginDirs[1]`). NEVER the bundled dir — that's npm-owned. */
   userPluginsDir: string;
+  /** The host's `node_modules`, symlinked into each installed plugin so its bare SDK imports
+   *  (`@earendil-works/…`, `typebox`) resolve — a user-dir plugin lives outside the Orca tree and can't
+   *  reach them otherwise. Unset in tests (they never import the copied plugin). */
+  hostNodeModules?: string;
   /** Root of per-plugin writable data dirs; a plugin's data is `<pluginDataRoot>/<name>`. */
   pluginDataRoot?: string;
   /** Skip a `git fetch` when the cache was refreshed within this window (default 15 min). */
@@ -374,13 +378,33 @@ export class MarketplaceService {
 
       let hadOld = false;
       if (existsSync(final)) { renameSync(final, backup); hadOld = true; }
-      try { renameSync(staging, final); }
-      catch (e) { if (hadOld) renameSync(backup, final); throw e; }
+      try {
+        renameSync(staging, final);
+        // Link the host node_modules so the plugin's SDK imports resolve (see linkHostModules). Last step
+        // so a failure rolls back to the previous version rather than leaving an unloadable plugin live.
+        this.linkHostModules(final);
+      } catch (e) {
+        rmSync(final, { recursive: true, force: true });
+        if (hadOld) renameSync(backup, final);
+        throw e;
+      }
       if (hadOld) rmSync(backup, { recursive: true, force: true });
     } catch (e) {
       rmSync(staging, { recursive: true, force: true });
       throw e instanceof MarketplaceError ? e : new MarketplaceError(`install of "${name}" failed: ${errMsg(e)}`, 400);
     }
+  }
+
+  /** Symlink `<pluginDir>/node_modules -> hostNodeModules` so the plugin's bare SDK imports resolve —
+   *  the same `node_modules -> <host>` convention manually-installed user plugins already use. No-op when
+   *  the host path is unset (tests) or a node_modules already exists. Throws on failure so the caller rolls
+   *  back (an unresolvable plugin is worse than a clean failure). Uninstall's rmSync only unlinks this
+   *  symlink — it never recurses into the shared host modules (verified). */
+  private linkHostModules(pluginDir: string): void {
+    if (!this.opts.hostNodeModules) return;
+    const link = join(pluginDir, 'node_modules');
+    if (existsSync(link)) return;
+    symlinkSync(this.opts.hostNodeModules, link, 'dir');
   }
 
   private validateStaging(name: string, dir: string): void {

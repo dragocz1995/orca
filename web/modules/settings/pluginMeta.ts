@@ -1,6 +1,6 @@
 import {
   Puzzle, Globe, Database, FolderOpen, TerminalSquare, GraduationCap, Image as ImageIcon,
-  Wand2, Clapperboard, Clock, Activity, ShieldCheck, MessageCircle, Mic, Bell,
+  Wand2, Clapperboard, Clock, Activity, ShieldCheck, MessageCircle, Mic, Bell, ListTodo,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -11,6 +11,8 @@ const PLUGIN_ICONS: Record<string, LucideIcon> = {
   terminal: TerminalSquare,
   web: Globe,
   memory: Database,
+  mem0: Database,
+  todo: ListTodo,
   skills: GraduationCap,
   'image-gen': ImageIcon,
   'image-edit': Wand2,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { LanguageProvider } from '../../../lib/i18n';
 import { en } from '../../../lib/i18n/dictionaries/en';
 import type { PluginInfo, MarketplaceEntry } from '../../../lib/types';
@@ -69,6 +69,18 @@ describe('PluginsSection catalog', () => {
     renderSection();
     fireEvent.click(screen.getByRole('button', { name: en.plugins.update }));
     expect(updateMutate).toHaveBeenCalledWith('weather', expect.anything());
+  });
+
+  it('right-click on a user plugin opens a management menu with uninstall', () => {
+    usePlugins.mockReturnValue({ data: [plugin({ name: 'weather', source: 'user' })], isLoading: false });
+    renderSection();
+    fireEvent.contextMenu(screen.getByText('weather'));
+    // The floating menu is a role=menu; its Uninstall item fires the confirm flow.
+    const menu = screen.getByRole('menu');
+    fireEvent.click(within(menu).getByText(en.plugins.uninstall));
+    const confirm = screen.getAllByRole('button', { name: en.plugins.uninstall }).at(-1)!;
+    fireEvent.click(confirm);
+    expect(uninstallMutate).toHaveBeenCalledWith('weather', expect.anything());
   });
 
   it('confirms then uninstalls a user plugin', () => {

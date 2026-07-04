@@ -1196,6 +1196,7 @@ export const cs = {
     updateError: 'Aktualizace pluginu selhala',
     marketplaceEmpty: 'Zatím nejsou dostupné žádné další pluginy',
     marketplaceError: 'Katalog pluginů se nepodařilo načíst',
+    detail: 'Detail',
   },
   pluginDetail: {
     overview: 'Přehled',
