@@ -1306,6 +1306,7 @@ export const cs = {
     oneShot: 'jednorázová',
     lastRun: 'běžela před {t}',
     lastResult: 'Poslední výsledek',
+    header: 'Hlavička s názvem úlohy',
     saveError: 'Uložení úloh selhalo',
   },
   skills: {
@@ -1446,6 +1447,7 @@ export const cs = {
     taskSchedule: "Volitelné — nastavte datum a čas úkolu.",
     cronChannel: "Kam se na Discordu doručí výsledek. Výchozí = notifikační kanál pluginu discord.",
     cronCheck: "Levná shell kontrola před promptem. Prázdný výstup = AI se nespustí (šetří model); výstup se předá asistentovi.",
+    cronHeader: "Zapnuto = doručená zpráva začíná řádkem „⏰ název úlohy“. Vypněte pro persona zprávy ve vyhrazeném kanálu.",
     cronHours: "Volitelné okno „H-H“ (např. „5-21“) — mimo něj úloha mlčí.",
     cronModel: "Na kterém modelu úloha poběží. Výchozí = výchozí model serveru.",
     cronPrompt: "Co má asistent při každém spuštění udělat.",

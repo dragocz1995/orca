@@ -236,6 +236,10 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
       if (j.check !== undefined && typeof j.check !== 'string') {
         return c.json({ error: 'check must be omitted or a string' }, 400);
       }
+      // Optional plain delivery flag — suppresses the "⏰ job name" header on delivered results.
+      if (j.plain !== undefined && typeof j.plain !== 'boolean') {
+        return c.json({ error: 'plain must be omitted or a boolean' }, 400);
+      }
       // Optional per-job model: either absent, or an object carrying non-empty provider + model strings.
       if (j.model !== undefined) {
         const m = j.model as { provider?: unknown; model?: unknown } | null;
@@ -256,7 +260,7 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
     const now = new Date().toISOString();
     // Persist only known fields — the client edits a whole-list snapshot, so a whitelist keeps it from
     // smuggling arbitrary keys into jobs.json that the scheduler would later read.
-    const FIELDS = ['id', 'name', 'schedule', 'prompt', 'check', 'hours', 'notifyChannelId', 'model', 'enabled', 'runAt', 'createdAt'] as const;
+    const FIELDS = ['id', 'name', 'schedule', 'prompt', 'check', 'hours', 'notifyChannelId', 'plain', 'model', 'enabled', 'runAt', 'createdAt'] as const;
     const merged = body.map((j) => {
       const edit: Record<string, unknown> = {};
       for (const k of FIELDS) if (j[k] !== undefined) edit[k] = j[k];

@@ -215,6 +215,12 @@ export function CronJobsEditor() {
                       {enabled ? t.cron.enabled : t.cron.paused}
                     </span>
                   </Field>
+                  {/* Positive toggle over the stored `plain` flag: checked = header shown (plain unset). */}
+                  <Field label={t.cron.header} hint={t.help.cronHeader}>
+                    <span className="flex h-9 items-center text-sm text-text-muted">
+                      <Toggle checked={job.plain !== true} onChange={(v) => patch(job.id, { plain: v ? undefined : true })} label={`${job.name || t.cron.jobNew}: ${t.cron.header}`} />
+                    </span>
+                  </Field>
                 </div>
                 <Field label={t.cron.check} hint={t.help.cronCheck}>
                   <textarea

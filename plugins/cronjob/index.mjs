@@ -173,7 +173,10 @@ class CronAdapter {
       const trimmed = String(reply ?? '').trim();
       if (trimmed && !isQuietReply(trimmed)) {
         const footer = cronFooter(idle);
-        const body = `⏰ **${job.name}**\n${String(reply).slice(0, 1800)}${footer ? `\n\n${footer}` : ''}`;
+        // `plain` jobs deliver the reply as-is (persona messages in a dedicated channel don't want
+        // the "⏰ job name" banner); the footer subtext stays — it matches streamed replies.
+        const header = job.plain ? '' : `⏰ **${job.name}**\n`;
+        const body = `${header}${String(reply).slice(0, 1800)}${footer ? `\n\n${footer}` : ''}`;
         await this.deliver(body, job.notifyChannelId).catch(() => {});
       }
     }
@@ -204,6 +207,7 @@ export function register(ctx) {
       check: Type.Optional(Type.String({ description: 'Optional cheap shell guard run BEFORE the prompt. If it prints nothing (or fails), the scheduled brain turn is skipped — no LLM call. If it prints output, the brain runs and receives that output. Use it to poll for new work without paying for a model call each tick, e.g. a collector script that only prints when there is something new.' })),
       hours: Type.Optional(Type.String({ description: 'Active-hours window "H-H" (e.g. "5-21") — outside it the job stays quiet' })),
       notifyChannelId: Type.Optional(Type.String({ description: 'Deliver results to this channel/thread instead of the default notification channel' })),
+      plain: Type.Optional(Type.Boolean({ description: 'true = deliver the reply as-is, without the "⏰ job name" header line — for persona messages in a dedicated channel' })),
       model: Type.Optional(Type.String({ description: 'Run this job on a specific brain model, as "provider/model" (e.g. "anthropic/claude-sonnet-5"). Empty = the server default.' })),
       enabled: Type.Optional(Type.Boolean({ description: 'false = create the job paused' })),
     }),
@@ -218,7 +222,7 @@ export function register(ctx) {
         const model = slash > 0 ? { provider: p.model.slice(0, slash), model: p.model.slice(slash + 1) } : undefined;
         // lastRun starts at creation time so a fresh job waits for its NEXT natural slot — a
         // "daily 06:00" created at 15:00 must not fire immediately.
-        jobs.push({ id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, model, enabled: p.enabled, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() });
+        jobs.push({ id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() });
         store.save(jobs);
         return ok(`Scheduled "${p.name}" (${p.schedule}) — id ${id}. Results accumulate in its own conversation.`);
       } catch (e) { return fail(e); }

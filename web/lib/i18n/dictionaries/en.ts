@@ -1306,6 +1306,7 @@ export const en = {
     oneShot: 'one-shot',
     lastRun: 'ran {t} ago',
     lastResult: 'Last result',
+    header: 'Header with the job name',
     saveError: 'Saving the jobs failed',
   },
   skills: {
@@ -1446,6 +1447,7 @@ export const en = {
     taskSchedule: "Optional — set a date and time for this task.",
     cronChannel: "Where the result is delivered on Discord. Default = the discord plugin’s notification channel.",
     cronCheck: "Cheap shell guard before the prompt. No output = AI turn is skipped (saves a model call); output is passed to the assistant.",
+    cronHeader: "On = the delivered message starts with a \"⏰ job name\" line. Turn off for persona messages in a dedicated channel.",
     cronHours: "Optional “H-H” window (e.g. “5-21”) — outside it the job stays quiet.",
     cronModel: "Which model the job runs on. Default = the server default model.",
     cronPrompt: "What the assistant does on each run.",
