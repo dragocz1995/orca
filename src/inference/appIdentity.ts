@@ -2,7 +2,7 @@
  *  surface these on their activity dashboards: `X-Title` names the app and `HTTP-Referer` links to it —
  *  so calls show up as "Orca" instead of "unknown", and OpenRouter renders the referer's favicon.
  *  Harmless to providers that don't read them (they ignore unknown headers). */
-const APP_URL = 'https://github.com/dragocz1995/orcasynth';
+const APP_URL = 'https://orca.dragocz.dev';
 const APP_TITLE = 'Orca';
 
 /** Spread into any provider request's headers. Lower-case keys so they merge predictably with the
