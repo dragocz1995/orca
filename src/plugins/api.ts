@@ -100,12 +100,14 @@ export interface ChannelRef { platform: string; channelId: string; threadId?: st
 
 /** The control surface the host grants an adapter. Channel-scoped ops no-op on an unknown/idle channel. */
 export interface PlatformControlApi {
-  /** Live model + context usage of the channel's session, or null when nothing is spawned. */
-  status(ref: ChannelRef): { model: string; usage: { tokens: number | null; contextWindow: number } } | null;
+  /** Live model, whether a turn is in flight, and context usage of the channel's session — or null when
+   *  nothing is spawned. */
+  status(ref: ChannelRef): { model: string; streaming: boolean; usage: { tokens: number | null; contextWindow: number; percent: number | null } } | null;
   /** Abort the channel's in-flight turn (no-op when idle). */
   abort(ref: ChannelRef): void;
-  /** Compact the channel session's context; resolves to the post-compaction usage (null if no session). */
-  compact(ref: ChannelRef): Promise<{ tokens: number | null; contextWindow: number } | null>;
+  /** Compact the channel session's context; resolves to the post-compaction usage (null if no session).
+   *  Rejects if compaction itself fails, so the caller can tell "no session" from a real error. */
+  compact(ref: ChannelRef): Promise<{ tokens: number | null; contextWindow: number; percent: number | null } | null>;
   /** Admin-only daemon restart (attributed to the instance operator); rejects when restart isn't
    *  available on this deployment. The caller is responsible for its own admin gate. */
   restart(): Promise<void>;

@@ -495,18 +495,17 @@ export class BrainService {
   async send(userId: number, text: string, images?: { data: string; mimeType: string }[]): Promise<void> {
     const active = this.activeLive(userId);
     if (!active) throw new Error('brain not started for user');
-    // Mid-run injection: if a turn is already streaming, DON'T queue this message behind the user lock —
-    // that waits out the whole turn and then runs it as a SEPARATE turn. Instead steer it into the live
-    // turn so the agent picks it up at its next step (after the current tool calls, before the next LLM
-    // call). PI's sendUserMessage is built to be called during streaming; persist it like a normal user
-    // turn (agent_end skips re-persisting user messages, so no dup). `isStreaming` is PI's own real-time
-    // signal, so there's no flag to keep in sync.
-    if (active.session.isStreaming) {
-      projectUserTurn(this.d.store, active.sessionId, images?.length ? `${text}\n[📎 ${images.length}× image]` : text);
-      const content = images?.length
-        ? [{ type: 'text' as const, text }, ...images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType }))]
-        : text;
-      await active.session.sendUserMessage(content, { deliverAs: 'steer' });
+    // Mid-run injection: if a turn is already streaming, STEER this message into the live turn (delivered
+    // after the current tool calls, before the next LLM call) instead of queuing behind the user lock —
+    // which would wait out the whole turn and then run it as a SEPARATE turn. `steer()` only ENQUEUES
+    // (never starts a turn), so the check-then-act is safe: if the turn ends in the race window the
+    // message simply waits for the next turn rather than launching an unlocked, policy-less run.
+    // Text-only: an image mid-turn must take the normal path so the vision-fallback hop can fire (steering
+    // an image into a text-only model would error the running turn). Persist like a normal user turn —
+    // agent_end skips re-persisting user messages, so there's no dup.
+    if (active.session.isStreaming && !images?.length) {
+      projectUserTurn(this.d.store, active.sessionId, text);
+      await active.session.steer(text);
       return;
     }
     // Serialized per USER for the whole turn: the vision-fallback respawn below disposes and recreates

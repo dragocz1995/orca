@@ -17,6 +17,11 @@ export interface LiveBrain {
   turnContext: () => string;
   /** True while the session runs on the user's vision-fallback model (an image turn hopped onto it). */
   visionFallback?: boolean;
+  /** Platform id (e.g. Discord author) of the sender whose turn is currently in flight — set at the
+   *  start of a channel turn. Mid-run injection only STEERS a message into the running turn when it comes
+   *  from this SAME sender, so one member can never inject instructions into another's (or the admin's)
+   *  turn and inherit its policy/toolset. */
+  turnSender?: string;
 }
 
 /** What it takes to spawn one live conversation — composed by BrainService.spawnLive and reused by

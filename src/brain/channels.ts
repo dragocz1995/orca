@@ -75,17 +75,19 @@ export class ChannelSessionService {
    *  concurrently (and must not both spawn it). */
   async send(opts: ChannelSendOpts, text: string): Promise<string> {
     const sessionId = channelSessionId(opts.channelId);
-    // Mid-run injection: if this channel's turn is already streaming, steer the message into it (delivered
-    // at the next step) instead of blocking on the channel lock — which would wait out the whole turn and
-    // then run a SEPARATE one. Persist it like a normal channel turn; the reply rides the running turn's
-    // stream, so there's nothing new to return (the caller's empty reply posts no second bubble).
+    // Mid-run injection: if this channel's turn is already streaming AND the new message is from the SAME
+    // sender, steer it into that turn (delivered at the next step) instead of blocking on the channel lock.
+    // Same-sender is REQUIRED: the running turn executes under the original sender's policy/identity, so
+    // steering a different member's message in would run their instructions with the first sender's powers
+    // — a shared channel must keep each sender's turn isolated. A different sender (or an image, which needs
+    // the vision hop) falls through to the lock and runs as its own turn. `steer()` only enqueues (never
+    // starts a turn), so the check-then-act can't launch an unlocked run. The reply rides the running turn's
+    // stream, so there's nothing new to return.
     const streaming = this.d.registry.channelGet(opts.channelId);
-    if (streaming?.session.isStreaming) {
-      projectUserTurn(this.d.store, sessionId, opts.images?.length ? `${text}\n[📎 ${opts.images.length}× image]` : text);
-      const content = opts.images?.length
-        ? [{ type: 'text' as const, text }, ...opts.images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType }))]
-        : text;
-      await streaming.session.sendUserMessage(content, { deliverAs: 'steer' });
+    if (streaming?.session.isStreaming && !opts.images?.length
+        && streaming.turnSender != null && streaming.turnSender === opts.identity?.userId) {
+      projectUserTurn(this.d.store, sessionId, text);
+      await streaming.session.steer(text);
       return '';
     }
     return this.d.registry.withLock(sessionId, async () => {
@@ -127,6 +129,7 @@ export class ChannelSessionService {
         });
       }
       this.d.registry.channelTouch(opts.channelId, ch); // (re-)insert → Map order doubles as LRU order
+      ch.turnSender = opts.identity?.userId; // whose turn this is → mid-run injection only steers same-sender messages in
       // Same image handling as send(): history keeps a marker, the pixels ride only the live prompt.
       projectUserTurn(this.d.store, sessionId, opts.images?.length ? `${text}\n[📎 ${opts.images.length}× image]` : text);
       // Verified-sender memory recall: prepend THIS writer's most relevant durable memories, framed as
@@ -184,11 +187,12 @@ export class ChannelSessionService {
     });
   }
 
-  /** Live status of a channel session (model + context usage) for a platform `/status` slash. Null when
-   *  the channel has no live session yet (never spawned, or LRU-evicted). Read-only — no lock needed. */
-  status(channelId: string): { model: string; usage: BrainUsage } | null {
+  /** Live status of a channel session (model + whether a turn is in flight + context usage) for a platform
+   *  `/status` (and `/stop`) slash. Null when the channel has no live session yet (never spawned, or
+   *  LRU-evicted). Read-only — no lock needed. */
+  status(channelId: string): { model: string; streaming: boolean; usage: BrainUsage } | null {
     const ch = this.d.registry.channelGet(channelId);
-    return ch ? { model: ch.model, usage: usageOf(ch.session) } : null;
+    return ch ? { model: ch.model, streaming: ch.session.isStreaming, usage: usageOf(ch.session) } : null;
   }
 
   /** Abort the in-flight turn on a channel session (a platform `/stop` slash). No-op when idle/absent.

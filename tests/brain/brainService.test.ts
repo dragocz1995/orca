@@ -23,7 +23,7 @@ function fakeDeps() {
     }),
     subscribe: (l: (e: unknown) => void) => { listeners.push(l); return () => {}; },
     setModel: vi.fn(), dispose: vi.fn(), abort: vi.fn(async () => {}), messages, isStreaming: false,
-    sendUserMessage: vi.fn(async () => {}),
+    steer: vi.fn(async () => {}),
     getContextUsage: () => undefined, compact: vi.fn(async () => {}),
     thinkingLevel: '' as string,
     supportsThinking: () => true,
@@ -120,8 +120,8 @@ describe('BrainService', () => {
     d.session.prompt.mockClear();
     d.session.isStreaming = true; // a turn is in flight
     await svc.send(1, 'also check the logs');
-    // Steered into the running turn (delivered at its next step), NOT a fresh prompt().
-    expect(d.session.sendUserMessage).toHaveBeenCalledWith('also check the logs', { deliverAs: 'steer' });
+    // Steered into the running turn (steer() only ENQUEUES — it never launches a fresh, unlocked turn).
+    expect(d.session.steer).toHaveBeenCalledWith('also check the logs');
     expect(d.session.prompt).not.toHaveBeenCalled();
     // Persisted like a normal user turn so it shows in history (agent_end skips re-persisting user msgs).
     const stored = d.store.getMessages(sessionId).map((m) => JSON.parse(m.content).content);

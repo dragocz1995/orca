@@ -197,11 +197,13 @@ const MESSAGES = {
     thinking: '💭 …',
     voiceSet: (on) => on ? '🔊 Spoken replies **on** in this channel.' : '🔇 Spoken replies **off** in this channel.',
     voiceNeedsKey: '⚠️ Spoken replies need a voice provider set in the Discord plugin settings.',
+    controlForbidden: '🔒 Only the operator can control the agent here.',
     stopped: '⏹️ Stopped the running agent.',
     nothingRunning: '💤 Nothing is running in this channel.',
     noSession: '💤 No active conversation in this channel yet.',
     status: (model, pct, tokens) => `🧠 **${model}**\n📊 Context ${pct}% · ${tokens} tokens`,
     compacted: (pct) => `🗜️ Context compacted — now at ${pct}%.`,
+    compactFailed: '⚠️ Compaction failed — check the logs.',
     restarting: '🔄 Restarting the Orca daemon…',
     restartForbidden: '🔒 Only an admin can restart the daemon.',
     restartUnavailable: '⚠️ Restart isn’t available on this deployment.',
@@ -231,11 +233,13 @@ const MESSAGES = {
     thinking: '💭 …',
     voiceSet: (on) => on ? '🔊 Mluvené odpovědi v tomto kanálu **zapnuté**.' : '🔇 Mluvené odpovědi v tomto kanálu **vypnuté**.',
     voiceNeedsKey: '⚠️ Mluvené odpovědi potřebují nastaveného poskytovatele hlasu v nastavení Discord pluginu.',
+    controlForbidden: '🔒 Agenta tady může řídit jen provozovatel.',
     stopped: '⏹️ Zastavil jsem běžícího agenta.',
     nothingRunning: '💤 V tomto kanálu nic neběží.',
     noSession: '💤 V tomto kanálu zatím není žádná aktivní konverzace.',
     status: (model, pct, tokens) => `🧠 **${model}**\n📊 Kontext ${pct}% · ${tokens} tokenů`,
     compacted: (pct) => `🗜️ Kontext sesumarizován — nyní na ${pct}%.`,
+    compactFailed: '⚠️ Sumarizace selhala — zkontroluj logy.',
     restarting: '🔄 Restartuji Orca daemon…',
     restartForbidden: '🔒 Restartovat daemon může jen admin.',
     restartUnavailable: '⚠️ Restart není na tomto nasazení dostupný.',
@@ -637,29 +641,32 @@ class DiscordAdapter {
       }
       // Channel-session control (stop/status/compact) + daemon restart — routed through the host control
       // surface. `this.ctl` is wired by the orchestrator after listen(); guard so a message-only host
-      // (or a not-yet-connected one) degrades gracefully instead of throwing.
-      if (name === 'stop') {
-        if (!this.ctl) return this.respond(i, 4, { content: this.msg.nothingRunning, flags: 64 });
-        const live = this.ctl.status(this.channelRef(i.channel_id));
-        this.ctl.abort(this.channelRef(i.channel_id));
-        return this.respond(i, 4, { content: live ? this.msg.stopped : this.msg.nothingRunning, flags: 64 });
-      }
-      if (name === 'status') {
-        const st = this.ctl?.status(this.channelRef(i.channel_id));
-        if (!st) return this.respond(i, 4, { content: this.msg.noSession, flags: 64 });
-        const tokens = st.usage.tokens ?? 0;
-        const pct = st.usage.contextWindow > 0 ? Math.round((tokens / st.usage.contextWindow) * 100) : 0;
-        return this.respond(i, 4, { content: this.msg.status(st.model, pct, tokens), flags: 64 });
-      }
-      if (name === 'compact') {
+      // (or a not-yet-connected one) degrades gracefully instead of throwing. Operator-only, like /model
+      // and /voice: these act on the shared channel turn, so a stranger must not stop/compact/inspect it.
+      if (name === 'stop' || name === 'status' || name === 'compact') {
+        if (!this.isAdminMember(i.member)) return this.respond(i, 4, { content: this.msg.controlForbidden, flags: 64 });
         if (!this.ctl) return this.respond(i, 4, { content: this.msg.noSession, flags: 64 });
-        // Compaction runs an LLM summary → defer (type 5), then edit the deferred reply with the result.
+        const ref = this.channelRef(i.channel_id);
+        if (name === 'stop') {
+          const st = this.ctl.status(ref);
+          if (!st?.streaming) return this.respond(i, 4, { content: this.msg.nothingRunning, flags: 64 });
+          this.ctl.abort(ref);
+          return this.respond(i, 4, { content: this.msg.stopped, flags: 64 });
+        }
+        if (name === 'status') {
+          const st = this.ctl.status(ref);
+          if (!st) return this.respond(i, 4, { content: this.msg.noSession, flags: 64 });
+          return this.respond(i, 4, { content: this.msg.status(st.model, st.usage.percent ?? 0, st.usage.tokens ?? 0), flags: 64 });
+        }
+        // /compact runs an LLM summary → defer (type 5), then edit the deferred reply with the result.
+        // Distinguish "no session" (null) from a real compaction failure (throw) so the copy isn't misleading.
         await this.respond(i, 5, { flags: 64 });
-        const usage = await this.ctl.compact(this.channelRef(i.channel_id)).catch(() => null);
-        const content = usage
-          ? this.msg.compacted(usage.contextWindow > 0 ? Math.round(((usage.tokens ?? 0) / usage.contextWindow) * 100) : 0)
-          : this.msg.noSession;
-        return this.editOriginal(i, { content });
+        try {
+          const usage = await this.ctl.compact(ref);
+          return this.editOriginal(i, { content: usage ? this.msg.compacted(usage.percent ?? 0) : this.msg.noSession });
+        } catch {
+          return this.editOriginal(i, { content: this.msg.compactFailed });
+        }
       }
       if (name === 'restart') {
         if (!this.isAdminMember(i.member)) return this.respond(i, 4, { content: this.msg.restartForbidden, flags: 64 });

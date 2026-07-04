@@ -6,6 +6,7 @@ function fakeChannel(overrides: Record<string, unknown> = {}) {
   return {
     model: 'kimi',
     session: {
+      isStreaming: true,
       getContextUsage: () => ({ tokens: 1200, contextWindow: 8000, percent: 15 }),
       messages: [],
       abort: vi.fn(async () => {}),
@@ -31,6 +32,7 @@ describe('ChannelSessionService — channel-scoped slash control (stop/status/co
     const svc = serviceWith(new Map([['discord-c1#0', ch]]));
     expect(svc.status('discord-c1#0')).toEqual({
       model: 'kimi',
+      streaming: true,
       usage: { tokens: 1200, contextWindow: 8000, percent: 15, totalTokens: 0, cost: 0 },
     });
     expect(svc.status('discord-unknown#0')).toBeNull();
