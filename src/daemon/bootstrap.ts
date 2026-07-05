@@ -472,8 +472,9 @@ export function buildApp(opts: BuildOpts) {
         // Private long-term memory: the owner-chat memory tools + per-turn retrieval injection + the
         // post-turn curator. All owner-gated inside BrainService (channels/workers never reach them).
         memoryStore, memoryService, inference: memoryModelInference,
-        // Auto-categorize newly-added durable memories (fire-and-forget from the curator).
-        memoryCategorizer,
+        // Auto-categorize newly-added durable memories (fire-and-forget from the curator) + the owner's
+        // memory_category_* tools (create/delete/recategorize).
+        memoryCategorizer, memoryCategoryStore,
       })
     : undefined;
   // The orca exec engine: tasks with an `orca:` exec run on an embedded PI session instead of a

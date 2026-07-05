@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { buildMemoryTools } from '../../src/brain/tools/memoryTools.js';
 import { openDb } from '../../src/store/db.js';
 import { MemoryStore } from '../../src/store/memoryStore.js';
+import { MemoryCategoryStore } from '../../src/store/memoryCategoryStore.js';
+import { MemoryCategorizer } from '../../src/brain/memoryCategorizer.js';
 import { MemoryService } from '../../src/brain/memoryService.js';
 import type { EmbeddingService } from '../../src/embeddings/embeddingService.js';
 import { runWithPolicy } from '../../src/plugins/policyContext.js';
@@ -21,11 +23,15 @@ const CHANNEL: TurnIdentity = { platform: 'discord', userId: 'disc-9', admin: tr
 /** Real store + a memory service with embeddings DISABLED (config null) → findSimilar is a no-op and
  *  retrieve uses the keyword fallback, which is all these identity/CRUD tests need. */
 function toolset() {
-  const store = new MemoryStore(openDb(':memory:'));
+  const db = openDb(':memory:');
+  const store = new MemoryStore(db);
+  const categories = new MemoryCategoryStore(db);
   const embeddings = { embed: async () => new Float32Array([0, 0, 0]) } as unknown as EmbeddingService;
   const service = new MemoryService({ store, embeddings, embeddingConfig: () => null });
-  const tools = buildMemoryTools({ store, service });
-  return { store, byName: (n: string) => tools.find((t) => t.name === n)! };
+  // No inference wired → categorizer.configured() is false (recategorize reports "not configured").
+  const categorizer = new MemoryCategorizer({ categories, memories: store, inference: () => null });
+  const tools = buildMemoryTools({ store, service, categories, categorizer });
+  return { store, categories, byName: (n: string) => tools.find((t) => t.name === n)! };
 }
 
 const txt = (r: unknown) => (r as { content: { text: string }[] }).content[0]!.text;
@@ -34,8 +40,31 @@ const run = (identity: TurnIdentity | undefined, fn: () => Promise<unknown>) => 
 describe('buildMemoryTools', () => {
   it('exposes the expected tool names', () => {
     const { byName } = toolset();
-    const names = ['memory_search', 'memory_add', 'memory_update', 'memory_merge', 'memory_delete', 'memory_list_recent'];
+    const names = ['memory_search', 'memory_add', 'memory_update', 'memory_merge', 'memory_delete', 'memory_list_recent',
+      'memory_categories', 'memory_category_create', 'memory_category_delete', 'memory_recategorize'];
     for (const n of names) expect(byName(n)).toBeDefined();
+  });
+
+  it('owner identity: creates, lists and deletes a memory category', async () => {
+    const { categories, byName } = toolset();
+    const created = await run(OWNER, () => byName('memory_category_create').execute('c', { name: 'Infra', description: 'servers, VPS, ports' }));
+    expect(txt(created)).toMatch(/Created category #\d+/);
+    expect(categories.list(1).map((c) => c.name)).toContain('Infra');
+    // A duplicate name is refused, not thrown.
+    const dup = await run(OWNER, () => byName('memory_category_create').execute('c2', { name: 'Infra' }));
+    expect(txt(dup)).toMatch(/already exists/i);
+    const list = await run(OWNER, () => byName('memory_categories').execute('l', {}));
+    expect(txt(list)).toContain('Infra');
+    const id = categories.list(1)[0]!.id;
+    const del = await run(OWNER, () => byName('memory_category_delete').execute('d', { id }));
+    expect(txt(del)).toMatch(/Deleted category/);
+    expect(categories.list(1)).toHaveLength(0);
+  });
+
+  it('a non-owner channel turn cannot touch categories', async () => {
+    const { byName } = toolset();
+    const r = await run(CHANNEL, () => byName('memory_category_create').execute('c', { name: 'Secret' }));
+    expect(txt(r)).toBe('Memory is only available to you — in your own Orca chat or from your linked platform account.');
   });
 
   it('owner identity: memory_add stores and memory_search finds it', async () => {

@@ -8,6 +8,8 @@ import { PluginRegistryProvider } from '../../src/plugins/pluginsProvider.js';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { MemoryStore } from '../../src/store/memoryStore.js';
+import { MemoryCategoryStore } from '../../src/store/memoryCategoryStore.js';
+import { MemoryCategorizer } from '../../src/brain/memoryCategorizer.js';
 import type { MemoryService } from '../../src/brain/memoryService.js';
 import type { MemoryRow } from '../../src/store/memoryStore.js';
 import { HookAuditBuffer } from '../../src/shared/hookAudit.js';
@@ -588,8 +590,13 @@ describe('BrainService memory integration', () => {
 
   it('composes the memory tools into the owner-chat session', async () => {
     const d = fakeDeps();
-    (d as Record<string, unknown>).memoryStore = new MemoryStore(openDb(':memory:'));
+    const memDb = openDb(':memory:');
+    const memStore = new MemoryStore(memDb);
+    const cats = new MemoryCategoryStore(memDb);
+    (d as Record<string, unknown>).memoryStore = memStore;
     (d as Record<string, unknown>).memoryService = fakeMemoryService([]);
+    (d as Record<string, unknown>).memoryCategoryStore = cats;
+    (d as Record<string, unknown>).memoryCategorizer = new MemoryCategorizer({ categories: cats, memories: memStore, inference: () => null });
     const svc = new BrainService(d as never);
     await svc.start(1);
     const opts = (d.createSession as unknown as { mock: { calls: [{ customTools: { name: string }[] }][] } }).mock.calls[0][0];

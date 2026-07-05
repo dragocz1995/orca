@@ -18,6 +18,7 @@ import { buildOrcaTools, buildMemoryTools, BUILTIN_TOOL_ICONS } from './tools/in
 import { MemoryCurator } from './memoryCurator.js';
 import { ConversationTitler } from './conversationTitler.js';
 import type { MemoryCategorizer } from './memoryCategorizer.js';
+import type { MemoryCategoryStore } from '../store/memoryCategoryStore.js';
 import { extractText, frameUntrusted } from './messageView.js';
 import { logger } from '../shared/logger.js';
 import type { MemoryStore } from '../store/memoryStore.js';
@@ -101,6 +102,8 @@ export interface BrainDeps {
   /** Auto-categorizer handed to the curator so a newly-added durable memory is classified into one of
    *  the owner's categories (fire-and-forget). Absent → new memories are left uncategorized. */
   memoryCategorizer?: MemoryCategorizer;
+  /** Per-user memory category store — powers the owner's memory_category_* tools. */
+  memoryCategoryStore?: MemoryCategoryStore;
   /** Injected for tests; defaults to PI's createAgentSession. */
   createSession?: typeof createAgentSession;
   /** Injected for tests; builds the resource loader that carries the Orca system prompt. A test passes
@@ -388,10 +391,14 @@ export class BrainService {
     // defense-in-depth. Built lazily; only wired when the memory deps exist.
     const memStore = this.d.memoryStore;
     const memService = this.d.memoryService;
+    const memCats = this.d.memoryCategoryStore;
+    const memCategorizer = this.d.memoryCategorizer;
     const allTools = composeSessionTools({
       kind: opts.channel ? (opts.trustedChannel ? 'trusted-channel' : 'foreign-channel') : 'owner-chat',
       orcaTools: () => buildOrcaTools({ url: this.d.url, token: this.d.users.ensureAdvisorToken(ownerUserId) }),
-      memoryTools: memStore && memService ? () => buildMemoryTools({ store: memStore, service: memService }) : undefined,
+      memoryTools: memStore && memService && memCats && memCategorizer
+        ? () => buildMemoryTools({ store: memStore, service: memService, categories: memCats, categorizer: memCategorizer })
+        : undefined,
       pluginTools: plugins?.tools ?? [],
       toolFilter: opts.toolFilter,
     });

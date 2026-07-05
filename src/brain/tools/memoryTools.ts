@@ -3,8 +3,16 @@ import { Type } from 'typebox';
 import { currentIdentity } from '../../plugins/policyContext.js';
 import type { MemoryStore, MemoryRow, MemoryPatch } from '../../store/memoryStore.js';
 import type { MemoryService } from '../memoryService.js';
+import type { MemoryCategoryStore } from '../../store/memoryCategoryStore.js';
+import { ICON_ALLOWLIST } from '../../store/memoryCategoryStore.js';
+import type { MemoryCategorizer } from '../memoryCategorizer.js';
 
-export interface MemoryToolDeps { store: MemoryStore; service: MemoryService }
+export interface MemoryToolDeps {
+  store: MemoryStore;
+  service: MemoryService;
+  categories: MemoryCategoryStore;
+  categorizer: MemoryCategorizer;
+}
 
 /** Message returned when a non-owner turn tries to touch memory. Memory is per-user and PRIVATE —
  *  reachable only from your own Orca chat or your linked platform account. */
@@ -163,6 +171,86 @@ function memoryListRecent(d: MemoryToolDeps) {
   });
 }
 
+function memoryCategories(d: MemoryToolDeps) {
+  return defineTool({
+    name: 'memory_categories', label: 'List memory categories',
+    description: 'List your memory categories — each id, name and the guide the auto-classifier matches '
+      + 'memories against. Use this before creating (avoid duplicates) or deleting one. Personal chat only.',
+    parameters: Type.Object({}),
+    execute: async () => {
+      const userId = ownerUserId();
+      if (userId === null) return text(LOCKED);
+      const cats = d.categories.list(userId);
+      if (cats.length === 0) return text('No memory categories yet. Create one with memory_category_create.');
+      return text(cats.map((c) => `#${c.id} ${c.name}${c.description ? ` — ${c.description}` : ''}`).join('\n'));
+    },
+  });
+}
+
+function memoryCategoryCreate(d: MemoryToolDeps) {
+  return defineTool({
+    name: 'memory_category_create', label: 'Create memory category',
+    description: 'Create a new memory category. `description` is the guide the auto-classifier matches '
+      + 'memories against, so make it specific about what belongs here. `icon` is optional (a lucide name '
+      + `from: ${ICON_ALLOWLIST.join(', ')}; anything else falls back to a folder). Fails if the name `
+      + 'already exists — call memory_categories first. Personal chat only.',
+    parameters: Type.Object({
+      name: Type.String({ description: 'Short category name (unique)' }),
+      description: Type.Optional(Type.String({ description: 'What belongs here — the classifier guide' })),
+      icon: Type.Optional(Type.String({ description: 'Optional lucide icon name from the allowed set' })),
+    }),
+    execute: async (_id, p: { name: string; description?: string; icon?: string }) => {
+      const userId = ownerUserId();
+      if (userId === null) return text(LOCKED);
+      const name = p.name.trim();
+      if (name === '') return text('A category needs a name.');
+      try {
+        const row = d.categories.create(userId, { name, description: p.description?.trim(), icon: p.icon });
+        return text(`Created category #${row.id} "${row.name}". Run memory_recategorize to sort memories into it.`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/UNIQUE|constraint/i.test(msg)) return text(`A category named "${name}" already exists.`);
+        return text(`Could not create the category: ${msg}`);
+      }
+    },
+  });
+}
+
+function memoryCategoryDelete(d: MemoryToolDeps) {
+  return defineTool({
+    name: 'memory_category_delete', label: 'Delete memory category',
+    description: 'Delete a memory category by id. Its memories are NOT deleted — they just become '
+      + 'uncategorized. Personal chat only.',
+    parameters: Type.Object({ id: Type.Number({ description: 'Category id (from memory_categories)' }) }),
+    execute: async (_id, p: { id: number }) => {
+      const userId = ownerUserId();
+      if (userId === null) return text(LOCKED);
+      const ok = d.categories.delete(userId, p.id);
+      return text(ok ? `Deleted category #${p.id}. Its memories are now uncategorized.` : `No category #${p.id}.`);
+    },
+  });
+}
+
+function memoryRecategorize(d: MemoryToolDeps) {
+  return defineTool({
+    name: 'memory_recategorize', label: 'Recategorize memories',
+    description: 'Re-run the auto-classifier over your memories to sort them into the current categories. '
+      + 'By default only UNcategorized memories are touched; set `all: true` to re-sort every memory '
+      + '(e.g. after adding or renaming categories). Personal chat only.',
+    parameters: Type.Object({
+      all: Type.Optional(Type.Boolean({ description: 'Re-sort every memory, not just uncategorized ones' })),
+    }),
+    execute: async (_id, p: { all?: boolean }) => {
+      const userId = ownerUserId();
+      if (userId === null) return text(LOCKED);
+      if (!d.categorizer.configured()) return text('No categorization model is configured (Settings → memory model), so memories can\'t be auto-sorted.');
+      if (d.categories.list(userId).length === 0) return text('No categories to sort into. Create one with memory_category_create first.');
+      const { scanned, classified } = await d.categorizer.reclassify(userId, { includeCategorized: p.all === true });
+      return text(`Scanned ${scanned} memor${scanned === 1 ? 'y' : 'ies'}, sorted ${classified} into a category.`);
+    },
+  });
+}
+
 /** The owner's private long-term memory toolset. EVERY tool re-derives the acting user from
  *  currentIdentity() at execute time and refuses any non-owner / non-orca / task-worker turn — the
  *  build-time caller must NEVER close over an owner id (that would leak in a trusted channel). Composed
@@ -170,5 +258,6 @@ function memoryListRecent(d: MemoryToolDeps) {
 export function buildMemoryTools(d: MemoryToolDeps) {
   return [
     memorySearch(d), memoryAdd(d), memoryUpdate(d), memoryMerge(d), memoryDelete(d), memoryListRecent(d),
+    memoryCategories(d), memoryCategoryCreate(d), memoryCategoryDelete(d), memoryRecategorize(d),
   ];
 }
