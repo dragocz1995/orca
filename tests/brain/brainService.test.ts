@@ -617,12 +617,12 @@ describe('BrainService memory integration', () => {
     const svc = new BrainService(d as never);
     await svc.start(1);
     await svc.send(1, 'zapamatuj si, že preferuju strict mode');
-    await new Promise((r) => setImmediate(r)); // let the fire-and-forget curator settle
-    expect(decide).toHaveBeenCalledTimes(1);
-    // The curator saw the exchange (user text + the fake session's echoed assistant reply).
-    const prompt = decide.mock.calls[0]![0] as string;
-    expect(prompt).toContain('zapamatuj si, že preferuju strict mode');
-    expect(prompt).toContain('echo:');
+    await new Promise((r) => setImmediate(r)); // let the fire-and-forget curator + titler settle
+    // Two background inferences share this model on a new conversation: the titler (first message only)
+    // and the curator (full exchange). Pick the curator's call — the one that saw the assistant reply.
+    const curatorPrompt = decide.mock.calls.map((c) => c[0] as string).find((p) => p.includes('echo:'));
+    expect(curatorPrompt, 'curator prompt (contains the assistant echo)').toBeDefined();
+    expect(curatorPrompt).toContain('zapamatuj si, že preferuju strict mode');
   });
 });
 

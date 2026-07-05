@@ -16,6 +16,7 @@ import { buildBrainRegistry, resolveBrainModel } from './providers.js';
 import { orcaExec } from '../shared/execs.js';
 import { buildOrcaTools, buildMemoryTools, BUILTIN_TOOL_ICONS } from './tools/index.js';
 import { MemoryCurator } from './memoryCurator.js';
+import { ConversationTitler } from './conversationTitler.js';
 import type { MemoryCategorizer } from './memoryCategorizer.js';
 import { extractText, frameUntrusted } from './messageView.js';
 import { logger } from '../shared/logger.js';
@@ -127,6 +128,9 @@ export class BrainService {
   /** Post-turn memory curator — built only when the memory deps are wired. Runs fire-and-forget from
    *  send() (owner chat), never awaited. */
   private curator?: MemoryCurator;
+  /** Names a brand-new conversation from its first message with one cheap background inference (reuses the
+   *  curator/categorizer model). No-ops when that model isn't configured — the provisional title stays. */
+  private titler: ConversationTitler;
   /** Parked `ask_user_question` calls, shared by owner chat and channel sessions so `/brain/answer`
    *  (web/CLI) and Discord interactions resolve through one registry. */
   private elicitation = new ElicitationRegistry();
@@ -136,6 +140,7 @@ export class BrainService {
   constructor(private d: BrainDeps) {
     this.factory = new BrainSessionFactory({ store: d.store, createSession: d.createSession, resourceLoaderFactory: d.resourceLoaderFactory });
     this.identity = new IdentityResolver({ platformOwner: d.platformOwner, resolvePlatformUser: d.resolvePlatformUser, users: d.users });
+    this.titler = new ConversationTitler({ store: d.store, inference: d.inference ?? (() => null), logger: logger('conversation-titler') });
     // Built before the channel service so it can share the SAME curator instance — channel and
     // owner-chat memory then run through one implementation.
     if (d.memoryStore && d.memoryService) {
@@ -535,9 +540,14 @@ export class BrainService {
     const live = b;
     // Serialized per conversation: concurrent prompt() calls on one PI session corrupt turn state.
     await this.serial(live.sessionId, async () => {
-      // First user message names the conversation (once) so the session list reads naturally.
+      // First user message names the conversation (once). A provisional slice fills the session list
+      // immediately (never blank); a cheap background inference then replaces it with a proper
+      // agent-generated title — no prompt injected into the turn, and a no-op if that model isn't wired.
       const row = this.d.store.getSession(live.sessionId);
-      if (row && !row.title) this.d.store.setTitle(live.sessionId, text.slice(0, 60));
+      if (row && !row.title) {
+        this.d.store.setTitle(live.sessionId, text.slice(0, 60));
+        void this.titler.run(live.sessionId, text);
+      }
       // History stores the text plus an attachment marker; the image bytes live only in the live
       // context (a rehydrated conversation keeps the marker, not the pixels).
       projectUserTurn(this.d.store, live.sessionId, images?.length ? `${text}\n[📎 ${images.length}× image]` : text);
