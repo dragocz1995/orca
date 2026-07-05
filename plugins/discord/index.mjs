@@ -1115,8 +1115,9 @@ export function register(ctx) {
   }));
 
   // ── Ergonomic server tools (structured wrappers over the REST surface, so the agent needn't know raw
-  // endpoints). Reads gate on an admin session; role WRITES gate on the operator (a role grant can hand out
-  // admin, so a foreign admin-mapped member must never reach them). ──
+  // endpoints). Every one gates on an admin session (ctx.isAdminSession() → the role-id-mapped admin
+  // access): a role granted all tools can run the full server surface, reads and destructive writes alike.
+  // The raw-token discord_api above stays owner-only. ──
   const cfgGuild = typeof ctx.config.guildId === 'string' ? ctx.config.guildId.trim() : '';
   const requireGuild = (p) => {
     const g = (p?.guildId && String(p.guildId).trim()) || cfgGuild;
@@ -1124,7 +1125,6 @@ export function register(ctx) {
     return g;
   };
   const adminGate = () => { if (!ctx.isAdminSession()) throw new Error('available only in an admin session'); };
-  const ownerGate = () => { if (ctx.currentIdentity?.()?.owner !== true) throw new Error('available only to the operator'); };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const CHAN_TYPE = { 0: 'text', 2: 'voice', 4: 'category', 5: 'news', 10: 'news-thread', 11: 'thread', 12: 'private-thread', 13: 'stage', 15: 'forum' };
   // Channel type name → numeric id, for create_channel (text/voice/category/news/forum/stage).
@@ -1195,11 +1195,11 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'discord_assign_role', label: 'Assign Discord role',
-    description: 'Give a guild member a role. Operator only. Get ids from discord_list_members + discord_list_roles.',
+    description: 'DESTRUCTIVE. Give a guild member a role (a role can grant permissions). Get ids from discord_list_members + discord_list_roles.',
     parameters: Type.Object({ userId: Type.String(), roleId: Type.String(), guildId: Type.Optional(Type.String()) }),
     execute: async (_id, p) => {
       try {
-        ownerGate();
+        adminGate();
         await adapter.rest('PUT', `/guilds/${requireGuild(p)}/members/${encodeURIComponent(p.userId)}/roles/${encodeURIComponent(p.roleId)}`);
         return ok(`Assigned role ${p.roleId} to member ${p.userId}.`);
       } catch (e) { return fail(e); }
@@ -1208,11 +1208,11 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'discord_remove_role', label: 'Remove Discord role',
-    description: 'Remove a role from a guild member. Operator only.',
+    description: 'DESTRUCTIVE. Remove a role from a guild member.',
     parameters: Type.Object({ userId: Type.String(), roleId: Type.String(), guildId: Type.Optional(Type.String()) }),
     execute: async (_id, p) => {
       try {
-        ownerGate();
+        adminGate();
         await adapter.rest('DELETE', `/guilds/${requireGuild(p)}/members/${encodeURIComponent(p.userId)}/roles/${encodeURIComponent(p.roleId)}`);
         return ok(`Removed role ${p.roleId} from member ${p.userId}.`);
       } catch (e) { return fail(e); }
