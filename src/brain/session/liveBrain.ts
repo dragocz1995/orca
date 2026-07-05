@@ -8,7 +8,6 @@ export interface LiveBrain {
   session: AgentSession;
   sessionId: string;
   model: string;
-  visionCapable: boolean;
   thinkingLevel?: string;
   policy: Policy;
   autoCompact: boolean;

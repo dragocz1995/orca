@@ -33,10 +33,16 @@ export const OAUTH_BUILTIN: Record<string, string> = {
 const normOpenAiBase = (base: string) => base.replace(/\/$/, '');
 
 /** Reasonable descriptor defaults — the brain is a chat agent, exact cost/window are not load-bearing
- *  here (usage accounting lives elsewhere), so we ship safe placeholders the model list requires. */
+ *  here (usage accounting lives elsewhere), so we ship safe placeholders the model list requires.
+ *  `input` is declared multimodal: pi-ai DOWNGRADES image blocks to a "(image omitted…)" placeholder
+ *  whenever the model descriptor's `input` lacks 'image' (see pi-ai transform-messages
+ *  downgradeUnsupportedImages), which silently strips vision even from models that support it. We can't
+ *  probe per-model capability for inline providers (OpenRouter, custom relays), so we declare vision and
+ *  let the endpoint decide: a genuinely multimodal model gets the image, a text-only one returns a clean
+ *  400 ("does not support image input") instead of a confusing text-only answer. */
 function modelEntry(id: string) {
   return {
-    id, name: id, reasoning: true, input: ['text'] as ('text' | 'image')[],
+    id, name: id, reasoning: true, input: ['text', 'image'] as ('text' | 'image')[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200_000, maxTokens: 8_192,
   };

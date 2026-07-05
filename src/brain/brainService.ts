@@ -438,8 +438,7 @@ export class BrainService {
       const parts = providers.map((f) => { try { return f(); } catch { return ''; } }).filter((x) => x && x.trim());
       return parts.length ? `<context>\n${parts.join('\n')}\n</context>\n\n` : '';
     };
-    const visionCapable = Array.isArray((model as { input?: string[] }).input) ? ((model as { input?: string[] }).input as string[]).includes('image') : true;
-    return { session, sessionId, model: model.id, visionCapable, thinkingLevel: opts.thinkingLevel, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners, turnContext };
+    return { session, sessionId, model: model.id, thinkingLevel: opts.thinkingLevel, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners, turnContext };
   }
 
   /** Start (or resume) a conversation. `session` resumes that stored conversation (ownership checked);
@@ -520,7 +519,7 @@ export class BrainService {
     // back on the next text-only turn, so the fallback never silently becomes the permanent model.
     const settings = this.d.userSettings?.(userId);
     const hop = decideVisionHop({
-      hasImages: !!images?.length, visionCapable: b.visionCapable, onFallback: !!b.visionFallback,
+      hasImages: !!images?.length, onFallback: !!b.visionFallback,
       currentModel: b.model, visionModel: settings?.visionModel, visionModelProvider: settings?.visionModelProvider,
     });
     if (hop.action !== 'none') {
@@ -530,8 +529,7 @@ export class BrainService {
       if (!b) throw new Error('brain not started for user');
       // Mark the fallback active only if start() actually reached the requested vision model (not the
       // configured default because the vision model was unavailable/disallowed) — so the NEXT text turn
-      // hops back. Compare the reached model id directly: inline model descriptors don't carry vision
-      // metadata, so `visionCapable` can't be trusted as the "did we land on it" signal.
+      // hops back. Compare the reached model id directly.
       if (hop.action === 'hop') b.visionFallback = b.model === hop.model;
     }
     const live = b;
