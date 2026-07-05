@@ -44,6 +44,12 @@
   },
   "configSchema": [
     {
+      "key": "sec_connection",
+      "label": "Connection",
+      "type": "section",
+      "hint": "The bot token and where it listens."
+    },
+    {
       "key": "botToken",
       "label": "Bot token",
       "type": "secret",
@@ -69,6 +75,18 @@
       "hint": "Where proactive messages (cron/tick results, escalations) are posted. Empty = no proactive pushes."
     },
     {
+      "key": "sec_replies",
+      "label": "Replies & behavior",
+      "type": "section",
+      "hint": "When and how the bot answers."
+    },
+    {
+      "key": "respondWithoutMention",
+      "label": "Respond without mention",
+      "type": "boolean",
+      "hint": "On: the bot answers every message in channels it can see (Iris-style). Off: it only answers when @mentioned."
+    },
+    {
       "key": "streaming",
       "label": "Live streaming replies",
       "type": "boolean",
@@ -81,30 +99,6 @@
       "hint": "React 👀 while thinking, ✅/❌ when done."
     },
     {
-      "key": "respondWithoutMention",
-      "label": "Respond without mention",
-      "type": "boolean",
-      "hint": "On: the bot answers every message in channels it can see (Iris-style). Off: it only answers when @mentioned."
-    },
-    {
-      "key": "language",
-      "label": "Service language",
-      "type": "string",
-      "hint": "Language of the bot's own service messages (/new, /model, placeholders): en (default) or cs."
-    },
-    {
-      "key": "visionModel",
-      "label": "Vision model",
-      "type": "model",
-      "hint": "Model used for turns that carry image attachments (must support vision). Empty = the channel's normal model."
-    },
-    {
-      "key": "historyLimit",
-      "label": "Channel history backfill",
-      "type": "number",
-      "hint": "How many recent channel messages a BRAND-NEW conversation loads as context (0 = off, max 100). Ongoing conversations never re-fetch."
-    },
-    {
       "key": "runtimeFooter",
       "label": "Runtime footer",
       "type": "boolean",
@@ -115,6 +109,36 @@
       "label": "Show reasoning",
       "type": "boolean",
       "hint": "Stream the model's reasoning into the progress bubble (extended-thinking models). Off by default — it's usually noise on Discord."
+    },
+    {
+      "key": "language",
+      "label": "Service language",
+      "type": "string",
+      "hint": "Language of the bot's own service messages (/new, /model, placeholders): en (default) or cs."
+    },
+    {
+      "key": "sec_conversation",
+      "label": "Conversation",
+      "type": "section",
+      "hint": "Context loading and image routing."
+    },
+    {
+      "key": "historyLimit",
+      "label": "Channel history backfill",
+      "type": "number",
+      "hint": "How many recent channel messages a BRAND-NEW conversation loads as context (0 = off, max 100). Ongoing conversations never re-fetch."
+    },
+    {
+      "key": "visionModel",
+      "label": "Vision model",
+      "type": "model",
+      "hint": "Model used for turns that carry image attachments (must support vision). Empty = the channel's normal model."
+    },
+    {
+      "key": "sec_voice",
+      "label": "Voice",
+      "type": "section",
+      "hint": "Speech-to-text and text-to-speech (optional; reuses the voice provider's key)."
     },
     {
       "key": "voiceProvider",
@@ -152,6 +176,12 @@
       "label": "TTS voice",
       "type": "string",
       "hint": "Voice: alloy, echo, fable, onyx, nova or shimmer (default: alloy)."
+    },
+    {
+      "key": "sec_roles",
+      "label": "Role policies",
+      "type": "section",
+      "hint": "Map Discord roles to allowed projects, a role prompt and the tools the bot may use."
     },
     {
       "key": "rolePolicies",

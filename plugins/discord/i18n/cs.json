@@ -1,6 +1,26 @@
 {
   "description": "Discord bot: zmiňte ho a odpoví z Orca AI. Slash příkazy (/model, /new, /help), výběr modelu pro každý kanál, živé streamované odpovědi, stavové reakce a proaktivní cron/tick oznámení. Každá Discord role se mapuje na povolené projekty Orcy a prompt role.",
   "fields": {
+    "sec_connection": {
+      "label": "Připojení",
+      "hint": "Token bota a kde poslouchá."
+    },
+    "sec_replies": {
+      "label": "Odpovědi a chování",
+      "hint": "Kdy a jak bot odpovídá."
+    },
+    "sec_conversation": {
+      "label": "Konverzace",
+      "hint": "Načítání kontextu a směrování obrázků."
+    },
+    "sec_voice": {
+      "label": "Hlas",
+      "hint": "Přepis řeči a syntéza hlasu (volitelné; použije klíč poskytovatele hlasu)."
+    },
+    "sec_roles": {
+      "label": "Pravidla rolí",
+      "hint": "Mapování Discord rolí na povolené projekty, prompt role a nástroje, které smí bot použít."
+    },
     "botToken": {
       "label": "Token bota",
       "hint": "Discord Developer Portal → Bot → Token. Zapněte oprávnění Message Content intent."
