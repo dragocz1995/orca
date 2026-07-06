@@ -1,16 +1,16 @@
 {
   "name": "orcasynth",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "ORCA — an autonomous coding-agent orchestrator with an autopilot overseer, daemon API and web UI. Install globally and run `orca`.",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/dragocz1995/orcasynth#readme",
+  "homepage": "https://github.com/dragocz1995/orca#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dragocz1995/orcasynth.git"
+    "url": "git+https://github.com/dragocz1995/orca.git"
   },
   "bugs": {
-    "url": "https://github.com/dragocz1995/orcasynth/issues"
+    "url": "https://github.com/dragocz1995/orca/issues"
   },
   "keywords": [
     "ai",

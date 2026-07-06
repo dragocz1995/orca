@@ -3,9 +3,16 @@
 All notable changes to Orcasynth are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); the daemon version is the root `package.json` version.
 
-## [Unreleased]
+## [1.8.0] - 2026-07-06
 
 ### Added
+- **"Talk to Orca" in the launcher** — running `orca` in a terminal now offers *Talk to Orca* as the first
+  menu action, dropping you straight into the interactive terminal chat (still reachable directly via
+  `orca chat`).
+- **Rewritten user manual** — the documentation site is a full agent-first guide (getting started, install,
+  tasks & missions, agents & autonomy, web UI, CLI, brain & chat, plugins, projects, configuration,
+  account & security, architecture), now illustrated with screenshots.
+- **Plugin illustrations** — each bundled plugin ships an illustration shown on its detail page.
 - **MCP bridge plugin (`mcp` 0.1.1)** — connect external Model Context Protocol servers and expose their
   tools to the assistant. Three transports: **stdio** (local process, e.g. `npx …`), **HTTP** (streamable)
   and **SSE** (remote URL). stdio servers run in their own process group and are killed as a group on
@@ -19,6 +26,14 @@ All notable changes to Orcasynth are documented here. The format loosely follows
   (auto-)compaction trigger; falls back to a default when unset.
 - **Open a session in the web chat** — clicking a conversation in Sessions opens it in the web chat dock and
   continues it with full history.
+
+### Changed
+- **Consistent "+N more" pills** — every collapsed pill row (plugin config, cron channel/model pickers, user
+  tool access, model catalog) now uses one shared pill control instead of a mix of pills, links and dashed
+  variants.
+- **Step counter is a stall hint now** — on Discord and WhatsApp the `Step N / MAX` line no longer shows on
+  every turn; it surfaces only after ~60 s with no visible progress (so a slow step doesn't read as a stuck
+  agent) and clears again on the next tool call or reply.
 
 ### Fixed
 - **`/compact`** — no longer surfaces an opaque error when there is nothing to compact (too small / already
