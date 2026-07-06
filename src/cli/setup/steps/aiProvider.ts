@@ -67,7 +67,7 @@ async function apiKeyFlow(ctx: WizardCtx, custom: boolean, providers: PublicProv
   let base = API_KEY_PROVIDERS[0]!.base;
   let label = 'Custom';
   if (!custom) {
-    const pick = guard(await p.select({ message: 'Provider', options: API_KEY_PROVIDERS.map((x) => ({ value: x.key, label: x.label })) })) as string;
+    const pick = guard(await p.select({ message: 'Provider', options: API_KEY_PROVIDERS.map((x) => ({ value: x.key, label: x.label, hint: x.base })) })) as string;
     const preset = API_KEY_PROVIDERS.find((x) => x.key === pick)!;
     type = preset.type; base = preset.base; label = preset.label;
   } else {

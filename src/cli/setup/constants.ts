@@ -10,11 +10,31 @@ export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 /** Recommended embedding model — small, cheap, widely served on OpenAI-compatible endpoints. */
 export const RECOMMENDED_EMBEDDING_MODEL = 'text-embedding-3-small';
 
-/** API-key provider presets for the AI step: label + brain provider type + default base URL. */
+/** API-key provider presets for the AI step: label + brain provider type + default base URL. Base URLs
+ *  are the OpenAI-compatible (or Anthropic Messages) endpoints; the openai client appends
+ *  `/chat/completions`, so every `openai`-type base includes its version segment. Curated to mirror the
+ *  common providers users are likely to hold a key for — pick "Custom OpenAI-compatible endpoint" for
+ *  anything else. */
 export const API_KEY_PROVIDERS: { key: string; label: string; type: BrainProviderType; base: string }[] = [
   { key: 'openai', label: 'OpenAI', type: 'openai', base: OPENAI_BASE },
-  { key: 'anthropic', label: 'Anthropic', type: 'anthropic', base: ANTHROPIC_BASE },
+  { key: 'anthropic', label: 'Anthropic (Claude)', type: 'anthropic', base: ANTHROPIC_BASE },
   { key: 'openrouter', label: 'OpenRouter', type: 'openai', base: OPENROUTER_BASE },
+  { key: 'google', label: 'Google Gemini', type: 'openai', base: 'https://generativelanguage.googleapis.com/v1beta/openai' },
+  { key: 'xai', label: 'xAI (Grok)', type: 'openai', base: 'https://api.x.ai/v1' },
+  { key: 'deepseek', label: 'DeepSeek', type: 'openai', base: 'https://api.deepseek.com/v1' },
+  { key: 'groq', label: 'Groq', type: 'openai', base: 'https://api.groq.com/openai/v1' },
+  { key: 'mistral', label: 'Mistral', type: 'openai', base: 'https://api.mistral.ai/v1' },
+  { key: 'together', label: 'Together AI', type: 'openai', base: 'https://api.together.xyz/v1' },
+  { key: 'fireworks', label: 'Fireworks AI', type: 'openai', base: 'https://api.fireworks.ai/inference/v1' },
+  { key: 'cerebras', label: 'Cerebras', type: 'openai', base: 'https://api.cerebras.ai/v1' },
+  { key: 'perplexity', label: 'Perplexity', type: 'openai', base: 'https://api.perplexity.ai' },
+  { key: 'deepinfra', label: 'DeepInfra', type: 'openai', base: 'https://api.deepinfra.com/v1/openai' },
+  { key: 'moonshot', label: 'Moonshot (Kimi)', type: 'openai', base: 'https://api.moonshot.ai/v1' },
+  { key: 'zai', label: 'Z.AI (GLM)', type: 'openai', base: 'https://api.z.ai/api/paas/v4' },
+  { key: 'nvidia', label: 'NVIDIA NIM', type: 'openai', base: 'https://integrate.api.nvidia.com/v1' },
+  { key: 'huggingface', label: 'Hugging Face', type: 'openai', base: 'https://router.huggingface.co/v1' },
+  { key: 'baseten', label: 'Baseten', type: 'openai', base: 'https://inference.baseten.co/v1' },
+  { key: 'ollama', label: 'Ollama Cloud', type: 'openai', base: 'https://ollama.com/v1' },
 ];
 
 /** OAuth sign-in choices → the brain provider config `type` + the pi-ai built-in name (for the catalog). */

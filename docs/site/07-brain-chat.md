@@ -103,6 +103,39 @@ The model picker aggregates every model available to you from three sources:
 Configure it all in **Settings → Brain**. Each provider carries its own API key,
 base URL, and model list, so you can mix and match freely.
 
+## Supported providers
+
+The `orca setup` wizard ships presets for the common providers, so you usually
+just pick one and paste a key. Each is an OpenAI-compatible (or Anthropic
+Messages) endpoint — for anything not listed, choose **Custom OpenAI-compatible
+endpoint** and enter its base URL by hand.
+
+| Provider | Base URL |
+|----------|----------|
+| OpenAI | `https://api.openai.com/v1` |
+| Anthropic (Claude) | `https://api.anthropic.com` |
+| OpenRouter | `https://openrouter.ai/api/v1` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| xAI (Grok) | `https://api.x.ai/v1` |
+| DeepSeek | `https://api.deepseek.com/v1` |
+| Groq | `https://api.groq.com/openai/v1` |
+| Mistral | `https://api.mistral.ai/v1` |
+| Together AI | `https://api.together.xyz/v1` |
+| Fireworks AI | `https://api.fireworks.ai/inference/v1` |
+| Cerebras | `https://api.cerebras.ai/v1` |
+| Perplexity | `https://api.perplexity.ai` |
+| DeepInfra | `https://api.deepinfra.com/v1/openai` |
+| Moonshot (Kimi) | `https://api.moonshot.ai/v1` |
+| Z.AI (GLM) | `https://api.z.ai/api/paas/v4` |
+| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` |
+| Hugging Face | `https://router.huggingface.co/v1` |
+| Baseten | `https://inference.baseten.co/v1` |
+| Ollama Cloud | `https://ollama.com/v1` |
+
+Aggregators like **OpenRouter** and **Hugging Face** expose many upstream models
+behind a single key. For subscription sign-in instead of raw keys (Claude,
+GitHub Copilot, ChatGPT/Codex), see below.
+
 ## Connect your AI accounts (OAuth)
 
 Rather than paste raw API keys, you can link your existing AI subscriptions
