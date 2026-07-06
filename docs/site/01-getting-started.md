@@ -64,10 +64,20 @@ orca install
 1. Checks system dependencies (Node, tmux, git)
 2. Detects installed coding-agent CLIs — Claude Code, OpenCode, Codex, Kilo Code
 3. Configures provider binary paths
-4. Sets up autopilot (planning/execution defaults)
-5. Creates the first admin user
-6. Installs the `orca-daemon` and `orca-web` systemd units
-7. Enables the auto-update timer
+4. Connects an AI provider and runs a live **chat smoke-test** — a real, tiny
+   completion — to confirm the model actually answers before you rely on it
+5. Points **tasks** at Orca's built-in engine by default, so they run out of
+   the box with no external agent CLI required
+6. Enables a safe default **tool set** — files, terminal, ask-user, runtime
+   context, skills, and subagents
+7. Sets up autopilot (planning/execution defaults) for missions
+8. Creates the first admin user
+9. Installs the `orca-daemon` and `orca-web` systemd units
+10. Enables the auto-update timer
+
+Run `orca doctor` any time afterwards to see a checklist of what's working
+(chat, tasks, missions, memory, platforms, plugins) and a hint for fixing
+anything that isn't.
 
 ## Start it up
 
@@ -115,6 +125,11 @@ Or from the CLI:
 orca api POST /tasks '{"title":"Hello Orca","labels":["exec:sonnet"]}'
 orca ls                 # see your task
 ```
+
+If you skip the executor, tasks run on Orca's **built-in engine** using
+whatever brain provider `orca setup` connected — no separate agent CLI needed.
+Pick an installed CLI (Claude Code, OpenCode, Codex, Kilo Code) instead when
+you want that agent's own tools and context handling.
 
 Then watch it work live in the **Sessions** page — where you can pop open a real
 terminal and intervene with one click — or from the CLI:

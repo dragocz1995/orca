@@ -4,7 +4,12 @@ import { runProjectStep } from './steps/project.js';
 import { runAiStep } from './steps/aiProvider.js';
 import { runMemoryStep } from './steps/memory.js';
 import { readMarker, writeMarker } from './marker.js';
+import { webBaseUrl } from '../installInfo.js';
+import { apiJson } from './http.js';
 import { guard, WizardCancelled, type WizardAnswers, type WizardCtx, type WizardStep } from './types.js';
+
+/** One readiness check as returned by GET /system/readiness. */
+interface ReadinessCheck { id: string; label: string; ok: boolean; detail: string; hint?: string }
 
 const STEPS: WizardStep[] = [
   { id: 'account', title: 'Account', run: runAccountStep },
@@ -69,7 +74,7 @@ export async function runOnboarding(base: string, env: NodeJS.ProcessEnv, opts: 
       onStep: (i, step) => { index = i; p.log.step(`[${i + 1}/${TOTAL}] ${step.title}`); },
       review: () => review(ctx),
     }, startIndex);
-    finish(env, answers, result.skipped, !!opts.embedded);
+    await finish(env, ctx, result.skipped, !!opts.embedded);
     return answers.account?.username || null;
   } catch (e) {
     if (e instanceof WizardCancelled) {
@@ -105,19 +110,42 @@ async function review(ctx: WizardCtx): Promise<ReviewDecision> {
   return Number(which);
 }
 
-/** Persist the completion marker and (unless embedded in a host flow) print the "what's ready + next
- *  command" outro (≤4 lines, no ASCII). */
-function finish(env: NodeJS.ProcessEnv, answers: WizardAnswers, skipped: boolean, embedded: boolean): void {
+/** Persist the completion marker and (unless embedded in a host flow) print a readiness matrix (what
+ *  actually works right now, via GET /system/readiness) followed by the "next steps" outro including the
+ *  web URL + login. Embedded mode (`orca install`) skips the outro — the host prints its own summary. */
+async function finish(env: NodeJS.ProcessEnv, ctx: WizardCtx, skipped: boolean, embedded: boolean): Promise<void> {
   writeMarker(env, { completed: true, skipped, updatedAt: new Date().toISOString() });
   if (embedded) return; // the host (e.g. `orca install`) shows its own summary
+  const answers = ctx.answers;
+
+  try { await printReadiness(ctx); } catch { /* best-effort: a dropped daemon must not crash the outro */ }
+
+  const username = answers.account?.username || 'your admin account'; // '' (skipped account) must fall through
+  const lines = [
+    `Open   ${webBaseUrl()}   (sign in as ${username})`,
+    'Talk to it:  orca chat',
+    'Connect Discord/WhatsApp:  Settings → Plugins',
+  ];
   const unfinished = skipped
     || answers.project?.connected !== true
     || answers.ai?.status !== 'done'
     || answers.memory?.status !== 'done';
-  const lines = ['Start Orca:      orca up', 'Talk to it:      orca chat'];
-  if (unfinished) lines.push('Finish setup:    orca setup');
+  if (unfinished) lines.push('Finish setup:  orca setup');
   p.note(lines.join('\n'), "You're set");
   p.outro('See you 🐋');
+}
+
+/** Print the readiness matrix: one '✓/✗ <label> — <detail>' line per check, with the hint on any ✗.
+ *  Best-effort — a failed/absent readiness call just skips the matrix, never blocking completion. */
+async function printReadiness(ctx: WizardCtx): Promise<void> {
+  const checks = (await apiJson<{ checks?: ReadinessCheck[] }>(ctx, 'GET', '/system/readiness')).data?.checks ?? [];
+  if (!checks.length) return;
+  const lines: string[] = [];
+  for (const c of checks) {
+    lines.push(`${c.ok ? '✓' : '✗'} ${c.label} — ${c.detail}`);
+    if (!c.ok && c.hint) lines.push(`   ${c.hint}`);
+  }
+  p.note(lines.join('\n'), 'What works now');
 }
 
 async function confirmSave(): Promise<boolean> {

@@ -24,3 +24,9 @@ export function readInstallInfo(path = INSTALL_INFO_PATH): InstallInfo | null {
 export function serializeInstallInfo(info: InstallInfo): string {
   return JSON.stringify(info, null, 2);
 }
+
+/** The web UI URL to point a user at: the real public URL on a systemd-provisioned box, otherwise the
+ *  local standalone web port. One source of truth for the setup outro, `orca doctor`, and headless setup. */
+export function webBaseUrl(): string {
+  return readInstallInfo()?.publicUrl ?? 'http://localhost:4500';
+}

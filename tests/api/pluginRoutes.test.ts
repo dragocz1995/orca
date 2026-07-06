@@ -62,7 +62,10 @@ const patch = (t: string, body: unknown) => ({ method: 'PATCH', headers: { autho
 
 describe('plugin routes', () => {
   it('lists discovered plugins with enabled flags (admin)', async () => {
-    const { app, adminTok } = setup();
+    const { app, config, adminTok } = setup();
+    // Isolate from the fresh-install default plugin set (files/skills among them) — this test is about
+    // the toggle mechanics against the fixture plugins, not which plugins ship enabled out of the box.
+    config.update({ plugins: { enabled: [], removed: [] } });
     const res = await app.request('/plugins', auth(adminTok));
     expect(res.status).toBe(200);
     const list = await res.json() as { name: string; enabled: boolean; configurable: boolean; provides: { tools?: string[] } }[];
@@ -95,6 +98,8 @@ describe('plugin routes', () => {
 
   it('PATCH toggles a plugin, persists config, and hot-reloads the brain', async () => {
     const { app, config, reloadPlugins, adminTok } = setup();
+    // Same isolation as above: start from a known-empty enabled set rather than the fresh-install default.
+    config.update({ plugins: { enabled: [], removed: [] } });
     const on = await app.request('/plugins/skills', patch(adminTok, { enabled: true }));
     expect(on.status).toBe(200);
     expect((await on.json() as { enabled: boolean }).enabled).toBe(true);

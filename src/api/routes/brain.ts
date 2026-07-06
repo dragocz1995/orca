@@ -135,6 +135,21 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ models });
   });
 
+  // Smoke-test the configured brain: run ONE minimal non-streaming completion to prove it actually
+  // answers. Admin-only (it exercises stored provider credentials, like providers/probe). Always 200 with
+  // a structured result — a provider failure is reported as { ok:false, error }, never a 500.
+  app.post('/brain/test', async c => {
+    const u = d.users ? c.get('user') : undefined; // setup/open mode: no user store or zero users → skip the admin gate (matches providers/probe)
+    if (d.users && d.users.count() > 0 && (!u || !u.is_admin)) return c.json({ error: 'forbidden' }, 403);
+    if (!d.brain) return c.json({ ok: false, error: 'brain unavailable' });
+    const b = (await c.req.json().catch(() => ({}))) as { providerId?: unknown; model?: unknown };
+    const sel = {
+      providerId: typeof b.providerId === 'string' ? b.providerId : undefined,
+      model: typeof b.model === 'string' ? b.model : undefined,
+    };
+    return c.json(await d.brain.smokeTest(sel));
+  });
+
   // Stop the streaming turn (the Esc key in chat clients).
   app.post('/brain/abort', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);

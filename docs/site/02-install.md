@@ -53,13 +53,23 @@ orca install        # guided setup wizard
 1. Checks system dependencies (Node, tmux, git)
 2. Detects installed coding-agent CLIs — Claude Code, OpenCode, Codex, Kilo Code
 3. Configures provider binary paths
-4. Creates the first admin user
-5. Installs systemd units (`orca-daemon` + `orca-web`)
-6. Enables the hourly auto-update timer
+4. Connects an AI provider and runs a **chat smoke-test** — one small, real
+   completion — to confirm the model actually answers
+5. Points **tasks** at Orca's built-in engine by default, so basic tasks run
+   with no external agent CLI installed
+6. Enables a safe default **tool set** — files, terminal, ask-user, runtime
+   context, skills, and subagents
+7. Creates the first admin user
+8. Installs systemd units (`orca-daemon` + `orca-web`)
+9. Enables the hourly auto-update timer
 
 Once it finishes, open `http://localhost:4500`, log in, and you are talking to
 the agent. See [Getting Started](getting-started) for your first chat and first
 task.
+
+Run `orca doctor` any time to check readiness: it reports chat, tasks,
+missions, memory, platforms, and plugins, each with a plain-language hint for
+whatever isn't configured yet.
 
 ## Manual start (without systemd)
 
@@ -190,6 +200,36 @@ permissions**: which executors they may run, which brain tools are enabled for
 them, and which projects they can see. You can grant one user the terminal and
 files tools and give another only chat. Set it all up later in
 [Configuration](configuration) and the Users module.
+
+## Non-interactive setup
+
+For agents, CI, or scripted provisioning, `orca setup` has a flag-driven mode
+that runs the same onboarding without any prompts — it creates the admin, connects
+a project and an AI provider, wires the built-in task engine, runs the chat
+smoke-test, and prints a readiness matrix. It exits non-zero on a missing required
+input, so a caller can branch on it.
+
+```bash
+orca setup --non-interactive \
+  --admin-user admin --admin-password "$ADMIN_PW" \
+  --project /path/to/repo \
+  --provider openai --api-key "$OPENAI_API_KEY" --model gpt-5.5 \
+  --memory reuse
+```
+
+| Flag | Purpose | Env fallback |
+|------|---------|--------------|
+| `--admin-user` / `--admin-password` | first admin (or sign-in on re-run) | `ORCA_ADMIN_USER` / `ORCA_ADMIN_PASSWORD` |
+| `--project <path>` / `--no-project` | default project (defaults to the cwd) | — |
+| `--project-slug <slug>` | override the auto-derived project slug | — |
+| `--embedding-model <id>` | embedding model (defaults to a small recommended one) | — |
+| `--provider <key\|custom>` | a preset (see [Brain & Chat](brain-chat)) or `custom` | — |
+| `--api-key` / `--base-url` / `--model` | provider credentials & model (`--base-url` for `custom`; `--model` optional when the key lets `/models` be probed) | `ORCA_API_KEY` |
+| `--memory <reuse\|openrouter\|skip>` | embeddings — reuse the provider's key or OpenRouter | — |
+| `--memory-key` | OpenRouter key for `--memory openrouter` | `ORCA_OPENROUTER_KEY` |
+| `--skip-test` | skip the chat smoke-test | — |
+
+Run `orca doctor` afterwards for the same readiness report on demand.
 
 ## Auto-update
 

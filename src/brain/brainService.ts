@@ -1,5 +1,5 @@
-import { formatSkillsForPrompt } from '@earendil-works/pi-coding-agent';
-import type { AgentSessionEvent, ResourceLoader, createAgentSession } from '@earendil-works/pi-coding-agent';
+import { formatSkillsForPrompt, createAgentSession, SessionManager, DefaultResourceLoader } from '@earendil-works/pi-coding-agent';
+import type { AgentSessionEvent, ResourceLoader } from '@earendil-works/pi-coding-agent';
 import type { PluginRegistry } from '../plugins/registry.js';
 import type { PluginRegistryProvider } from '../plugins/pluginsProvider.js';
 import { PluginHookBus } from '../plugins/hookBus.js';
@@ -204,6 +204,69 @@ export class BrainService {
     const cfg = typeof this.d.config === 'function' ? this.d.config() : this.d.config;
     if (!cfg || cfg.providers.length === 0) throw new Error('no brain provider configured — add one in Settings → Brain');
     return cfg;
+  }
+
+  /** The current provider config, or null when nothing is configured (never throws). Shared by the
+   *  readiness helpers below so they can report "not configured" instead of blowing up. */
+  private currentConfig(): BrainRuntimeConfig | null {
+    const cfg = typeof this.d.config === 'function' ? this.d.config() : this.d.config;
+    return cfg && cfg.providers.length > 0 ? cfg : null;
+  }
+
+  /** The model id `resolveBrainModel` would pick from the CURRENT config (server default selection), or
+   *  null when no provider resolves. Cheap + synchronous — the single source of truth /system/readiness
+   *  reuses so the chat-readiness check and the brain agree on what "runnable" means. */
+  resolvableModel(): string | null {
+    const cfg = this.currentConfig();
+    if (!cfg) return null;
+    try {
+      const registry = buildBrainRegistry(cfg, this.d.authStorage);
+      return resolveBrainModel(registry, cfg).id;
+    } catch { return null; }
+  }
+
+  /** Prove the configured brain actually answers: run ONE minimal, non-streaming turn on a throwaway,
+   *  tool-less, disk-free PI session and capture the reply. Never persists a conversation, never touches
+   *  a user session, and swallows every failure into `{ ok:false, error }` — it must never throw. Reuses
+   *  the exact model-invocation path a chat turn uses (buildBrainRegistry → resolveBrainModel →
+   *  createAgentSession → session.prompt), just without plugin tools, memory, personas or the store. */
+  async smokeTest(sel?: { providerId?: string; model?: string }): Promise<{ ok: boolean; model?: string; reply?: string; error?: string }> {
+    const cfg = this.currentConfig();
+    if (!cfg) return { ok: false, error: 'no brain provider configured — add one in Settings → Brain' };
+    let session: import('@earendil-works/pi-coding-agent').AgentSession | undefined;
+    try {
+      const registry = buildBrainRegistry(cfg, this.d.authStorage);
+      const selection = sel?.providerId || sel?.model ? { provider: sel?.providerId, model: sel?.model } : undefined;
+      const resolved = resolveBrainModel(registry, cfg, selection);
+      // Cap the output tiny — a connectivity probe needs one word, not a paragraph.
+      const model = { ...resolved, maxTokens: 512 }; // headroom so reasoning models that spend tokens thinking still emit a reply
+      const cwd = this.d.cwd ?? process.cwd();
+      const resourceLoader = new DefaultResourceLoader({
+        cwd, agentDir: cwd, systemPrompt: 'You are a connectivity probe. Reply with just: OK',
+        noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+      });
+      await resourceLoader.reload();
+      const create = this.d.createSession ?? createAgentSession;
+      ({ session } = await create({
+        cwd, sessionManager: SessionManager.inMemory(cwd),
+        modelRegistry: registry, model, resourceLoader,
+        customTools: [], tools: [], noTools: 'all',
+      }));
+      const live = session;
+      // ~20s ceiling: a wedged endpoint must not hang the admin request. On timeout we abort the run.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('brain did not respond within 20s')), 20_000); });
+      try { await Promise.race([live.prompt('Reply with just: OK'), timeout]); }
+      finally { if (timer) clearTimeout(timer); }
+      const last = [...(live.messages as { role?: string }[])].reverse().find((m) => m.role === 'assistant');
+      const reply = (last ? extractText(last) : '').trim();
+      if (!reply) return { ok: false, model: resolved.id, error: 'brain returned an empty reply' };
+      return { ok: true, model: resolved.id, reply: reply.slice(0, 200) };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    } finally {
+      if (session) { try { await session.abort(); } catch { /* already settled */ } session.dispose(); }
+    }
   }
 
   /** The daemon-wide plugin registry (undefined when plugins aren't wired at all). */

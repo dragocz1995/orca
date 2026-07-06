@@ -1,12 +1,43 @@
 import { streamSSE } from 'hono/streaming';
+import { accessSync, constants } from 'node:fs';
+import { join, delimiter } from 'node:path';
 import { isNewer } from '../../cli/version.js';
 import { handleMcpRequest } from '../../mcp/server.js';
 import { eventProjectId } from '../eventProject.js';
 import { ORCA_VERSION, ORCA_INSTALLED_AT, ORCA_PORT, defaultLatestVersion, defaultStartUpdate, defaultStartRestart } from '../version.js';
 import { parseBody } from '../validation.js';
 import { pushSubscribeSchema, pushUnsubscribeSchema, systemRestartSchema } from '../schemas/config.js';
+import { resolveExecutor } from '../../overseer/routing.js';
+import { DEFAULT_BINS, BARE_PLAIN_PROGRAM, parseOrcaExec } from '../../shared/execs.js';
 import type { OrcaEvent } from '../sse.js';
 import type { OrcaApp, RouteContext } from '../context.js';
+
+/** True when `bin` resolves to an executable on the daemon's PATH — the readiness check for a task exec
+ *  that names an external agent CLI (the embedded `orca:` engine skips this, it's always runnable). */
+function binOnPath(bin: string): boolean {
+  if (!bin) return false;
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    try { accessSync(join(dir, bin), constants.X_OK); return true; } catch { /* try the next PATH entry */ }
+  }
+  return false;
+}
+
+/** Whether a non-`orca:` task exec spec names an installed agent CLI: resolve it to its program (the
+ *  same routing the scheduler uses) and probe that program's binary on PATH. */
+function execCliInstalled(spec: string, providers: Record<string, { bin: string }>): boolean {
+  if (!spec) return false;
+  const { program } = resolveExecutor([`exec:${spec}`], { program: BARE_PLAIN_PROGRAM, model: spec });
+  // Honor a configured bin path (what the scheduler actually spawns — `orca install` sets these) before
+  // falling back to the program's default name. An absolute/relative path is probed directly; a bare name
+  // is searched on PATH.
+  const bin = providers[program]?.bin || (DEFAULT_BINS as Record<string, string>)[program];
+  if (!bin) return false;
+  return bin.includes('/') ? binExists(bin) : binOnPath(bin);
+}
+
+/** True when an absolute/relative binary path is executable (a configured `providers.<program>.bin`). */
+function binExists(path: string): boolean { try { accessSync(path, constants.X_OK); return true; } catch { return false; } }
 
 /** Daemon-wide surface: the stateless MCP endpoint, web-push key + per-user subscribe/unsubscribe,
  *  config read/write (admin-gated write), the System panel (version/update-available) and the live
@@ -61,6 +92,50 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
       autoUpdate: d.config.get().autoUpdate,
       lastUpdatedAt: ORCA_INSTALLED_AT,
     });
+  });
+
+  // First-run readiness: one row per subsystem, so the onboarding UI can show at a glance what actually
+  // works after `orca setup`. Read-only, derived purely from config + the BrainService helper (ONE source
+  // of truth for "chat is runnable"), never gated behind a running mission. Admin-only (mirrors the
+  // admin /system/* routes below).
+  app.get('/system/readiness', (c) => {
+    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    const cfg = d.config.get();
+    const checks: Array<{ id: string; label: string; ok: boolean; detail: string; hint?: string }> = [];
+
+    // chat — the embedded brain must resolve a model to answer at all.
+    const model = d.brain?.resolvableModel() ?? null;
+    checks.push({ id: 'chat', label: 'Chat', ok: model != null, detail: model ?? 'no provider',
+      ...(model ? {} : { hint: 'Run `orca setup` to connect an AI provider.' }) });
+
+    // tasks — the embedded `orca:` engine is always runnable; any other exec must name an installed CLI.
+    const exec = cfg.defaults.exec;
+    const orcaSpec = parseOrcaExec(exec); // embedded engine: runnable iff the provider it names still exists
+    const tasksOk = orcaSpec ? cfg.brain.providers.some((pr) => pr.id === orcaSpec.provider) : execCliInstalled(exec, cfg.providers);
+    checks.push({ id: 'tasks', label: 'Tasks', ok: tasksOk, detail: exec || 'not set',
+      ...(tasksOk ? {} : { hint: orcaSpec ? 'The provider its executor points at is gone — re-run `orca setup`.' : 'The setup wizard points this at the built-in engine — re-run `orca setup`.' }) });
+
+    // missions — the planner/overseer need either the OpenAI-compatible relay or a configured pilot CLI.
+    const relay = d.config.autopilotRelay();
+    const missionsOk = relay != null || cfg.autopilot.pilotExec.length > 0;
+    checks.push({ id: 'missions', label: 'Missions', ok: missionsOk,
+      detail: relay ? 'relay configured' : (cfg.autopilot.pilotExec || 'not set'),
+      ...(missionsOk ? {} : { hint: 'Missions need an OpenAI-compatible key or an installed agent CLI.' }) });
+
+    // memory — optional; enabled when an embedding provider is referenced.
+    const memoryConfigured = cfg.embedding.providerId.length > 0; // optional feature → always ok, like platforms
+    checks.push({ id: 'memory', label: 'Memory', ok: true, detail: memoryConfigured ? (cfg.embedding.model || 'enabled') : 'disabled (optional)',
+      ...(memoryConfigured ? {} : { hint: 'Optional — enable memory in `orca setup` or Settings → Brain.' }) });
+
+    // platforms — informational: which messaging plugins are enabled.
+    const messaging = ['discord', 'whatsapp'].filter((p) => cfg.plugins.enabled.includes(p));
+    checks.push({ id: 'platforms', label: 'Platforms', ok: true, detail: messaging.length ? messaging.join(', ') : 'none',
+      hint: 'Connect Discord or WhatsApp in Settings → Plugins.' });
+
+    // plugins — informational: the enabled tool plugins.
+    checks.push({ id: 'plugins', label: 'Plugins', ok: true, detail: cfg.plugins.enabled.length ? cfg.plugins.enabled.join(', ') : 'none' });
+
+    return c.json({ checks });
   });
 
   // Agent-workflow skill status + manual (re)install across the installed providers. Admin-only (mirrors

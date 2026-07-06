@@ -25,6 +25,11 @@ USAGE
 SETUP
   setup                           run the onboarding wizard (account, project, AI provider, memory)
                                     --reset                   start over from scratch
+                                    --non-interactive         flag-driven setup (no prompts; for agents/CI)
+                                      --admin-user --admin-password --project[-slug]|--no-project
+                                      --provider <key|custom> --api-key --base-url --model
+                                      --memory <reuse|openrouter|skip> --memory-key --embedding-model --skip-test
+  doctor                          readiness check: what works, and how to fix what doesn't
   install                         provision orca as a service: systemd units, a reverse proxy
                                   and the first admin (run as root). See \`orca install --help\`.
 
@@ -287,6 +292,9 @@ async function main() {
   // runs BEFORE ensureDaemon/runLifecycle and is NOT an API command. In a non-TTY it prints a next step
   // and exits 0 (never blocks CI). Dynamic import keeps the cold-path wizard out of the hot dispatch.
   if (argv[0] === 'setup') { const { runSetup } = await import('./setup/command.js'); await runSetup(argv.slice(1), process.env, BASE, version); return; }
+  // `orca doctor` is a read-only diagnostic — it authenticates and queries the daemon itself (never
+  // spawning it), so like `setup` it runs BEFORE ensureDaemon/runLifecycle and is NOT an API command.
+  if (argv[0] === 'doctor') { const { runDoctor } = await import('./doctor.js'); await runDoctor(argv.slice(1), process.env, BASE, version); return; }
   // `orca update --auto` is the hourly systemd timer's entrypoint: gated on the opt-in flag + live
   // missions (read straight from the DB), it never auto-spawns a daemon and stays silent-success when
   // it decides not to update — so handle it before both runLifecycle and ensureDaemon.

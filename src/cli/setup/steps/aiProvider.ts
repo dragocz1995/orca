@@ -6,6 +6,7 @@ import { apiJson } from '../http.js';
 import { openBrowser } from '../browser.js';
 import { API_KEY_PROVIDERS, OAUTH_CHOICES } from '../constants.js';
 import { deriveSlug, uniqueSlug } from '../slug.js';
+import { orcaExec } from '../../../shared/execs.js';
 import { guard, WizardCancelled, type StepResult, type WizardCtx } from '../types.js';
 import { getBrainProviders, keepProvider, type PublicProvider } from './shared.js';
 
@@ -254,11 +255,53 @@ async function maybeWireAutopilot(ctx: WizardCtx, type: BrainProviderType, hasKe
   if (r.ok) p.log.info('Autopilot will use this provider too.');
 }
 
-// ── helpers ──────────────────────────────────────────────────────────────────────────────────────
-function done(ctx: WizardCtx, label: string, model: string, providerId: string, providerType: BrainProviderType, hasKey: boolean): StepResult {
+// ── verified hand-off ────────────────────────────────────────────────────────────────────────────
+/** Finalize a connected provider: record the answer, wire the embedded task engine to it, and prove the
+ *  agent actually answers with a smoke test. The exec-wiring + smoke test only run with a real
+ *  providerId + model; the smoke test never blocks completion (Keep anyway / Change provider). */
+async function done(ctx: WizardCtx, label: string, model: string, providerId: string, providerType: BrainProviderType, hasKey: boolean): Promise<StepResult> {
   ctx.answers.ai = { status: 'done', summary: `${label}${model ? ` (${model})` : ''}`, providerId, providerType, model, hasKey };
+  if (!providerId || !model) return { status: 'done' };
+
+  await setEmbeddedExec(ctx, providerId, model);
+  const outcome = await runAgentSmokeTest(ctx, providerId, model);
+  if (outcome === 'change') return runAiStep(ctx); // re-run the whole AI step to pick a different provider
   return { status: 'done' };
 }
+
+/** Point the default task executor at the embedded (in-process) engine on the just-connected provider, so
+ *  tasks run on ANY provider without an external agent CLI. Reads the current defaults first to preserve
+ *  autonomy/maxSessions — only `exec` changes. */
+async function setEmbeddedExec(ctx: WizardCtx, providerId: string, model: string): Promise<void> {
+  const cur = (await apiJson<{ defaults?: { exec: string; autonomy: string; maxSessions: number } }>(ctx, 'GET', '/config')).data?.defaults;
+  const defaults = { ...(cur ?? {}), exec: orcaExec(providerId, model) };
+  const r = await apiJson(ctx, 'PUT', '/config', { defaults });
+  if (r.ok) p.log.info('Tasks will run in-process on this provider (built-in engine).');
+}
+
+/** Run one chat smoke test against the configured brain, looping on retry. Mirrors the memory step's
+ *  runTest(): 'ok'/'kept' complete the step, 'change' re-runs the AI step. Never aborts the wizard. */
+async function runAgentSmokeTest(ctx: WizardCtx, providerId: string, model: string): Promise<'ok' | 'kept' | 'change'> {
+  for (;;) {
+    const s = p.spinner(); s.start('Testing the agent…');
+    const r = await apiJson<{ ok?: boolean; model?: string; reply?: string; error?: string }>(ctx, 'POST', '/brain/test', { providerId, model });
+    if (r.data?.ok) { s.stop(`Orca answered ✓ (${r.data.model ?? model})`); return 'ok'; }
+    s.stop(`The agent didn't answer: ${r.data?.error ?? `HTTP ${r.status}`}`);
+    const next = guard(await p.select({
+      message: 'What next?',
+      options: [
+        { value: 'retry', label: 'Retry' },
+        { value: 'change', label: 'Change provider' },
+        { value: 'keep', label: 'Keep anyway (unverified)' },
+      ],
+    })) as string;
+    if (next === 'retry') continue;
+    if (next === 'change') return 'change';
+    return 'kept';
+  }
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 
 function skip(ctx: WizardCtx): StepResult {
   ctx.answers.ai = { status: 'skipped', summary: 'not configured' };

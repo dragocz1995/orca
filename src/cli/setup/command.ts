@@ -11,6 +11,22 @@ import { runOnboarding } from './wizard.js';
 export async function runSetup(args: string[], env: NodeJS.ProcessEnv, base: string, version: string): Promise<void> {
   const reset = args.includes('--reset');
   const debug = args.includes('--debug');
+  const nonInteractive = args.includes('--non-interactive') || args.includes('--yes') || args.includes('-y');
+
+  // Non-interactive: flag-driven setup (agents / CI / E2E). Works in or out of a TTY; never prompts.
+  if (nonInteractive) {
+    if (reset) clearMarker(env);
+    try { await bringUp(base, env, version); }
+    catch (e) { console.error(`Couldn't start the Orca daemon: ${(e as Error).message}`); process.exit(1); }
+    try {
+      const { runHeadlessSetup } = await import('./headless.js');
+      await runHeadlessSetup(base, env, args);
+    } catch (e) {
+      console.error(debug ? ((e as Error).stack ?? String(e)) : (e as Error).message);
+      process.exit(1);
+    }
+    return;
+  }
 
   if (!process.stdout.isTTY) {
     if (reset) clearMarker(env);

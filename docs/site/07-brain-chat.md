@@ -136,6 +136,21 @@ Aggregators like **OpenRouter** and **Hugging Face** expose many upstream models
 behind a single key. For subscription sign-in instead of raw keys (Claude,
 GitHub Copilot, ChatGPT/Codex), see below.
 
+### Chat smoke-test
+
+Whichever provider you connect, `orca setup` runs a **chat smoke-test** — one
+tiny, real completion — before it lets you move on, so you know the model
+actually answers rather than just that a key was saved. Run `orca doctor` any
+time for a readiness report — chat, tasks, missions, memory, platforms and
+plugins — to see what works and how to fix the rest.
+
+Any provider that passes the smoke-test is enough to run ordinary
+[tasks](tasks-missions) — they execute on Orca's built-in engine
+(`orca:<provider>/<model>`), no separate agent CLI required. Multi-phase
+**missions** (plan → engage → execute) need one step more: either an
+OpenAI-compatible key for the planning relay, or an installed agent CLI as the
+[Pilot](tasks-missions#planning-backends).
+
 ## Connect your AI accounts (OAuth)
 
 Rather than paste raw API keys, you can link your existing AI subscriptions

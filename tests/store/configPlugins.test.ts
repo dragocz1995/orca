@@ -3,9 +3,9 @@ import { openDb } from '../../src/store/db.js';
 import { ConfigStore } from '../../src/store/configStore.js';
 
 describe('ConfigStore plugins', () => {
-  it('defaults to no enabled plugins', () => {
+  it('defaults to the safe fresh-install tool set', () => {
     const cs = new ConfigStore(openDb(':memory:'));
-    expect(cs.get().plugins.enabled).toEqual([]);
+    expect(cs.get().plugins.enabled).toEqual(['files', 'terminal', 'askuser', 'runtime-context', 'skills', 'subagent']);
   });
 
   it('round-trips plugins.enabled in the public view', () => {
