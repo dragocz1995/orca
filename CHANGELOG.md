@@ -3,6 +3,22 @@
 All notable changes to Orcasynth are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); the daemon version is the root `package.json` version.
 
+## [1.8.1] - 2026-07-06
+
+### Added
+- **First-install onboarding wizard (`orca setup`)** — a guided terminal wizard so a fresh
+  `npm install -g orcasynth` reaches a working setup without hunting through config. Five skippable,
+  reversible steps: **account**, **default project**, **AI provider**, **memory**, **review**. The
+  launcher offers it once on a fresh install (never re-nagging after completion, with resume for an
+  interrupted run) and `orca setup` runs it any time (`--reset` to start over).
+  - **AI provider** step covers an API key, a custom OpenAI-compatible endpoint, and OAuth sign-in
+    (Claude / GitHub Copilot / Codex-OpenAI) with a cross-platform browser opener and a printed-URL
+    fallback for headless boxes; already-connected accounts are offered for reuse.
+  - **Memory** step reuses the AI provider's key with a recommended embedding model (or OpenRouter) and
+    validates it with the embedding self-test — never blocking completion on a failure.
+  - Non-interactive shells (CI / Docker / pipes) never block: the command prints a next step and exits 0.
+    No postinstall script. All configuration flows through the daemon API.
+
 ## [1.8.0] - 2026-07-06
 
 ### Added
