@@ -3,6 +3,15 @@
 All notable changes to Orcasynth are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); the daemon version is the root `package.json` version.
 
+## [1.8.2] - 2026-07-06
+
+### Fixed
+- **Setup-wizard OAuth no longer looks stuck.** The AI-provider OAuth step ran a spinner while showing the
+  authorization URL and the paste-code prompt, which hid them — the sign-in appeared frozen and never
+  surfaced the field to paste the redirect URL back. It now uses the same linear paste-back flow as the web
+  dialog: show the URL (open the browser best-effort), then prompt for the pasted redirect URL / code with
+  nothing competing for the screen.
+
 ## [1.8.1] - 2026-07-06
 
 ### Added
