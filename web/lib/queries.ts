@@ -251,9 +251,11 @@ export const usePluginDetail = (name: string | null) =>
 export const usePluginContributions = (name: string | null) =>
   useQuery({ queryKey: ['plugin-contributions', name], queryFn: () => orcaClient.pluginContributions(name as string), enabled: !!name });
 
-/** The tail of one plugin's log ring buffer plus derived health (the Logs detail section). */
+/** The tail of one plugin's log ring buffer plus derived health (the Logs detail section). Polled every
+ *  3 s while a detail is open so logs + the health badge stay live without a manual refresh; the query is
+ *  disabled (and polling stops) as soon as the detail closes. */
 export const usePluginLogs = (name: string | null) =>
-  useQuery({ queryKey: ['plugin-logs', name], queryFn: () => orcaClient.pluginLogs(name as string), enabled: !!name });
+  useQuery({ queryKey: ['plugin-logs', name], queryFn: () => orcaClient.pluginLogs(name as string), enabled: !!name, refetchInterval: name ? 3000 : false });
 
 /** One plugin's hook-run audit, newest-first (the Hooks section's recent-executions panel). */
 export const usePluginHookExecutions = (name: string | null) =>

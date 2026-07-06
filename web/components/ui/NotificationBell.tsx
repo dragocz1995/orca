@@ -27,7 +27,7 @@ export function NotificationBell() {
 
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -36,9 +36,11 @@ export function NotificationBell() {
     if (!el) return;
     const r = el.getBoundingClientRect();
     // Portalled into <body>, inside the UI-scale `zoom`. getBoundingClientRect returns zoomed (visual)
-    // coords, so divide by z before using them as fixed CSS positions (innerHeight is unzoomed layout).
+    // coords, so divide by z before using them as fixed CSS positions. The bell now lives in the top bar,
+    // so the menu opens DOWNWARD (top = button bottom) and is right-aligned to the button (w-80 = 320px)
+    // so it never spills off the right edge.
     const z = uiZoom();
-    setPos({ left: Math.max(8, r.left / z), bottom: window.innerHeight - r.top / z + 8 });
+    setPos({ left: Math.max(8, r.right / z - 320), top: r.bottom / z + 8 });
   };
   const toggle = () => { if (!open) place(); setOpen((o) => !o); };
 
@@ -63,9 +65,9 @@ export function NotificationBell() {
         aria-haspopup="menu"
         aria-expanded={open}
         title={t.sidebar.notifications}
-        className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-elevated ${count > 0 ? 'text-warning' : 'text-text-muted hover:text-text'}`}
+        className={`relative flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-elevated ${count > 0 ? 'text-warning' : 'text-text-muted hover:text-text'}`}
       >
-        <Bell size={15} aria-hidden />
+        <Bell size={18} aria-hidden />
         {count > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 text-[9px] font-bold text-black">{count}</span>
         )}
@@ -78,7 +80,7 @@ export function NotificationBell() {
             role="menu"
             aria-label={t.sidebar.notifications}
             className="fixed z-[61] w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-border bg-surface"
-            style={{ left: pos.left, bottom: pos.bottom, boxShadow: 'var(--shadow-raised)' }}
+            style={{ left: pos.left, top: pos.top, boxShadow: 'var(--shadow-raised)' }}
           >
             <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs font-semibold text-text">
               <Bell size={13} className={count > 0 ? 'text-warning' : 'text-text-muted'} aria-hidden />

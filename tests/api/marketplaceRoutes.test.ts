@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { openDb } from '../../src/store/db.js';
 import { TaskStore } from '../../src/store/taskStore.js';
 import { Readiness } from '../../src/store/readiness.js';
@@ -14,22 +17,40 @@ import { BrainOAuthManager } from '../../src/brain/oauth.js';
 import { AuthStorage } from '@earendil-works/pi-coding-agent';
 import { MarketplaceError } from '../../src/plugins/marketplace.js';
 
-function setup(marketplace?: Record<string, unknown>) {
+/** Write a minimal valid plugin manifest into `<dir>/<name>/orca-plugin.json` so discoverPlugins finds it. */
+function writePlugin(dir: string, name: string): void {
+  const pdir = join(dir, name);
+  mkdirSync(pdir, { recursive: true });
+  writeFileSync(join(pdir, 'orca-plugin.json'), JSON.stringify({ name, version: '1.0.0', apiVersion: '1', description: 'x', entry: 'index.mjs' }));
+}
+
+/** Lay out a bundled scan root (memory) + a user scan root (weather) so DELETE can branch on `source`. */
+function pluginDirsFixture(): string[] {
+  const base = mkdtempSync(join(tmpdir(), 'orca-mp-'));
+  const bundled = join(base, 'bundled');
+  const user = join(base, 'user');
+  writePlugin(bundled, 'memory');
+  writePlugin(user, 'weather');
+  return [bundled, user];
+}
+
+function setup(marketplace?: Record<string, unknown>, pluginDirs: string[] = []) {
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw');
   const amy = users.create('amy', 'pw');
+  const config = new ConfigStore(db);
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as never, spawn: null as never, tmux: null as never,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
-    clock: new FakeClock(0), config: new ConfigStore(db), users, projects: new ProjectStore(db), userProjects: new UserProjectStore(db),
-    pluginDirs: [], pluginDataRoot: '/tmp/none',
+    clock: new FakeClock(0), config, users, projects: new ProjectStore(db), userProjects: new UserProjectStore(db),
+    pluginDirs, pluginDataRoot: '/tmp/none',
     brainOauth: new BrainOAuthManager(AuthStorage.inMemory()),
     marketplace: marketplace as never,
   });
-  return { app, adminTok: users.issueToken(admin.id), amyTok: users.issueToken(amy.id) };
+  return { app, config, adminTok: users.issueToken(admin.id), amyTok: users.issueToken(amy.id) };
 }
 const auth = (t: string) => ({ headers: { authorization: `Bearer ${t}` } });
 const post = (t: string) => ({ method: 'POST', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: '{}' });
@@ -51,20 +72,49 @@ describe('marketplace routes', () => {
   });
 
   it('degrades to 503 when the marketplace service is unwired', async () => {
-    const { app, adminTok } = setup(undefined);
-    for (const path of ['/plugins/marketplace']) {
-      expect((await app.request(path, auth(adminTok))).status).toBe(503);
-    }
+    const { app, adminTok } = setup(undefined, pluginDirsFixture());
+    expect((await app.request('/plugins/marketplace', auth(adminTok))).status).toBe(503);
     expect((await app.request('/plugins/marketplace/weather/install', post(adminTok))).status).toBe(503);
+    // A user plugin's uninstall needs the marketplace service; without it → 503.
     expect((await app.request('/plugins/weather', del(adminTok))).status).toBe(503);
   });
 
-  it('maps a MarketplaceError to its status (409 for a built-in)', async () => {
-    const uninstall = vi.fn(async () => { throw new MarketplaceError('built-in', 409); });
-    const { app, adminTok } = setup({ uninstall });
+  it('soft-removes a bundled plugin (200) without touching the marketplace, and restores it', async () => {
+    const uninstall = vi.fn(async () => {});
+    const { app, config, adminTok } = setup({ uninstall }, pluginDirsFixture());
+    // DELETE a bundled plugin: hidden + dropped from enabled, files kept, marketplace NOT called.
+    config.update({ plugins: { enabled: ['memory'] } });
     const res = await app.request('/plugins/memory', del(adminTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ removed: true });
+    expect(uninstall).not.toHaveBeenCalled();
+    expect(config.get().plugins.removed).toContain('memory');
+    expect(config.get().plugins.enabled).not.toContain('memory');
+    // Restore drops it from `removed` again.
+    const restored = await app.request('/plugins/memory/restore', post(adminTok));
+    expect(restored.status).toBe(200);
+    expect(config.get().plugins.removed).not.toContain('memory');
+  });
+
+  it('uninstalls a user plugin via the marketplace service', async () => {
+    const uninstall = vi.fn(async () => {});
+    const { app, adminTok } = setup({ uninstall }, pluginDirsFixture());
+    const res = await app.request('/plugins/weather', del(adminTok));
+    expect(res.status).toBe(200);
+    expect(uninstall).toHaveBeenCalledWith('weather');
+  });
+
+  it('maps a MarketplaceError from a user-plugin uninstall to its status', async () => {
+    const uninstall = vi.fn(async () => { throw new MarketplaceError('nope', 409); });
+    const { app, adminTok } = setup({ uninstall }, pluginDirsFixture());
+    const res = await app.request('/plugins/weather', del(adminTok));
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: 'built-in' });
+    expect(await res.json()).toMatchObject({ error: 'nope' });
+  });
+
+  it('404s deleting a plugin that is not on disk', async () => {
+    const { app, adminTok } = setup({ uninstall: vi.fn() }, pluginDirsFixture());
+    expect((await app.request('/plugins/ghost', del(adminTok))).status).toBe(404);
   });
 
   it('installs via POST and returns the updated listing shape', async () => {

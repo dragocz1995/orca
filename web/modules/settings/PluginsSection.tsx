@@ -1,9 +1,9 @@
 'use client';
 import { useMemo, useState } from 'react';
 import {
-  Package, User as UserIcon, Wrench, GraduationCap, MessageSquare, ChevronRight,
+  Package, User as UserIcon, Wrench, GraduationCap, MessageSquare,
   Search, LayoutGrid, Database, Clock, Sparkles, ShieldCheck, Code2, Download, Trash2,
-  ArrowUpCircle, Eye, Power, type LucideIcon,
+  ArrowUpCircle, Eye, Power, RotateCcw, type LucideIcon,
 } from 'lucide-react';
 import { PluginDetail } from './PluginDetail';
 import { pluginIcon } from './pluginMeta';
@@ -13,13 +13,14 @@ import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import { Segmented } from '../../components/ui/Segmented';
 import { Toggle } from '../../components/ui/Toggle';
+import { HelpTip } from '../../components/ui/HelpTip';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { ContextMenu, DIVIDER, type ContextMenuState, type MenuEntry } from '../../components/ui/ContextMenu';
 import { LoadingState, EmptyState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { usePlugins, useMarketplace } from '../../lib/queries';
-import { useTogglePlugin, useInstallPlugin, useUpdatePlugin, useUninstallPlugin } from '../../lib/mutations';
+import { useTogglePlugin, useInstallPlugin, useUpdatePlugin, useUninstallPlugin, useRestorePlugin } from '../../lib/mutations';
 import type { PluginInfo, MarketplaceEntry } from '../../lib/types';
 
 /** Marketplace categories, derived from a plugin's `provides`/name (see `categorize`). */
@@ -94,9 +95,9 @@ function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, onC
       style={{ transitionDuration: 'var(--motion-fast)' }}
     >
       <div className="flex items-center gap-3">
-        <span className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${p.enabled ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-elevated text-text-muted'}`}>
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated text-text-muted">
           <Icon size={17} aria-hidden />
-          {p.enabled ? <span className="live-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-surface bg-success" aria-hidden /> : null}
+          {p.enabled ? <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-surface bg-success" aria-hidden /> : null}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-2">
@@ -108,20 +109,23 @@ function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, onC
           </div>
         </div>
         {/* Trailing controls stay one shrink-0 cluster so the name block (flex-1 min-w-0) absorbs any
-            squeeze first — the badge, toggle and chevron never clip or spill past the card edge. */}
+            squeeze first — the toggle and remove action never clip or spill past the card edge. The
+            health badge moved down to the meta row so a narrow (3-up) card gives the NAME the room. */}
         <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          {showHealth ? (
-            <Badge tone={health === 'error' ? 'danger' : 'success'}>{health === 'error' ? t.plugins.healthError : t.plugins.healthOk}</Badge>
-          ) : null}
-          {p.source === 'user' ? (
-            <IconButton icon={Trash2} label={`${p.name}: ${t.plugins.uninstall}`} onClick={onUninstall} disabled={busy} />
-          ) : null}
+          {/* Both sources can be removed: a user plugin uninstalls (files deleted); a bundled one
+              soft-removes (hidden + unloaded, restorable). The whole card opens the detail on click, so
+              no separate chevron is needed — dropping it keeps room for the name + this remove action. */}
+          <IconButton icon={Trash2} label={`${p.name}: ${p.source === 'bundled' ? t.plugins.remove : t.plugins.uninstall}`} onClick={onUninstall} disabled={busy} />
           {/* Isolate the toggle so flipping enable never bubbles up into the card's open-detail click. */}
           <Toggle checked={p.enabled} onChange={onFlip} label={`${p.name}: ${p.enabled ? t.plugins.disable : t.plugins.enable}`} disabled={busy} />
-          <IconButton icon={ChevronRight} label={`${p.name}: ${t.common.goTo}`} onClick={onDetail} />
         </div>
       </div>
-      <ProvidesBadges counts={{ tools: p.provides.tools?.length ?? 0, skills: p.provides.skills?.length ?? 0, platforms: p.provides.platforms?.length ?? 0 }} />
+      <div className="flex flex-wrap items-center gap-2">
+        {showHealth ? (
+          <Badge tone={health === 'error' ? 'danger' : 'success'}>{health === 'error' ? t.plugins.healthError : t.plugins.healthOk}</Badge>
+        ) : null}
+        <ProvidesBadges counts={{ tools: p.provides.tools?.length ?? 0, skills: p.provides.skills?.length ?? 0, platforms: p.provides.platforms?.length ?? 0 }} />
+      </div>
       <p className="line-clamp-1 text-xs text-text-muted" title={description}>{description}</p>
       {updatable ? (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-accent/30 bg-accent/5 px-2.5 py-1.5" onClick={(e) => e.stopPropagation()}>
@@ -161,6 +165,33 @@ function MarketplaceCard({ e, onInstall, busy }: { e: MarketplaceEntry; onInstal
   );
 }
 
+/** One soft-removed bundled plugin (shown at the top of the Available view): a muted icon chip, name +
+ *  version, description, and a Restore button that brings it back (disabled) into the installed list. */
+function RemovedCard({ p, onRestore, busy }: { p: PluginInfo; onRestore: () => void; busy: boolean }) {
+  const { t, locale } = useTranslation();
+  const Icon = pluginIcon(p.name);
+  const description = p.i18n?.[locale]?.description ?? p.description;
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-dashed border-border bg-surface px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated text-text-muted">
+          <Icon size={17} aria-hidden />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-semibold text-text">{p.name}</span>
+            <span className="shrink-0 font-mono text-tiny text-text-muted">v{p.version}</span>
+          </div>
+        </div>
+        <Button variant="default" icon={RotateCcw} onClick={onRestore} disabled={busy} className="shrink-0">
+          {t.plugins.restore}
+        </Button>
+      </div>
+      <p className="line-clamp-2 text-xs text-text-muted" title={description}>{description}</p>
+    </div>
+  );
+}
+
 /** Settings → Plugins: a marketplace with two views. **Installed** lists every plugin on disk (bundled +
  *  downloaded), each toggling enable live and opening a rich detail view; user plugins can be updated (when
  *  the registry has a newer version) or uninstalled. **Available** browses the curated GitHub registry for
@@ -172,6 +203,7 @@ export function PluginsSection() {
   const install = useInstallPlugin();
   const update = useUpdatePlugin();
   const uninstall = useUninstallPlugin();
+  const restore = useRestorePlugin();
   const { toast } = useToast();
   const { t } = useTranslation();
   const [detail, setDetail] = useState<string | null>(null);
@@ -183,6 +215,10 @@ export function PluginsSection() {
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
 
   const plugins = data ?? [];
+  // Soft-removed bundled plugins are hidden from the Installed list and offered for restore at the top
+  // of the Available view; everything else is a normal installed plugin.
+  const installed = useMemo(() => plugins.filter((p) => !p.removed), [plugins]);
+  const removedBundled = useMemo(() => plugins.filter((p) => p.removed), [plugins]);
   // The catalog powers the Available view and, cross-referenced by name, the "update available" hint on
   // installed cards. Names with a newer version in the registry.
   const updatable = useMemo(
@@ -197,22 +233,22 @@ export function PluginsSection() {
   // Category pills: "All" plus only the categories present in the ACTIVE view, in stable order.
   const categoryOptions = useMemo(() => {
     const present = new Set(view === 'installed'
-      ? plugins.map((p) => categorize(p.name, p.provides.platforms?.length ?? 0))
+      ? installed.map((p) => categorize(p.name, p.provides.platforms?.length ?? 0))
       : available.map((e) => categorize(e.name, e.provides?.platforms ?? 0)));
     return [
       { value: 'all', label: t.plugins.catAll, icon: LayoutGrid },
       ...CATEGORY_ORDER.filter((c) => present.has(c)).map((c) => ({ value: c, label: t.plugins[CATEGORY_META[c].key], icon: CATEGORY_META[c].icon })),
     ];
-  }, [plugins, available, view, t]);
+  }, [installed, available, view, t]);
 
   const filteredInstalled = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return plugins.filter((p) => {
+    return installed.filter((p) => {
       if (category !== 'all' && categorize(p.name, p.provides.platforms?.length ?? 0) !== category) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q);
     });
-  }, [plugins, query, category]);
+  }, [installed, query, category]);
 
   const filteredAvailable = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -247,16 +283,25 @@ export function PluginsSection() {
     });
   };
   const doUninstall = (name: string) => {
+    const bundled = plugins.find((x) => x.name === name)?.source === 'bundled';
     setConfirmRemove(null);
     setPending(name);
     uninstall.mutate(name, {
-      onSuccess: () => toast(t.plugins.uninstallToast),
-      onError: () => toast(t.plugins.uninstallError, 'error'),
+      onSuccess: () => toast(bundled ? t.plugins.removedToast : t.plugins.uninstallToast),
+      onError: () => toast(bundled ? t.plugins.removedError : t.plugins.uninstallError, 'error'),
       onSettled: () => setPending(null),
     });
   };
-  // Right-click a plugin card → management actions. Uninstall is user-source only (built-ins can't be
-  // removed); Update shows only when the registry has a newer version.
+  const doRestore = (name: string) => {
+    setPending(name);
+    restore.mutate(name, {
+      onSuccess: () => toast(t.plugins.restoredToast),
+      onError: () => toast(t.plugins.restoreError, 'error'),
+      onSettled: () => setPending(null),
+    });
+  };
+  // Right-click a plugin card → management actions. Remove is offered for every plugin (a user plugin
+  // uninstalls; a bundled one soft-removes, restorable); Update shows only when the registry has a newer version.
   const openMenu = (e: React.MouseEvent, p: PluginInfo) => {
     e.preventDefault();
     const items: MenuEntry[] = [
@@ -264,10 +309,8 @@ export function PluginsSection() {
       { label: p.enabled ? t.plugins.disable : t.plugins.enable, icon: Power, onClick: () => flip(p, !p.enabled) },
     ];
     if (updatable.has(p.name)) items.push({ label: t.plugins.update, icon: ArrowUpCircle, onClick: () => doUpdate(p.name) });
-    if (p.source === 'user') {
-      items.push(DIVIDER);
-      items.push({ label: t.plugins.uninstall, icon: Trash2, danger: true, onClick: () => setConfirmRemove(p.name) });
-    }
+    items.push(DIVIDER);
+    items.push({ label: p.source === 'bundled' ? t.plugins.remove : t.plugins.uninstall, icon: Trash2, danger: true, onClick: () => setConfirmRemove(p.name) });
     setMenu({ x: e.clientX, y: e.clientY, items });
   };
 
@@ -275,10 +318,15 @@ export function PluginsSection() {
     { value: 'installed', label: t.plugins.tabInstalled, icon: Package },
     { value: 'available', label: t.plugins.tabAvailable, icon: Download },
   ];
+  // Whether the plugin pending removal is bundled (soft-remove) vs user (hard uninstall) — drives the confirm copy.
+  const removeIsBundled = plugins.find((p) => p.name === confirmRemove)?.source === 'bundled';
 
   return (
     <div className="flex flex-col gap-5">
-      <Segmented value={view} onChange={(v) => { setView(v as 'installed' | 'available'); setCategory('all'); }} options={viewOptions} aria-label={t.plugins.tabInstalled} />
+      <div className="flex items-center gap-2">
+        <Segmented value={view} onChange={(v) => { setView(v as 'installed' | 'available'); setCategory('all'); }} options={viewOptions} aria-label={t.plugins.tabInstalled} />
+        <HelpTip>{t.help.pluginsManage}</HelpTip>
+      </div>
 
       <div className="flex flex-col gap-3">
         <div className="relative w-full @sm:max-w-xs">
@@ -289,7 +337,7 @@ export function PluginsSection() {
       </div>
 
       {view === 'installed' ? (
-        plugins.length === 0 ? (
+        installed.length === 0 ? (
           <EmptyState title={t.plugins.empty} />
         ) : filteredInstalled.length === 0 ? (
           <EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} />
@@ -308,29 +356,48 @@ export function PluginsSection() {
             </div>
           </div>
         )
-      ) : marketplace.isLoading ? (
-        <LoadingState variant="cards" />
-      ) : marketplace.data?.registryError ? (
-        <EmptyState title={t.plugins.marketplaceError} description={marketplace.data.registryError} icon={Download} />
-      ) : available.length === 0 ? (
-        <EmptyState title={t.plugins.marketplaceEmpty} icon={Download} />
-      ) : filteredAvailable.length === 0 ? (
-        <EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} />
       ) : (
-        <div className="@container">
-          <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
-            {filteredAvailable.map((e) => (
-              <MarketplaceCard key={e.name} e={e} busy={pending === e.name} onInstall={() => doInstall(e.name)} />
-            ))}
-          </div>
+        <div className="flex flex-col gap-5">
+          {/* Soft-removed bundled plugins live at the top of Available — where you'd look to add one back. */}
+          {removedBundled.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <span className="text-sm font-medium text-text">{t.plugins.removedSection}</span>
+              <div className="@container">
+                <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
+                  {removedBundled.map((p) => (
+                    <RemovedCard key={p.name} p={p} busy={pending === p.name} onRestore={() => doRestore(p.name)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {marketplace.isLoading ? (
+            <LoadingState variant="cards" />
+          ) : marketplace.data?.registryError ? (
+            <EmptyState title={t.plugins.marketplaceError} description={marketplace.data.registryError} icon={Download} />
+          ) : available.length === 0 ? (
+            removedBundled.length === 0 ? <EmptyState title={t.plugins.marketplaceEmpty} icon={Download} /> : null
+          ) : filteredAvailable.length === 0 ? (
+            <EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} />
+          ) : (
+            <div className="@container">
+              <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
+                {filteredAvailable.map((e) => (
+                  <MarketplaceCard key={e.name} e={e} busy={pending === e.name} onInstall={() => doInstall(e.name)} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <ConfirmDialog
         open={confirmRemove !== null}
-        title={t.plugins.uninstall}
-        description={t.plugins.uninstallConfirm.replace('{name}', confirmRemove ?? '')}
-        confirmLabel={t.plugins.uninstall}
+        // A bundled plugin soft-removes (restorable); a user plugin uninstalls (files deleted) — the
+        // wording/label reflects which, so the consequence is clear before confirming.
+        title={removeIsBundled ? t.plugins.remove : t.plugins.uninstall}
+        description={(removeIsBundled ? t.plugins.removeConfirm : t.plugins.uninstallConfirm).replace('{name}', confirmRemove ?? '')}
+        confirmLabel={removeIsBundled ? t.plugins.remove : t.plugins.uninstall}
         onConfirm={() => confirmRemove && doUninstall(confirmRemove)}
         onClose={() => setConfirmRemove(null)}
       />

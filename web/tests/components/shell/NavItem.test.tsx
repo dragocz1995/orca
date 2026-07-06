@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-vi.mock('next/navigation', () => ({ usePathname: () => '/tasks' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/tasks', useSearchParams: () => new URLSearchParams() }));
 import { NavItem } from '../../../components/shell/NavItem';
 import { ListChecks } from 'lucide-react';
 

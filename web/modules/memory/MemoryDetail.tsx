@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Brain, Pencil, Trash2, RotateCcw, Check, X, Hash, Gauge, Clock, Activity } from 'lucide-react';
+import { Brain, Pencil, Trash2, RotateCcw, Check, Hash, Gauge, Clock, Activity } from 'lucide-react';
 import type { Memory } from '../../lib/types';
 import { useMemory, useMemoryCategories } from '../../lib/queries';
 import { useUpdateMemory, useSetMemoryCategory, useDeleteMemory, useRestoreMemory } from '../../lib/mutations';
@@ -9,15 +9,17 @@ import { useToast } from '../../components/ui/Toast';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { Slider } from '../../components/ui/Slider';
 import { IconButton } from '../../components/ui/IconButton';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/states';
+import { AutoSaveStatus } from '../../components/ui/AutoSaveStatus';
+import { useAutoSaveStatus } from '../../lib/useAutoSaveStatus';
 import { useTranslation } from '../../lib/i18n';
 import { formatTaskTime } from '../../lib/format';
 import { memoryStatusTone, memoryStatusLabel, categorySwatch } from './memoryMeta';
 import { MemoryAuditFeed } from './MemoryAuditFeed';
 import { CategoryIcon } from '../../lib/categoryIcons';
+import { RankSlider, CategorySelect } from './MemoryFields';
 
 /** Persistent memory detail: full editable body, metadata, lifecycle actions and audit trail. Resolves
  *  the memory by id (any status) so a soft-deleted row stays reachable for restore. */
@@ -59,26 +61,22 @@ function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType
   const updated = formatTaskTime(memory.updated_at, Date.now(), locale);
   const lastUsed = memory.last_used_at ? formatTaskTime(memory.last_used_at, Date.now(), locale) : null;
 
-  const cancel = () => {
-    setBody(memory.body); setKind(memory.kind); setImportance(memory.importance);
-    setCategoryId(memory.category_id);
-    setEditing(false);
-  };
-  // Two writes: the body/kind/importance PATCH, and — only when it changed — the category via the
-  // dedicated PUT /memory/:id/category (the PATCH schema ignores categoryId). Sequenced so a single
-  // success toast fires once both land, and a failure in either surfaces its own error.
-  const save = async () => {
+  // Auto-save the edits — no Save button. Two writes: the body/kind/importance PATCH (only when one
+  // changed) and, when it changed, the category via the dedicated PUT (the PATCH schema ignores it). An
+  // empty body is never persisted (it's required), so the last-valid content is kept. The hook is always
+  // mounted (the component is keyed by memory.id, so it seeds fresh per memory); merely entering edit
+  // mode changes no field, so it never triggers a spurious save.
+  const saveEdits = async () => {
     const next = body.trim();
-    if (!next) { toast(t.memory.bodyRequired, 'error'); return; }
-    try {
+    if (!next) return;
+    if (next !== memory.body || kind.trim() !== memory.kind || importance !== memory.importance) {
       await update.mutateAsync({ id: memory.id, patch: { body: next, kind: kind.trim(), importance } });
-      if (categoryId !== memory.category_id) await setCategory.mutateAsync({ id: memory.id, categoryId });
-      toast(t.memory.saved);
-      setEditing(false);
-    } catch (e) {
-      toast(apiErrorMessage(e), 'error');
     }
+    if (categoryId !== memory.category_id) await setCategory.mutateAsync({ id: memory.id, categoryId });
   };
+  const autosave = useAutoSaveStatus([body, kind, importance, categoryId], saveEdits);
+  // Leave edit mode — flush any pending save first so the last keystroke is never dropped.
+  const done = () => { autosave.flush(); setEditing(false); };
   const doDelete = () => {
     del.mutate(memory.id, {
       onSuccess: () => toast(t.memory.deleted),
@@ -120,11 +118,12 @@ function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="flex flex-wrap items-center gap-2">
           {editing ? (
             <>
-              <Button variant="accent" icon={Check} onClick={save} disabled={update.isPending || setCategory.isPending}>{t.memory.save}</Button>
-              <Button variant="ghost" icon={X} onClick={cancel}>{t.memory.cancel}</Button>
+              {/* Changes auto-save; the status shows saving/saved/error, and Done just leaves edit mode. */}
+              <AutoSaveStatus status={autosave.status} onRetry={autosave.retry} />
+              <Button variant="ghost" icon={Check} onClick={done}>{t.memory.done}</Button>
             </>
           ) : (
             <>
@@ -159,15 +158,13 @@ function MemoryDetailBody({ memory, t, locale }: { memory: Memory; t: ReturnType
           </Section>
           {(categories.data?.length ?? 0) > 0 ? (
             <Section label={t.memory.categoryFilter}>
-              <select
-                value={categoryId == null ? '' : String(categoryId)}
-                onChange={(e) => setCategoryId(e.target.value === '' ? null : Number(e.target.value))}
-                aria-label={t.memory.categoryFilter}
-                className="h-9 w-full rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
-              >
-                <option value="">{t.memory.categoryChipNone}</option>
-                {(categories.data ?? []).map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-              </select>
+              <CategorySelect
+                categories={categories.data ?? []}
+                value={categoryId}
+                onChange={setCategoryId}
+                ariaLabel={t.memory.categoryFilter}
+                noneLabel={t.memory.categoryChipNone}
+              />
             </Section>
           ) : null}
           <RankSlider label={t.memory.fieldImportance} icon={Gauge} value={importance} onChange={setImportance} />
@@ -216,16 +213,3 @@ function Metric({ icon: Icon, label, value, title }: { icon: typeof Gauge; label
   );
 }
 
-/** A 1..5 integer rank (importance) edited as a stepped slider with an "n / 5" readout — NOT a 0..1
- *  weight, so it must never go through pct01 (the server validates importance as an int in 1..5). */
-function RankSlider({ label, icon: Icon, value, onChange }: { label: string; icon: typeof Gauge; value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="inline-flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-        <span className="inline-flex items-center gap-1"><Icon size={11} aria-hidden />{label}</span>
-        <span className="font-mono text-text">{value} / 5</span>
-      </span>
-      <Slider value={value} min={1} max={5} step={1} onChange={onChange} />
-    </div>
-  );
-}

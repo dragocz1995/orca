@@ -40,7 +40,9 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
     return !u || !d.users.isAdmin(u.id);
   };
   const listing = () => {
-    const enabled = new Set(d.config.get().plugins.enabled);
+    const cfg = d.config.get().plugins;
+    const enabled = new Set(cfg.enabled);
+    const removed = new Set(cfg.removed);
     return discoverPlugins(d.pluginDirs ?? []).map((p) => ({
       name: p.manifest.name,
       version: p.manifest.version,
@@ -48,11 +50,15 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
       provides: p.manifest.provides ?? {},
       source: p.source,
       enabled: enabled.has(p.manifest.name),
+      // A soft-removed bundled plugin: hidden from the installed list, restorable from "Available".
+      removed: removed.has(p.manifest.name),
       configurable: (p.manifest.configSchema?.length ?? 0) > 0,
       // Coarse health for the marketplace card badge, derived from the log ring (default `ok` when
       // the buffer isn't wired — e.g. in tests that build deps by hand).
       health: d.pluginLogs?.health(p.manifest.name) ?? 'ok',
       i18n: p.i18n,
+      // Whether the plugin ships a brand icon on disk — lets the UI render `<img>` vs. a fallback glyph.
+      hasIcon: existsSync(resolve(p.dir, p.manifest.icon ?? 'icon.svg')),
     }));
   };
   const manifestOf = (name: string) => discoverPlugins(d.pluginDirs ?? []).find((p) => p.manifest.name === name)?.manifest;
@@ -158,6 +164,20 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
     });
   });
 
+  // The plugin's brand icon (SVG), served straight from its folder. Not admin-gated — a brand glyph
+  // carries no secrets and loads via a plain `<img>` (through the BFF proxy). Path-confined to the
+  // plugin's own dir so a crafted manifest `icon` can't traverse out.
+  app.get('/plugins/:name/icon', (c) => {
+    const name = c.req.param('name');
+    const p = discoverPlugins(d.pluginDirs ?? []).find((x) => x.manifest.name === name);
+    if (!p) return c.json({ error: 'unknown plugin' }, 404);
+    const base = resolve(p.dir);
+    const iconPath = resolve(base, p.manifest.icon ?? 'icon.svg');
+    if (iconPath !== base && !iconPath.startsWith(base + sep)) return c.json({ error: 'bad icon path' }, 400);
+    if (!existsSync(iconPath)) return c.json({ error: 'no icon' }, 404);
+    return c.body(readFileSync(iconPath, 'utf8'), 200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+  });
+
   // The plugin's OWN runtime contributions (tools + hooks + the rest), filtered from the merged
   // registry. Powers the detail Tools and Hooks sections. Falls back to an empty report when the
   // registry provider isn't wired (tests build deps by hand) so it never 500s.
@@ -243,16 +263,43 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(listing().find((p) => p.name === name));
   });
 
-  // Uninstall a marketplace (user-source) plugin: disable it, delete its folder AND its data, hot-reload.
-  // Built-in plugins can't be removed (they live in the npm-owned bundled dir) — the service returns 409.
+  // Remove a plugin. A user-source (marketplace) plugin is uninstalled outright — folder AND data
+  // deleted. A bundled plugin lives in the npm-owned dir and must NOT be deleted from disk, so it's
+  // "soft-removed" instead: dropped from enabled and recorded in `plugins.removed` so it's hidden from
+  // the installed list and stops loading — fully restorable from the Available tab. Either way the
+  // change hot-reloads so the UI, plugin state and logs update immediately.
   app.delete('/plugins/:name', async (c) => {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
-    if (!d.marketplace) return c.json({ error: 'marketplace unavailable' }, 503);
     const name = c.req.param('name');
-    try {
-      await d.marketplace.uninstall(name);
-      return c.json({ ok: true });
-    } catch (e) { return marketplaceFail(c, e); }
+    const disc = discoverPlugins(d.pluginDirs ?? []).find((p) => p.manifest.name === name);
+    if (!disc) return c.json({ error: 'unknown plugin' }, 404);
+    if (disc.source === 'user') {
+      if (!d.marketplace) return c.json({ error: 'marketplace unavailable' }, 503);
+      try {
+        await d.marketplace.uninstall(name);
+        return c.json({ ok: true });
+      } catch (e) { return marketplaceFail(c, e); }
+    }
+    // Bundled → soft-remove (hide + stop loading, keep files). Reversible via POST /plugins/:name/restore.
+    const cfg = d.config.get().plugins;
+    const removed = cfg.removed.includes(name) ? cfg.removed : [...cfg.removed, name];
+    d.config.update({ plugins: { enabled: cfg.enabled.filter((n) => n !== name), removed } });
+    await d.brain?.reloadPlugins();
+    return c.json({ ok: true, removed: true });
+  });
+
+  // Restore a soft-removed bundled plugin: drop it from `plugins.removed` so it reappears in the
+  // installed list (disabled — the operator re-enables it if wanted), then hot-reload.
+  app.post('/plugins/:name/restore', async (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const name = c.req.param('name');
+    if (!manifestOf(name)) return c.json({ error: 'unknown plugin' }, 404);
+    const cfg = d.config.get().plugins;
+    if (cfg.removed.includes(name)) {
+      d.config.update({ plugins: { removed: cfg.removed.filter((n) => n !== name) } });
+      await d.brain?.reloadPlugins();
+    }
+    return c.json(listing().find((p) => p.name === name) ?? { ok: true });
   });
 
   // ── Cron jobs (cronjob plugin): the raw jobs.json array, managed as one list. The plugin's

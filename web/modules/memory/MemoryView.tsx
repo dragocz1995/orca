@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags, Trash2, RotateCcw } from 'lucide-react';
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { useMemories, useMemoryCategories } from '../../lib/queries';
-import { useCreateMemory, useMergeMemories, useDeleteMemory, useRestoreMemory, usePurgeMemories, useEmptyTrash } from '../../lib/mutations';
+import { useCreateMemory, useMergeMemories, useDeleteMemory, useRestoreMemory, usePurgeMemories, useEmptyTrash, useSetMemoryCategory } from '../../lib/mutations';
 import { apiErrorMessage } from '../../lib/orcaClient';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { Segmented } from '../../components/ui/Segmented';
@@ -24,6 +24,7 @@ import { MemoryBrainMap } from './MemoryBrainMap';
 import { MemoryOverview } from './MemoryOverview';
 import { CategoryManager } from './CategoryManager';
 import { RetrievalDebugPanel } from './RetrievalDebugPanel';
+import { RankSlider, CategorySelect } from './MemoryFields';
 import { memoryStatusTone, memoryStatusLabel, distinctKinds, categoriesById, categorySwatch } from './memoryMeta';
 
 type Tab = 'list' | 'brain' | 'retrieval';
@@ -342,23 +343,42 @@ function MemoryRow({ memory, category, active, selected, onSelect, onToggleSelec
   );
 }
 
-/** Create a new memory (source 'user'). Body required; kind optional. */
+/** Create a new memory (source 'user'). Mirrors the edit modal's fields so everything can be set up
+ *  front: body (required), kind, category (with its live icon) and importance — no follow-up edit needed.
+ *  Body + kind + importance persist in one POST; the category is a separate audited write (like edit),
+ *  applied right after the create returns the new id. */
 function CreateMemoryModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const create = useCreateMemory();
+  const setCategory = useSetMemoryCategory();
+  const categories = useMemoryCategories();
   const [body, setBody] = useState('');
   const [kind, setKind] = useState('');
+  const [importance, setImportance] = useState(3);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
 
   const submit = () => {
     const next = body.trim();
     if (!next) { toast(t.memory.bodyRequired, 'error'); return; }
     create.mutate(
-      { body: next, kind: kind.trim() || undefined },
-      { onSuccess: (m) => { toast(t.memory.created); onCreated(m.id); }, onError: (e) => toast(apiErrorMessage(e), 'error') },
+      { body: next, kind: kind.trim() || undefined, importance },
+      {
+        onSuccess: async (m) => {
+          // Category isn't part of POST /memory — set it as a follow-up (audited), same as the edit modal.
+          if (categoryId != null) {
+            try { await setCategory.mutateAsync({ id: m.id, categoryId }); }
+            catch (e) { toast(apiErrorMessage(e), 'error'); }
+          }
+          toast(t.memory.created);
+          onCreated(m.id);
+        },
+        onError: (e) => toast(apiErrorMessage(e), 'error'),
+      },
     );
   };
 
+  const busy = create.isPending || setCategory.isPending;
   return (
     <Modal title={t.memory.newMemory} onClose={onClose} size="md" icon={Brain}>
       <ModalBody>
@@ -375,10 +395,22 @@ function CreateMemoryModal({ onClose, onCreated }: { onClose: () => void; onCrea
         <Field label={t.memory.fieldKind}>
           <Input value={kind} onChange={(e) => setKind(e.target.value)} placeholder={t.memory.fieldKindPlaceholder} />
         </Field>
+        {(categories.data?.length ?? 0) > 0 ? (
+          <Field label={t.memory.categoryFilter}>
+            <CategorySelect
+              categories={categories.data ?? []}
+              value={categoryId}
+              onChange={setCategoryId}
+              ariaLabel={t.memory.categoryFilter}
+              noneLabel={t.memory.categoryChipNone}
+            />
+          </Field>
+        ) : null}
+        <RankSlider label={t.memory.fieldImportance} icon={Gauge} value={importance} onChange={setImportance} />
       </ModalBody>
       <ModalFooter>
         <Button variant="ghost" onClick={onClose}>{t.memory.cancel}</Button>
-        <Button variant="accent" onClick={submit} disabled={create.isPending}>{t.memory.create}</Button>
+        <Button variant="accent" onClick={submit} disabled={busy}>{t.memory.create}</Button>
       </ModalFooter>
     </Modal>
   );

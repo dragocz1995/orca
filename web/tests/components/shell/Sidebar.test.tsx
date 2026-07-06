@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { onUnhandledRequest } from '../../msw';
-vi.mock('next/navigation', () => ({ usePathname: () => '/dash' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/dash', useSearchParams: () => new URLSearchParams() }));
 import { Sidebar } from '../../../components/shell/Sidebar';
 import { createWrapper } from '../../test-utils';
 
@@ -39,15 +39,13 @@ describe('Sidebar (registry-driven)', () => {
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
   });
 
-  it('shows live agents and last outcome in the ops bar, and a pending-approval count on the notification bell', () => {
+  it('shows live agents and last outcome in the ops bar', () => {
     const { wrapper: Wrapper, client } = createWrapper();
     client.setQueryData(['tasks'], [{ id: 'tx', title: 'Refactor', status: 'closed', outcome: 'ok', result_summary: 'passed', closed_at: '2026-06-18 10:00:00' }]);
     client.setQueryData(['sessions'], [{ name: 'orca-a', role: 'agent', agent: 'a' }, { name: 'orca-b', role: 'agent', agent: 'b' }]);
     client.setQueryData(['session-signals'], { 'orca-a': { type: 'needs_input', question: 'go?' } });
     render(<Wrapper><Sidebar /></Wrapper>);
-    // One agent waiting for approval → badge on the notification bell.
-    const bell = screen.getByLabelText('Notifications');
-    expect(within(bell).getByText('1')).toBeInTheDocument();
+    // The notification bell moved to the TopBar; the Sidebar keeps the ops bar (live agents + last outcome).
     expect(screen.getByText('2 live agents')).toBeInTheDocument();
     expect(screen.getByText('Last: Refactor')).toBeInTheDocument();
   });

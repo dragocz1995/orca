@@ -2,12 +2,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { BRAIN_OPEN_EVENT } from '../../lib/brainDock';
-import { Menu } from 'lucide-react';
 import { Providers } from '../../app/providers';
-import { LanguageProvider, useTranslation } from '../../lib/i18n';
+import { LanguageProvider } from '../../lib/i18n';
 import { ToastProvider } from '../ui/Toast';
 import { LoginGate } from '../auth/LoginGate';
 import { Sidebar, type SidebarMode } from './Sidebar';
+import { TopBar } from './TopBar';
 import { CommandPalette } from './CommandPalette';
 import { AdvisorPanel } from '../../modules/advisor/AdvisorPanel';
 import { AdvisorLauncher } from '../../modules/advisor/AdvisorLauncher';
@@ -16,6 +16,7 @@ import { useDockState } from '../../lib/useDockState';
 import { useElementWidth } from '../../lib/useElementWidth';
 import { UiScaleProvider } from '../../lib/useUiScale';
 import { ThemeProvider } from '../../lib/useTheme';
+import { PageHeaderProvider } from '../../lib/pageHeader';
 
 /** Below this many px of room for the sidebar+content region the sidebar becomes a hamburger drawer
  *  (real phones, or a dock dragged nearly full-width); below the next it auto-collapses to an icon rail
@@ -25,7 +26,6 @@ const DRAWER_MAX = 720;
 const RAIL_MAX = 1000;
 
 function ShellLayout({ children }: { children: ReactNode }) {
-  const { t } = useTranslation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const dock = useDockState();
   const docked = dock.state.open;
@@ -59,15 +59,9 @@ function ShellLayout({ children }: { children: ReactNode }) {
           context menus) to it. Content views scope their own `@container` around just the grid/list
           instead, keeping overlays outside it. */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
-        {/* Compact top bar with the drawer toggle — shown only when the sidebar is a drawer */}
-        {mode === 'drawer' ? (
-          <div className="flex h-12 items-center gap-2 border-b border-border bg-surface px-3">
-            <button type="button" onClick={() => setDrawerOpen(true)} aria-label={t.common.toggleSidebar} className="flex h-9 w-9 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text">
-              <Menu size={20} aria-hidden />
-            </button>
-            <img src="/orca-logo.png" alt={t.common.appName} className="logo-adaptive h-7 w-auto" />
-          </div>
-        ) : null}
+        {/* Global top bar: breadcrumb + account/bell/theme/language. In drawer mode it also carries the
+            hamburger that opens the off-canvas sidebar. */}
+        <TopBar onMenuClick={mode === 'drawer' ? () => setDrawerOpen(true) : undefined} />
         <div className="p-4">{children}</div>
       </main>
     </div>
@@ -109,9 +103,11 @@ export function Shell({ children }: { children: ReactNode }) {
       <UiScaleProvider>
       <LanguageProvider>
       <ToastProvider>
-        <LoginGate>
-          <ShellBody>{children}</ShellBody>
-        </LoginGate>
+        <PageHeaderProvider>
+          <LoginGate>
+            <ShellBody>{children}</ShellBody>
+          </LoginGate>
+        </PageHeaderProvider>
       </ToastProvider>
       </LanguageProvider>
       </UiScaleProvider>

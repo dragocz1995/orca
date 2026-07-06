@@ -40,7 +40,7 @@ export interface OrcaConfig {
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
   autoUpdate: boolean;
-  plugins?: { enabled: string[] };
+  plugins?: { enabled: string[]; removed?: string[] };
   brain?: { providers: BrainProvider[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number> };
 }
 
@@ -182,6 +182,9 @@ export interface PluginInfo {
   provides: { tools?: string[]; skills?: string[]; hooks?: string[]; platforms?: string[] };
   source: 'bundled' | 'user';
   enabled: boolean;
+  /** A soft-removed bundled plugin: hidden from the installed list, not loaded, restorable from the
+   *  Available tab. Only ever true for `source: 'bundled'` (user plugins are uninstalled outright). */
+  removed?: boolean;
   configurable: boolean;
   /** Per-locale manifest translations (from the plugin's `i18n/<lang>.json`). English lives in the
    *  manifest itself and is the fallback; a locale entry overrides `description` + per-field label/hint. */
@@ -189,6 +192,9 @@ export interface PluginInfo {
   /** Derived from the plugin's log ring buffer: `error` when a recent error entry exists, else `ok`.
    *  Defaults to `ok` when the daemon has no log tap. */
   health?: 'ok' | 'error';
+  /** True when the plugin ships a brand icon (`icon.svg`) on disk — the UI renders `<img>` from the
+   *  icon route; otherwise it falls back to a lucide glyph. */
+  hasIcon?: boolean;
 }
 
 /** Localized overrides for a plugin's manifest strings, keyed by config-field key. */

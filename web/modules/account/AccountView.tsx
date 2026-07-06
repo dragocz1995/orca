@@ -14,6 +14,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { SettingCard } from '../../components/ui/SettingCard';
+import { Toggle } from '../../components/ui/Toggle';
 import { Slider } from '../../components/ui/Slider';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { HelpTip } from '../../components/ui/HelpTip';
@@ -400,14 +401,15 @@ export function AccountView() {
       ) : null}
 
       {section === 'notifications' ? (
-        /* Phone push — a per-device opt-in. Subscribes this browser/device for off-device alerts. */
+        /* Phone push — a per-device opt-in. Subscribes this browser/device for off-device alerts.
+           Rendered as an inline toggle row (like the other account settings) instead of a detached
+           right-aligned button, so the control reads as a setting, not a submit form. */
         pushSupported ? (
           <SettingCard title={t.push.title} icon={Bell} description={t.help.pushEnable}>
-            <div className="flex justify-end">
-              <Button variant={pushOn ? 'ghost' : 'accent'} icon={Bell} onClick={togglePush} disabled={pushBusy}>
-                {pushOn ? t.push.disable : t.push.enable}
-              </Button>
-            </div>
+            <label className="flex items-center gap-3 text-sm text-text">
+              <Toggle checked={pushOn} onChange={togglePush} disabled={pushBusy} label={t.push.deviceToggle} />
+              <span>{t.push.deviceToggle}</span>
+            </label>
           </SettingCard>
         ) : <p className="text-sm text-text-muted">{t.push.unsupported}</p>
       ) : null}

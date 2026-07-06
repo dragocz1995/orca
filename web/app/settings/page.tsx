@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Boxes, Bot, SlidersHorizontal, Plus, X, Pencil, Plug, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, Github, RefreshCw, RotateCcw, Server, Sparkles, Puzzle, BrainCircuit, Database, type LucideIcon } from 'lucide-react';
+import { Bot, SlidersHorizontal, Plus, X, Pencil, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
@@ -22,6 +22,10 @@ import { useUpdateConfig, useCleanupAll, useSystemUpdate, useSystemRestart, useI
 import { OrcaApiError } from '../../lib/orcaClient';
 import { allModels, isPresetExec, removeModel, upsertModel } from '../../lib/execPresets';
 import { usePersistentState } from '../../lib/usePersistentState';
+import { useSearchParams } from 'next/navigation';
+import { SETTINGS_CATEGORY_VALUES, type SettingsCategory } from '../../modules/settings/categories';
+import { PageLayout } from '../../components/ui/PageLayout';
+import { RailCard } from '../../components/ui/RailCard';
 import { useToast } from '../../components/ui/Toast';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { Button } from '../../components/ui/Button';
@@ -31,7 +35,6 @@ import { Badge } from '../../components/ui/Badge';
 import { Toggle } from '../../components/ui/Toggle';
 import { Segmented } from '../../components/ui/Segmented';
 import { SettingCard } from '../../components/ui/SettingCard';
-import { SettingsLayout } from '../../components/ui/SettingsLayout';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { HelpTip } from '../../components/ui/HelpTip';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
@@ -67,8 +70,8 @@ function ModelInput({ value, onChange, placeholder }: { value: string; onChange:
   );
 }
 
-const CATEGORY_VALUES = ['models', 'providers', 'defaults', 'brain', 'memory', 'plugins', 'autopilot', 'github', 'system', 'data'] as const;
-type Category = (typeof CATEGORY_VALUES)[number];
+const CATEGORY_VALUES = SETTINGS_CATEGORY_VALUES;
+type Category = SettingsCategory;
 
 export default function SettingsPage() {
   const config = useConfig();
@@ -88,8 +91,35 @@ export default function SettingsPage() {
   // Which service the "restart?" confirm dialog is asking about (null = closed).
   const [restartTarget, setRestartTarget] = useState<'daemon' | 'web' | null>(null);
 
-  // Remember the last settings section across reloads (F5) until the user switches.
-  const [category, setCategory] = usePersistentState<Category>('orca.settings.category', 'models', CATEGORY_VALUES);
+  // Active section — a real state (remembered in localStorage across F5) kept in step with the URL
+  // `?cat=<section>`. Switching flips the state directly (so the view changes instantly) AND rewrites
+  // the URL (so F5 / share / the sidebar highlight agree).
+  const searchParams = useSearchParams();
+  const [category, setCategoryState] = usePersistentState<Category>('orca.settings.category', 'models', CATEGORY_VALUES);
+  const isValidCat = (c: string | null): c is Category => !!c && (CATEGORY_VALUES as readonly string[]).includes(c);
+  // React to CLIENT-side URL changes — the sidebar's nested settings sub-items navigate to `?cat=x`
+  // without remounting the page, and useSearchParams updates on those.
+  const urlCat = searchParams.get('cat');
+  useEffect(() => { if (isValidCat(urlCat)) setCategoryState(urlCat); }, [urlCat]); // eslint-disable-line react-hooks/exhaustive-deps
+  // On first load / F5, apply a valid `?cat=` from the ACTUAL URL, and follow popstate afterwards —
+  // both the sidebar's same-page section switches (which push the URL + fire popstate) and the browser
+  // back/forward buttons. This route is statically optimized, so useSearchParams reads EMPTY until a
+  // client navigation; reading window.location directly is the reliable source. Runs after
+  // usePersistentState's localStorage hydration, so an explicit URL section overrides the remembered one.
+  useEffect(() => {
+    const apply = () => { const cat = new URLSearchParams(window.location.search).get('cat'); if (isValidCat(cat)) setCategoryState(cat); };
+    apply();
+    window.addEventListener('popstate', apply);
+    return () => window.removeEventListener('popstate', apply);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const setCategory = (next: Category) => {
+    setCategoryState(next);
+    // Rewrite the URL directly (the Next router's replace() doesn't reliably update this statically
+    // optimized route), then fire popstate so the sidebar's active-item highlight follows. F5 restores
+    // this exact section from the URL.
+    window.history.replaceState(null, '', `/settings?cat=${next}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
 
   const [allowed, setAllowed] = useState<string[]>([]);
   const [customModels, setCustomModels] = useState<{ label: string; exec: string }[]>([]);
@@ -287,18 +317,6 @@ export default function SettingsPage() {
 
 
 
-  const SECTIONS: { id: Category; icon: LucideIcon }[] = [
-    { id: 'models', icon: Boxes },
-    { id: 'providers', icon: Plug },
-    { id: 'defaults', icon: SlidersHorizontal },
-    { id: 'brain', icon: BrainCircuit },
-    { id: 'memory', icon: Database },
-    { id: 'plugins', icon: Puzzle },
-    { id: 'autopilot', icon: Bot },
-    { id: 'github', icon: Github },
-    { id: 'system', icon: Server },
-    { id: 'data', icon: Trash2 },
-  ];
 
   // 'models' auto-saves; 'data' is a one-off danger action; 'system'
   // auto-saves its toggle + has its own update button; 'plugins' toggles apply instantly — none of
@@ -324,21 +342,16 @@ export default function SettingsPage() {
 
   return (
     <ModuleShell moduleId="settings">
-      <ModuleHeader title={t.page.settings} icon={SlidersHorizontal} />
+      <ModuleHeader title={`${t.page.settings} / ${t.settings[category]}`} icon={SlidersHorizontal} />
 
-      {/* Sidebar layout: sticky category rail on the left, section content beside it. */}
-      <SettingsLayout
-        ariaLabel={t.settings.sectionsNav}
-        sections={SECTIONS.map(({ id, icon }) => ({ id, label: t.settings[id], icon }))}
-        value={category}
-        onChange={(v) => setCategory(v as Category)}
-      >
+      {/* Section content — the category picker now lives in the main sidebar (nested under "Nastavení").
+          Capped + centered at the same max-width as the dashboard so every settings section reads the
+          same on wide screens instead of stretching edge-to-edge. */}
+      <div className="mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-6">
         {category === 'models' && (
           <>
-            {/* The catalog half of the models story: WHICH models exist and are enabled. Where they
-             *  come from (accounts, keys, endpoints) is the Orca AI section — cross-linked here. */}
-            <p className="-mb-2 text-xs text-text-muted">
-              {t.settings.modelsIntro}{' '}
+            {/* Cross-link to where models come from (accounts, keys, endpoints) — the Orca AI section. */}
+            <p className="-mb-2 text-xs">
               <button type="button" onClick={() => setCategory('brain')} className="font-medium text-accent hover:underline">
                 {t.settings.embeddedProviderLink}
               </button>
@@ -597,7 +610,43 @@ export default function SettingsPage() {
         )}
 
         {category === 'providers' && (
-          <div>
+          <div className="flex flex-col gap-5">
+            {/* Agent skills sit at the top of CLI Agents — they install/verify the `orca-workflow`
+                skill into the very CLI agents this section configures. The daemon self-installs on
+                startup; this is the on-demand re-apply + per-provider status. */}
+            <div className="card-interactive flex w-full flex-col gap-4 rounded-xl border border-border bg-surface p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Sparkles size={16} className="text-text-muted" aria-hidden />
+                  <span className="text-sm font-medium text-text">{t.settings.agentSkills}</span>
+                  <HelpTip align="left">{t.help.agentSkills}</HelpTip>
+                </div>
+                <Button
+                  variant="accent"
+                  className="h-8 shrink-0"
+                  disabled={installSkills.isPending || !(systemSkills.data?.skills ?? []).some((s) => s.present && !s.upToDate)}
+                  onClick={() => installSkills.mutate(undefined, {
+                    onSuccess: () => toast(t.settings.skillsInstalled),
+                    onError: (e) => toast(String(e), 'error'),
+                  })}
+                >
+                  {installSkills.isPending ? t.settings.skillInstalling : t.settings.skillInstall}
+                </Button>
+              </div>
+              {/* Per-provider status pills, laid out to wrap side by side so the block stays compact. */}
+              <div className="flex flex-wrap gap-x-6 gap-y-2.5">
+                {(systemSkills.data?.skills ?? []).map((s) => {
+                  const tone = !s.present ? 'muted' : s.upToDate ? 'success' : s.installed ? 'warning' : 'default';
+                  const label = !s.present ? t.settings.skillProviderAbsent : s.upToDate ? t.settings.skillUpToDate : s.installed ? t.settings.skillOutdated : t.settings.skillMissing;
+                  return (
+                    <div key={s.provider} className="flex items-center gap-2">
+                      <span className="font-mono text-sm text-text">{s.provider}</span>
+                      <Badge tone={tone}>{label}</Badge>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <div className="flex flex-col gap-3">
               {PROVIDERS.map((p) => {
                 const cur = providers[p.id] ?? { bin: p.binHint, args: '', skipPermissions: true, resume: true };
@@ -682,15 +731,46 @@ export default function SettingsPage() {
         )}
 
         {category === 'system' && (
-            <div className="flex flex-col items-center gap-5">
-              {/* Hero — Orca identity, current version and the update affordance, on a softly back-lit
-                  tile. The blurred accent orb behind the logo is the "lehké podsvícení". */}
-              <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface px-6 py-9 text-center" style={{ boxShadow: 'var(--shadow-raised)' }}>
-                <div aria-hidden className="pointer-events-none absolute left-1/2 top-0 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/25 blur-3xl" />
+            <PageLayout
+              rail={
+                <RailCard title={t.settings.services}>
+                  <div className="flex flex-col gap-3.5">
+                    {[
+                      { name: t.settings.serviceDaemon, port: ':4400', up: !system.isError, target: 'daemon' as const, restartLabel: t.settings.restartDaemon },
+                      { name: t.settings.serviceWeb, port: ':4500', up: true, target: 'web' as const, restartLabel: t.settings.restartWeb },
+                    ].map((s) => (
+                      <div key={s.port} className="flex items-center justify-between">
+                        <span className="flex items-center gap-2.5 text-sm text-text">
+                          <span className={s.up ? 'live-dot inline-block h-2.5 w-2.5 rounded-full bg-success' : 'inline-block h-2.5 w-2.5 rounded-full bg-danger'} />
+                          {s.name} <span className="font-mono text-xs text-text-muted">{s.port}</span>
+                        </span>
+                        <span className="flex items-center gap-2.5">
+                          <span className={`text-xs font-medium ${s.up ? 'text-success' : 'text-danger'}`}>{s.up ? t.settings.serviceUp : t.settings.serviceDown}</span>
+                          <button
+                            type="button"
+                            aria-label={s.restartLabel}
+                            title={s.restartLabel}
+                            disabled={systemRestart.isPending}
+                            onClick={() => setRestartTarget(s.target)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-elevated text-text-muted transition-colors hover:border-accent hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <RotateCcw size={13} aria-hidden />
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </RailCard>
+              }
+            >
+              <div className="flex flex-col gap-5">
+              {/* Hero — Orca identity, current version and the update affordance. Flat OLED: hairline
+                  border, no glow/gradient/shadow. */}
+              <div className="relative w-full rounded-2xl border border-border bg-surface px-6 py-9 text-center">
                 <div className="relative flex flex-col items-center gap-5">
                   <img src="/orca-logo.png" alt={t.common.appName} className="h-12 w-auto" />
                   <div className="flex flex-col items-center gap-2.5">
-                    <span className="bg-gradient-to-b from-text to-text-muted bg-clip-text font-mono text-4xl font-bold tracking-tight text-transparent">{system.data?.version ?? '—'}</span>
+                    <span className="font-mono text-4xl font-bold tracking-tight text-text">{system.data?.version ?? '—'}</span>
                     {system.data?.updateAvailable
                       ? <Badge tone="warning">{t.settings.updateAvailable.replace('{v}', system.data.latest ?? '')}</Badge>
                       : system.data?.latest ? <Badge tone="success">{t.settings.upToDate}</Badge> : null}
@@ -718,120 +798,44 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Tiles — Orca-specific controls, sized to breathe and read at a glance. */}
-              <div className="@container w-full max-w-lg">
-              <div className="grid w-full grid-cols-1 gap-4 @sm:grid-cols-2">
-                {/* Auto-update — a full-size pill switch, no fine print. */}
-                <div className="card-interactive flex min-h-[150px] flex-col gap-4 rounded-xl border border-border bg-surface p-6">
-                  <div className="flex items-center gap-2.5">
-                    <RefreshCw size={16} className="text-text-muted" aria-hidden />
-                    <span className="text-sm font-medium text-text">{t.settings.autoUpdate}</span>
-                  </div>
-                  <div className="flex flex-1 items-center gap-3">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={autoUpdate}
-                      aria-label={t.settings.autoUpdate}
-                      onClick={() => { const v = !autoUpdate; setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onError: (e) => toast(String(e), 'error') }); }}
-                      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border transition-colors ${autoUpdate ? 'border-accent bg-accent' : 'border-border bg-elevated'}`}
-                      style={{ transitionDuration: 'var(--motion-fast)' }}
-                    >
-                      <span
-                        className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full shadow-sm ${autoUpdate ? 'bg-bg translate-x-[22px]' : 'bg-text-muted translate-x-[3px]'}`}
-                        style={{ transition: 'transform var(--motion-base) var(--ease-spring)' }}
-                      />
-                    </button>
-                    <span className={`text-sm font-medium ${autoUpdate ? 'text-text' : 'text-text-muted'}`}>{autoUpdate ? t.settings.on : t.settings.off}</span>
-                  </div>
+              {/* Auto-update — a full-size pill switch, no fine print. */}
+              <div className="card-interactive flex flex-col gap-4 rounded-xl border border-border bg-surface p-6">
+                <div className="flex items-center gap-2.5">
+                  <RefreshCw size={16} className="text-text-muted" aria-hidden />
+                  <span className="text-sm font-medium text-text">{t.settings.autoUpdate}</span>
                 </div>
-                {/* Services — live health with a pulsing dot. */}
-                <div className="card-interactive flex min-h-[150px] flex-col gap-4 rounded-xl border border-border bg-surface p-6">
-                  <div className="flex items-center gap-2.5">
-                    <Server size={16} className="text-text-muted" aria-hidden />
-                    <span className="text-sm font-medium text-text">{t.settings.services}</span>
-                  </div>
-                  <div className="flex flex-1 flex-col justify-center gap-3.5">
-                    {[
-                      { name: t.settings.serviceDaemon, port: ':4400', up: !system.isError, target: 'daemon' as const, restartLabel: t.settings.restartDaemon },
-                      { name: t.settings.serviceWeb, port: ':4500', up: true, target: 'web' as const, restartLabel: t.settings.restartWeb },
-                    ].map((s) => (
-                      <div key={s.port} className="flex items-center justify-between">
-                        <span className="flex items-center gap-2.5 text-sm text-text">
-                          <span className={s.up ? 'live-dot inline-block h-2.5 w-2.5 rounded-full bg-success' : 'inline-block h-2.5 w-2.5 rounded-full bg-danger'} />
-                          {s.name} <span className="font-mono text-xs text-text-muted">{s.port}</span>
-                        </span>
-                        <span className="flex items-center gap-2.5">
-                          <span className={`text-xs font-medium ${s.up ? 'text-success' : 'text-danger'}`}>{s.up ? t.settings.serviceUp : t.settings.serviceDown}</span>
-                          <button
-                            type="button"
-                            aria-label={s.restartLabel}
-                            title={s.restartLabel}
-                            disabled={systemRestart.isPending}
-                            onClick={() => setRestartTarget(s.target)}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-elevated text-text-muted transition-colors hover:border-accent hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <RotateCcw size={13} aria-hidden />
-                          </button>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              </div>
-
-              {/* Agent skills — install/verify the `orca-workflow` skill across the agent providers.
-                  The daemon self-installs on startup; this is the on-demand re-apply + per-provider status. */}
-              <div className="card-interactive flex w-full max-w-lg flex-col gap-4 rounded-xl border border-border bg-surface p-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <Sparkles size={16} className="text-text-muted" aria-hidden />
-                    <span className="text-sm font-medium text-text">{t.settings.agentSkills}</span>
-                    <HelpTip align="left">{t.help.agentSkills}</HelpTip>
-                  </div>
-                  <Button
-                    variant="accent"
-                    className="h-8 shrink-0"
-                    disabled={installSkills.isPending || !(systemSkills.data?.skills ?? []).some((s) => s.present && !s.upToDate)}
-                    onClick={() => installSkills.mutate(undefined, {
-                      onSuccess: () => toast(t.settings.skillsInstalled),
-                      onError: (e) => toast(String(e), 'error'),
-                    })}
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoUpdate}
+                    aria-label={t.settings.autoUpdate}
+                    onClick={() => { const v = !autoUpdate; setAutoUpdate(v); update.mutate({ autoUpdate: v }, { onError: (e) => toast(String(e), 'error') }); }}
+                    className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border transition-colors ${autoUpdate ? 'border-accent bg-accent' : 'border-border bg-elevated'}`}
+                    style={{ transitionDuration: 'var(--motion-fast)' }}
                   >
-                    {installSkills.isPending ? t.settings.skillInstalling : t.settings.skillInstall}
-                  </Button>
-                </div>
-                <div className="flex flex-col gap-3">
-                  {(systemSkills.data?.skills ?? []).map((s) => {
-                    const tone = !s.present ? 'muted' : s.upToDate ? 'success' : s.installed ? 'warning' : 'default';
-                    const label = !s.present ? t.settings.skillProviderAbsent : s.upToDate ? t.settings.skillUpToDate : s.installed ? t.settings.skillOutdated : t.settings.skillMissing;
-                    return (
-                      <div key={s.provider} className="flex items-center justify-between">
-                        <span className="font-mono text-sm text-text">{s.provider}</span>
-                        <Badge tone={tone}>{label}</Badge>
-                      </div>
-                    );
-                  })}
+                    <span
+                      className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full shadow-sm ${autoUpdate ? 'bg-bg translate-x-[22px]' : 'bg-text-muted translate-x-[3px]'}`}
+                      style={{ transition: 'transform var(--motion-base) var(--ease-spring)' }}
+                    />
+                  </button>
+                  <span className={`text-sm font-medium ${autoUpdate ? 'text-text' : 'text-text-muted'}`}>{autoUpdate ? t.settings.on : t.settings.off}</span>
                 </div>
               </div>
 
               {/* Session token TTL — a server-wide security setting, so it lives with the other
                   server controls rather than among the per-task defaults. Same autosave as defaults. */}
-              <div className="w-full max-w-lg">
-                <SettingCard title={t.settings.tokenTtl} description={t.help.tokenTtl} icon={KeyRound}>
-                  <input type="number" min={1} value={defTokenTtl} onChange={(e) => setDefTokenTtl(Number(e.target.value))} className={inputClass} />
-                </SettingCard>
+              <SettingCard title={t.settings.tokenTtl} description={t.help.tokenTtl} icon={KeyRound}>
+                <input type="number" min={1} value={defTokenTtl} onChange={(e) => setDefTokenTtl(Number(e.target.value))} className={inputClass} />
+              </SettingCard>
               </div>
-            </div>
+            </PageLayout>
         )}
 
         {category === 'brain' && (
           <>
-            {/* The connections half of the models story: accounts, providers and keys (+ agent
-             *  identity). The catalog itself — enable/context-window per model — is Models. */}
-            <p className="-mb-2 text-xs text-text-muted">
-              {t.settings.brainIntro}{' '}
+            {/* Cross-link to the model catalog (enable / context-window per model) — the Models section. */}
+            <p className="-mb-2 text-xs">
               <button type="button" onClick={() => setCategory('models')} className="font-medium text-accent hover:underline">
                 {t.settings.brainModelsLink}
               </button>
@@ -858,7 +862,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-      </SettingsLayout>
+      </div>
 
       <ConfirmDialog
         open={restartTarget !== null}

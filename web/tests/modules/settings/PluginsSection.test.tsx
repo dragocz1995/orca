@@ -16,6 +16,7 @@ vi.mock('../../../lib/mutations', () => ({
   useInstallPlugin: () => ({ mutate: installMutate, isPending: false }),
   useUpdatePlugin: () => ({ mutate: updateMutate, isPending: false }),
   useUninstallPlugin: () => ({ mutate: uninstallMutate, isPending: false }),
+  useRestorePlugin: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../../../components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
 

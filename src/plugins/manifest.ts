@@ -63,6 +63,10 @@ export interface PluginManifest {
   /** Per-tool display icons (emoji), keyed by tool name — surfaced in the chat clients' tool-call lines.
    *  Overrides the core default icon map; a tool without an entry falls back to it, then to a generic glyph. */
   icons?: Record<string, string>;
+  /** Path (relative to the plugin folder) of the plugin's brand icon (SVG), shown in the settings UI.
+   *  Defaults to `icon.svg` when omitted; the icon route serves it if the file exists, else the UI
+   *  falls back to a lucide/emoji glyph. */
+  icon?: string;
   /** Declared config fields — drives the per-plugin settings form. */
   configSchema?: PluginConfigField[];
   /** What the plugin is allowed to do (deny-by-default). Gates runtime hook mutations: a patch is
@@ -88,6 +92,7 @@ const ManifestSchema = Type.Object({
     platforms: Type.Optional(Type.Array(Type.String())),
   })),
   icons: Type.Optional(Type.Record(Type.String(), Type.String())),
+  icon: Type.Optional(Type.String()),
   configSchema: Type.Optional(Type.Array(Type.Object({
     key: Type.String({ minLength: 1 }),
     label: Type.String({ minLength: 1 }),

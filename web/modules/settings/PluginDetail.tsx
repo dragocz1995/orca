@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowLeft, Plus, Trash2, KeyRound, ChevronDown, ChevronRight, Clock, Users, SlidersHorizontal, Link2, GraduationCap, Info, Wrench, Webhook, ShieldCheck, HardDrive, ScrollText, Search, Globe, type LucideIcon } from 'lucide-react';
 import { useAutoSave } from '../../lib/useAutoSave';
 import { useTheme } from '../../lib/useTheme';
-import { pluginIcon } from './pluginMeta';
+import { PluginIcon } from './PluginIcon';
 import { CronJobsEditor } from './CronJobsEditor';
 import { SkillsEditor } from './SkillsEditor';
 import { WhatsAppPairSection } from './WhatsAppPairSection';
@@ -11,6 +11,10 @@ import { MonacoEditor } from '../projects/editor/monacoLoader';
 import { defineEditorThemes } from '../projects/editor/oledTheme';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Collapsible } from '../../components/ui/Collapsible';
+import { HeroCard } from '../../components/ui/HeroCard';
+import { PageLayout } from '../../components/ui/PageLayout';
+import { RailCard } from '../../components/ui/RailCard';
 import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
 import { HelpTip } from '../../components/ui/HelpTip';
@@ -49,39 +53,6 @@ const OUTCOME_TONE: Record<PluginHookExecution['outcome'], Tone> = { ok: 'succes
 /** Mutation target → Badge tone by blast radius: tools/memory reach beyond the turn (danger),
  *  prompt/turnContext ride only the ephemeral live prompt (warning). */
 const MUTATE_TONE: Record<'prompt' | 'turnContext' | 'tools' | 'memory', Tone> = { prompt: 'warning', turnContext: 'warning', tools: 'danger', memory: 'danger' };
-
-/** A collapsible section: an icon chip + title header with a rotating chevron, and content that hides
- *  when closed. Matches SettingCard styling so a group of these reads as one system. */
-function Collapsible({ icon: Icon, title, description, defaultOpen = false, children }: {
-  icon: LucideIcon;
-  title: string;
-  description?: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-xl border border-border bg-surface" style={{ boxShadow: 'var(--shadow-card)' }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-xl px-5 py-4 text-left transition-colors hover:bg-elevated/40"
-        style={{ transitionDuration: 'var(--motion-fast)' }}
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated text-text-muted">
-          <Icon size={15} aria-hidden />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-sm font-medium text-text">{title}</span>
-          {description ? <span className="text-xs leading-relaxed text-text-muted">{description}</span> : null}
-        </span>
-        <ChevronDown size={16} className={`shrink-0 text-text-muted transition-transform ${open ? '' : '-rotate-90'}`} style={{ transitionDuration: 'var(--motion-fast)' }} aria-hidden />
-      </button>
-      {open ? <div className="border-t border-border px-5 py-4">{children}</div> : null}
-    </div>
-  );
-}
 
 /** Per-role tool allowlist pills. Selected tools always show; the unselected vocabulary is previewed
  *  (first N) with a "+xx more" expander so a big tool set doesn't wall the form. Empty = everything. */
@@ -594,7 +565,6 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
     }
   };
 
-  const HeroIcon = pluginIcon(detail.name);
   // Manifest strings are English; a plugin's own `i18n/<locale>.json` overrides description + per-field
   // label/hint. Fall back to the manifest English whenever a translation is absent.
   const tr = detail.i18n?.[locale];
@@ -692,6 +662,7 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
   // Open Config first only when there's a required-but-unset secret to fill in; otherwise Overview.
   const hasUnsetRequiredSecret = schema.some((f) => f.type === 'secret' && f.required && !detail.secretsSet.includes(f.key));
   const health = logs?.health ?? detail.health ?? 'ok';
+  const hookCount = detail.provides.hooks?.length ?? 0;
 
   // Declared manifest capabilities — deny-by-default: an absent target means the plugin CANNOT do it.
   const capabilities = detail.capabilities ?? {};
@@ -705,40 +676,54 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
         <Button variant="ghost" icon={ArrowLeft} onClick={onBack}>{t.pluginCfg.back}</Button>
       </div>
 
-      {/* Hero header: the plugin's identity card. */}
-      <div className="flex items-start gap-4 rounded-xl border border-border bg-surface p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
-        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${detail.enabled ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-elevated text-text-muted'}`}>
-          <HeroIcon size={22} aria-hidden />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text">
-            {detail.name}
-            <span className="font-mono text-tiny text-text-muted">v{detail.version}</span>
-            {detail.secretsSet.length > 0 ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
-          </span>
-          <p className="text-xs leading-relaxed text-text-muted">{pluginDescription}</p>
-        </div>
-      </div>
-
-      {/* 1 — Overview: identity facts, health, and the live enable toggle. */}
-      <Collapsible icon={Info} title={t.pluginDetail.overview} defaultOpen>
-        <div className="@container flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4 @sm:grid-cols-3">
-            <Meta label={t.pluginDetail.overviewVersion}><span className="font-mono">v{detail.version}</span></Meta>
-            <Meta label={t.pluginDetail.overviewSource}>{detail.source === 'bundled' ? t.plugins.bundled : t.plugins.user}</Meta>
-            <Meta label={t.pluginDetail.overviewStatus}>
-              <span className="flex flex-wrap items-center gap-2">
-                <Toggle checked={detail.enabled} onChange={(v) => toggle.mutate({ name, enabled: v })} label={detail.name} disabled={toggle.isPending} />
-                <span className="text-text-muted">{detail.enabled ? t.plugins.disable : t.plugins.enable}</span>
-                <Badge tone={health === 'error' ? 'danger' : 'success'}>{health === 'error' ? t.plugins.healthError : t.plugins.healthOk}</Badge>
-              </span>
-            </Meta>
+      {/* Hero: the plugin's identity card — icon, name, description, live enable toggle, and key facts. */}
+      <HeroCard
+        icon={<PluginIcon name={detail.name} hasIcon={detail.hasIcon} size={48} />}
+        title={detail.name}
+        subtitle={pluginDescription}
+        badge={<Badge tone={detail.enabled ? 'success' : 'muted'}>{detail.enabled ? t.pluginDetail.statusEnabled : t.pluginDetail.statusDisabled}</Badge>}
+        meta={[
+          { label: t.pluginDetail.overviewVersion, value: <span className="font-mono">v{detail.version}</span> },
+          { label: t.pluginDetail.overviewSource, value: detail.source === 'bundled' ? t.plugins.bundled : t.plugins.user },
+          { label: t.pluginDetail.tools, value: <span className="font-mono">{toolCount}</span> },
+        ]}
+        actions={
+          <div className="flex items-center gap-2">
+            <Toggle checked={detail.enabled} onChange={(v) => toggle.mutate({ name, enabled: v })} label={detail.name} disabled={toggle.isPending} />
+            <HelpTip align="left">{t.help.pluginEnable}</HelpTip>
           </div>
-          <p className="text-sm leading-relaxed text-text-muted">{pluginDescription}</p>
-        </div>
-      </Collapsible>
+        }
+      />
 
-      {/* 2 — Config: when the author declared `section` headers, each section is its own collapsible (a
+      {/* Two-column body: the config + capability sections in the main column, a status rail on the right. */}
+      <PageLayout
+        rail={
+          <RailCard title={t.pluginDetail.overviewStatus}>
+            <dl className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <dt className="flex items-center gap-1 text-xs text-text-muted">{t.pluginDetail.health}<HelpTip align="left">{t.help.pluginHealth}</HelpTip></dt>
+                <dd><Badge tone={health === 'error' ? 'danger' : 'success'}>{health === 'error' ? t.plugins.healthError : t.plugins.healthOk}</Badge></dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-xs text-text-muted">{t.pluginDetail.tools}</dt>
+                <dd className="font-mono text-sm text-text">{toolCount}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-xs text-text-muted">{t.pluginDetail.hooks}</dt>
+                <dd className="font-mono text-sm text-text">{hookCount}</dd>
+              </div>
+              {platformCount > 0 ? (
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-xs text-text-muted">{t.pluginDetail.platforms}</dt>
+                  <dd className="font-mono text-sm text-text">{platformCount}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </RailCard>
+        }
+      >
+
+      {/* Config: when the author declared `section` headers, each section is its own collapsible (a
           peer of Tools/Hooks below); otherwise a single generated Config panel. */}
       {schema.length === 0 ? (
         <Collapsible icon={SlidersHorizontal} title={t.pluginDetail.config}>
@@ -746,7 +731,7 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
         </Collapsible>
       ) : hasExplicitSections ? (
         configGroups.map((g, i) => (
-          <Collapsible key={g.key} icon={SlidersHorizontal} title={g.title} description={g.hint} defaultOpen={i === 0 || groupHasUnsetSecret(g)}>
+          <Collapsible key={g.key} icon={SlidersHorizontal} title={g.title} subtitle={g.hint} defaultOpen={i === 0 || groupHasUnsetSecret(g)}>
             {/* WhatsApp: the "Pair device" button (QR/code modal) lives at the top of the Connection section. */}
             {detail.name === 'whatsapp' && g.key === 'sec_connection' ? <WhatsAppPairSection /> : null}
             {fieldList(g.fields)}
@@ -764,14 +749,14 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
 
       {/* The cronjob plugin's jobs are data, not config schema — a dedicated editor section. */}
       {detail.name === 'cronjob' ? (
-        <Collapsible icon={Clock} title={t.cron.title} description={t.cron.sectionHint} defaultOpen>
+        <Collapsible icon={Clock} title={t.cron.title} subtitle={t.cron.sectionHint} defaultOpen>
           <CronJobsEditor />
         </Collapsible>
       ) : null}
 
       {/* Same story for the skills plugin: its skills are .md files, not config schema. */}
       {detail.name === 'skills' ? (
-        <Collapsible icon={GraduationCap} title={t.skills.title} description={t.skills.sectionHint} defaultOpen>
+        <Collapsible icon={GraduationCap} title={t.skills.title} subtitle={t.skills.sectionHint} defaultOpen>
           <SkillsEditor />
         </Collapsible>
       ) : null}
@@ -901,6 +886,7 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
           )}
         </div>
       </Collapsible>
+      </PageLayout>
     </div>
   );
 }

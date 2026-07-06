@@ -172,8 +172,11 @@ export const orcaClient = {
   installPlugin: (name: string, enable = true) => req<PluginInfo>(`/plugins/marketplace/${encodeURIComponent(name)}/install`, json({ enable })),
   /** Update an installed (user) plugin to the registry's newer version. Applies live. */
   updatePlugin: (name: string) => req<PluginInfo>(`/plugins/marketplace/${encodeURIComponent(name)}/update`, json({})),
-  /** Uninstall a user plugin: removes its folder AND its data (built-in plugins can't be removed). */
+  /** Remove a plugin: a user plugin is uninstalled (folder + data deleted); a bundled plugin is
+   *  soft-removed (hidden + unloaded, files kept) and can be restored. Applies live. */
   uninstallPlugin: (name: string) => req<{ ok: true }>(`/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  /** Restore a soft-removed bundled plugin (reappears disabled in the installed list). Applies live. */
+  restorePlugin: (name: string) => req<PluginInfo>(`/plugins/${encodeURIComponent(name)}/restore`, json({})),
   /** The cronjob plugin's raw jobs list; saving replaces the whole array (applies live, no restart). */
   cronJobs: () => req<CronJob[]>('/plugins/cronjob/jobs'),
   saveCronJobs: (jobs: CronJob[]) => req<{ ok: boolean }>('/plugins/cronjob/jobs', json(jobs, 'PUT')),

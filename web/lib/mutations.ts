@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { orcaClient } from './orcaClient';
 import { QUERY_KEYS } from './queries';
-import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings, CronJob, PersonalityCreate, PersonalityPatch, MemoryCreate, MemoryPatch, EmbeddingSettingsPatch, MemoryCategoryCreate, MemoryCategoryPatch, CategorizationSettingsPatch } from './types';
+import type { CreateTaskInput, UpdateTaskInput, PlanInput, EngageInput, ConfigPatch, InsertPhasesInput, UserPatch, ProfilePatch, CliSettings, CronJob, PersonalityCreate, PersonalityPatch, MemoryCreate, MemoryPatch, EmbeddingSettingsPatch, MemoryCategoryCreate, MemoryCategoryPatch, CategorizationSettingsPatch, PluginInfo, PluginDetail } from './types';
 
 export function useSpawn() {
   const qc = useQueryClient();
@@ -224,11 +224,34 @@ export function useActivatePersonality() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['personalities'] }),
   });
 }
+/** Toggle a plugin on/off. Optimistic: the installed list AND the open detail flip instantly so the UI
+ *  reacts immediately, without waiting for the daemon's hot-reload + refetch. On settle we re-fetch the
+ *  list, the detail and its logs (health derives from the log ring) so everything reflects the real
+ *  backend state; on error the optimistic change rolls back. */
 export function useTogglePlugin() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (v: { name: string; enabled: boolean }) => orcaClient.togglePlugin(v.name, v.enabled), onSuccess: () => qc.invalidateQueries({ queryKey: ['plugins'] }) });
+  return useMutation({
+    mutationFn: (v: { name: string; enabled: boolean }) => orcaClient.togglePlugin(v.name, v.enabled),
+    onMutate: async (v) => {
+      await qc.cancelQueries({ queryKey: ['plugins'] });
+      const prevList = qc.getQueryData<PluginInfo[]>(['plugins']);
+      const prevDetail = qc.getQueryData<PluginDetail>(['plugin', v.name]);
+      qc.setQueryData<PluginInfo[]>(['plugins'], (cur) => cur?.map((p) => (p.name === v.name ? { ...p, enabled: v.enabled } : p)));
+      qc.setQueryData<PluginDetail>(['plugin', v.name], (cur) => (cur ? { ...cur, enabled: v.enabled } : cur));
+      return { prevList, prevDetail };
+    },
+    onError: (_e, v, ctx) => {
+      if (ctx?.prevList) qc.setQueryData(['plugins'], ctx.prevList);
+      if (ctx?.prevDetail) qc.setQueryData(['plugin', v.name], ctx.prevDetail);
+    },
+    onSettled: (_d, _e, v) => {
+      void qc.invalidateQueries({ queryKey: ['plugins'] });
+      void qc.invalidateQueries({ queryKey: ['plugin', v.name] });
+      void qc.invalidateQueries({ queryKey: ['plugin-logs', v.name] });
+    },
+  });
 }
-/** Refresh both the marketplace catalog and the installed list after any install/update/uninstall. */
+/** Refresh both the marketplace catalog and the installed list after any install/update/uninstall/restore. */
 function invalidatePluginViews(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['marketplace'] });
   void qc.invalidateQueries({ queryKey: ['plugins'] });
@@ -243,10 +266,15 @@ export function useUpdatePlugin() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (name: string) => orcaClient.updatePlugin(name), onSuccess: () => invalidatePluginViews(qc) });
 }
-/** Uninstall a user plugin — removes its folder AND its data. */
+/** Remove a plugin — a user plugin is uninstalled (files deleted); a bundled plugin is soft-removed. */
 export function useUninstallPlugin() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (name: string) => orcaClient.uninstallPlugin(name), onSuccess: () => invalidatePluginViews(qc) });
+}
+/** Restore a soft-removed bundled plugin (reappears disabled in the installed list). */
+export function useRestorePlugin() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (name: string) => orcaClient.restorePlugin(name), onSuccess: () => invalidatePluginViews(qc) });
 }
 /** Replace the cronjob plugin's whole jobs array (auto-saved by the cron editor). */
 export function useSaveCronJobs() {

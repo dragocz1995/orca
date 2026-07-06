@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-vi.mock('next/navigation', () => ({ usePathname: () => '/dash' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/dash', useSearchParams: () => new URLSearchParams() }));
 import { NavGroup } from '../../../components/shell/NavGroup';
 import { LayoutDashboard } from 'lucide-react';
 

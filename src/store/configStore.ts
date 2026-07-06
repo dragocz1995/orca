@@ -53,9 +53,10 @@ export interface OrcaConfig {
   /** Web Push VAPID public key (safe to expose) + whether a keypair has been generated. The private
    *  key NEVER leaves the daemon — read it only via `webPushKeys()`. */
   webPush: { publicKey: string; publicKeySet: boolean };
-  /** Which plugins the admin has enabled. Per-plugin config (which may hold secrets) is NOT exposed here
-   *  — read it daemon-side via `pluginConfig(name)`. */
-  plugins: { enabled: string[] };
+  /** Which plugins the admin has enabled, and which bundled ones were soft-removed (hidden from the
+   *  installed list without deleting npm-owned files — restorable). Per-plugin config (which may hold
+   *  secrets) is NOT exposed here — read it daemon-side via `pluginConfig(name)`. */
+  plugins: { enabled: string[]; removed: string[] };
   /** The brain's dedicated model providers (public view: API keys stripped to `apiKeySet`). Empty →
    *  the brain falls back to the autopilot relay endpoint. `agentName` is the assistant's display
    *  identity ("Orca" by default) — it feeds the persona prompts everywhere the brain speaks.
@@ -170,7 +171,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   security: { tokenTtlDays: 30 },
   autoUpdate: false,
   webPush: { publicKey: '', publicKeySet: false },
-  plugins: { enabled: [] },
+  plugins: { enabled: [], removed: [] },
   brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {} },
   embedding: { providerId: '', model: '', baseUrl: '', dimensions: null },
   categorization: { providerId: '', model: '', baseUrl: '' },
@@ -190,8 +191,9 @@ interface Stored {
   autoUpdate: boolean;
   /** Persisted VAPID keypair; null until generated on first boot. Private key stays daemon-side. */
   webPush: { publicKey: string; privateKey: string } | null;
-  /** Enabled plugin names + each plugin's own config slice (secrets included, never serialized to API). */
-  plugins: { enabled: string[]; config: Record<string, Record<string, unknown>> };
+  /** Enabled plugin names, soft-removed (hidden) bundled plugin names, + each plugin's own config slice
+   *  (secrets included, never serialized to API). */
+  plugins: { enabled: string[]; removed: string[]; config: Record<string, Record<string, unknown>> };
   /** Brain provider entries with plaintext API keys — stripped to `apiKeySet` in the public view. */
   brain: { providers: BrainProviderStored[]; agentName: string; maxSteps: number; modelContextWindows: Record<string, number> };
   /** Embedding provider config. Holds no secret (the key is reused from the brain provider), so this
@@ -214,7 +216,7 @@ const defaultStored = (): Stored => ({
   security: { ...DEFAULT_CONFIG.security },
   autoUpdate: false,
   webPush: null,
-  plugins: { enabled: [], config: {} },
+  plugins: { enabled: [], removed: [], config: {} },
   brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {} },
   embedding: { providerId: '', model: '', baseUrl: '', dimensions: null },
   categorization: { providerId: '', model: '', baseUrl: '' },
@@ -230,7 +232,7 @@ export interface ConfigPatch {
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
   security?: { tokenTtlDays?: number };
   autoUpdate?: boolean;
-  plugins?: { enabled?: string[]; config?: Record<string, Record<string, unknown>> };
+  plugins?: { enabled?: string[]; removed?: string[]; config?: Record<string, Record<string, unknown>> };
   /** Brain providers replace wholesale (the UI edits the full list). A patched entry with an empty/absent
    *  apiKey KEEPS the currently stored key for that id — the UI never sees (or resends) secrets. */
   brain?: { providers?: unknown; agentName?: unknown; maxSteps?: number; modelContextWindows?: Record<string, number> };
@@ -273,10 +275,11 @@ export class ConfigStore {
         plugins: (p.plugins && typeof p.plugins === 'object' && !Array.isArray(p.plugins))
           ? {
               enabled: Array.isArray(p.plugins.enabled) ? p.plugins.enabled : [],
+              removed: Array.isArray(p.plugins.removed) ? p.plugins.removed : [],
               config: (p.plugins.config && typeof p.plugins.config === 'object' && !Array.isArray(p.plugins.config))
                 ? (p.plugins.config as Record<string, Record<string, unknown>>) : {},
             }
-          : { enabled: [], config: {} },
+          : { enabled: [], removed: [], config: {} },
         brain: {
           providers: sanitizeBrainProviders(p.brain?.providers),
           agentName: typeof p.brain?.agentName === 'string' && p.brain.agentName.trim() ? p.brain.agentName.trim().slice(0, 40) : 'Orca',
@@ -317,8 +320,8 @@ export class ConfigStore {
       autoUpdate: s.autoUpdate,
       // Only the public key is exposed; `publicKeySet` reflects whether a full keypair exists.
       webPush: { publicKey: s.webPush?.publicKey ?? '', publicKeySet: !!s.webPush },
-      // Only the enabled list surfaces; per-plugin config (possible secrets) stays daemon-side.
-      plugins: { enabled: s.plugins.enabled },
+      // Only the enabled + removed lists surface; per-plugin config (possible secrets) stays daemon-side.
+      plugins: { enabled: s.plugins.enabled, removed: s.plugins.removed },
       brain: { providers: s.brain.providers.map(({ apiKey, ...pub }) => ({ ...pub, apiKeySet: !!apiKey })), agentName: s.brain.agentName, maxSteps: s.brain.maxSteps, modelContextWindows: s.brain.modelContextWindows },
       // No secret in the embedding block (the key is reused from the brain provider) → expose verbatim.
       embedding: s.embedding,
@@ -389,6 +392,7 @@ export class ConfigStore {
       webPush: cur.webPush, // VAPID keys are managed via setWebPushKeys, never through the config patch
       plugins: {
         enabled: patch.plugins?.enabled ?? cur.plugins.enabled,
+        removed: patch.plugins?.removed ?? cur.plugins.removed,
         // Merge per-plugin config so a patch touching one plugin never wipes another's slice.
         config: patch.plugins?.config ? { ...cur.plugins.config, ...patch.plugins.config } : cur.plugins.config,
       },

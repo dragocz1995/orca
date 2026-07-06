@@ -4,15 +4,13 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef } from 'react';
 import { User, ShieldAlert } from 'lucide-react';
 import { modulesByGroup } from '../../modules/registry';
+import { SETTINGS_SECTIONS } from '../../modules/settings/categories';
 import { useSidebarState } from '../../lib/useSidebarState';
 import { useHealth, useTasks, useMe, useEscalations, usePendingAsks } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { NavGroup } from './NavGroup';
 import { OpsStatusBar } from './OpsStatusBar';
-import { NotificationBell } from '../ui/NotificationBell';
 import { Avatar } from '../ui/Avatar';
-import { ThemeToggle } from '../ui/ThemeToggle';
-import { LanguageSwitcher } from '../ui/LanguageSwitcher';
 
 const RAIL = 56;
 const DAEMON_STATUS = {
@@ -54,6 +52,15 @@ export function Sidebar({ mode = 'full', drawerOpen = false, onDrawerClose, side
   // inline arrow each render, so listing it would fire this on every parent re-render (closing the
   // drawer spuriously); `drawer` is read at run time. Only a route change should close it.
   useEffect(() => { if (drawer) onDrawerClose?.(); }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Same-page section switches (settings sub-items) change only the `?cat=` query, not the pathname, so
+  // the effect above won't fire — they navigate via history + a popstate signal. Close the drawer on
+  // that too (and on browser back/forward) so tapping a settings section on a phone dismisses the menu.
+  useEffect(() => {
+    if (!drawer) return;
+    const close = () => onDrawerClose?.();
+    window.addEventListener('popstate', close);
+    return () => window.removeEventListener('popstate', close);
+  }, [drawer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     dragging.current = true;
@@ -92,7 +99,7 @@ export function Sidebar({ mode = 'full', drawerOpen = false, onDrawerClose, side
       </div>
 
       <div className="flex-1 overflow-y-auto py-2">
-        {modulesByGroup().filter((g) => g.group !== 'Config' || isAdmin).map((g) => {
+        {modulesByGroup().filter((g) => (g.group !== 'Config' || isAdmin) && g.items.length > 0).map((g) => {
           const groupLabel = g.group === 'Operate' ? t.nav.operate : t.nav.config;
           return (
             <NavGroup
@@ -104,6 +111,9 @@ export function Sidebar({ mode = 'full', drawerOpen = false, onDrawerClose, side
                   label: t.nav[m.id as keyof typeof t.nav] ?? m.label,
                   icon: m.icon,
                   badge: m.id === 'escalations' ? escalationCount : undefined,
+                  subItems: m.id === 'settings'
+                    ? SETTINGS_SECTIONS.map((s) => ({ id: s.id, href: `/settings?cat=${s.id}`, label: t.settings[s.id] }))
+                    : undefined,
                 })),
               }}
               pathname={pathname}
@@ -136,9 +146,8 @@ export function Sidebar({ mode = 'full', drawerOpen = false, onDrawerClose, side
 
       <OpsStatusBar expanded={expanded} />
 
-      {/* Thin footer: account link (avatar + name + role) with the live daemon-health as a corner
-          dot, then the notify bell + theme toggle + language dropdown — all on one compact row when
-          expanded, stacked in the narrow rail. */}
+      {/* Thin footer: account link (avatar + name + role) with the live daemon-health as a corner dot.
+          The bell / theme / language controls now live in the global top bar. */}
       <div className={`flex border-t border-border px-3 py-2 ${expanded ? 'items-center gap-1.5' : 'flex-col items-center gap-2'}`}>
         <Link
           href="/account"
@@ -164,9 +173,6 @@ export function Sidebar({ mode = 'full', drawerOpen = false, onDrawerClose, side
             </span>
           )}
         </Link>
-        <NotificationBell />
-        <ThemeToggle />
-        <LanguageSwitcher collapsed={!expanded} side={side} />
       </div>
 
       {/* Version + authorship credit — its own line-separated footer at the very bottom. */}

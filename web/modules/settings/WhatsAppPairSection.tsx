@@ -34,10 +34,9 @@ export function WhatsAppPairSection() {
       <p className="text-sm text-text-muted">{t.pluginDetail.waPairHint}</p>
       <div className="flex flex-wrap items-center gap-2">
         {connected ? (
-          <>
-            <span className="inline-flex items-center gap-1.5 text-sm text-success"><CheckCircle2 size={16} aria-hidden /> {t.pluginDetail.waPairConnected}</span>
-            <Button variant="danger" icon={Unlink} onClick={() => setConfirmUnpair(true)}>{t.pluginDetail.waUnpairButton}</Button>
-          </>
+          // Paired state reads from the action itself — the red "Unpair" is only shown when linked, so
+          // no redundant "connected!" banner is needed.
+          <Button variant="danger" icon={Unlink} onClick={() => setConfirmUnpair(true)}>{t.pluginDetail.waUnpairButton}</Button>
         ) : (
           <Button variant="accent" icon={QrCode} onClick={() => setOpen(true)}>{t.pluginDetail.waPairButton}</Button>
         )}
@@ -93,9 +92,9 @@ function PairModal({ onClose }: { onClose: () => void }) {
         {error ? (
           <p className="text-sm text-danger">{t.pluginDetail.waPairError}</p>
         ) : connected ? (
+          // Success is shown by the check + the footer flipping to "OK"; no wording needed.
           <div className="flex flex-col items-center gap-3 py-8 text-center">
             <CheckCircle2 size={48} className="text-success" aria-hidden />
-            <p className="text-sm text-text">{t.pluginDetail.waPairConnected}</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-4 py-2 text-center">

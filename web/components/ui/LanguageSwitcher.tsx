@@ -66,10 +66,10 @@ export function LanguageSwitcher({ collapsed = false, side = 'left' }: { collaps
         onClick={() => (open ? setOpen(false) : openMenu())}
         className={collapsed
           ? 'flex h-7 w-7 items-center justify-center rounded-md border border-border text-text-muted transition-colors hover:border-border-strong hover:text-text'
-          : 'flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-tiny text-text-muted transition-colors hover:border-border-strong hover:text-text'}
+          : 'flex h-9 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-muted transition-colors hover:border-border-strong hover:text-text'}
         style={{ transitionDuration: 'var(--motion-fast)' }}
       >
-        <Languages size={collapsed ? 14 : 12} aria-hidden />
+        <Languages size={collapsed ? 14 : 16} aria-hidden />
         {!collapsed && <span className="font-mono uppercase tracking-wide">{locale}</span>}
       </button>
       {open && (
@@ -77,7 +77,7 @@ export function LanguageSwitcher({ collapsed = false, side = 'left' }: { collaps
           role="menu"
           aria-label={t.common.language}
           onKeyDown={onMenuKey}
-          className={`absolute z-50 min-w-[9rem] overflow-hidden rounded-lg border border-border bg-surface py-1 ${collapsed ? (side === 'right' ? 'bottom-0 right-full mr-2' : 'bottom-0 left-full ml-2') : 'bottom-full right-0 mb-2'}`}
+          className={`absolute z-50 min-w-[9rem] overflow-hidden rounded-lg border border-border bg-surface py-1 ${collapsed ? (side === 'right' ? 'bottom-0 right-full mr-2' : 'bottom-0 left-full ml-2') : 'top-full right-0 mt-2'}`}
           style={{ boxShadow: 'var(--shadow-raised)' }}
         >
           {LANGS.map((l, i) => {

@@ -32,10 +32,10 @@ export function ThemeToggle() {
       onClick={() => setTheme(next)}
       aria-label={`${t.common.theme}: ${label(theme)}`}
       title={`${t.common.theme}: ${label(theme)}`}
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-text-muted transition-colors hover:border-border-strong hover:text-text"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border text-text-muted transition-colors hover:border-border-strong hover:text-text"
       style={{ transitionDuration: 'var(--motion-fast)' }}
     >
-      <Icon size={14} aria-hidden />
+      <Icon size={18} aria-hidden />
     </button>
   );
 }

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+vi.mock('next/navigation', () => ({ usePathname: () => '/settings', useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
@@ -12,7 +13,7 @@ const server = setupServer(
   http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet', 'codex:gpt-5.4'], customModels: [], autopilot: { model: 'mimo-v2.5', apiUrl: 'https://relay.example/v1', apiKeySet: false, notes: '' }, providers: { 'claude-code': { bin: 'claude', args: '' }, opencode: { bin: 'opencode', args: '' }, codex: { bin: 'codex', args: '' } }, defaults: { exec: 'sonnet', autonomy: 'L1', maxSessions: 1 }, security: { tokenTtlDays: 30 } })),
   http.put('*/api/config', async ({ request }) => { putBody = await request.json(); return HttpResponse.json({ allowedExecs: ['sonnet'], customModels: [], autopilot: { model: 'mimo-v2.5', apiUrl: 'https://relay.example/v1', apiKeySet: false, notes: '' }, defaults: { exec: 'sonnet', autonomy: 'L1', maxSessions: 1 }, security: { tokenTtlDays: 30 } }); }),
 );
-beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
+beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => { server.resetHandlers(); localStorage.clear(); }); afterAll(() => server.close());
 
 describe('SettingsPage', () => {
   it('auto-saves a changed model allowlist on toggle (no manual save button)', async () => {
@@ -79,24 +80,26 @@ describe('SettingsPage', () => {
     });
   });
 
-  it('switches categories via the sidebar nav', async () => {
+  it('renders the section selected by the persisted category key', async () => {
+    // The category picker now lives in the main sidebar; the page reads the active section from the
+    // persisted `orca.settings.category` key (and the `?cat=` deep-link). Setting it selects the section.
+    localStorage.setItem('orca.settings.category', 'autopilot');
     const { wrapper: Wrapper } = createWrapper();
-    render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
+    const { unmount } = render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByText('How autopilot reasons')).toBeTruthy());
+    unmount();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Autopilot' }));
-    expect(screen.getByText('How autopilot reasons')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Defaults' }));
-    expect(screen.getByText('Executor')).toBeTruthy();
+    localStorage.setItem('orca.settings.category', 'defaults');
+    const { wrapper: Wrapper2 } = createWrapper();
+    render(<Wrapper2><ToastProvider><SettingsPage /></ToastProvider></Wrapper2>);
+    await waitFor(() => expect(screen.getByText('Executor')).toBeTruthy());
   });
 
   it('defaults to Relay mode and saves relay fields (execs cleared)', async () => {
+    localStorage.setItem('orca.settings.category', 'autopilot');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Autopilot' }));
+    await waitFor(() => expect(screen.getByText('How autopilot reasons')).toBeTruthy());
     expect(screen.getByText('How autopilot reasons')).toBeTruthy();
     expect(screen.getByText('Planner model')).toBeTruthy(); // same role labels in both modes
 
@@ -111,11 +114,11 @@ describe('SettingsPage', () => {
   });
 
   it('switching to CLI Tools saves agent execs (same role labels in both modes)', async () => {
+    localStorage.setItem('orca.settings.category', 'autopilot');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
+    await waitFor(() => expect(screen.getByText('How autopilot reasons')).toBeTruthy());
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Autopilot' }));
     putBody = null;
     fireEvent.click(screen.getByText('CLI Tools')); // mode toggle — auto-persists the agent execs
     expect(screen.getByText('Planner model')).toBeTruthy(); // unified label, not a separate "Pilot backend"
@@ -129,11 +132,11 @@ describe('SettingsPage', () => {
   });
 
   it('saves the GitHub PR-native fields from the GitHub section', async () => {
+    localStorage.setItem('orca.settings.category', 'github');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
+    await waitFor(() => expect(screen.getByText('Verify command')).toBeTruthy());
 
-    fireEvent.click(screen.getByRole('radio', { name: 'GitHub' }));
     // The PR fields live in their own GitHub section now; the default toggle starts off.
     expect(screen.getByLabelText(/PR workflow/)).not.toBeChecked();
     expect(screen.getByText('Verify command')).toBeTruthy();
@@ -169,15 +172,23 @@ describe('Settings depth', () => {
   it('renders model toggles and a defaults segmented control', async () => {
     server.use(http.get('*/api/config', () => HttpResponse.json(config)));
     const { wrapper: Wrapper } = createWrapper();
-    render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+    const { unmount } = render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
 
     // Models category is active by default
     await waitFor(() => expect(screen.getAllByRole('switch').length).toBeGreaterThan(0)); // model toggle cards
+    unmount();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Autopilot' }));
-    expect(screen.getByDisplayValue('mind the guardrails')).toBeTruthy();                 // notes textarea
+    // Autopilot section — the notes textarea seeded from config.
+    localStorage.setItem('orca.settings.category', 'autopilot');
+    const { wrapper: WrapperAp } = createWrapper();
+    const ap = render(<WrapperAp><ToastProvider><SettingsPage /></ToastProvider></WrapperAp>);
+    await waitFor(() => expect(screen.getByDisplayValue('mind the guardrails')).toBeTruthy()); // notes textarea
+    ap.unmount();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Defaults' }));
-    expect(screen.getAllByRole('radiogroup').length).toBeGreaterThan(0);                  // defaults segmented (autonomy/exec)
+    // Defaults section — the autonomy/exec segmented controls.
+    localStorage.setItem('orca.settings.category', 'defaults');
+    const { wrapper: WrapperDef } = createWrapper();
+    render(<WrapperDef><ToastProvider><SettingsPage /></ToastProvider></WrapperDef>);
+    await waitFor(() => expect(screen.getAllByRole('radiogroup').length).toBeGreaterThan(0)); // defaults segmented (autonomy/exec)
   });
 });

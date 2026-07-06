@@ -1,7 +1,7 @@
-/* Vercel-style: subtle elevation + border lighten + a 1px lift on hover (no glow, no gradient).
-   The resting shadow lives here too, so every .card-interactive surface shares one depth language. */
-.card-interactive { box-shadow: var(--shadow-card); transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
-.card-interactive:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-raised); transform: translateY(-1px); }
+/* Black-OLED / Vercel-flat: NO resting shadow, NO hover lift, NO glow, NO gradient. Depth comes only
+   from the hairline border, which lightens a touch on hover. Keeps the whole app dead-flat on black. */
+.card-interactive { transition: border-color var(--motion-base) var(--ease-out), background-color var(--motion-base) var(--ease-out); }
+.card-interactive:hover { border-color: var(--color-border-strong); }
 
 /* The clock numerals: a vertical text gradient (flat — no glow). */
 .hero-clock {
