@@ -27,7 +27,7 @@ export async function runProjectStep(ctx: WizardCtx): Promise<StepResult> {
     ],
   })) as string;
   if (choice === 'back') return { status: 'back' };
-  if (choice === 'skip') return { status: 'skipped', summary: 'no project' };
+  if (choice === 'skip') return { status: 'skipped' };
 
   if (choice === 'existing') {
     const pick = guard(await p.select({
@@ -36,14 +36,14 @@ export async function runProjectStep(ctx: WizardCtx): Promise<StepResult> {
     })) as string;
     const proj = existing.find((e) => String(e.id) === pick)!;
     ctx.answers.project = { slug: proj.slug, path: proj.path, connected: true };
-    return { status: 'done', summary: `${proj.slug} → ${proj.path}` };
+    return { status: 'done' };
   }
 
   // A new path: resolve it, validate via the daemon (the process that must read it), optionally create.
   let path = process.cwd();
   if (choice === 'custom') {
     const entered = (guard(await p.text({ message: 'Project folder path', placeholder: process.cwd() })) as string).trim();
-    if (!entered) return { status: 'skipped', summary: 'no project' };
+    if (!entered) return { status: 'skipped' };
     path = entered;
   }
   path = resolve(path);
@@ -52,7 +52,7 @@ export async function runProjectStep(ctx: WizardCtx): Promise<StepResult> {
     const create = guard(await p.confirm({ message: `${path} doesn't exist. Create it?`, initialValue: true }));
     if (!create) return { status: 'back' }; // send them back to re-choose
     try { mkdirSync(path, { recursive: true }); }
-    catch (e) { p.log.error(`Couldn't create the folder: ${(e as Error).message}`); return { status: 'skipped', summary: 'no project' }; }
+    catch (e) { p.log.error(`Couldn't create the folder: ${(e as Error).message}`); return { status: 'skipped' }; }
   }
 
   if (PROJECT_MARKERS.some((f) => existsSync(join(path, f)))) p.log.info('Detected existing project configuration.');
@@ -70,7 +70,7 @@ export async function runProjectStep(ctx: WizardCtx): Promise<StepResult> {
     if (r.ok) {
       ctx.answers.project = { slug, path, connected: true };
       p.log.success(`Orca will work in ${path} (${slug}).`);
-      return { status: 'done', summary: `${slug} → ${path}` };
+      return { status: 'done' };
     }
     if (r.status === 409) {
       taken.add(slug);
@@ -81,7 +81,7 @@ export async function runProjectStep(ctx: WizardCtx): Promise<StepResult> {
       continue;
     }
     p.log.error(humanError(new Error(`registering the project failed (${r.status})`), r.status));
-    return { status: 'skipped', summary: 'no project' };
+    return { status: 'skipped' };
   }
 }
 

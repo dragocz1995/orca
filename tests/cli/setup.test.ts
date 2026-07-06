@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isFirstRun, buildSetupPlan, applySetup, defaultExecForCli, fetchAvailableClis, fetchGithubStatus, type SetupAnswers } from '../../src/cli/setup.js';
+import { isFirstRun, buildSetupPlan, applySetup, defaultExecForCli, type SetupAnswers } from '../../src/cli/setup.js';
 
 const answers: SetupAnswers = {
   username: 'admin', password: 'sekret',
@@ -33,47 +33,6 @@ describe('cli/setup.defaultExecForCli', () => {
   it('falls back to the default opencode model and rejects unknown CLIs', () => {
     expect(defaultExecForCli('opencode')).toMatch(/^opencode:.+/);
     expect(defaultExecForCli('nope')).toBe('');
-  });
-});
-
-describe('cli/setup.fetchAvailableClis', () => {
-  const status = (tools: { name: string; functional: boolean }[]) =>
-    (async () => new Response(JSON.stringify({ tools }), { status: 200 })) as unknown as typeof fetch;
-
-  it('returns only functional agent CLIs, in recommended order', async () => {
-    const fetchFn = status([
-      { name: 'codex', functional: true }, { name: 'claude', functional: true },
-      { name: 'opencode', functional: false }, { name: 'node', functional: true }, { name: 'tmux', functional: true },
-    ]);
-    expect(await fetchAvailableClis(fetchFn, 'http://x', 'TKN')).toEqual(['claude', 'codex']);
-  });
-  it('returns [] when the probe fails', async () => {
-    const fetchFn = (async () => new Response('nope', { status: 401 })) as unknown as typeof fetch;
-    expect(await fetchAvailableClis(fetchFn, 'http://x', 'TKN')).toEqual([]);
-  });
-  it('sends the bearer token', async () => {
-    let auth: string | undefined;
-    const fetchFn = (async (_url: string, init?: RequestInit) => {
-      auth = (init?.headers as Record<string, string>)?.authorization;
-      return new Response(JSON.stringify({ tools: [] }), { status: 200 });
-    }) as unknown as typeof fetch;
-    await fetchAvailableClis(fetchFn, 'http://x', 'TKN');
-    expect(auth).toBe('Bearer TKN');
-  });
-});
-
-describe('cli/setup.fetchGithubStatus', () => {
-  it('passes through the daemon probe result', async () => {
-    const fetchFn = (async () => new Response(JSON.stringify({ ready: true, method: 'gh', account: 'octocat' }), { status: 200 })) as unknown as typeof fetch;
-    expect(await fetchGithubStatus(fetchFn, 'http://x', 'TKN')).toEqual({ ready: true, method: 'gh', account: 'octocat' });
-  });
-  it('degrades to a not-ready default on a failed probe', async () => {
-    const fetchFn = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch;
-    expect(await fetchGithubStatus(fetchFn, 'http://x', 'TKN')).toEqual({ ready: false, method: 'none', account: null });
-  });
-  it('degrades to a not-ready default when the request throws', async () => {
-    const fetchFn = (async () => { throw new Error('network down'); }) as unknown as typeof fetch;
-    expect(await fetchGithubStatus(fetchFn, 'http://x', 'TKN')).toEqual({ ready: false, method: 'none', account: null });
   });
 });
 

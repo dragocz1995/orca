@@ -27,13 +27,13 @@ async function createFlow(ctx: WizardCtx): Promise<StepResult> {
     ctx.token = await createAdmin(ctx.fetchFn, ctx.base, { username, password });
     s.stop('Admin account created.');
     ctx.answers.account = { username, created: true, signedIn: true };
-    return { status: 'done', summary: `${username} (created)` };
+    return { status: 'done' };
   } catch (e) {
     const msg = (e as Error).message;
     s.stop(`Creating the admin failed: ${msg}`);
     // 409: a user appeared between the first-run check and the create → sign in instead of aborting.
     if (msg.includes('(409)')) return existingFlow(ctx);
-    return { status: 'skipped', summary: 'not created' };
+    return { status: 'skipped' };
   }
 }
 
@@ -51,7 +51,7 @@ async function existingFlow(ctx: WizardCtx): Promise<StepResult> {
   if (choice === 'skip') {
     p.log.warn('Skipped — steps that change shared settings need an admin sign-in and may be limited.');
     ctx.answers.account = { username: '', created: false, signedIn: false };
-    return { status: 'skipped', summary: 'not signed in' };
+    return { status: 'skipped' };
   }
   // Sign-in loop: a wrong password retries without leaving the step.
   for (;;) {
@@ -63,11 +63,11 @@ async function existingFlow(ctx: WizardCtx): Promise<StepResult> {
       ctx.token = await login(ctx.fetchFn, ctx.base, { username, password });
       s.stop('Signed in.');
       ctx.answers.account = { username, created: false, signedIn: true };
-      return { status: 'done', summary: `${username} (signed in)` };
+      return { status: 'done' };
     } catch (e) {
       s.stop(`Sign-in failed: ${(e as Error).message}`);
       const again = guard(await p.confirm({ message: 'Try again?', initialValue: true }));
-      if (!again) { ctx.answers.account = { username: '', created: false, signedIn: false }; return { status: 'skipped', summary: 'not signed in' }; }
+      if (!again) { ctx.answers.account = { username: '', created: false, signedIn: false }; return { status: 'skipped' }; }
     }
   }
 }

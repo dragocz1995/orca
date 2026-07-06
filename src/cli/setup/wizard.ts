@@ -41,19 +41,27 @@ export async function navigate(steps: WizardStep[], ctx: WizardCtx, hooks: NavHo
   }
 }
 
-export interface OnboardingOpts { reset?: boolean; debug?: boolean }
+export interface OnboardingOpts {
+  reset?: boolean;
+  debug?: boolean;
+  /** Embedded inside another flow (e.g. `orca install`): skip the wizard's own intro/outro so the host
+   *  provides the framing. Steps and progress still render. */
+  embedded?: boolean;
+}
 
-/** Run the full onboarding wizard. Returns true when it finished (or was skipped-to-finish), false when
- *  the user bailed (progress saved for resume). All configuration flows through the daemon HTTP API;
- *  only the local completion/resume marker is written here. */
-export async function runOnboarding(base: string, env: NodeJS.ProcessEnv, opts: OnboardingOpts = {}): Promise<boolean> {
+/** Run the full onboarding wizard. Returns the admin username once the run completes (or null when the
+ *  user bailed — progress is saved for resume). All configuration flows through the daemon HTTP API; only
+ *  the local completion/resume marker is written here. */
+export async function runOnboarding(base: string, env: NodeJS.ProcessEnv, opts: OnboardingOpts = {}): Promise<string | null> {
   const prior = opts.reset ? null : readMarker(env);
   const answers: WizardAnswers = prior?.resume?.answers ?? {};
   const ctx: WizardCtx = { base, isTTY: !!process.stdout.isTTY, debug: !!opts.debug, fetchFn: fetch, answers };
   const startIndex = prior?.resume?.stepIndex ?? 0;
 
-  p.intro('🐋 Welcome to Orca');
-  p.log.message("Let's get your workspace ready — 5 quick steps. You can skip anything and finish later.");
+  if (!opts.embedded) {
+    p.intro('🐋 Welcome to Orca');
+    p.log.message("Let's get your workspace ready — 5 quick steps. You can skip anything and finish later.");
+  }
 
   let index = startIndex;
   try {
@@ -61,14 +69,14 @@ export async function runOnboarding(base: string, env: NodeJS.ProcessEnv, opts: 
       onStep: (i, step) => { index = i; p.log.step(`[${i + 1}/${TOTAL}] ${step.title}`); },
       review: () => review(ctx),
     }, startIndex);
-    finish(env, answers, result.skipped);
-    return true;
+    finish(env, answers, result.skipped, !!opts.embedded);
+    return answers.account?.username || null;
   } catch (e) {
     if (e instanceof WizardCancelled) {
       const save = await confirmSave();
       if (save) writeMarker(env, { completed: false, skipped: false, updatedAt: new Date().toISOString(), resume: { stepIndex: index, answers } });
       p.cancel(save ? 'Setup paused — resume anytime with `orca setup`.' : 'Setup cancelled.');
-      return false;
+      return null;
     }
     throw e;
   }
@@ -97,9 +105,11 @@ async function review(ctx: WizardCtx): Promise<ReviewDecision> {
   return Number(which);
 }
 
-/** Persist the completion marker and print the "what's ready + next command" outro (≤4 lines, no ASCII). */
-function finish(env: NodeJS.ProcessEnv, answers: WizardAnswers, skipped: boolean): void {
+/** Persist the completion marker and (unless embedded in a host flow) print the "what's ready + next
+ *  command" outro (≤4 lines, no ASCII). */
+function finish(env: NodeJS.ProcessEnv, answers: WizardAnswers, skipped: boolean, embedded: boolean): void {
   writeMarker(env, { completed: true, skipped, updatedAt: new Date().toISOString() });
+  if (embedded) return; // the host (e.g. `orca install`) shows its own summary
   const unfinished = skipped
     || answers.project?.connected !== true
     || answers.ai?.status !== 'done'

@@ -47,7 +47,7 @@ export async function runMemoryStep(ctx: WizardCtx): Promise<StepResult> {
   }
 
   ctx.answers.memory = { status: 'done', summary: model };
-  return { status: 'done', summary: `Memory via ${model}` };
+  return { status: 'done' };
 }
 
 /** Reuse an existing keyed OpenRouter brain provider or create one; returns its id ('' if the user
@@ -95,5 +95,5 @@ async function runTest(ctx: WizardCtx): Promise<'ok' | 'kept' | 'edit' | 'off'> 
 
 function skip(ctx: WizardCtx): StepResult {
   ctx.answers.memory = { status: 'skipped', summary: 'not configured' };
-  return { status: 'skipped', summary: 'Memory not configured' };
+  return { status: 'skipped' };
 }

@@ -13,14 +13,17 @@ export async function runSetup(args: string[], env: NodeJS.ProcessEnv, base: str
   const debug = args.includes('--debug');
 
   if (!process.stdout.isTTY) {
-    console.log('Orca is not set up yet. To get started, run:  orca setup');
+    if (reset) clearMarker(env);
+    console.log(isOnboarded(env)
+      ? 'Orca is set up. Run `orca setup` in an interactive terminal to reconfigure.'
+      : 'Orca is not set up yet. Run `orca setup` in an interactive terminal to get started.');
     return;
   }
 
   if (reset) clearMarker(env);
   else if (isOnboarded(env)) p.log.info('Orca is already set up — re-running the wizard (use `orca setup --reset` to start clean).');
 
-  try { await bringUp(env, version); }
+  try { await bringUp(base, env, version); }
   catch (e) { console.error(`Couldn't start the Orca daemon: ${(e as Error).message}`); process.exit(1); }
 
   try {
@@ -39,15 +42,14 @@ export async function maybeOfferSetup(base: string, env: NodeJS.ProcessEnv, vers
   const resume = readMarker(env)?.resume;
   const go = await p.confirm({ message: resume ? 'Resume your Orca setup?' : 'Set up Orca now? (about 2 minutes)', initialValue: true });
   if (p.isCancel(go) || !go) return;
-  try { await bringUp(env, version); }
+  try { await bringUp(base, env, version); }
   catch (e) { p.log.error(`Couldn't start the Orca daemon: ${(e as Error).message}`); return; }
   await runOnboarding(base, env, {});
 }
 
 /** Bring the daemon up the right way for this box: nothing if it's already healthy, else systemctl on an
  *  `orca install` box (never a second, port-conflicting detached daemon), otherwise the local lifecycle. */
-async function bringUp(env: NodeJS.ProcessEnv, version: string): Promise<void> {
-  const base = env.ORCA_URL ?? 'http://localhost:4400';
+async function bringUp(base: string, env: NodeJS.ProcessEnv, version: string): Promise<void> {
   try { await fetch(`${base}/health`); return; } catch { /* down — start it below */ }
   if (readInstallInfo()) {
     const r = await systemctl('start', ...SERVICES);

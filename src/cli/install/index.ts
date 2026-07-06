@@ -10,7 +10,7 @@ import { detectProxy, nginxVhost, apacheVhost, certbotCommand, type ProxyKind } 
 import { SERVICES } from '../systemd.js';
 import { applySetup, buildSetupPlan, defaultExecForCli, isFirstRun, type SetupAnswers } from '../setup.js';
 import { selfPrefix, reinstallNpmArgs } from '../update.js';
-import { runSetupWizard } from '../setupWizard.js';
+import { runOnboarding } from '../setup/wizard.js';
 import { INSTALL_INFO_PATH, serializeInstallInfo, type InstallInfo } from '../installInfo.js';
 
 const DAEMON_PORT = Number(process.env.ORCA_PORT ?? 4400);
@@ -531,13 +531,12 @@ export async function install(args: string[] = []): Promise<void> {
 
   const { tls } = await execute(r, plan);
 
-  // Interactive: now that the daemon is live, run the shared first-run wizard for the admin + LLM.
+  // Interactive: now that the daemon is live, run the shared onboarding wizard (account, project, AI
+  // provider, memory) — the SAME one as `orca setup`, embedded so install frames the intro/outro. This
+  // is the single onboarding path; there is no separate install wizard. The unattended path above already
+  // created the admin from flags, so it skips this.
   let adminUser = plan.admin?.username ?? null;
-  if (!unattended) {
-    p.log.step('Create the first admin account');
-    const creds = await runSetupWizard(base);
-    if (creds) { adminUser = creds.username; await step('Verifying login', () => loginSmokeTest(creds.username, creds.password)); }
-  }
+  if (!unattended) adminUser = (await runOnboarding(base, process.env, { embedded: true })) ?? adminUser;
 
   const url = publicUrl(plan.deploy, tls);
   const summary = [

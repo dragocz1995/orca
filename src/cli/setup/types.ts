@@ -3,7 +3,7 @@ import type { BrainProviderType } from '../../store/configStore.js';
 
 /** How a step ended: configured, deliberately skipped, or the user asked to go back a step. */
 type StepStatus = 'done' | 'skipped' | 'back';
-export interface StepResult { status: StepStatus; summary?: string }
+export interface StepResult { status: StepStatus }
 
 /** The accumulator every step reads/writes. `ai` is the hand-off the Memory step and the autopilot-
  *  wiring logic depend on (a reused key + an openai-type provider is what can back embeddings/relay). */

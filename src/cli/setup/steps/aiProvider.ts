@@ -5,7 +5,7 @@ import { PREFERRED_DEFAULT } from '../../../brain/providers.js';
 import { apiJson } from '../http.js';
 import { openBrowser } from '../browser.js';
 import { API_KEY_PROVIDERS, OAUTH_CHOICES } from '../constants.js';
-import { deriveSlug } from '../slug.js';
+import { deriveSlug, uniqueSlug } from '../slug.js';
 import { guard, WizardCancelled, type StepResult, type WizardCtx } from '../types.js';
 import { getBrainProviders, keepProvider, type PublicProvider } from './shared.js';
 
@@ -225,9 +225,6 @@ async function saveProvider(ctx: WizardCtx, entry: ProviderEntry, others: Public
   return r.ok;
 }
 
-/** Point the autopilot relay at this provider — but ONLY for an openai-type provider WITH a key. The
- *  relay is OpenAI-compatible and autopilotRelay() returns null without a key, so wiring an Anthropic or
- *  OAuth provider would silently fail; for those we tell the user what the planner needs instead. */
 /** The autopilot relay is OpenAI-compatible and needs a key — only an openai-type provider WITH a key
  *  can back it (autopilotRelay() returns null without a key; Anthropic/OAuth can't speak the protocol). */
 export function shouldWireAutopilot(type: BrainProviderType, hasKey: boolean): boolean {
@@ -245,14 +242,13 @@ async function maybeWireAutopilot(ctx: WizardCtx, type: BrainProviderType, hasKe
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 function done(ctx: WizardCtx, label: string, model: string, providerId: string, providerType: BrainProviderType, hasKey: boolean): StepResult {
-  const summary = `${label}${model ? ` (${model})` : ''}`;
-  ctx.answers.ai = { status: 'done', summary, providerId, providerType, model, hasKey };
-  return { status: 'done', summary };
+  ctx.answers.ai = { status: 'done', summary: `${label}${model ? ` (${model})` : ''}`, providerId, providerType, model, hasKey };
+  return { status: 'done' };
 }
 
 function skip(ctx: WizardCtx): StepResult {
   ctx.answers.ai = { status: 'skipped', summary: 'not configured' };
-  return { status: 'skipped', summary: 'AI not configured' };
+  return { status: 'skipped' };
 }
 
 function validUrl(v: string | undefined): string | undefined {
@@ -260,10 +256,7 @@ function validUrl(v: string | undefined): string | undefined {
 }
 
 function uniqueId(label: string, providers: PublicProvider[]): string {
-  const base = deriveSlug(label) || 'provider';
-  const taken = new Set(providers.map((x) => x.id));
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
+  return uniqueSlug(deriveSlug(label), new Set(providers.map((x) => x.id)));
 }
 
 function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }

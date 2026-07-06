@@ -14,10 +14,6 @@ export interface SetupAnswers {
   model: string;
 }
 
-/** Autopilot CLIs that can drive missions without an API key, in recommended order. Mirrors the agent
- *  programs the daemon knows about (src/shared/execs.ts). */
-const AUTOPILOT_CLIS = ['claude', 'opencode', 'codex', 'kilo', 'pi', 'omp'] as const;
-
 /** Default autopilot exec spec for a detected agent CLI — a well-formed `<prefix>:<model>` spec that
  *  resolveExecutor routes to the right program (so it passes the daemon's allow-list guard without
  *  needing a custom model entry). opencode/kilo/pi/omp are provider-agnostic, so their model comes
@@ -98,37 +94,11 @@ export async function createAdmin(fetchFn: typeof fetch, base: string, user: { u
 }
 
 /** Persist the config patch with an admin bearer token. */
-export async function saveConfig(fetchFn: typeof fetch, base: string, token: string, config: SetupConfigPatch): Promise<void> {
+async function saveConfig(fetchFn: typeof fetch, base: string, token: string, config: SetupConfigPatch): Promise<void> {
   const r = await fetchFn(`${base}/config`, {
     method: 'PUT', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(config),
   });
   if (!r.ok) throw new Error(`setup: saving config failed (${r.status})`);
-}
-
-/** Ask the daemon which autopilot-capable agent CLIs are installed & functional for the SERVICE USER
- *  (the daemon detects on its own PATH, which is who actually runs the agents), returned in
- *  recommended order. Requires an admin bearer token. Returns [] on any failure — callers fall back
- *  to the API-key engine. */
-export async function fetchAvailableClis(fetchFn: typeof fetch, base: string, token: string): Promise<string[]> {
-  const r = await fetchFn(`${base}/integrations/cli-status`, { headers: { authorization: `Bearer ${token}` } });
-  if (!r.ok) return [];
-  const body = await r.json() as { tools?: { name: string; functional?: boolean }[] };
-  const functional = new Set((body.tools ?? []).filter((t) => t.functional).map((t) => t.name));
-  return AUTOPILOT_CLIS.filter((c) => functional.has(c));
-}
-
-/** Ask the daemon whether a PR-native push would succeed (a stored token or gh's own login) and as
- *  whom — same probe the web settings banner uses. Returns a not-ready default on any failure so the
- *  wizard degrades to "warn + offer a token". */
-export async function fetchGithubStatus(fetchFn: typeof fetch, base: string, token: string): Promise<{ ready: boolean; method: string; account: string | null }> {
-  try {
-    const r = await fetchFn(`${base}/integrations/github-status`, { headers: { authorization: `Bearer ${token}` } });
-    if (!r.ok) return { ready: false, method: 'none', account: null };
-    const b = await r.json() as { ready?: boolean; method?: string; account?: string | null };
-    return { ready: !!b.ready, method: b.method ?? 'none', account: b.account ?? null };
-  } catch {
-    return { ready: false, method: 'none', account: null };
-  }
 }
 
 /** Create the admin, log in for a bearer token, then save the config. Kept for the non-interactive
