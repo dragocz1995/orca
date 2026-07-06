@@ -501,6 +501,7 @@ class DiscordAdapter {
 
   async onMessage(m) {
     if (!this.handler || m.author?.bot) return;
+    if (m.type !== 0 && m.type !== 19) return; // ignore Discord system messages (channel renames, pins, joins, boosts) — only DEFAULT(0) and REPLY(19) are real user turns
     if (!m.guild_id) return; // DMs carry no member roles → no policy can ever match; ignore them
     if (this.cfg.guildId && m.guild_id !== this.cfg.guildId) return;
 

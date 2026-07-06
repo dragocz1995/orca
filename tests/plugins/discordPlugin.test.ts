@@ -330,6 +330,7 @@ describe('discord onMessage context pipeline', () => {
     adapter.listen(async (src, text) => { seen = { src, text }; return 'ok'; });
 
     await adapter.onMessage({
+      type: 19, // REPLY — a real user turn
       guild_id: 'G', channel_id: '100', id: 'MSG',
       author: { id: 'U1', username: 'anna', global_name: 'Anna G' },
       member: { nick: 'Anička', roles: ['R1'] },
@@ -346,5 +347,23 @@ describe('discord onMessage context pipeline', () => {
     expect(seen!.src.channelTopic).toBe('Team chat');
     expect(seen!.src.images).toBeUndefined();
     expect(seen!.src.channelId).toBe('100#0');
+  });
+
+  it('ignores Discord system messages (channel renames, pins, joins) — only DEFAULT/REPLY are turns', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [{ roleId: 'R1', name: 'Dev', projectIds: [1] }], streaming: false, reactions: false } },
+    });
+    const adapter = reg.platforms[0] as unknown as {
+      botId: string | null;
+      listen: (h: (src: Record<string, unknown>, text: string) => Promise<string | undefined>) => void;
+      onMessage: (m: unknown) => Promise<void>;
+    };
+    adapter.botId = 'BOT';
+    let fired = false;
+    adapter.listen(async () => { fired = true; return 'ok'; });
+    // type 4 = CHANNEL_NAME_CHANGE ("X changed the channel name"): authored by a real member, not a bot.
+    await adapter.onMessage({ type: 4, guild_id: 'G', channel_id: '100', id: 'SYS', author: { id: 'U1', username: 'anna' }, member: { roles: ['R1'] }, content: '' });
+    expect(fired).toBe(false);
   });
 });
