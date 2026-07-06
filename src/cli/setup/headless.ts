@@ -12,7 +12,7 @@ import type { WizardCtx } from './types.js';
 
 /** Non-interactive `orca setup` — the same daemon-API onboarding as the wizard, driven entirely by flags /
  *  env instead of prompts. Lets agents and CI reach a working setup headlessly (and is how the whole flow
- *  is E2E-tested, since the clack TUI needs a real TTY). Prints a readiness matrix and exits non-zero on a
+ *  is E2E-tested, since the modal TUI needs a real TTY). Prints a readiness matrix and exits non-zero on a
  *  hard failure (bad/missing required input), so a caller can branch on it. */
 export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, args: string[]): Promise<void> {
   const o = parseFlags(args, env);

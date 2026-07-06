@@ -1,10 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import * as p from '@clack/prompts';
+import * as p from '../ui/prompts.js';
 import { realRunner, type Runner } from './runner.js';
 import { preflight, preflightBlockers } from './preflight.js';
 import { ensureServiceUser, userHome, type ServiceUserChoice } from './serviceUser.js';
-import { detectAgentClis, installCommand } from './agentClis.js';
+import { AGENT_CLIS, detectAgentClis, installCommand } from './agentClis.js';
 import { daemonUnit, webUnit, updateService, updateTimer, orcaSudoers, type UnitParams } from './systemdUnits.js';
 import { detectProxy, nginxVhost, apacheVhost, certbotCommand, type ProxyKind } from './proxy.js';
 import { SERVICES } from '../systemd.js';
@@ -36,7 +36,7 @@ interface Deployment {
   webHost: string;
 }
 
-/** Everything `orca install` needs to provision a box, resolved either interactively (clack prompts)
+/** Everything `orca install` needs to provision a box, resolved either interactively (modal prompts)
  *  or non-interactively (CLI flags). Collecting it up front keeps the two front-ends thin and lets the
  *  executor below stay prompt-free. `admin === null` means "don't create an admin" (e.g. re-run on a
  *  box that already has one). */
@@ -95,8 +95,8 @@ async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
   const s = p.spinner();
   s.start(label);
-  try { const out = await fn(); s.stop(`${label} ✓`); return out; }
-  catch (e) { s.stop(`${label} ✗`); throw e; }
+  try { const out = await fn(); s.stop(`${label} ok`); return out; }
+  catch (e) { s.stop(`${label} failed`, 'error'); throw e; }
 }
 
 /** Run a command and throw with its stderr when it fails — used for the system mutations where a
@@ -240,7 +240,7 @@ async function execute(r: Runner, plan: InstallPlan): Promise<{ tls: boolean }> 
   const { home } = await step(`Service user "${plan.user.username}"`, () => ensureServiceUser(r, plan.user));
 
   for (const id of plan.agents) {
-    const { cmd, args } = installCommand({ id, bin: id, pkg: agentPkg(id) });
+    const { cmd, args } = installCommand(agentCli(id));
     await step(`Installing ${id}`, () => must(r, cmd, args));
   }
 
@@ -285,12 +285,10 @@ async function execute(r: Runner, plan: InstallPlan): Promise<{ tls: boolean }> 
   return { tls: tlsOk };
 }
 
-/** npm package for an agent CLI id (so the executor needn't carry the full AgentCli around). */
-function agentPkg(id: string): string {
-  const map: Record<string, string> = { claude: '@anthropic-ai/claude-code', opencode: 'opencode-ai', codex: '@openai/codex' };
-  const pkg = map[id];
-  if (!pkg) throw new Error(`unknown agent CLI: ${id}`);
-  return pkg;
+function agentCli(id: string) {
+  const cli = AGENT_CLIS.find((c) => c.id === id);
+  if (!cli) throw new Error(`unknown agent CLI: ${id}`);
+  return cli;
 }
 
 // ── unattended front-end ─────────────────────────────────────────────────────
@@ -308,7 +306,7 @@ async function planFromArgs(r: Runner, args: string[]): Promise<InstallPlan> {
 
   const agentsRaw = flag(args, '--agents');
   const agents = !agentsRaw || agentsRaw === 'none' ? []
-    : agentsRaw === 'all' ? ['claude', 'opencode', 'codex']
+    : agentsRaw === 'all' ? AGENT_CLIS.map((c) => c.id)
     : agentsRaw.split(',').map((s) => s.trim()).filter(Boolean);
 
   const adminUser = flag(args, '--admin-user');
@@ -464,7 +462,7 @@ function planSummary(plan: InstallPlan): string {
 
 /** `orca install` — provision a fresh Debian/Ubuntu box. Run as root. Pass `--unattended` (with flags)
  *  for a non-interactive install; otherwise an interactive wizard collects every answer. */
-const INSTALL_HELP = `🐋 orca install — provision a fresh Debian/Ubuntu box as an orca service (run as root)
+const INSTALL_HELP = `orca install - provision a fresh Debian/Ubuntu box as an orca service (run as root)
 
 USAGE
   orca install                    interactive wizard (recommended)
@@ -498,7 +496,7 @@ export async function install(args: string[] = []): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) { console.log(INSTALL_HELP); return; }
   const r = realRunner();
   const unattended = args.includes('--unattended');
-  p.intro(`🐋 orca install${unattended ? ' (unattended)' : ''}`);
+  p.intro(`orca install${unattended ? ' (unattended)' : ''}`);
 
   const pf = await preflight(r);
   const blockers = preflightBlockers(pf);
@@ -546,6 +544,6 @@ export async function install(args: string[] = []): Promise<void> {
     `Logs       journalctl -u orca-daemon -f`,
     `Restart    systemctl restart orca-daemon orca-web`,
   ].join('\n');
-  p.note(summary, 'ORCA is ready 🐋');
-  p.outro(`Done — ORCA is live at ${url}`);
+  p.note(summary, 'ORCA is ready');
+  p.outro(`Done - ORCA is live at ${url}`);
 }

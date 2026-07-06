@@ -8,8 +8,9 @@ export type SlashSurface = 'cli' | 'discord' | 'web';
 /** How a surface handles the command once the user picks it:
  *  - `action`: a server-side effect with no chooser (new, stop, compact, restart) — POST /brain/command.
  *  - `info`:   fetch + render data (status, help) — no state change.
- *  - `picker`: opens a surface-local chooser (model, think, and the CLI conversation pickers). */
-type SlashKind = 'action' | 'info' | 'picker';
+ *  - `picker`: opens a surface-local chooser (model, think, and the CLI conversation pickers).
+ *  - `mode`:   switches the chat work mode on the local surface; not server-dispatched. */
+type SlashKind = 'action' | 'info' | 'picker' | 'mode';
 
 export interface SlashCommandDef {
   name: string;
@@ -27,7 +28,14 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   { name: 'new', description: 'Start a fresh conversation', kind: 'action' },
   { name: 'stop', description: 'Stop the running agent', kind: 'action' },
   { name: 'status', description: 'Session info — model, context and usage', kind: 'info' },
+  { name: 'mcp', description: 'Inspect MCP servers, tools and reconnect health', kind: 'picker', surfaces: ['cli'] },
+  { name: 'skills', description: 'Inspect and manage loaded skills', kind: 'picker', surfaces: ['cli'] },
+  { name: 'goal', description: 'Create, inspect, pause, resume or clear a persistent goal', kind: 'action', surfaces: ['cli'] },
+  { name: 'subgoal', description: 'Add or remove persistent-goal subgoals', kind: 'action', surfaces: ['cli'] },
+  { name: 'tools', description: 'Inspect active plugin tools and ownership', kind: 'picker', surfaces: ['cli'] },
   { name: 'compact', description: 'Summarize the conversation to free up context', kind: 'action' },
+  { name: 'plan', description: 'Plan mode — think through the approach before editing', kind: 'mode', surfaces: ['cli'] },
+  { name: 'build', description: 'Build mode — implement changes with tools', kind: 'mode', surfaces: ['cli'] },
   { name: 'model', description: 'Switch the AI model', kind: 'picker' },
   // CLI-only: the reasoning-effort picker is wired in the TUI. Discord tunes reasoning through its own
   // native command surface; the web dock has no picker for it yet (would show a dead menu entry).

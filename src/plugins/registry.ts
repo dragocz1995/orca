@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { PluginCapabilities, PluginContext, PluginHook, PluginLogger, PluginSkill, PlatformAdapter, ProviderCredentials } from './api.js';
+import type { PluginCapabilities, PluginContext, PluginControl, PluginHook, PluginLogger, PluginSkill, PlatformAdapter, ProviderCredentials } from './api.js';
 import type { PluginManifest } from './manifest.js';
 import { assertPathAllowed, allowedRoots, isAllAccess, currentAccess } from './pathGuard.js';
 import { currentIdentity, currentElicitor, currentCardEmitter } from './policyContext.js';
@@ -29,6 +29,7 @@ export class PluginRegistry {
   readonly hooks: PluginHook[] = [];
   readonly turnContexts: (() => string)[] = [];
   readonly platforms: PlatformAdapter[] = [];
+  readonly controls = new Map<string, PluginControl>();
   // Per-contribution ownership for the flat lists above — index-aligned with their sibling array, so
   // `skills[i]` was registered by `skillOwners[i]`. Tools use the `toolOwner` Map instead (tool names
   // are unique and drive per-role filtering); these lists allow duplicates (two plugins can register the
@@ -38,6 +39,7 @@ export class PluginRegistry {
   readonly hookOwners: string[] = [];
   readonly turnContextOwners: string[] = [];
   readonly platformOwners: string[] = [];
+  readonly controlOwner = new Map<string, string>();
   /** Each plugin's declared capabilities (manifest `capabilities`, `{}` when absent), keyed by plugin
    *  name. The hook bus looks these up by owner to gate a hook's mutation patch (deny-by-default). The
    *  loader records this after a clean register+merge; the manifest is otherwise discarded. */
@@ -55,11 +57,13 @@ export class PluginRegistry {
     this.hooks.push(...other.hooks);
     this.turnContexts.push(...other.turnContexts);
     this.platforms.push(...other.platforms);
+    for (const [k, v] of other.controls) this.controls.set(k, v);
     this.skillOwners.push(...other.skillOwners);
     this.promptFragmentOwners.push(...other.promptFragmentOwners);
     this.hookOwners.push(...other.hookOwners);
     this.turnContextOwners.push(...other.turnContextOwners);
     this.platformOwners.push(...other.platformOwners);
+    for (const [k, v] of other.controlOwner) this.controlOwner.set(k, v);
     for (const [k, v] of other.pluginCapabilities) this.pluginCapabilities.set(k, v);
   }
 
@@ -106,6 +110,12 @@ export class PluginRegistry {
         this.tools.push(t); this.toolOwner.set(t.name, name);
       },
       registerSkill: (s) => { this.skills.push(s); this.skillOwners.push(name); },
+      registerControl: (key, control) => {
+        const clean = key.trim();
+        if (!clean) { scoped.warn('registerControl refused: empty name'); return; }
+        this.controls.set(clean, control);
+        this.controlOwner.set(clean, name);
+      },
       registerSystemPromptFragment: (f) => { this.promptFragments.push(f); this.promptFragmentOwners.push(name); },
       registerHook: (h) => { this.hooks.push(h); this.hookOwners.push(name); },
       registerTurnContext: (f) => { this.turnContexts.push(f); this.turnContextOwners.push(name); },

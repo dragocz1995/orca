@@ -93,6 +93,15 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
+  app.patch('/brain/sessions/:id', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const body = (await c.req.json().catch(() => ({}))) as { title?: unknown };
+    if (typeof body.title !== 'string') return c.json({ error: 'title must be a string' }, 400);
+    try { return c.json(d.brain.renameSession(c.get('user').id, c.req.param('id'), body.title)); }
+    catch (e) { return c.json({ error: (e as Error).message }, 409); }
+  });
+
   // Active conversation's history by default, or ANY of the caller's sessions when `?session=<id>` is
   // given (read-only view of a channel/task session — ownership checked in messagesOf).
   app.get('/brain/messages', async c => {
@@ -225,8 +234,8 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/brain/send', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const { text, images } = await parseBody(c, brainSendSchema);
-    try { await d.brain.send(c.get('user').id, text, images); return c.json({ ok: true }); }
+    const { text, images, mode } = await parseBody(c, brainSendSchema);
+    try { await d.brain.send(c.get('user').id, text, images, mode); return c.json({ ok: true }); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); } // not started yet
   });
 
@@ -239,6 +248,41 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     const { id, answers } = await parseBody(c, brainAnswerSchema);
     const matched = d.brain.answerQuestion(id, answers, c.get('user').id); // owner route: only the caller's own question
     return c.json({ ok: true, matched });
+  });
+
+  app.get('/brain/goal', c => {
+    if (!d.brain) return c.json(null);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    return c.json(d.brain.goalStatus(c.get('user').id));
+  });
+
+  app.post('/brain/goal', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown; draft?: unknown; turnBudget?: unknown };
+    if (typeof body.text !== 'string') return c.json({ error: 'text must be a string' }, 400);
+    const turnBudget = typeof body.turnBudget === 'number' && Number.isFinite(body.turnBudget) ? Math.max(1, Math.min(50, Math.floor(body.turnBudget))) : undefined;
+    try { return c.json(await d.brain.setGoal(c.get('user').id, body.text, { draft: body.draft === true, turnBudget }), 201); }
+    catch (e) { return c.json({ error: (e as Error).message }, 409); }
+  });
+
+  app.post('/brain/goal/action', c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const action = c.req.query('action');
+    if (action !== 'pause' && action !== 'resume' && action !== 'clear') return c.json({ error: 'unknown action' }, 400);
+    return c.json(d.brain.goalAction(c.get('user').id, action));
+  });
+
+  app.post('/brain/subgoal', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; text?: unknown; index?: unknown };
+    if (body.action !== 'add' && body.action !== 'remove' && body.action !== 'clear') return c.json({ error: 'unknown action' }, 400);
+    try {
+      const value = body.action === 'add' ? body.text : body.action === 'remove' ? body.index : undefined;
+      return c.json(d.brain.subgoal(c.get('user').id, body.action, value as string | number | undefined));
+    } catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
   app.get('/brain/stream', c => {

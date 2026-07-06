@@ -16,7 +16,7 @@ const USAGE = "usage: orca [command] [options]  —  run `orca --help` for the f
 
 /** The full, grouped help shown for `orca --help`. Kept as a function so the version is interpolated. */
 function helpText(version: string): string {
-  return `🐋 orca ${version} — control plane for autonomous coding agents
+  return `orca ${version} - control plane for autonomous coding agents
 
 USAGE
   orca                            open the interactive launcher menu (in a terminal)

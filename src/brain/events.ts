@@ -1,5 +1,6 @@
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import { toolDetail } from './messageView.js';
+import { toolDetail, toolOutputView } from './messageView.js';
+import type { ToolOutputView } from './messageView.js';
 
 /** What a channel (web/terminal/Discord) receives from the brain. Stable regardless of the underlying
  *  PI event shape — the mapping lives in one place (`toBrainEvent`). This is the wire contract every
@@ -12,8 +13,9 @@ export type BrainEvent =
   | { type: 'reasoning'; delta: string }
   /** A tool call starting. `icon` is resolved daemon-side from the core map + plugin manifest `icons`
    *  (single source; clients render it, falling back to a generic glyph when absent). */
-  | { type: 'tool'; name: string; detail?: string; icon?: string }
-  | { type: 'diff'; diff: string }
+  | { type: 'tool'; name: string; detail?: string; icon?: string; id?: string }
+  | { type: 'diff'; diff: string; id?: string }
+  | { type: 'tool_output'; output: ToolOutputView; id?: string }
   /** A structured display card a plugin pushed via `ctx.emitCard` — a live panel (CLI above the status
    *  bar, Discord in the streamed message, web in a cards region) keyed by `card.id` so a re-emit
    *  replaces it; an empty card (no items/body) removes it. Generalizes what the todo checklist used to
@@ -31,9 +33,10 @@ export type BrainEvent =
    *  interactive choices and POSTs the answer to `/brain/answer` (Discord resolves it in-process). */
   | { type: 'ask'; id: string; questions: AskQuestion[] }
   /** A new agent step (one model round-trip / turn) started within the current run. `step` is 1-based;
-   *  `maxSteps` is the configured ceiling (0 = unlimited). Clients render a `Step N / MAX` counter in
-   *  their live status without spawning a new message. Synthetic — counted daemon-side, not a raw PI event. */
-  | { type: 'step'; step: number; maxSteps: number }
+   *  `maxSteps` is the configured ceiling (0 = unlimited). `usage` snapshots context at step boundaries
+   *  so clients don't wait until the final idle event to refresh context fill. Synthetic — counted
+   *  daemon-side, not a raw PI event. */
+  | { type: 'step'; step: number; maxSteps: number; usage?: BrainUsage }
   | { type: 'idle'; usage?: BrainUsage; model?: string }
   | { type: 'error'; message: string };
 
@@ -100,6 +103,7 @@ export function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   if (e.type === 'agent_end') return { type: 'idle' };
   const anyE = e as {
     type: string; toolName?: string; args?: unknown; result?: { details?: { diff?: unknown } };
+    toolCallId?: string;
     assistantMessageEvent?: { type?: string; delta?: string };
     attempt?: number; maxAttempts?: number; errorMessage?: string; success?: boolean;
   };
@@ -120,18 +124,22 @@ export function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   if (anyE.type === 'compaction_end') return { type: 'notice', kind: 'compaction', message: 'context compacted', done: true };
   // Emit the tool name ONCE, when it starts — never the raw streamed output (_update noise).
   if (anyE.type === 'tool_execution_start' && typeof anyE.toolName === 'string') {
-    return { type: 'tool', name: anyE.toolName, detail: toolDetail(anyE.args) };
+    return { type: 'tool', name: anyE.toolName, detail: toolDetail(anyE.args), id: anyE.toolCallId };
   }
   // Edits carry a display diff in their result details — that's the one tool output worth showing.
   if (anyE.type === 'tool_execution_end') {
     const diff = anyE.result?.details?.diff;
-    if (typeof diff === 'string' && diff.trim()) return { type: 'diff', diff };
+    if (typeof diff === 'string' && diff.trim()) return { type: 'diff', diff, id: anyE.toolCallId };
     // Image tools return a markdown link to the stored file; surface it as a first-class event so
     // channel adapters can attach the real file (models often omit the link from their final text).
     const parts = (anyE.result as { content?: { type?: string; text?: string }[] } | undefined)?.content;
     for (const part of Array.isArray(parts) ? parts : []) {
       const m = typeof part?.text === 'string' ? /\((\/api)?\/brain\/images\/([a-z0-9]+\.png)\)/.exec(part.text) : null;
       if (m) return { type: 'image', ref: `/api/brain/images/${m[2]}` };
+    }
+    if (typeof anyE.toolName === 'string') {
+      const output = toolOutputView(anyE.toolName, anyE.args, anyE.result);
+      if (output) return { type: 'tool_output', output, id: anyE.toolCallId };
     }
   }
   return null;

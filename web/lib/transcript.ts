@@ -1,4 +1,4 @@
-import type { BrainCard, BrainMessage } from './types';
+import type { BrainCard, BrainMessage, ToolOutputView } from './types';
 
 /** Browser MIRROR of the daemon's `src/brain/transcript.ts` (same governance as `web/lib/types.ts`
  *  mirroring `src/brain/events.ts`): the web dock is a standalone Next.js bundle whose Turbopack build
@@ -12,16 +12,17 @@ import type { BrainCard, BrainMessage } from './types';
 export type TranscriptEvent =
   | { type: 'text'; delta: string }
   | { type: 'reasoning'; delta: string }
-  | { type: 'tool'; name: string; detail?: string; icon?: string }
-  | { type: 'diff'; diff: string }
+  | { type: 'tool'; name: string; detail?: string; icon?: string; id?: string }
+  | { type: 'diff'; diff: string; id?: string }
+  | { type: 'tool_output'; output: ToolOutputView; id?: string }
   | { type: 'notice'; kind: 'retry' | 'compaction'; message: string; done?: boolean }
   | { type: 'idle' }
   | { type: 'error'; message: string };
 
 /** An assistant turn is an ordered list of segments so text and tool calls render in the sequence they
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment → the
- *  Claude-Code "grouped pills" look. Tool OUTPUT is never shown; only names, argument summaries, diffs. */
-export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string }
+ *  Claude-Code "grouped pills" look. Useful tool output previews attach to their matching item. */
+export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string; output?: ToolOutputView; id?: string }
 export type Segment =
   | { kind: 'text'; text: string }
   | { kind: 'reasoning'; text: string }
@@ -49,7 +50,7 @@ export function fromHistory(msgs: BrainMessage[]): ChatView {
       if (seg.kind === 'text') {
         segments.push({ kind: 'text', text: seg.text });
       } else {
-        const item: ToolItem = { name: seg.name, detail: seg.detail, diff: seg.diff };
+        const item: ToolItem = { name: seg.name, detail: seg.detail, diff: seg.diff, output: seg.output };
         const tail = segments[segments.length - 1];
         if (tail?.kind === 'tools') tail.items.push(item);
         else segments.push({ kind: 'tools', items: [item] });
@@ -103,7 +104,7 @@ export function reduce(view: ChatView, e: TranscriptEvent): ChatView {
     }
     case 'tool': {
       const t = ensureOrca();
-      const item: ToolItem = { name: e.name, detail: e.detail, icon: e.icon };
+      const item: ToolItem = { name: e.name, detail: e.detail, icon: e.icon, ...(e.id ? { id: e.id } : {}) };
       const tail = t.segments[t.segments.length - 1];
       if (tail?.kind === 'tools') t.segments[t.segments.length - 1] = { kind: 'tools', items: [...tail.items, item] };
       else t.segments.push({ kind: 'tools', items: [item] });
@@ -111,14 +112,12 @@ export function reduce(view: ChatView, e: TranscriptEvent): ChatView {
     }
     case 'diff': {
       const t = ensureOrca();
-      for (let i = t.segments.length - 1; i >= 0; i--) {
-        const seg = t.segments[i]!;
-        if (seg.kind !== 'tools') continue;
-        const items = seg.items.slice();
-        items[items.length - 1] = { ...items[items.length - 1]!, diff: e.diff };
-        t.segments[i] = { kind: 'tools', items };
-        break;
-      }
+      attachToTool(t, e.id, (item) => ({ ...item, diff: e.diff }));
+      return { turns, thinking: true, notice: view.notice };
+    }
+    case 'tool_output': {
+      const t = ensureOrca();
+      attachToTool(t, e.id, (item) => ({ ...item, output: e.output }));
       return { turns, thinking: true, notice: view.notice };
     }
     case 'idle': {
@@ -134,6 +133,19 @@ export function reduce(view: ChatView, e: TranscriptEvent): ChatView {
     }
     default:
       return view;
+  }
+}
+
+function attachToTool(t: OrcaTurn, id: string | undefined, patch: (item: ToolItem) => ToolItem): void {
+  for (let i = t.segments.length - 1; i >= 0; i--) {
+    const seg = t.segments[i]!;
+    if (seg.kind !== 'tools') continue;
+    const index = id ? seg.items.findIndex((item) => item.id === id) : seg.items.length - 1;
+    if (index < 0) continue;
+    const items = seg.items.slice();
+    items[index] = patch(items[index]!);
+    t.segments[i] = { kind: 'tools', items };
+    return;
   }
 }
 

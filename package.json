@@ -52,7 +52,6 @@
     "serve": "node --experimental-strip-types src/daemon/index.ts"
   },
   "dependencies": {
-    "@clack/prompts": "^1.6.0",
     "@earendil-works/pi-ai": "^0.80.3",
     "@earendil-works/pi-coding-agent": "^0.80.3",
     "@earendil-works/pi-tui": "^0.80.3",

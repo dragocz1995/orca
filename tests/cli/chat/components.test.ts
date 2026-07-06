@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { initTheme } from '@earendil-works/pi-coding-agent';
-import { UserBlock, StatusBar, TitleBar, CardPanel, metaLine, banner, toolChip, diffBlock, cardBlock, titleBarContent, fmtCount } from '../../../src/cli/chat/components.js';
+import { UserBlock, StatusBar, CardPanel, diffBlock, cardBlock } from '../../../src/cli/chat/components.js';
 
 describe('chat components', () => {
   beforeAll(() => { initTheme(); }); // renderDiff needs the pi theme
@@ -20,39 +20,6 @@ describe('chat components', () => {
     expect(line!.endsWith('R')).toBe(true);
   });
 
-  it('metaLine shows the model (no speaker label)', () => {
-    const m = metaLine('kimi');
-    expect(m).toContain('kimi');
-    expect(m).not.toContain('orca');
-  });
-
-  it('TitleBar fills the width with a background and justifies left/right', () => {
-    const tb = new TitleBar();
-    tb.set('L', 'R');
-    const [line] = tb.render(20);
-    expect(visibleWidth(line!)).toBe(20);
-    expect(line!).toContain('L');
-    expect(line!).toContain('R');
-  });
-
-  it('titleBarContent puts the title left and usage stats right', () => {
-    const { left, right } = titleBarContent('Můj task', { totalTokens: 39413, percent: 20, cost: 0.29 });
-    expect(left).toContain('Můj task');
-    expect(right).toContain('39,413');
-    expect(right).toContain('20%');
-    expect(right).toContain('$0.29');
-  });
-
-  it('titleBarContent without usage shows just the title', () => {
-    const { left, right } = titleBarContent('X', null);
-    expect(left).toContain('X');
-    expect(right).toBe('');
-  });
-
-  it('fmtCount groups thousands', () => {
-    expect(fmtCount(39413)).toBe('39,413');
-  });
-
   it('diffBlock renders the pi format via renderDiff and the legacy format with row colors', () => {
     const pi = diffBlock('-    2 line two\n+    2 line 2');
     expect(pi.join('\n')).toContain('line two');
@@ -62,25 +29,17 @@ describe('chat components', () => {
     expect(legacy[1]).toContain('new');
   });
 
+  it('diffBlock keeps add/delete colouring active across the whole row', () => {
+    const [line] = diffBlock('+    6 $number = 2026;', 60, 40);
+    const beforeText = line!.slice(0, line!.indexOf('$number'));
+    expect(beforeText).not.toContain('\x1b[0m');
+  });
+
   it('diffBlock caps long diffs with a more-lines note', () => {
     const diff = Array.from({ length: 70 }, (_, i) => `+ ${String(i + 1).padStart(4)} row`).join('\n');
     const out = diffBlock(diff);
     expect(out).toHaveLength(61);
     expect(out[60]).toContain('+10 more lines');
-  });
-
-  it('toolChip renders Claude-Code style: dot, name, args in parens', () => {
-    expect(toolChip('web_search')).toContain('⏺');
-    expect(toolChip('web_search')).toContain('web_search');
-    expect(toolChip('read_file', 'src/a.ts')).toContain('(src/a.ts)');
-  });
-
-  it('toolChip renders the daemon-provided icon, else the generic dot', () => {
-    // The per-tool icon now rides the tool event (resolved daemon-side from the core map + plugin
-    // manifest icons); toolChip just renders it, falling back to ⏺ when none was provided (e.g. history).
-    expect(toolChip('todo_write', undefined, '📋')).toContain('📋');
-    expect(toolChip('todo_write', undefined, '📋')).not.toContain('⏺');
-    expect(toolChip('todo_write')).toContain('⏺'); // no icon (reloaded history) → generic dot
   });
 
   it('CardPanel renders pinned cards as real rows and collapses an all-done checklist / non-pinned cards', () => {
@@ -98,7 +57,7 @@ describe('chat components', () => {
     expect(panel.render(80)).toEqual([]);
   });
 
-  it('cardBlock renders a title, header count and per-status glyphs plus an optional body', () => {
+  it('cardBlock renders a compact todo checklist plus optional body', () => {
     const out = cardBlock({
       id: 'todos', title: 'Todos',
       items: [
@@ -109,19 +68,11 @@ describe('chat components', () => {
       body: 'note line',
     });
     expect(out[0]).toContain('Todos');
-    expect(out[0]).toContain('1/3');
     const body = out.join('\n');
-    expect(body).toContain('✔'); // completed
-    expect(body).toContain('◐'); // in-progress
-    expect(body).toContain('○'); // pending
+    expect(body).toContain('[x]'); // completed
+    expect(body).toContain('[•]'); // in-progress
+    expect(body).toContain('[ ]'); // pending
     expect(body).toContain('Alpha');
     expect(body).toContain('note line');
-  });
-
-  it('banner renders the ORCA block-letter logo and the model', () => {
-    const lines = banner('opus');
-    expect(lines.some((l) => l.includes('█'))).toBe(true); // block-letter art
-    expect(lines.join('\n')).toContain('opus');
-    expect(lines.join('\n')).toContain('/help for commands');
   });
 });

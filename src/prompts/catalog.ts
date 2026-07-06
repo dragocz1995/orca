@@ -4,7 +4,7 @@
  *  parser is hardened with a repair pass, see overseer/jsonRepair). `planner-fallback` is intentionally
  *  excluded: it's the built-in safety net used only when `planner` is unreadable, not a user surface. */
 
-type PromptGroup = 'workers' | 'pilot' | 'overseer' | 'advisor';
+type PromptGroup = 'workers' | 'pilot' | 'overseer' | 'advisor' | 'cli';
 
 export interface PromptCatalogEntry {
   /** Template name == the `.md` filename without suffix; the override key in `user_prompts`. */
@@ -40,6 +40,7 @@ export const EDITABLE_PROMPTS: PromptCatalogEntry[] = [
   { name: 'decision-question', group: 'overseer', vars: ['autonomy', 'question', 'context', 'options'], jsonContract: true },
   { name: 'advisor', group: 'advisor', vars: ['userName', 'personality', 'agentName'], jsonContract: false, appendOnly: true },
   { name: 'advisor-channel', group: 'advisor', vars: ['ownerName', 'personality', 'agentName'], jsonContract: false, appendOnly: true },
+  { name: 'cli/plan-mode', group: 'cli', vars: [], jsonContract: false },
 ];
 
 const EDITABLE_NAMES = new Set(EDITABLE_PROMPTS.map((p) => p.name));

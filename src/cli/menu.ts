@@ -1,4 +1,4 @@
-import * as p from '@clack/prompts';
+import * as p from './ui/prompts.js';
 import { status } from './launcher.js';
 import { defaultLifecycleDeps, formatStatus, runLifecycle } from './commands.js';
 import { maybeOfferSetup } from './setup/command.js';
@@ -13,14 +13,16 @@ const BASE = process.env.ORCA_URL ?? 'http://localhost:4400';
 /** Launcher menu for a systemd-provisioned box (`orca install`): drives the units via systemctl and
  *  shows the real public URL the operator chose — never spawns a second, port-conflicting daemon. */
 async function systemdMenu(info: InstallInfo, version: string): Promise<void> {
-  p.intro(`🐋 orca v${version}  ·  systemd`);
+  p.intro(`orca v${version}  ·  systemd`);
   // A systemd box was provisioned by `orca install`, which already created the admin — don't nag. The
   // `orca setup` command still runs the wizard here on demand.
+  let lastReport: { title?: string; body: string } | undefined;
   for (;;) {
     const active = await servicesActive();
     const state = active ? `● orca is running  ·  ${info.publicUrl}` : '○ orca is stopped';
     const action = await p.select({
       message: state,
+      note: lastReport,
       options: [
         { value: 'chat', label: 'Talk to Orca', hint: 'chat in the terminal' },
         active ? { value: 'restart', label: 'Restart', hint: 'daemon + web' } : { value: 'start', label: 'Start', hint: 'daemon + web' },
@@ -33,39 +35,54 @@ async function systemdMenu(info: InstallInfo, version: string): Promise<void> {
       ],
     });
     if (p.isCancel(action) || action === 'exit') break;
+    lastReport = undefined;
 
     if (action === 'chat') {
       // Chat talks to the daemon's brain — bring the services up first, then hand the terminal to the
       // pi-tui client. When it exits (ctrl+c / /quit) control falls back to this launcher loop.
       if (!active) {
-        const s = p.spinner(); s.start('Starting orca…');
         const r = await systemctl('start', ...SERVICES);
-        s.stop(r.code === 0 ? 'started ✓' : `start failed (code ${r.code})`);
+        lastReport = r.code === 0
+          ? undefined
+          : { title: 'Services', body: `start failed (code ${r.code})` };
         if (r.code !== 0) continue;
       }
       await launchChat(BASE, process.env);
       continue;
     }
-    if (action === 'open') { if (openBrowser(info.publicUrl)) p.log.success(`Opening ${info.publicUrl}`); else p.log.info(`Open ${info.publicUrl}`); continue; }
-    if (action === 'status') { const r = await systemctl('status', '--no-pager', '-n', '0', ...SERVICES); p.note(r.stdout.trim() || '(no output)', 'Status'); continue; }
-    if (action === 'logs') { const r = await runCmd('journalctl', ['-u', 'orca-daemon', '-n', '20', '--no-pager']); p.note(r.stdout.trim() || '(no logs — try: journalctl -u orca-daemon)', 'orca-daemon'); continue; }
+    if (action === 'open') {
+      lastReport = { title: 'Web UI', body: openBrowser(info.publicUrl) ? `Opening ${info.publicUrl}` : `Open ${info.publicUrl}` };
+      continue;
+    }
+    if (action === 'status') {
+      const r = await systemctl('status', '--no-pager', '-n', '0', ...SERVICES);
+      lastReport = { title: 'Status', body: r.stdout.trim() || '(no output)' };
+      continue;
+    }
+    if (action === 'logs') {
+      const r = await runCmd('journalctl', ['-u', 'orca-daemon', '-n', '20', '--no-pager']);
+      lastReport = { title: 'orca-daemon', body: r.stdout.trim() || '(no logs - try: journalctl -u orca-daemon)' };
+      continue;
+    }
     if (action === 'update') {
-      const s = p.spinner(); s.start('Checking npm for a newer version…');
       try {
         // Shared updater: self-locating npm --prefix + systemd-aware restart (same path as `orca update`).
         const r = await update(process.env, { current: version });
-        s.stop(r.updated
+        const message = r.updated
           ? (r.restartDeferred ? `Installed ${r.to} — restart deferred (a mission is running).` : `Updated ${r.from} → ${r.to} and restarted.`)
-          : `Already on the latest version (${r.to}).`);
-      } catch (e) { s.stop(`Update failed: ${(e as Error).message}`); }
+          : `Already on the latest version (${r.to}).`;
+        lastReport = { title: 'Update', body: message };
+      } catch (e) {
+        const message = `Update failed: ${(e as Error).message}`;
+        lastReport = { title: 'Update', body: message };
+      }
       continue;
     }
     // start | stop | restart
-    const s = p.spinner(); s.start(`${action}…`);
     const r = await systemctl(action as string, ...SERVICES);
-    s.stop(r.code === 0 ? `${action} ✓` : `${action} failed (code ${r.code})`);
+    const message = r.code === 0 ? `${action} ok` : `${action} failed (code ${r.code})`;
+    lastReport = { title: 'Services', body: message };
   }
-  p.outro('See you 🐋');
 }
 
 /** The interactive launcher menu shown when `orca` is run with no arguments in a terminal. */
@@ -74,11 +91,12 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
   const info = readInstallInfo();
   if (info) { await systemdMenu(info, version); return; }
 
-  const deps = defaultLifecycleDeps(version);
-  p.intro(`🐋 orca v${version}`);
+  const deps = { ...defaultLifecycleDeps(version), log: () => {} };
+  p.intro(`orca v${version}`);
   // Offer onboarding once on a fresh install (marker-gated — no daemon call when already set up).
   await maybeOfferSetup(BASE, env, version);
 
+  let lastReport: { title?: string; body: string } | undefined;
   for (;;) {
     const st = await status(env);
     const running = st.daemon.running;
@@ -89,6 +107,7 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
       : '○ orca is stopped';
     const action = await p.select({
       message: state,
+      note: lastReport,
       options: [
         { value: 'chat', label: 'Talk to Orca', hint: 'chat in the terminal' },
         running
@@ -101,35 +120,49 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
       ],
     });
     if (p.isCancel(action) || action === 'exit') break;
+    lastReport = undefined;
 
     if (action === 'chat') {
       // Bring the daemon up if needed (chat needs the brain), then hand off to the pi-tui client;
       // control returns here when it exits.
       if (!running) {
         try { await runLifecycle('up', env, deps); }
-        catch (e) { p.log.error((e as Error).message); continue; }
+        catch (e) { lastReport = { title: 'Services', body: (e as Error).message }; continue; }
       }
       await launchChat(BASE, env);
       continue;
     }
-    if (action === 'status') { p.note(formatStatus(st, version), 'Status'); continue; }
+    if (action === 'status') {
+      lastReport = { title: 'Status', body: formatStatus(st, version) };
+      continue;
+    }
     if (action === 'open') {
       // start() throws if the daemon never comes up — show it rather than opening a dead URL.
-      if (!running) { try { await runLifecycle('up', env, deps); } catch (e) { p.log.error((e as Error).message); continue; } }
-      if (openBrowser(webUrl)) p.log.success(`Opening ${webUrl}`);
-      else p.log.info(`Open ${webUrl}`);
+      if (!running) {
+        try { await runLifecycle('up', env, deps); }
+        catch (e) {
+          lastReport = { title: 'Open web UI', body: (e as Error).message };
+          continue;
+        }
+      }
+      lastReport = { title: 'Web UI', body: openBrowser(webUrl) ? `Opening ${webUrl}` : `Open ${webUrl}` };
       continue;
     }
     if (action === 'up') {
-      try { await runLifecycle('up', env, deps); }
-      catch (e) { p.log.error((e as Error).message); continue; }
+      try {
+        await runLifecycle('up', env, deps);
+        lastReport = { title: 'Services', body: 'orca started' };
+      }
+      catch (e) { lastReport = { title: 'Services', body: (e as Error).message }; continue; }
       continue;
     }
     // 'down' | 'update' — catch so a failed update (registry blip / restart error) doesn't throw out
     // of the loop and eject the operator from the launcher, mirroring the systemd menu's handling.
-    try { await runLifecycle(action, env, deps); }
-    catch (e) { p.log.error((e as Error).message); }
+    try {
+      await runLifecycle(action, env, deps);
+      lastReport = { title: action === 'down' ? 'Services' : 'Update', body: action === 'down' ? 'orca stopped' : 'update finished' };
+    }
+    catch (e) { lastReport = { title: action === 'down' ? 'Services' : 'Update', body: (e as Error).message }; }
   }
 
-  p.outro('See you 🐋');
 }

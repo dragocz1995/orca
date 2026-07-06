@@ -9,11 +9,21 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import { spawn } from 'node:child_process';
 
-const ok = (text, details = {}) => ({ content: [{ type: 'text', text }], details });
-const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
+const ok = (text, details = {}) => ({ content: [{ type: 'text', text }], details: { ok: true, ...details } });
+const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`, {
+  ok: false,
+  error: { message: e instanceof Error ? e.message : String(e) },
+});
 
 const CONNECT_TIMEOUT_MS = 15_000;
 const CALL_TIMEOUT_MS = 120_000;
+const state = {
+  ctx: null,
+  specs: [],
+  live: [],
+  reconnecting: new Set(),
+  servers: new Map(),
+};
 
 /** Sanitize a name fragment into a tool-name-safe token. */
 const sanitize = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'x';
@@ -66,12 +76,34 @@ function makeTransport(spec) {
   return { transport: new DetachedStdioTransport(child), child };
 }
 
+function transportKind(spec) {
+  return spec.transport ?? (spec.url ? 'http' : 'stdio');
+}
+
+function publicServerState(spec) {
+  const entry = state.servers.get(spec.name) ?? {};
+  return {
+    name: spec.name,
+    transport: transportKind(spec),
+    status: entry.status ?? (spec.enabled ? 'disconnected' : 'disabled'),
+    tools: entry.tools ?? [],
+    toolCount: entry.toolCount ?? 0,
+    lastError: entry.lastError ?? null,
+    reconnecting: state.reconnecting.has(spec.name),
+  };
+}
+
+function setServerState(name, patch) {
+  const prev = state.servers.get(name) ?? {};
+  state.servers.set(name, { ...prev, ...patch, updatedAt: new Date().toISOString() });
+}
+
 /** Map an MCP tool-call result into the brain tool-result shape. */
 function mapResult(res) {
   const parts = Array.isArray(res?.content) ? res.content : [];
   const content = parts.map((p) => (p?.type === 'text' ? { type: 'text', text: String(p.text ?? '') } : { type: 'text', text: JSON.stringify(p) }));
   if (!content.length) content.push({ type: 'text', text: res?.isError ? 'MCP tool returned an error.' : '(no output)' });
-  return { content, details: { isError: !!res?.isError } };
+  return { content, details: { ok: !res?.isError, isError: !!res?.isError } };
 }
 
 /** Register one remote MCP tool as a native brain tool (namespaced `mcp_<server>_<tool>`). */
@@ -95,6 +127,7 @@ function registerBridgedTool(ctx, client, serverName, tool) {
 /** Connect one server, list its tools, and bridge them. Errors propagate to the caller (per-server
  *  fail-open) — but a half-open connection is torn down first so a failed connect can't orphan a child. */
 async function connectServer(ctx, spec, live) {
+  setServerState(spec.name, { status: 'connecting', transport: transportKind(spec), lastError: null, tools: [], toolCount: 0 });
   const { transport, child } = makeTransport(spec);
   const client = new Client({ name: 'orca-mcp-bridge', version: '0.1.1' }, { capabilities: {} });
   const entry = { name: spec.name, client, transport, child };
@@ -103,12 +136,25 @@ async function connectServer(ctx, spec, live) {
     await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `mcp connect ${spec.name}`);
     const { tools } = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, `mcp listTools ${spec.name}`);
     for (const tool of tools ?? []) registerBridgedTool(ctx, client, spec.name, tool);
+    setServerState(spec.name, {
+      status: 'connected',
+      transport: transportKind(spec),
+      lastError: null,
+      toolCount: tools?.length ?? 0,
+      tools: (tools ?? []).map((tool) => ({
+        name: tool.name,
+        title: tool.title ?? tool.name,
+        description: tool.description ?? '',
+        schema: tool.inputSchema ?? null,
+      })),
+    });
     ctx.logger?.info?.(`mcp: connected "${spec.name}" (${tools?.length ?? 0} tools)`);
   } catch (e) {
     const i = live.indexOf(entry);
     if (i >= 0) live.splice(i, 1);
     try { await transport.close?.(); } catch { /* ignore */ }
     killTree(child);
+    setServerState(spec.name, { status: 'error', lastError: e instanceof Error ? e.message : String(e), toolCount: 0, tools: [] });
     throw e;
   }
 }
@@ -125,6 +171,13 @@ async function connectAll(ctx, specs, live) {
 export async function register(ctx) {
   const specs = Array.isArray(ctx.config?.servers) ? ctx.config.servers : [];
   const live = []; // { name, client, transport, child }
+  state.ctx = ctx;
+  state.specs = specs.filter((s) => s && s.name);
+  state.live = live;
+  state.servers.clear();
+  for (const spec of state.specs) {
+    setServerState(spec.name, { status: spec.enabled ? 'disconnected' : 'disabled', transport: transportKind(spec), lastError: null, tools: [], toolCount: 0 });
+  }
 
   // Kill every spawned child (process group) on daemon exit — a last-resort net for non-systemd runs
   // (dev). Registered per load; removed by cleanup so reloads don't stack listeners.
@@ -148,10 +201,41 @@ export async function register(ctx) {
   // On plugin reload/disable/config-change the registry is rebuilt — tear down THIS load's servers first
   // so a config edit never orphans the previous process tree. Fires on the OLD registry before the swap.
   ctx.registerHook({ name: 'plugin.reload.before', run: async () => { await cleanup(); } });
+  ctx.registerControl('mcp', {
+    listServers: listMcpServers,
+    reconnectServer: reconnectMcpServer,
+    reconnectDisconnected: reconnectMcpDisconnected,
+  });
 
   // Connecting blocks register() (the loader awaits it) — bounded + fail-open per server above.
   await connectAll(ctx, specs, live);
 }
 
 // Exported for the process-cleanup test scenario (see tests/plugins/mcpPlugin.test.ts).
+export function listMcpServers() {
+  return state.specs.map(publicServerState);
+}
+
+export async function reconnectMcpServer(name) {
+  const spec = state.specs.find((s) => s.name === name);
+  if (!spec) throw new Error(`unknown MCP server "${name}"`);
+  if (!spec.enabled) throw new Error(`MCP server "${name}" is disabled`);
+  const current = state.servers.get(name);
+  if (current?.status === 'connected') return publicServerState(spec);
+  if (state.reconnecting.has(name)) return publicServerState(spec);
+  if (!state.ctx) throw new Error('MCP plugin is not loaded');
+  state.reconnecting.add(name);
+  try {
+    await connectServer(state.ctx, spec, state.live);
+    return publicServerState(spec);
+  } finally {
+    state.reconnecting.delete(name);
+  }
+}
+
+export async function reconnectMcpDisconnected() {
+  const targets = state.specs.filter((spec) => spec.enabled && ['disconnected', 'error'].includes(state.servers.get(spec.name)?.status ?? 'disconnected'));
+  return Promise.allSettled(targets.map((spec) => reconnectMcpServer(spec.name))).then(() => listMcpServers());
+}
+
 export { killTree, DetachedStdioTransport, sanitize, mapResult };

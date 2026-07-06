@@ -1,4 +1,4 @@
-import * as p from '@clack/prompts';
+import * as p from '../ui/prompts.js';
 import { defaultLifecycleDeps, runLifecycle } from '../commands.js';
 import { readInstallInfo } from '../installInfo.js';
 import { SERVICES, systemctl } from '../systemd.js';

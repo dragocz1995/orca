@@ -1,4 +1,4 @@
-import { isCancel } from '@clack/prompts';
+import { isCancel } from '../ui/prompts.js';
 import type { BrainProviderType } from '../../store/configStore.js';
 
 /** How a step ended: configured, deliberately skipped, or the user asked to go back a step. */
@@ -38,7 +38,7 @@ export class WizardCancelled extends Error {
   constructor() { super('wizard cancelled'); this.name = 'WizardCancelled'; }
 }
 
-/** Unwrap a @clack/prompts result, throwing WizardCancelled on cancel so step code reads top-to-bottom. */
+/** Unwrap a prompt result, throwing WizardCancelled on cancel so step code reads top-to-bottom. */
 export function guard<T>(value: T | symbol): T {
   if (isCancel(value)) throw new WizardCancelled();
   return value as T;

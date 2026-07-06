@@ -10,7 +10,7 @@ describe('viewToPlainText', () => {
     const lines = viewToPlainText(v);
     expect(lines).toContain('you');
     expect(lines.some((l) => l.includes('ahoj'))).toBe(true);
-    expect(lines.some((l) => l.includes('⏺ orca_create_task'))).toBe(true);
+    expect(lines.some((l) => l.includes('* orca_create_task'))).toBe(true);
     expect(lines.some((l) => l.includes('hotovo'))).toBe(true);
   });
 
@@ -19,8 +19,8 @@ describe('viewToPlainText', () => {
     v = reduce(v, { type: 'reasoning', delta: 'let me think' });
     v = reduce(v, { type: 'text', delta: 'answer' });
     const lines = viewToPlainText(v);
-    expect(lines.some((l) => l.includes('💭 let me think'))).toBe(true);
-    expect(lines.some((l) => l.includes('answer') && !l.includes('💭'))).toBe(true);
+    expect(lines.some((l) => l.includes('thought let me think'))).toBe(true);
+    expect(lines.some((l) => l.includes('answer') && !l.includes('thought'))).toBe(true);
   });
 });
 
@@ -64,12 +64,28 @@ describe('parseCommand', () => {
     expect(parseCommand('/think high')).toEqual({ cmd: 'think', arg: 'high' });
     expect(parseCommand('/theme')).toEqual({ cmd: 'theme', arg: undefined });
     expect(parseCommand('/theme mono')).toEqual({ cmd: 'theme', arg: 'mono' });
+    expect(parseCommand('/mcp')).toEqual({ cmd: 'mcp' });
+    expect(parseCommand('/skills')).toEqual({ cmd: 'skills' });
+    expect(parseCommand('/tools')).toEqual({ cmd: 'tools' });
+    expect(parseCommand('/goal Fix tests')).toEqual({ cmd: 'goal', arg: 'Fix tests' });
+    expect(parseCommand('/subgoal Run typecheck')).toEqual({ cmd: 'subgoal', arg: 'Run typecheck' });
     expect(parseCommand('/compact')).toEqual({ cmd: 'compact' });
+    expect(parseCommand('/plan')).toEqual({ cmd: 'plan' });
+    expect(parseCommand('/build')).toEqual({ cmd: 'build' });
     expect(parseCommand('/quit')).toEqual({ cmd: 'quit' });
     expect(parseCommand('/exit')).toEqual({ cmd: 'quit' });
     expect(parseCommand('/help')).toEqual({ cmd: 'help' });
     expect(parseCommand('/unknown')).toBeNull();
     expect(parseCommand('běžná zpráva')).toBeNull();
+  });
+});
+
+describe('mode toggle key', () => {
+  it('recognizes Shift+Tab and the Ctrl+Tab sequence some terminals emit', async () => {
+    const { isModeToggleKey } = await import('../../../src/cli/chat/app.js');
+    expect(isModeToggleKey('\x1b[Z')).toBe(true);
+    expect(isModeToggleKey('\x1b[9;5u')).toBe(true);
+    expect(isModeToggleKey('\t')).toBe(false);
   });
 });
 

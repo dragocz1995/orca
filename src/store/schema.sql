@@ -153,6 +153,22 @@ CREATE TABLE IF NOT EXISTS brain_messages (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_brain_messages_session ON brain_messages(session_id);
+CREATE TABLE IF NOT EXISTS brain_goals (
+  session_id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  goal TEXT NOT NULL,
+  draft TEXT NOT NULL DEFAULT '',
+  subgoals TEXT NOT NULL DEFAULT '[]',
+  turns_used INTEGER NOT NULL DEFAULT 0,
+  turn_budget INTEGER NOT NULL DEFAULT 8,
+  last_verdict TEXT NOT NULL DEFAULT '',
+  last_evidence TEXT NOT NULL DEFAULT '',
+  paused_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_brain_goals_user ON brain_goals(user_id, status);
 
 -- Per-user, per-platform personality profiles: named prompt bodies that shape how Orca behaves on a
 -- given surface ('web'/'discord'/'cli', future keys allowed). A user may keep several named profiles

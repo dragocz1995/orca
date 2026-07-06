@@ -61,13 +61,22 @@ export interface BrainSessionInfo { id: string; title: string; model: string; up
 /** A row in the admin session-management panel (all brain sessions the operator anchors). */
 export interface ManagedSession { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean; kind: 'conversation' | 'channel' | 'task'; tokens: number }
 /** Mirror of the daemon's slash-command def (src/brain/slashCommands.ts) — published at GET /brain/commands. */
-export interface SlashCommandDef { name: string; description: string; kind: 'action' | 'info' | 'picker'; adminOnly?: boolean }
+export interface SlashCommandDef { name: string; description: string; kind: 'action' | 'info' | 'picker' | 'mode'; adminOnly?: boolean }
 /** One fulltext-search match across the caller's brain conversations. */
 export interface BrainSearchHit { sessionId: string; sessionTitle: string; role: string; snippet: string; ts: string }
 /** A stored brain turn shaped for display. */
+export interface ToolOutputView {
+  title: string;
+  kind: 'console' | 'result';
+  text: string;
+  fullText?: string;
+  command?: string;
+  status?: string;
+  tone?: 'normal' | 'success' | 'warning' | 'danger';
+}
 export type BrainSegment =
   | { kind: 'text'; text: string }
-  | { kind: 'tool'; name: string; detail?: string; diff?: string };
+  | { kind: 'tool'; name: string; detail?: string; diff?: string; output?: ToolOutputView };
 export interface BrainMessage { role: string; text: string; segments?: BrainSegment[] }
 
 /** ask_user_question wire shapes (mirror src/brain/events.ts). The `ask` SSE event carries `id` +
@@ -129,7 +138,7 @@ export interface ProfilePatch { name?: string; email?: string; default_exec?: st
  *  model output is parsed as JSON (shown with a warning in the editor). */
 export interface UserPrompt {
   name: string;
-  group: 'workers' | 'pilot' | 'overseer' | 'advisor';
+  group: 'workers' | 'pilot' | 'overseer' | 'advisor' | 'cli';
   vars: string[];
   jsonContract: boolean;
   /** System-managed template: the user's text appends to it instead of replacing it (default hidden). */

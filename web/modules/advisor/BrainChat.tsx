@@ -76,6 +76,22 @@ function DiffBlock({ diff }: { diff: string }) {
   );
 }
 
+function ToolOutputBlock({ output }: { output: NonNullable<ToolItem['output']> }) {
+  const tone = output.tone === 'warning' || output.tone === 'danger'
+    ? 'border-warning/30 bg-warning/10 text-warning'
+    : output.tone === 'success'
+      ? 'border-success/30 bg-success/10 text-success'
+      : 'border-border bg-elevated text-text-muted';
+  return (
+    <pre className={`max-w-full overflow-x-auto rounded-md border p-2 font-mono text-tiny leading-relaxed ${tone}`}>
+      {output.command ? <div className="mb-1 text-text">$ {output.command}</div> : null}
+      {output.status ? <div className="mb-1 opacity-80">{output.status}</div> : null}
+      <div>{output.text || ' '}</div>
+      {output.fullText && output.fullText !== output.text ? <div className="mt-1 text-text-muted">Click to expand in terminal</div> : null}
+    </pre>
+  );
+}
+
 /** A display card (ctx.emitCard) — the web mirror of the CLI/Discord panel: an optional title with a
  *  done/total count, a checklist (done struck through + green, in-progress accented, pending muted), and
  *  optional freeform body. The todo checklist is the canonical card. */
@@ -121,6 +137,7 @@ function ToolPills({ tools }: { tools: ToolItem[] }) {
         ))}
       </span>
       {tools.filter((t) => t.diff).map((tool, i) => <DiffBlock key={i} diff={tool.diff!} />)}
+      {tools.filter((t) => t.output).map((tool, i) => <ToolOutputBlock key={i} output={tool.output!} />)}
     </span>
   );
 }

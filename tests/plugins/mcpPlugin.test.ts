@@ -18,12 +18,14 @@ const waitFor = async (fn: () => boolean, ms = 3000) => { const end = Date.now()
 function fakeCtx(config: Record<string, unknown>) {
   const tools: { name: string; execute: (id: string, args: unknown) => Promise<unknown> }[] = [];
   const hooks: { name: string; run: (p: unknown) => unknown }[] = [];
+  const controls = new Map<string, unknown>();
   return {
     config,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     registerTool: (t: { name: string; execute: (id: string, args: unknown) => Promise<unknown> }) => tools.push(t),
     registerHook: (h: { name: string; run: (p: unknown) => unknown }) => hooks.push(h),
-    tools, hooks,
+    registerControl: (name: string, control: unknown) => controls.set(name, control),
+    tools, hooks, controls,
   };
 }
 
@@ -34,8 +36,9 @@ describe('mcp plugin — helpers', () => {
   });
 
   it('mapResult maps MCP content to a brain tool result', () => {
-    expect(mapResult({ content: [{ type: 'text', text: 'hi' }] })).toEqual({ content: [{ type: 'text', text: 'hi' }], details: { isError: false } });
+    expect(mapResult({ content: [{ type: 'text', text: 'hi' }] })).toEqual({ content: [{ type: 'text', text: 'hi' }], details: { ok: true, isError: false } });
     expect(mapResult({ content: [], isError: true }).details.isError).toBe(true);
+    expect(mapResult({ content: [], isError: true }).details.ok).toBe(false);
   });
 
   it('killTree kills the whole process group (negative pid)', () => {
@@ -78,6 +81,7 @@ describe('mcp plugin — end-to-end connection + process-group cleanup', () => {
     });
 
     await register(ctx as never);
+    expect(ctx.controls.has('mcp')).toBe(true);
 
     // The server's `echo` tool is bridged, namespaced.
     const echo = ctx.tools.find((t) => t.name === 'mcp_mock_echo');

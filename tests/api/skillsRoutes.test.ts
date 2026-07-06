@@ -52,15 +52,15 @@ describe('skills routes', () => {
     const res = await app.request('/plugins/skills/list', auth(adminTok));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([
-      { name: 'greeting', description: 'How to greet.', source: 'bundled' },
-      { name: 'my-skill', description: 'A user skill.', source: 'user' },
+      expect.objectContaining({ name: 'greeting', description: 'How to greet.', source: 'bundled', scope: 'bundled/system', active: true, canDelete: false }),
+      expect.objectContaining({ name: 'my-skill', description: 'A user skill.', source: 'user', scope: 'user-defined', active: true, canDelete: true }),
     ]);
   });
 
   it('GET lists bundled skills even when the user dir does not exist yet', async () => {
     const { app, adminTok } = setup();
     const res = await app.request('/plugins/skills/list', auth(adminTok));
-    expect(await res.json()).toEqual([{ name: 'greeting', description: 'How to greet.', source: 'bundled' }]);
+    expect(await res.json()).toEqual([expect.objectContaining({ name: 'greeting', description: 'How to greet.', source: 'bundled', canDelete: false })]);
   });
 
   it('POST creates the user skill file in the create_skill format and GET lists it', async () => {
@@ -70,7 +70,7 @@ describe('skills routes', () => {
     expect(readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8'))
       .toBe('---\nname: deploy-checklist\ndescription: When deploying.\n---\n\nCheck twice.\n');
     const list = (await (await app.request('/plugins/skills/list', auth(adminTok))).json()) as { name: string; source: string }[];
-    expect(list).toContainEqual({ name: 'deploy-checklist', description: 'When deploying.', source: 'user' });
+    expect(list).toContainEqual(expect.objectContaining({ name: 'deploy-checklist', description: 'When deploying.', source: 'user', canDelete: true }));
   });
 
   it('POST flattens newlines in the description (frontmatter stays one line)', async () => {

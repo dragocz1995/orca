@@ -10,6 +10,11 @@ export interface BrainMessageRow {
 export interface BrainSearchHit {
   sessionId: string; sessionTitle: string; role: string; snippet: string; ts: string;
 }
+export interface BrainGoalRow {
+  session_id: string; user_id: number; status: 'active' | 'draft' | 'paused' | 'done';
+  goal: string; draft: string; subgoals: string; turns_used: number; turn_budget: number;
+  last_verdict: string; last_evidence: string; paused_reason: string; created_at: string; updated_at: string;
+}
 
 /** Radius of context kept around a search match in its snippet. */
 const SNIPPET_RADIUS = 60;
@@ -119,6 +124,10 @@ export class BrainStore {
     this.db.prepare('UPDATE brain_sessions SET title = ? WHERE id = ?').run(title, id);
   }
 
+  renameSession(id: string, title: string): void {
+    this.db.prepare("UPDATE brain_sessions SET title = ?, updated_at = datetime('now') WHERE id = ?").run(title, id);
+  }
+
   touchSession(id: string, model?: string): void {
     if (model === undefined) {
       this.db.prepare("UPDATE brain_sessions SET updated_at = datetime('now') WHERE id = ?").run(id);
@@ -129,12 +138,57 @@ export class BrainStore {
 
   /** Delete one conversation and its messages. */
   deleteSession(id: string): void {
+    this.db.prepare('DELETE FROM brain_goals WHERE session_id = ?').run(id);
     this.db.prepare('DELETE FROM brain_messages WHERE session_id = ?').run(id);
     this.db.prepare('DELETE FROM brain_sessions WHERE id = ?').run(id);
   }
 
   removeForUser(userId: number): void {
+    this.db.prepare('DELETE FROM brain_goals WHERE user_id = ?').run(userId);
     this.db.prepare('DELETE FROM brain_messages WHERE session_id IN (SELECT id FROM brain_sessions WHERE user_id = ?)').run(userId);
     this.db.prepare('DELETE FROM brain_sessions WHERE user_id = ?').run(userId);
+  }
+
+  upsertGoal(input: { sessionId: string; userId: number; goal: string; status?: BrainGoalRow['status']; draft?: string; turnBudget?: number }): BrainGoalRow {
+    this.db.prepare(
+      `INSERT INTO brain_goals (session_id, user_id, status, goal, draft, turn_budget)
+       VALUES (@session_id, @user_id, @status, @goal, @draft, @turn_budget)
+       ON CONFLICT(session_id) DO UPDATE SET
+         user_id = excluded.user_id,
+         status = excluded.status,
+         goal = excluded.goal,
+         draft = excluded.draft,
+         turns_used = 0,
+         turn_budget = excluded.turn_budget,
+         last_verdict = '',
+         last_evidence = '',
+         paused_reason = '',
+         updated_at = datetime('now')`
+    ).run({
+      session_id: input.sessionId,
+      user_id: input.userId,
+      status: input.status ?? 'active',
+      goal: input.goal,
+      draft: input.draft ?? '',
+      turn_budget: input.turnBudget ?? 8,
+    });
+    return this.getGoal(input.sessionId)!;
+  }
+
+  getGoal(sessionId: string): BrainGoalRow | undefined {
+    return this.db.prepare('SELECT * FROM brain_goals WHERE session_id = ?').get(sessionId) as BrainGoalRow | undefined;
+  }
+
+  updateGoal(sessionId: string, patch: Partial<Pick<BrainGoalRow, 'status' | 'subgoals' | 'turns_used' | 'last_verdict' | 'last_evidence' | 'paused_reason'>>): BrainGoalRow | undefined {
+    const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+    if (entries.length === 0) return this.getGoal(sessionId);
+    const sets = entries.map(([k]) => `${k} = @${k}`).join(', ');
+    this.db.prepare(`UPDATE brain_goals SET ${sets}, updated_at = datetime('now') WHERE session_id = @session_id`)
+      .run({ ...Object.fromEntries(entries), session_id: sessionId });
+    return this.getGoal(sessionId);
+  }
+
+  clearGoal(sessionId: string): void {
+    this.db.prepare('DELETE FROM brain_goals WHERE session_id = ?').run(sessionId);
   }
 }

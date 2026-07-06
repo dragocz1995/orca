@@ -1,4 +1,4 @@
-import * as p from '@clack/prompts';
+import * as p from '../../ui/prompts.js';
 import { isFirstRun, createAdmin, login } from '../../setup.js';
 import { guard, type StepResult, type WizardCtx } from '../types.js';
 
@@ -30,7 +30,7 @@ async function createFlow(ctx: WizardCtx): Promise<StepResult> {
     return { status: 'done' };
   } catch (e) {
     const msg = (e as Error).message;
-    s.stop(`Creating the admin failed: ${msg}`);
+    s.stop(`Creating the admin failed: ${msg}`, 'error');
     // 409: a user appeared between the first-run check and the create → sign in instead of aborting.
     if (msg.includes('(409)')) return existingFlow(ctx);
     return { status: 'skipped' };
@@ -65,7 +65,7 @@ async function existingFlow(ctx: WizardCtx): Promise<StepResult> {
       ctx.answers.account = { username, created: false, signedIn: true };
       return { status: 'done' };
     } catch (e) {
-      s.stop(`Sign-in failed: ${(e as Error).message}`);
+      s.stop(`Sign-in failed: ${(e as Error).message}`, 'error');
       const again = guard(await p.confirm({ message: 'Try again?', initialValue: true }));
       if (!again) { ctx.answers.account = { username: '', created: false, signedIn: false }; return { status: 'skipped' }; }
     }

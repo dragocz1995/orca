@@ -1,10 +1,10 @@
 import { Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import type { Component, MarkdownTheme, TUI } from '@earendil-works/pi-tui';
-import { diffBlock, metaLine, padAnsi, toolChip, UserBlock } from './components.js';
+import { framedDiffBlock, toolOutputBlock, UserBlock } from './components.js';
 import { ansi, chatTheme, color } from './theme.js';
 import type { BrainUsageView } from './brainClient.js';
-import type { BrainCard } from '../../brain/events.js';
 import type { ChatView } from '../../brain/transcript.js';
+import { formatK, padAnsi } from '../ui/text.js';
 
 export const TOP_RULE_ROWS = 1;
 export const PANEL_GUTTER_COLUMNS = 3;
@@ -38,9 +38,27 @@ export function mouseClick(data: string): { x: number; y: number } | null {
 
 const bgFill = (text: string, width: number, bgCode = chatTheme().inputBg): string => `\x1b[${bgCode}m${padAnsi(text, width)}\x1b[0m`;
 
+const ORCA_ART = [
+  '█████ █████ █████  ███ ',
+  '█   █ █   █ █     █   █',
+  '█   █ ████  █     █████',
+  '█   █ █  █  █     █   █',
+  '█████ █   █ █████ █   █',
+];
+
+function toolTitle(name: string, detail?: string): string {
+  const target = detail ? ` ${detail}` : '';
+  if (/(edit|patch|update|modify|replace)/i.test(name)) return `Edit${target}`;
+  if (/(write|create)/i.test(name)) return `Wrote${target}`;
+  if (/(read|open|cat)/i.test(name)) return `Read${target}`;
+  if (/(diff)/i.test(name)) return `Diff${target}`;
+  return detail ? detail : name.replace(/[_-]+/g, ' ');
+}
+
 interface TranscriptRow {
   line: string;
-  kind?: 'thought';
+  kind?: 'thought' | 'expandable';
+  key?: string;
 }
 
 export class TopRule implements Component {
@@ -81,8 +99,9 @@ export class ChatViewport implements Component {
   private viewportHeight = 0;
   private totalLines = 0;
   private scrollbarColumn = 0;
-  private thoughtRows = new Set<number>();
-  private expandedThought = false;
+  private expandableRows = new Map<number, string>();
+  private expandedThoughts = new Set<string>();
+  private expandedTools = new Set<string>();
 
   constructor(
     initial: ChatViewportState,
@@ -104,12 +123,17 @@ export class ChatViewport implements Component {
     this.scrollOffset = Math.max(0, Math.min(this.maxOffset, this.scrollOffset + delta));
   }
 
-  isThoughtRow(absRow: number): boolean {
-    return this.thoughtRows.has(absRow - this.getTopRow() + 1);
+  isThoughtRow(x: number, absRow: number): boolean {
+    const localRow = absRow - this.getTopRow() + 1;
+    return x >= 1 && x <= this.scrollbarColumn - 2 && this.expandableRows.has(localRow);
   }
 
-  toggleThought(): void {
-    this.expandedThought = !this.expandedThought;
+  toggleThought(absRow: number): void {
+    const key = this.expandableRows.get(absRow - this.getTopRow() + 1);
+    if (!key) return;
+    const store = key.startsWith('tool:') ? this.expandedTools : this.expandedThoughts;
+    if (store.has(key)) store.delete(key);
+    else store.add(key);
   }
 
   isScrollbarHit(x: number, y: number): boolean {
@@ -143,13 +167,13 @@ export class ChatViewport implements Component {
     this.viewportHeight = height;
     this.scrollbarColumn = chatWidth;
     this.totalLines = rows.length;
-    this.thoughtRows = new Set();
+    this.expandableRows = new Map();
 
     const start = Math.max(0, rows.length - height - this.scrollOffset);
     const visible = rows.slice(start, start + height);
     while (visible.length < height) visible.push({ line: '' });
     return visible.map((entry, i) => {
-      if (entry.kind === 'thought') this.thoughtRows.add(i + 1);
+      if ((entry.kind === 'thought' || entry.kind === 'expandable') && entry.key) this.expandableRows.set(i + 1, entry.key);
       const content = i === 0 && this.scrollOffset > 0
         ? this.historyChip(entry.line, chatWidth - 2)
         : entry.line;
@@ -159,43 +183,61 @@ export class ChatViewport implements Component {
 
   private renderTranscript(width: number): TranscriptRow[] {
     const rows: TranscriptRow[] = [{ line: '' }];
-    const add = (line: string, kind?: TranscriptRow['kind']): void => { rows.push(kind ? { line, kind } : { line }); };
+    const add = (line: string, kind?: TranscriptRow['kind'], key?: string): void => { rows.push(kind ? { line, kind, key } : { line }); };
     const addBlank = (): void => add('');
     if (this.state.view.turns.length === 0) {
-      add(`  ${color.accent('ORCA')} ${color.faint('ready')} ${color.dim(this.state.modelName || '—')}`);
-      add(`  ${color.faint('/help commands · /theme colors · ctrl+r reasoning · ctrl+p telemetry')}`);
+      addBlank();
+      for (const line of ORCA_ART) {
+        const pad = Math.max(0, Math.floor((width - visibleWidth(line)) / 2));
+        add(`${' '.repeat(pad)}${color.faint(line.slice(0, 12))}${color.text(line.slice(12))}`);
+      }
+      addBlank();
+      const hint = color.faint('Ask anything. /help commands · shift+tab mode · ctrl+p telemetry');
+      add(`${' '.repeat(Math.max(0, Math.floor((width - visibleWidth(hint)) / 2)))}${hint}`);
       addBlank();
     }
-    for (const [i, turn] of this.state.view.turns.entries()) {
+    for (const [turnIndex, turn] of this.state.view.turns.entries()) {
       if (turn.role === 'you') {
         for (const line of new UserBlock(turn.text).render(width)) add(line);
         addBlank();
         continue;
       }
       let hasText = false;
-      for (const seg of turn.segments) {
+      for (const [segIndex, seg] of turn.segments.entries()) {
         if (seg.kind === 'tools') {
           for (const item of seg.items) {
-            add(toolChip(item.name, item.detail, item.icon));
-            if (item.diff) for (const line of diffBlock(item.diff)) add(line);
+            const keyBase = item.id ? `tool:${item.id}` : `tool:${turnIndex}:${segIndex}:${item.name}:${item.detail ?? ''}`;
+            if (item.diff) {
+              for (const line of framedDiffBlock(item.diff, width, toolTitle(item.name, item.detail))) add(line);
+            }
+            if (item.output) {
+              const expanded = this.expandedTools.has(keyBase);
+              const before = rows.length;
+              for (const line of toolOutputBlock(item.output, width, expanded)) add(line);
+              if (item.output.fullText && item.output.fullText !== item.output.text) {
+                for (let i = before + 1; i <= rows.length; i++) rows[i - 1] = { ...rows[i - 1]!, kind: 'expandable', key: keyBase };
+              }
+            } else if (!item.diff) {
+              add(`  ${color.success('●')} ${color.dim(toolTitle(item.name, item.detail))}`);
+            }
           }
         } else if (seg.kind === 'reasoning') {
           const liveTail = turn.streaming && seg === turn.segments[turn.segments.length - 1];
-          if (!liveTail) continue;
           const first = seg.text.replace(/\s+/g, ' ').trim() || 'thinking';
-          add(`  ${color.warning(this.expandedThought ? '▾' : '▸')} ${color.warning(`Thought: ${this.state.thinkingSeconds}s`)} ${color.faint('click')} ${color.dim(truncateToWidth(first, Math.max(12, width - 32), '…'))}`, 'thought');
-          if (this.expandedThought) {
+          const label = liveTail ? `Thought: ${this.state.thinkingSeconds}s` : 'Thought';
+          const key = `${turnIndex}:${segIndex}`;
+          const expanded = this.expandedThoughts.has(key);
+          add(`  ${color.warning(expanded ? '▾' : '▸')} ${color.warning(label)} ${color.faint('click')} ${color.dim(truncateToWidth(first, Math.max(12, width - 32), '…'))}`, 'thought', key);
+          if (expanded) {
             for (const line of wrapTextWithAnsi(seg.text, Math.max(1, width - 6))) add(`    ${color.faint(line)}`);
           }
           addBlank();
         } else {
           hasText = true;
-          for (const line of new Markdown(seg.text, 2, 0, this.mdTheme).render(width)) add(line);
+          for (const line of this.renderTextWithPlans(seg.text, width)) add(line);
         }
       }
       if (!hasText && turn.streaming) add(`  ${color.faint('…')}`);
-      const nextIsOrca = this.state.view.turns[i + 1]?.role === 'orca';
-      if (hasText && !turn.streaming && !nextIsOrca) add(metaLine(this.state.modelName));
       addBlank();
     }
     if (this.state.notice) for (const line of this.state.notice.split('\n')) add(`  ${line}`);
@@ -220,17 +262,56 @@ export class ChatViewport implements Component {
   private thumbSize(height: number, total: number): number {
     return Math.max(2, Math.floor((height / total) * height));
   }
+
+  private renderTextWithPlans(text: string, width: number): string[] {
+    const rows: string[] = [];
+    const re = /<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/gi;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      const before = text.slice(last, m.index);
+      if (before.trim()) rows.push(...new Markdown(before, 2, 0, this.mdTheme).render(width));
+      rows.push(...this.planBlock(m[1] ?? '', width));
+      last = m.index + m[0].length;
+    }
+    const after = text.slice(last);
+    const open = /<proposed_plan>\s*/i.exec(after);
+    if (open) {
+      const before = after.slice(0, open.index);
+      if (before.trim()) rows.push(...new Markdown(before, 2, 0, this.mdTheme).render(width));
+      rows.push(...this.planBlock(after.slice(open.index + open[0].length), width));
+    } else if (after.trim() || rows.length === 0) {
+      rows.push(...new Markdown(after, 2, 0, this.mdTheme).render(width));
+    }
+    return rows;
+  }
+
+  private planBlock(markdown: string, width: number): string[] {
+    const outer = Math.max(28, width);
+    const inner = Math.max(12, outer - 6);
+    const border = color.faint;
+    const title = ` ${color.bold(color.text('Proposed plan'))} ${color.faint('ready to implement')} `;
+    const rule = Math.max(0, inner - visibleWidth(title));
+    const row = (content: string): string => {
+      const clipped = truncateToWidth(content, inner, '…');
+      return `  ${border('│')}${bgFill(padAnsi(clipped, inner), inner, chatTheme().modalBg)}${border('│')}`;
+    };
+    const body = new Markdown(markdown.trim(), 0, 0, this.mdTheme).render(inner);
+    return [
+      `  ${border('╭')}${border('─'.repeat(rule))}${title}${border('╮')}`,
+      ...body.map((line) => row(line)),
+      `  ${border('╰')}${border('─'.repeat(inner))}${border('╯')}`,
+    ];
+  }
 }
 
 export interface TelemetryState {
-  modelName: string;
-  sessionTitle: string;
+  workMode: 'build' | 'plan';
   usage: BrainUsageView | null;
-  thinkingLevel: string;
-  thinkingLevels: string[];
   running: boolean;
-  cards: BrainCard[];
-  themeLabel: string;
+  runSeconds: number;
+  cwd: string;
+  branch: string;
 }
 
 export class TelemetryPanel implements Component {
@@ -239,44 +320,41 @@ export class TelemetryPanel implements Component {
   render(width: number): string[] {
     const st = this.getState();
     const usage = st.usage;
-    const pct = usage?.percent != null ? `${Math.round(usage.percent)}% used` : 'context unknown';
-    const tokens = usage ? `${usage.tokens ?? 0}/${usage.contextWindow}` : '—';
+    const pct = usage?.percent != null ? `${Math.round(usage.percent)}%` : '—';
+    const tokens = usage ? `${formatK(usage.tokens ?? 0)} / ${formatK(usage.contextWindow)}` : '—';
+    const logo = panelLogo(width);
     const rows = [
       '',
-      `  ${color.accentSoft('ORCA')}${color.faint(' / coding agent')}`,
-      '',
-      `  ${color.bold(color.text('Build'))}`,
-      `  ${st.running ? color.success('●') : color.faint('○')} ${color.text(st.modelName || '—')}`,
-      `  ${color.faint('reasoning')} ${color.warning(st.thinkingLevel || 'default')}`,
-      '',
-      `  ${color.bold(color.text('Session'))}`,
-      `  ${color.text(truncateToWidth(st.sessionTitle || 'New conversation', Math.max(1, width - 4), '…'))}`,
-      `  ${color.faint('theme')} ${color.accent(st.themeLabel)}`,
+      ...logo,
       '',
       `  ${color.bold(color.text('Context'))}`,
       `  ${color.text(tokens)} ${color.faint('tokens')}`,
-      `  ${color.faint(pct)} ${usage ? color.faint(`· $${usage.cost.toFixed(2)}`) : ''}`,
-      `  ${this.contextBar(usage?.percent ?? 0)}`,
+      `  ${this.contextBar(usage?.percent ?? 0, width)} ${color.faint(pct)} ${usage ? color.faint(`· $${usage.cost.toFixed(2)}`) : ''}`,
       '',
-      `  ${color.bold(color.text('Runtime'))}`,
-      `  ${color.accent('◆')} ${color.text('stream')} ${color.dim(st.running ? 'connected' : 'idle')}`,
-      `  ${color.accent('◎')} ${color.text('cards')} ${color.dim(String(st.cards.length))}`,
-      `  ${color.accent('▣')} ${color.text('levels')} ${color.dim(st.thinkingLevels.length ? st.thinkingLevels.join(', ') : 'n/a')}`,
+      `  ${color.bold(color.text('Project'))}`,
+      `  ${color.text(truncateToWidth(st.cwd, Math.max(1, width - 4), '…'))}`,
+      `  ${color.faint('branch')} ${color.accent(st.branch || 'unknown')}`,
       '',
-      `  ${color.bold(color.text('Keys'))}`,
-      `  ${color.dim('ctrl+p panel')}`,
-      `  ${color.dim('ctrl+r reasoning')}`,
-      `  ${color.dim('/ theme model sessions')}`,
-      '',
-      `  ${color.dim(process.cwd())}`,
+      `  ${color.bold(color.text('Run'))}`,
+      `  ${st.running ? color.success('●') : color.faint('○')} ${color.text(st.workMode === 'plan' ? 'Plan' : 'Build')} ${color.faint(st.running ? `${st.runSeconds}s` : 'idle')}`,
     ];
     return rows.map((r) => color.panelBg(padAnsi(r, width)));
   }
 
-  private contextBar(percent: number): string {
-    const filled = Math.max(0, Math.min(10, Math.round(percent / 10)));
-    return `${color.accent('▰'.repeat(filled))}${color.faint('▱'.repeat(10 - filled))}`;
+  private contextBar(percent: number, width: number): string {
+    const cells = Math.max(12, Math.min(22, width - 16));
+    const filled = Math.max(0, Math.min(cells, Math.round((percent / 100) * cells)));
+    return `${color.accent('▰'.repeat(filled))}${color.faint('▱'.repeat(cells - filled))}`;
   }
+}
+
+function panelLogo(width: number): string[] {
+  return ORCA_ART.map((line) => {
+    const compact = line.replaceAll(' ', '');
+    const text = visibleWidth(line) + 4 <= width ? line : compact;
+    const pad = Math.max(0, Math.floor((width - visibleWidth(text)) / 2));
+    return `${' '.repeat(pad)}${color.faint(text.slice(0, Math.floor(text.length / 2)))}${color.text(text.slice(Math.floor(text.length / 2)))}`;
+  });
 }
 
 export interface SlashOverlayItem {
@@ -299,8 +377,29 @@ export class SlashOverlay implements Component {
   invalidate(): void { /* state driven */ }
 
   filteredItems(): SlashOverlayItem[] {
-    const query = `/${this.filter}`.toLowerCase();
-    return this.items.filter((item) => item.value.toLowerCase().startsWith(query));
+    const raw = this.filter.trim().toLowerCase();
+    const query = raw.startsWith('/') ? raw.slice(1) : raw;
+    const score = (item: SlashOverlayItem): number => {
+      if (!query) return 1;
+      const name = item.value.replace(/^\//, '').toLowerCase();
+      const desc = (item.description ?? '').toLowerCase();
+      if (name === query) return 100;
+      if (name.startsWith(query)) return 80;
+      if (name.includes(query)) return 60;
+      if (desc.includes(query)) return 35;
+      let pos = 0;
+      for (const ch of query) {
+        pos = name.indexOf(ch, pos);
+        if (pos === -1) return 0;
+        pos += 1;
+      }
+      return 20;
+    };
+    return this.items
+      .map((item) => ({ item, score: score(item) }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || a.item.value.localeCompare(b.item.value))
+      .map((entry) => entry.item);
   }
 
   handleInput(data: string): void {
@@ -340,6 +439,7 @@ export class SlashOverlay implements Component {
     const bottom = `${color.accent('╰')}${color.faint('─'.repeat(innerWidth))}${color.accent('╯')}`;
     const row = (content: string): string => `${color.accent('│')}${bgFill(content, innerWidth)}${color.accent('│')}`;
     const items = this.filteredItems();
+    if (this.selectedIndex >= items.length) this.selectedIndex = Math.max(0, items.length - 1);
     const start = Math.max(0, Math.min(this.selectedIndex - 5, Math.max(0, items.length - 10)));
     const shown = items.slice(start, start + 10);
     const itemRows = shown.length

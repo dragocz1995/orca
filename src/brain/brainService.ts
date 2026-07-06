@@ -6,11 +6,12 @@ import { PluginHookBus } from '../plugins/hookBus.js';
 import type { HookAuditBuffer } from '../shared/hookAudit.js';
 import type { Policy } from '../plugins/policy.js';
 import { runWithPolicy } from '../plugins/policyContext.js';
+import type { ToolPolicy } from '../plugins/policyContext.js';
 import { ElicitationRegistry } from './elicitation.js';
 import { CardRegistry } from './cards.js';
 import { makeToolIconResolver } from './toolIcons.js';
 import type { AuthStorage } from '@earendil-works/pi-coding-agent';
-import type { BrainStore, BrainSearchHit } from '../store/brainStore.js';
+import type { BrainStore, BrainSearchHit, BrainGoalRow } from '../store/brainStore.js';
 import type { BrainRuntimeConfig } from './providers.js';
 import { buildBrainRegistry, resolveBrainModel } from './providers.js';
 import { orcaExec } from '../shared/execs.js';
@@ -41,6 +42,7 @@ import type { BrainMessageView } from './messageView.js';
 import { toBrainEvent, usageOf, runCompaction } from './events.js';
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult } from './events.js';
 import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from './sessionId.js';
+import { goalContinuePrompt, goalDraft, goalPrompt, judgeGoalCompletion, lastAssistantText, parseSubgoals } from './goal.js';
 
 
 export interface BrainDeps {
@@ -143,6 +145,7 @@ export class BrainService {
   /** Live display cards (ctx.emitCard) per conversation — seeded to clients via status, kept current via
    *  the `card` event. Shared by owner chat and channel sessions. */
   private cards = new CardRegistry();
+  private goalTimers = new Map<string, ReturnType<typeof setTimeout>>();
   constructor(private d: BrainDeps) {
     this.factory = new BrainSessionFactory({ store: d.store, createSession: d.createSession, resourceLoaderFactory: d.resourceLoaderFactory });
     this.identity = new IdentityResolver({ platformOwner: d.platformOwner, resolvePlatformUser: d.resolvePlatformUser, users: d.users });
@@ -184,6 +187,31 @@ export class BrainService {
 
   private serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
     return this.sessions.withLock(key, fn);
+  }
+
+  private cancelGoalContinuation(sessionId: string): void {
+    const timer = this.goalTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.goalTimers.delete(sessionId);
+  }
+
+  private scheduleGoalContinuation(userId: number, sessionId: string, mode: 'build' | 'plan', delay: number): void {
+    this.cancelGoalContinuation(sessionId);
+    const timer = setTimeout(() => {
+      if (this.goalTimers.get(sessionId) !== timer) return;
+      this.goalTimers.delete(sessionId);
+      const current = this.d.store.getGoal(sessionId);
+      if (!current || current.status !== 'active' || this.activeSessionId(userId) !== sessionId) return;
+      void this.send(userId, goalContinuePrompt(current), undefined, mode, { goalContinue: true }).catch((e) => {
+        this.d.store.updateGoal(sessionId, {
+          status: 'paused',
+          last_verdict: 'error',
+          paused_reason: e instanceof Error ? e.message : String(e),
+        });
+      });
+    }, delay);
+    timer.unref?.();
+    this.goalTimers.set(sessionId, timer);
   }
 
   /** The user's current conversation id: the explicit active pointer, else their most recent stored
@@ -293,6 +321,7 @@ export class BrainService {
   async abort(userId: number): Promise<void> {
     const b = this.activeLive(userId);
     if (!b) throw new Error('brain not started');
+    this.cancelGoalContinuation(b.sessionId);
     // A parked ask_user_question must fail cleanly when the turn is aborted, else the tool Promise
     // (and the awaited prompt()) would hang forever. Reject before aborting the PI session.
     if (b.sessionId) this.elicitation.cancelForSession(b.sessionId, 'aborted');
@@ -333,6 +362,7 @@ export class BrainService {
     // A parked ask_user_question holds this session's serial lock — release it FIRST (outside the lock)
     // so the switch doesn't wait out the question's timeout.
     this.elicitation.cancelForSession(sessionId, 'model switched');
+    this.cancelGoalContinuation(sessionId);
     return this.serial(sessionId, async () => {
       this.sessions.dispose(sessionId);
       const userCfg = this.d.userSettings?.(userId);
@@ -388,10 +418,79 @@ export class BrainService {
     const row = this.d.store.getSession(sessionId);
     if (!row || row.user_id !== userId || isNonUserSession(sessionId)) throw new Error('unknown session');
     this.elicitation.cancelForSession(sessionId, 'conversation deleted'); // release a parked turn before dropping its session
+    this.cancelGoalContinuation(sessionId);
     this.cards.clearSession(sessionId);
     this.sessions.dispose(sessionId);
     if (this.sessions.activeIdFor(userId) === sessionId) this.sessions.clearActive(userId);
     this.d.store.deleteSession(sessionId);
+  }
+
+  renameSession(userId: number, sessionId: string, title: string): { id: string; title: string } {
+    const row = this.d.store.getSession(sessionId);
+    const clean = title.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (!row || row.user_id !== userId || isNonUserSession(sessionId)) throw new Error('unknown session');
+    if (!clean) throw new Error('title cannot be empty');
+    this.d.store.renameSession(sessionId, clean);
+    return { id: sessionId, title: clean };
+  }
+
+  goalStatus(userId: number): BrainGoalRow | null {
+    const sessionId = this.activeSessionId(userId);
+    const row = this.d.store.getGoal(sessionId);
+    return row && row.user_id === userId ? row : null;
+  }
+
+  async setGoal(userId: number, text: string, opts?: { draft?: boolean; turnBudget?: number }): Promise<BrainGoalRow> {
+    const goal = text.trim();
+    if (!goal) throw new Error('goal cannot be empty');
+    await this.start(userId);
+    const sessionId = this.activeSessionId(userId);
+    const draft = opts?.draft ? goalDraft(goal) : '';
+    const row = this.d.store.upsertGoal({
+      sessionId, userId, goal, draft,
+      status: opts?.draft ? 'draft' : 'active',
+      turnBudget: opts?.turnBudget,
+    });
+    if (!opts?.draft) {
+      try {
+        await this.send(userId, goalPrompt(row), undefined, 'build', { goalKickoff: true });
+      } catch (e) {
+        this.d.store.updateGoal(sessionId, {
+          status: 'paused',
+          last_verdict: 'error',
+          paused_reason: e instanceof Error ? e.message : String(e),
+        });
+        throw e;
+      }
+    }
+    return this.d.store.getGoal(sessionId) ?? row;
+  }
+
+  goalAction(userId: number, action: 'pause' | 'resume' | 'clear'): BrainGoalRow | null {
+    const sessionId = this.activeSessionId(userId);
+    const row = this.d.store.getGoal(sessionId);
+    if (!row || row.user_id !== userId) return null;
+    if (action === 'clear') { this.cancelGoalContinuation(sessionId); this.d.store.clearGoal(sessionId); return null; }
+    if (action === 'pause') { this.cancelGoalContinuation(sessionId); return this.d.store.updateGoal(sessionId, { status: 'paused', paused_reason: 'paused by user' }) ?? null; }
+    return this.d.store.updateGoal(sessionId, { status: 'active', paused_reason: '' }) ?? null;
+  }
+
+  subgoal(userId: number, action: 'add' | 'remove' | 'clear', value?: string | number): BrainGoalRow {
+    const sessionId = this.activeSessionId(userId);
+    const row = this.d.store.getGoal(sessionId);
+    if (!row || row.user_id !== userId) throw new Error('no active goal');
+    let items = parseSubgoals(row.subgoals);
+    if (action === 'clear') items = [];
+    else if (action === 'add') {
+      const text = String(value ?? '').trim();
+      if (!text) throw new Error('subgoal cannot be empty');
+      items.push({ text, done: false });
+    } else {
+      const index = Number(value);
+      if (!Number.isInteger(index) || index < 1 || index > items.length) throw new Error('unknown subgoal');
+      items.splice(index - 1, 1);
+    }
+    return this.d.store.updateGoal(sessionId, { subgoals: JSON.stringify(items) })!;
   }
 
   /** The user's conversations (channel sessions excluded), most recent first, with live/active flags. */
@@ -432,6 +531,7 @@ export class BrainService {
     const row = this.d.store.getSession(id);
     if (!row || row.user_id !== userId) return 0;
     this.elicitation.cancelForSession(id, 'session deleted');
+    this.cancelGoalContinuation(id);
     if (id.startsWith('brain-ch-')) this.sessions.channelDispose(id.slice('brain-ch-'.length));
     else if (this.sessions.has(id)) this.sessions.dispose(id);
     this.d.store.deleteSession(id);
@@ -527,7 +627,7 @@ export class BrainService {
         steps += 1;
         const maxSteps = this.d.maxSteps?.() ?? 0;
         if (maxSteps > 0 && steps > maxSteps) void session.abort().catch(() => { /* already settling */ });
-        else if (maxSteps > 0) for (const l of listeners) l({ type: 'step', step: steps, maxSteps });
+        else for (const l of listeners) l({ type: 'step', step: steps, maxSteps, usage: usageOf(session) });
       }
       const be = toBrainEvent(e);
       if (!be) return;
@@ -564,7 +664,10 @@ export class BrainService {
     // the abandoned turn settles and stops holding the per-user send() lock (else the next message on the
     // new conversation would queue behind it until the question times out).
     const prevActive = this.sessions.activeIdFor(userId);
-    if (prevActive && prevActive !== sessionId) this.elicitation.cancelForSession(prevActive, 'switched conversation');
+    if (prevActive && prevActive !== sessionId) {
+      this.elicitation.cancelForSession(prevActive, 'switched conversation');
+      this.cancelGoalContinuation(prevActive);
+    }
     this.sessions.setActive(userId, sessionId);
     // Serialized per conversation: two concurrent starts would both spawn and leak one PI session.
     return this.serial(sessionId, async () => {
@@ -596,9 +699,29 @@ export class BrainService {
     return () => b.listeners.delete(listener);
   }
 
-  async send(userId: number, text: string, images?: { data: string; mimeType: string }[]): Promise<void> {
+  private ownerToolPolicy(userId: number, live: LiveBrain, mode: 'build' | 'plan'): ToolPolicy | undefined {
+    const denied = new Set(this.d.users.get(userId)?.disabled_tools ?? []);
+    if (mode === 'plan') {
+      for (const tool of live.session.getAllTools?.() ?? []) {
+        if (isPlanModeUnsafeTool(tool.name)) denied.add(tool.name);
+      }
+    }
+    return denied.size ? { deny: denied } : undefined;
+  }
+
+  private applyOwnerToolPolicy(userId: number, live: LiveBrain, mode: 'build' | 'plan'): ToolPolicy | undefined {
+    const toolPolicy = this.ownerToolPolicy(userId, live, mode);
+    applyToolVisibility(live.session, live.pluginToolNames, toolPolicy);
+    return toolPolicy;
+  }
+
+  async send(userId: number, text: string, images?: { data: string; mimeType: string }[], mode: 'build' | 'plan' = 'build', internal?: { goalKickoff?: boolean; goalContinue?: boolean }): Promise<void> {
     const active = this.activeLive(userId);
     if (!active) throw new Error('brain not started for user');
+    if (!internal?.goalKickoff && !internal?.goalContinue) this.cancelGoalContinuation(active.sessionId);
+    const modeInstruction = mode === 'plan'
+      ? `${this.d.prompts.render('cli/plan-mode', {}, userId)}\n\n`
+      : '';
     // Mid-run injection: if a turn is already streaming, STEER this message into the live turn (delivered
     // after the current tool calls, before the next LLM call) instead of queuing behind the user lock —
     // which would wait out the whole turn and then run it as a SEPARATE turn. `steer()` only ENQUEUES
@@ -607,15 +730,17 @@ export class BrainService {
     // Text-only: an image mid-turn must take the normal path so the vision-fallback hop can fire (steering
     // an image into a text-only model would error the running turn). Persist like a normal user turn —
     // agent_end skips re-persisting user messages, so there's no dup.
-    if (active.session.isStreaming && !images?.length) {
+    if (active.session.isStreaming && !images?.length && !internal?.goalKickoff && !internal?.goalContinue) {
+      this.applyOwnerToolPolicy(userId, active, mode);
       projectUserTurn(this.d.store, active.sessionId, text);
-      await active.session.steer(text);
+      await active.session.steer(modeInstruction + text);
       return;
     }
     // Serialized per USER for the whole turn: the vision-fallback respawn below disposes and recreates
     // the session, which MUST NOT race a concurrent send() (a double-submit would dispose a session
     // mid-prompt). This user-level lock guards the stop/start decision; the inner session lock still
     // guards the prompt itself. `start()` uses its own (session-keyed) lock, so there's no re-entrancy.
+    let completedSessionId = active.sessionId;
     await this.serial(`user-${userId}`, async () => {
     let b = this.activeLive(userId);
     if (!b) throw new Error('brain not started for user');
@@ -638,6 +763,7 @@ export class BrainService {
       if (hop.action === 'hop') b.visionFallback = b.model === hop.model;
     }
     const live = b;
+    completedSessionId = live.sessionId;
     // Serialized per conversation: concurrent prompt() calls on one PI session corrupt turn state.
     await this.serial(live.sessionId, async () => {
       // First user message names the conversation (once). A provisional slice fills the session list
@@ -706,13 +832,11 @@ export class BrainService {
       // instead of one global list leaking across users). memoryBlock/hookBlock are already resolved.
       // Owner chat: the effective tool access is the user's OWN deny-list (their disabled_tools). Empty
       // → undefined (no restriction). The execute-time gate reads this per plugin-tool call.
-      const denied = this.d.users.get(userId)?.disabled_tools ?? [];
-      const toolPolicy = denied.length ? { deny: new Set(denied) } : undefined;
       // Hide the user's disabled tools from the model this turn (not just block the call) — applies on the
       // next prompt, so set it right before. The execute-time gate stays as defense-in-depth.
-      applyToolVisibility(live.session, live.pluginToolNames, toolPolicy);
+      const toolPolicy = this.applyOwnerToolPolicy(userId, live, mode);
       await runWithPolicy(live.policy, () => {
-        const prompted = memoryBlock + hookBlock + live.turnContext() + text;
+        const prompted = memoryBlock + hookBlock + live.turnContext() + modeInstruction + text;
         return options ? live.session.prompt(prompted, options) : live.session.prompt(prompted);
       }, { identity, elicit, emitCard, toolPolicy });
       // Post-turn curator: extract durable facts from this exchange in the background. Fire-and-forget
@@ -732,6 +856,49 @@ export class BrainService {
       }
     });
     });
+    this.afterTurnGoalJudge(userId, completedSessionId, mode, internal);
+  }
+
+  private afterTurnGoalJudge(userId: number, sessionId: string, mode: 'build' | 'plan', internal?: { goalKickoff?: boolean; goalContinue?: boolean }): void {
+    const row = this.d.store.getGoal(sessionId);
+    if (!row || row.user_id !== userId || row.status !== 'active') return;
+    const pendingAsk = this.elicitation.pendingForSession(sessionId);
+    const turns = row.turns_used + 1;
+    const assistantText = lastAssistantText(this.d.store, sessionId);
+    const verdict = judgeGoalCompletion(assistantText);
+    if (verdict.done) {
+      this.d.store.updateGoal(sessionId, {
+        status: 'done',
+        turns_used: turns,
+        last_verdict: 'done',
+        last_evidence: verdict.evidence,
+        paused_reason: '',
+      });
+      return;
+    }
+    if (pendingAsk) {
+      this.d.store.updateGoal(sessionId, {
+        status: 'paused',
+        turns_used: turns,
+        last_verdict: 'waiting_for_user',
+        paused_reason: 'waiting for user answer',
+      });
+      return;
+    }
+    if (turns >= row.turn_budget) {
+      this.d.store.updateGoal(sessionId, {
+        status: 'paused',
+        turns_used: turns,
+        last_verdict: 'budget_reached',
+        paused_reason: `turn budget reached (${turns}/${row.turn_budget})`,
+      });
+      return;
+    }
+    const next = this.d.store.updateGoal(sessionId, { turns_used: turns, last_verdict: 'continue', last_evidence: verdict.evidence }) ?? row;
+    const activeId = this.activeSessionId(userId);
+    if (activeId !== sessionId) return;
+    this.scheduleGoalContinuation(userId, sessionId, mode, internal?.goalContinue ? 250 : 100);
+    void next;
   }
 
   /** Restart a user's live session so changed settings (model override, plugins) apply immediately.
@@ -807,7 +974,7 @@ export class BrainService {
 
   stop(userId: number): void {
     const b = this.activeLive(userId);
-    if (b) { this.elicitation.cancelForSession(b.sessionId, 'session stopped'); this.sessions.dispose(b.sessionId); }
+    if (b) { this.cancelGoalContinuation(b.sessionId); this.elicitation.cancelForSession(b.sessionId, 'session stopped'); this.sessions.dispose(b.sessionId); }
   }
 
   /** The user's stored conversation, shaped for display (channels render this on connect). Reads the
@@ -826,3 +993,29 @@ export class BrainService {
   }
 }
 
+function isPlanModeUnsafeTool(name: string): boolean {
+  const safeExact = new Set([
+    'ask_user_question',
+    'todo_write', 'todo_update',
+    'read_file', 'list_dir',
+    'list_processes', 'read_process_output',
+    'orca_list_tasks', 'orca_list_missions', 'orca_list_sessions',
+    'memory_search', 'memory_list_recent', 'memory_categories',
+  ]);
+  if (safeExact.has(name)) return false;
+
+  const unsafeExact = new Set([
+    'orca_plan', 'orca_create_task',
+    'run_command', 'write_file', 'edit_file',
+    'kill_process', 'send_message', 'sql_query', 'str_replace', 'set_config',
+  ]);
+  if (unsafeExact.has(name)) return true;
+
+  const safeReadPrefix = /^(read|list|find|grep|search|fetch|get|show|inspect|describe)_/i;
+  if (safeReadPrefix.test(name)) return false;
+
+  const unsafeWord = /(^|_)(create|write|edit|delete|remove|update|patch|apply|run|exec|execute|shell|bash|command|close|kill|restart|move|copy|mkdir|upload|deploy|merge|commit|push|send|set|replace|query)(_|$)/i;
+  if (unsafeWord.test(name)) return true;
+
+  return true;
+}

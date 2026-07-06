@@ -1,4 +1,4 @@
-import * as p from '@clack/prompts';
+import * as p from '../../ui/prompts.js';
 import type { BrainProviderType } from '../../../store/configStore.js';
 import type { OAuthFlowState } from '../../../brain/oauth.js';
 import { PREFERRED_DEFAULT } from '../../../brain/providers.js';
@@ -83,7 +83,7 @@ async function apiKeyFlow(ctx: WizardCtx, custom: boolean, providers: PublicProv
   const entry: ProviderEntry = { id, label, type, baseUrl: base, models: model ? [model] : [], ...(apiKey ? { apiKey } : {}) };
   const s = p.spinner(); s.start('Saving provider…');
   const ok = await saveProvider(ctx, entry, providers);
-  s.stop(ok ? 'Provider saved.' : 'Saving the provider failed.');
+  s.stop(ok ? 'Provider saved.' : 'Saving the provider failed.', ok ? 'success' : 'error');
   if (!ok) return skip(ctx);
 
   await maybeWireAutopilot(ctx, type, !!apiKey, id, model);
@@ -100,7 +100,7 @@ async function chooseModel(ctx: WizardCtx, type: BrainProviderType, base: string
       const probe = await apiJson<{ models?: string[] }>(ctx, 'POST', '/brain/providers/probe', { baseUrl: base, apiKey });
       const models = probe.data?.models ?? [];
       if (models.length) { s.stop(`Connected — ${models.length} models available.`); return pickFromList(models); }
-      s.stop('Reached the endpoint but got no model list (the key may be wrong, or it has no /models).');
+      s.stop('Reached the endpoint but got no model list (the key may be wrong, or it has no /models).', 'warn');
       const next = guard(await p.select({
         message: 'What next?',
         options: [
@@ -182,9 +182,9 @@ async function connectOAuth(ctx: WizardCtx, type: BrainProviderType): Promise<'s
     const deadline = Date.now() + OAUTH_COMPLETE_MS;
     for (;;) {
       const f = (await apiJson<OAuthFlowState>(ctx, 'GET', `/brain/oauth/flow/${flowId}`)).data;
-      if (!f) { s.stop('The sign-in flow was lost.'); return 'failed'; }
-      if (f.status === 'success') { s.stop('Signed in ✓'); return 'success'; }
-      if (f.status === 'error') { s.stop(`Sign-in failed: ${f.error ?? 'unknown error'}`); return 'failed'; }
+      if (!f) { s.stop('The sign-in flow was lost.', 'error'); return 'failed'; }
+      if (f.status === 'success') { s.stop('Signed in.'); return 'success'; }
+      if (f.status === 'error') { s.stop(`Sign-in failed: ${f.error ?? 'unknown error'}`, 'error'); return 'failed'; }
       if (f.needsInput && !asked) {
         asked = true;
         s.stop('');
@@ -193,7 +193,7 @@ async function connectOAuth(ctx: WizardCtx, type: BrainProviderType): Promise<'s
         if (!sub.ok) p.log.warn('Submitting the code failed — the sign-in may still complete on its own.');
         s.start('Verifying…');
       }
-      if (Date.now() > deadline) { s.stop('Sign-in timed out.'); return 'failed'; }
+      if (Date.now() > deadline) { s.stop('Sign-in timed out.', 'error'); return 'failed'; }
       await sleep(OAUTH_POLL_MS);
     }
   } catch (e) {
@@ -285,8 +285,8 @@ async function runAgentSmokeTest(ctx: WizardCtx, providerId: string, model: stri
   for (;;) {
     const s = p.spinner(); s.start('Testing the agent…');
     const r = await apiJson<{ ok?: boolean; model?: string; reply?: string; error?: string }>(ctx, 'POST', '/brain/test', { providerId, model });
-    if (r.data?.ok) { s.stop(`Orca answered ✓ (${r.data.model ?? model})`); return 'ok'; }
-    s.stop(`The agent didn't answer: ${r.data?.error ?? `HTTP ${r.status}`}`);
+    if (r.data?.ok) { s.stop(`Orca answered (${r.data.model ?? model})`); return 'ok'; }
+    s.stop(`The agent didn't answer: ${r.data?.error ?? `HTTP ${r.status}`}`, 'error');
     const next = guard(await p.select({
       message: 'What next?',
       options: [

@@ -1,4 +1,4 @@
-import * as p from '@clack/prompts';
+import * as p from '../../ui/prompts.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { apiJson } from '../http.js';

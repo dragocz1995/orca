@@ -4,11 +4,21 @@
  *  a module cycle. `BrainMessageRow` satisfies this structurally, so callers pass their rows unchanged. */
 type StoredTurnRow = { role: string; content: string };
 
+export interface ToolOutputView {
+  title: string;
+  kind: 'console' | 'result';
+  text: string;
+  fullText?: string;
+  command?: string;
+  status?: string;
+  tone?: 'normal' | 'success' | 'warning' | 'danger';
+}
+
 /** One display piece of an assistant turn, in the order it happened: a text block, or a tool call
  *  (with a short argument summary and, for edits, the display diff). */
 type BrainSegment =
   | { kind: 'text'; text: string }
-  | { kind: 'tool'; name: string; detail?: string; diff?: string };
+  | { kind: 'tool'; name: string; detail?: string; diff?: string; output?: ToolOutputView };
 
 /** A stored turn shaped for display (the `GET /brain/messages` payload consumed by channels).
  *  `text` is the flat reply (title derivation, plain clients); `segments` preserve the true order. */
@@ -23,6 +33,91 @@ export function toolDetail(args: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw.trim()) return undefined;
   const s = raw.replace(/\s+/g, ' ').trim();
   return s.length > 60 ? `${s.slice(0, 59)}…` : s;
+}
+
+function textParts(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((p) => (p && typeof p === 'object' && 'text' in p ? String((p as { text: unknown }).text) : ''))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function outputTone(text: string, exitCode?: unknown): ToolOutputView['tone'] {
+  if (exitCode === true) return 'warning';
+  if (typeof exitCode === 'number' && exitCode !== 0) return 'warning';
+  if (/\b(error|failed|failure|exception|traceback|exit\s+[1-9]|non-zero)\b/i.test(text)) return 'warning';
+  if (/\b(warn|warning|deprecated)\b/i.test(text)) return 'warning';
+  if (/\b(pass|passed|success|ok|done|green)\b/i.test(text)) return 'success';
+  return 'normal';
+}
+
+function outputKind(toolName: string): ToolOutputView['kind'] {
+  return /(shell|bash|command|terminal|exec|test|lint|knip|npm|pnpm|yarn)/i.test(toolName) ? 'console' : 'result';
+}
+
+function outputTitle(toolName: string, kind: ToolOutputView['kind']): string {
+  if (kind === 'console') return 'console output';
+  if (/(browser|playwright|chrome|page|web)/i.test(toolName)) return 'browser observation';
+  if (/(grep|search|find|rg)/i.test(toolName)) return 'search result';
+  return 'tool result';
+}
+
+function shouldShowToolOutput(toolName: string, text: string, tone: ToolOutputView['tone']): boolean {
+  if (tone === 'warning' || tone === 'danger') return true;
+  return /(shell|bash|command|terminal|exec|test|lint|knip|npm|pnpm|yarn|browser|playwright|chrome|page|grep|search|find|rg)/i.test(toolName)
+    && text.trim().length > 0;
+}
+
+function compactOutput(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').map((line) => line.replace(/\s+$/g, ''));
+  const meaningful = lines.filter((line, index) => line.trim() || (lines[index - 1]?.trim() && lines[index + 1]?.trim()));
+  const maxLines = 6;
+  const omitted = Math.max(0, meaningful.length - maxLines);
+  const shown = meaningful.slice(-maxLines);
+  if (omitted) shown.unshift(`… ${omitted} earlier lines hidden`);
+  const clipped = shown.join('\n').trim();
+  return clipped.length > 800 ? `${clipped.slice(0, 799)}…` : clipped;
+}
+
+function expandedOutput(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').map((line) => line.replace(/\s+$/g, ''));
+  const meaningful = lines.filter((line, index) => line.trim() || (lines[index - 1]?.trim() && lines[index + 1]?.trim()));
+  const maxLines = 80;
+  const omitted = Math.max(0, meaningful.length - maxLines);
+  const shown = meaningful.slice(-maxLines);
+  if (omitted) shown.unshift(`… ${omitted} earlier lines hidden`);
+  const clipped = shown.join('\n').trim();
+  return clipped.length > 12000 ? `${clipped.slice(0, 11999)}…` : clipped;
+}
+
+/** Return a compact, user-useful tool output preview. Most raw tool results stay hidden; command/test
+ *  output, browser/search observations, and warnings/errors are useful enough to show in the chat. */
+export function toolOutputView(toolName: string, args: unknown, result: unknown): ToolOutputView | undefined {
+  const r = (result && typeof result === 'object') ? result as { content?: unknown; details?: Record<string, unknown>; status?: unknown; error?: unknown; isError?: unknown } : {};
+  if (typeof r.details?.diff === 'string' && r.details.diff.trim()) return undefined;
+  const raw = textParts(r.content);
+  const errorText = typeof r.error === 'string' ? r.error : '';
+  const joined = [raw, errorText].filter(Boolean).join('\n');
+  const text = compactOutput(joined);
+  if (!text) return undefined;
+  const exitCode = r.isError === true ? true : (r.details?.exitCode ?? r.details?.code ?? r.status);
+  const tone = outputTone(text, exitCode);
+  if (!shouldShowToolOutput(toolName, text, tone)) return undefined;
+  const kind = outputKind(toolName);
+  const command = typeof (args as { command?: unknown } | null)?.command === 'string'
+    ? String((args as { command: string }).command).replace(/\s+/g, ' ').trim()
+    : undefined;
+  const status = typeof exitCode === 'number'
+    ? `exit ${exitCode}`
+    : tone === 'success'
+      ? 'ok'
+      : tone === 'warning'
+        ? 'needs attention'
+        : undefined;
+  const fullText = expandedOutput(joined);
+  return { title: outputTitle(toolName, kind), kind, text, ...(fullText !== text ? { fullText } : {}), command, status, tone };
 }
 
 /** Wrap untrusted content (retrieved memories, plugin-hook context) in a named frame, neutralizing any
@@ -70,12 +165,15 @@ export function shapeBrainMessages(rows: StoredTurnRow[]): BrainMessageView[] {
   // Edit diffs live on the toolResult rows (never shown raw) — index them so the matching
   // assistant toolCall segment can carry its diff.
   const diffs = new Map<string, string>();
+  const outputs = new Map<string, ToolOutputView>();
   for (const row of rows) {
     if (row.role !== 'toolResult') continue;
     try {
-      const m = JSON.parse(row.content) as { toolCallId?: string; details?: { diff?: unknown } };
+      const m = JSON.parse(row.content) as { toolCallId?: string; toolName?: string; arguments?: unknown; details?: { diff?: unknown } };
       if (!m.toolCallId) continue;
       if (typeof m.details?.diff === 'string' && m.details.diff.trim()) diffs.set(m.toolCallId, m.details.diff);
+      const output = m.toolName ? toolOutputView(m.toolName, m.arguments, m) : undefined;
+      if (output) outputs.set(m.toolCallId, output);
     } catch { /* malformed row → no diff */ }
   }
   const views: BrainMessageView[] = [];
@@ -99,7 +197,7 @@ export function shapeBrainMessages(rows: StoredTurnRow[]): BrainMessageView[] {
         const clean = stripInlineReasoning(p.text);
         if (clean.trim()) { text += clean; segments.push({ kind: 'text', text: clean }); }
       } else if (p.type === 'toolCall' && typeof p.name === 'string') {
-        segments.push({ kind: 'tool', name: p.name, detail: toolDetail(p.arguments), diff: p.id ? diffs.get(p.id) : undefined });
+        segments.push({ kind: 'tool', name: p.name, detail: toolDetail(p.arguments), diff: p.id ? diffs.get(p.id) : undefined, output: p.id ? outputs.get(p.id) : undefined });
       }
     }
     if (typeof msg.content === 'string') {

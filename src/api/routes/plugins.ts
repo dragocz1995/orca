@@ -28,6 +28,11 @@ function isValidCronSchedule(spec: string): boolean {
 
 /** One text-capable Discord destination for the cron-job channel picker. */
 type DiscordChannelOption = { id: string; name: string; type: 'channel' | 'thread'; parentName?: string };
+type McpControl = {
+  listServers?: () => unknown[];
+  reconnectServer?: (name: string) => Promise<unknown>;
+  reconnectDisconnected?: () => Promise<unknown[]>;
+};
 
 /** Admin management of daemon plugins: list what's installed on disk (bundled + user dir) and flip a
  *  plugin on/off. Enabling updates `config.plugins.enabled` and hot-reloads the brain's registry, so the
@@ -65,6 +70,12 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
   };
   const manifestOf = (name: string) => discoverPlugins(d.pluginDirs ?? []).find((p) => p.manifest.name === name)?.manifest;
 
+  const mcpControl = async (): Promise<McpControl | null> => {
+    const registry = await d.plugins?.get();
+    const control = registry?.controls.get('mcp');
+    return control && typeof control === 'object' ? control as McpControl : null;
+  };
+
   // A plugin's own writable data dir under the shared root, or null when the root is unset or the name
   // is unsafe (path separator / traversal). Every data path — the summary and the destructive clear —
   // funnels through here so nothing can ever resolve outside `pluginDataRoot`.
@@ -76,6 +87,29 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (dir !== join(root, name) || !dir.startsWith(root + sep)) return null;
     return dir;
   };
+
+  app.get('/plugins/mcp/servers', async (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const control = await mcpControl();
+    if (!control?.listServers) return c.json([]);
+    return c.json(control.listServers());
+  });
+
+  app.post('/plugins/mcp/servers/:name/reconnect', async (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const control = await mcpControl();
+    if (!control?.reconnectServer) return c.json({ error: 'mcp plugin unavailable' }, 503);
+    try { return c.json(await control.reconnectServer(c.req.param('name'))); }
+    catch (e) { return c.json({ error: e instanceof Error ? e.message : String(e) }, 409); }
+  });
+
+  app.post('/plugins/mcp/reconnect', async (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const control = await mcpControl();
+    if (!control?.reconnectDisconnected) return c.json({ error: 'mcp plugin unavailable' }, 503);
+    try { return c.json(await control.reconnectDisconnected()); }
+    catch (e) { return c.json({ error: e instanceof Error ? e.message : String(e) }, 409); }
+  });
 
   // Summary of a plugin's on-disk data (for the detail Data section): total files + bytes, recursively.
   // A missing dir (plugin never wrote anything) is a valid `exists:false`, not an error.
@@ -413,14 +447,23 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
 
   app.get('/plugins/skills/list', (c) => {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
-    const out: { name: string; description: string; source: 'bundled' | 'user' }[] = [];
+    const out: { name: string; description: string; source: 'bundled' | 'user'; scope: string; location: string; active: boolean; canDelete: boolean; missingRequirement?: string }[] = [];
     for (const { dir, source } of [
       { dir: bundledSkillsDir(), source: 'bundled' as const },
       { dir: userSkillsDir(), source: 'user' as const },
     ]) {
       if (!dir || !existsSync(dir)) continue;
       for (const f of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
-        out.push({ name: f.replace(/\.md$/, ''), description: skillDescription(join(dir, f)), source });
+        const file = join(dir, f);
+        out.push({
+          name: f.replace(/\.md$/, ''),
+          description: skillDescription(file),
+          source,
+          scope: source === 'bundled' ? 'bundled/system' : 'user-defined',
+          location: file,
+          active: d.config.get().plugins.enabled.includes('skills'),
+          canDelete: source === 'user',
+        });
       }
     }
     return c.json(out);

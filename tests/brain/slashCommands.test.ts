@@ -3,7 +3,7 @@ import { SLASH_COMMANDS, commandsFor, findCommand } from '../../src/brain/slashC
 
 describe('slash command registry', () => {
   it('exposes the core commands', () => {
-    for (const n of ['new', 'stop', 'status', 'compact', 'model', 'think', 'restart', 'help']) {
+    for (const n of ['new', 'stop', 'status', 'compact', 'plan', 'build', 'model', 'think', 'restart', 'help']) {
       expect(findCommand(n), n).toBeDefined();
     }
   });
@@ -35,6 +35,14 @@ describe('slash command registry', () => {
     expect(commandsFor('cli', true).some((c) => c.name === 'think')).toBe(true);
     expect(commandsFor('web', true).some((c) => c.name === 'think')).toBe(false);
     expect(commandsFor('discord', true).some((c) => c.name === 'think')).toBe(false);
+  });
+
+  it('scopes local work modes to the CLI surface', () => {
+    for (const n of ['plan', 'build']) {
+      expect(commandsFor('cli', true).some((c) => c.name === n), `cli ${n}`).toBe(true);
+      expect(commandsFor('web', true).some((c) => c.name === n), `web ${n}`).toBe(false);
+      expect(commandsFor('discord', true).some((c) => c.name === n), `discord ${n}`).toBe(false);
+    }
   });
 
   it('every command has a non-empty English description', () => {

@@ -1,7 +1,12 @@
 import type { PluginRegistry } from './registry.js';
 
-/** Named contribution (tools/skills/platforms/hooks) with its owning plugin. */
+/** Named contribution (skills/platforms/hooks) with its owning plugin. */
 interface NamedContribution { name: string; plugin: string }
+/** Tool contribution with model-facing metadata trimmed into a UI-safe summary. */
+interface ToolContribution extends NamedContribution {
+  description?: string;
+  schema?: string;
+}
 /** Unnamed contribution (prompt fragments / turn-context providers) — only the owning plugin is known. */
 interface AnonContribution { plugin: string }
 
@@ -9,7 +14,7 @@ interface AnonContribution { plugin: string }
  *  registered it. Distinct from the manifests' declarative `provides` (that's what a plugin CLAIMS on
  *  disk); this is what ended up live after load. Powers the admin runtime-introspection endpoint. */
 export interface PluginContributionReport {
-  tools: NamedContribution[];
+  tools: ToolContribution[];
   skills: NamedContribution[];
   platforms: NamedContribution[];
   promptFragments: AnonContribution[];
@@ -21,12 +26,27 @@ export interface PluginContributionReport {
  *  registers through `contextFor`, which always records the owner alongside the contribution). */
 const UNKNOWN = 'unknown';
 
+function summarizeSchema(parameters: unknown): string | undefined {
+  if (!parameters || typeof parameters !== 'object') return undefined;
+  const p = parameters as { properties?: unknown; required?: unknown };
+  if (!p.properties || typeof p.properties !== 'object') return 'schema available';
+  const required = new Set(Array.isArray(p.required) ? p.required.filter((v): v is string => typeof v === 'string') : []);
+  const fields = Object.keys(p.properties as Record<string, unknown>).slice(0, 8).map((key) => `${key}${required.has(key) ? '*' : ''}`);
+  const extra = Object.keys(p.properties as Record<string, unknown>).length > fields.length ? '…' : '';
+  return fields.length ? fields.join(', ') + extra : 'schema available';
+}
+
 /** Project a merged PluginRegistry into the runtime contribution report. Pure — no I/O, no Hono — so
  *  it is unit-testable against a hand-built registry. Tools read ownership from the `toolOwner` Map;
  *  the flat lists read it from their index-aligned owner arrays. */
 export function buildContributionReport(registry: PluginRegistry): PluginContributionReport {
   return {
-    tools: registry.tools.map((t) => ({ name: t.name, plugin: registry.toolOwner.get(t.name) ?? UNKNOWN })),
+    tools: registry.tools.map((t) => ({
+      name: t.name,
+      plugin: registry.toolOwner.get(t.name) ?? UNKNOWN,
+      description: typeof t.description === 'string' ? t.description : undefined,
+      schema: summarizeSchema((t as { parameters?: unknown }).parameters),
+    })),
     skills: registry.skills.map((s, i) => ({ name: s.name, plugin: registry.skillOwners[i] ?? UNKNOWN })),
     platforms: registry.platforms.map((p, i) => ({ name: p.name, plugin: registry.platformOwners[i] ?? UNKNOWN })),
     promptFragments: registry.promptFragments.map((_, i) => ({ plugin: registry.promptFragmentOwners[i] ?? UNKNOWN })),
@@ -47,7 +67,12 @@ export function pluginContributions(registry: PluginRegistry, name: string): Plu
   return {
     tools: registry.tools
       .filter((t) => registry.toolOwner.get(t.name) === name)
-      .map((t) => ({ name: t.name, plugin: name })),
+      .map((t) => ({
+        name: t.name,
+        plugin: name,
+        description: typeof t.description === 'string' ? t.description : undefined,
+        schema: summarizeSchema((t as { parameters?: unknown }).parameters),
+      })),
     skills: registry.skills
       .filter((_, i) => registry.skillOwners[i] === name)
       .map((s) => ({ name: s.name, plugin: name })),

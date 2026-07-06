@@ -1,4 +1,4 @@
-import * as p from '@clack/prompts';
+import * as p from '../ui/prompts.js';
 import { runAccountStep } from './steps/account.js';
 import { runProjectStep } from './steps/project.js';
 import { runAiStep } from './steps/aiProvider.js';
@@ -64,7 +64,7 @@ export async function runOnboarding(base: string, env: NodeJS.ProcessEnv, opts: 
   const startIndex = prior?.resume?.stepIndex ?? 0;
 
   if (!opts.embedded) {
-    p.intro('🐋 Welcome to Orca');
+    p.intro('Welcome to Orca');
     p.log.message("Let's get your workspace ready — 5 quick steps. You can skip anything and finish later.");
   }
 
@@ -132,7 +132,7 @@ async function finish(env: NodeJS.ProcessEnv, ctx: WizardCtx, skipped: boolean, 
     || answers.memory?.status !== 'done';
   if (unfinished) lines.push('Finish setup:  orca setup');
   p.note(lines.join('\n'), "You're set");
-  p.outro('See you 🐋');
+  p.outro('See you');
 }
 
 /** Print the readiness matrix: one '✓/✗ <label> — <detail>' line per check, with the hint on any ✗.

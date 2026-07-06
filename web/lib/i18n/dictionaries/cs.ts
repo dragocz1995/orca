@@ -1465,6 +1465,7 @@ export const cs = {
     groupPilot: 'Plánovač (Pilot)',
     groupOverseer: 'Dohled (Overseer)',
     groupAdvisor: 'Asistent (Advisor)',
+    groupCli: 'CLI chat',
     badgeOverridden: 'Upraveno',
     badgeDefault: 'Výchozí',
     badgeJson: 'Musí vracet JSON',

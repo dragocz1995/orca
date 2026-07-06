@@ -25,6 +25,7 @@ const imageSchema = z.object({
 /** A single user message sent into the brain conversation, optionally with image attachments. */
 export const brainSendSchema = z.object({
   text: z.string().min(1),
+  mode: z.enum(['build', 'plan']).optional(),
   images: z.array(imageSchema).max(4).optional(),
 });
 

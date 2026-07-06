@@ -122,10 +122,17 @@ export interface PluginLogger { info(msg: string): void; warn(msg: string): void
  *  null for OAuth providers (no static key). */
 export interface ProviderCredentials { id: string; label: string; type: string; baseUrl: string; apiKey: string | null }
 
+/** Plugin-owned runtime control surface. Routes may read these from the live merged registry, but the
+ *  shape stays plugin-specific so core does not need to import plugin modules or duplicate their state. */
+export type PluginControl = Record<string, unknown>;
+
 /** What a plugin's `register(ctx)` receives. Every `register*` call feeds the shared PluginRegistry. */
 export interface PluginContext {
   registerTool(tool: ToolDefinition): void;
   registerSkill(skill: PluginSkill): void;
+  /** Register an admin/runtime control surface for this plugin. Unlike tools, controls are called by
+   *  daemon routes and operate on the LIVE loaded plugin instance. */
+  registerControl(name: string, control: PluginControl): void;
   /** Append a chunk of instructions to the brain's system prompt, after the Orca persona. */
   registerSystemPromptFragment(fragment: string): void;
   registerHook(hook: PluginHook): void;

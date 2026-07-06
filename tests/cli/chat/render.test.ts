@@ -51,6 +51,31 @@ describe('chat render reducer', () => {
     ]);
   });
 
+  it('tool_output event attaches to the most recent tool call', () => {
+    let v = beginAssistant(emptyView());
+    v = reduce(v, { type: 'tool', name: 'run_command', detail: 'npm test' });
+    v = reduce(v, { type: 'tool_output', output: { title: 'console output', kind: 'console', text: 'Tests 4 passed', command: 'npm test', status: 'exit 0', tone: 'success' } });
+    const turn = v.turns.at(-1)!;
+    expect(turn.role === 'orca' && turn.segments).toEqual([
+      { kind: 'tools', items: [{ name: 'run_command', detail: 'npm test', output: { title: 'console output', kind: 'console', text: 'Tests 4 passed', command: 'npm test', status: 'exit 0', tone: 'success' } }] },
+    ]);
+  });
+
+  it('tool_output and diff events attach by tool call id when tools finish out of order', () => {
+    let v = beginAssistant(emptyView());
+    v = reduce(v, { type: 'tool', name: 'first', id: 'a' });
+    v = reduce(v, { type: 'tool', name: 'second', id: 'b' });
+    v = reduce(v, { type: 'tool_output', id: 'a', output: { title: 'console output', kind: 'console', text: 'A done' } });
+    v = reduce(v, { type: 'diff', id: 'b', diff: '-old\n+new' });
+    const turn = v.turns.at(-1)!;
+    expect(turn.role === 'orca' && turn.segments).toEqual([
+      { kind: 'tools', items: [
+        { name: 'first', detail: undefined, icon: undefined, id: 'a', output: { title: 'console output', kind: 'console', text: 'A done' } },
+        { name: 'second', detail: undefined, icon: undefined, id: 'b', diff: '-old\n+new' },
+      ] },
+    ]);
+  });
+
   it('idle finalizes the turn and stops thinking', () => {
     let v = beginAssistant(emptyView());
     v = reduce(v, { type: 'text', delta: 'done' });

@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Save, RotateCcw, Bot, Compass, ShieldCheck, Sparkles, Pencil, X } from 'lucide-react';
+import { Save, RotateCcw, Bot, Compass, ShieldCheck, Sparkles, Terminal, Pencil, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { UserPrompt } from '../../lib/types';
 import { useMyPrompts } from '../../lib/queries';
@@ -16,8 +16,8 @@ import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 
 type Group = UserPrompt['group'];
-const GROUP_ORDER: Group[] = ['workers', 'pilot', 'overseer', 'advisor'];
-const GROUP_ICON: Record<Group, LucideIcon> = { workers: Bot, pilot: Compass, overseer: ShieldCheck, advisor: Sparkles };
+const GROUP_ORDER: Group[] = ['workers', 'pilot', 'overseer', 'advisor', 'cli'];
+const GROUP_ICON: Record<Group, LucideIcon> = { workers: Bot, pilot: Compass, overseer: ShieldCheck, advisor: Sparkles, cli: Terminal };
 
 /** Per-user prompt templates: compact rows grouped by agent role; editing happens in a full Monaco
  *  modal (markdown highlighting, the app's editor theme) instead of inline textareas. */
@@ -29,7 +29,7 @@ export function PromptsSection() {
   if (prompts.isLoading || !prompts.data) return <LoadingState />;
 
   const groupLabel: Record<Group, string> = {
-    workers: t.prompts.groupWorkers, pilot: t.prompts.groupPilot, overseer: t.prompts.groupOverseer, advisor: t.prompts.groupAdvisor,
+    workers: t.prompts.groupWorkers, pilot: t.prompts.groupPilot, overseer: t.prompts.groupOverseer, advisor: t.prompts.groupAdvisor, cli: t.prompts.groupCli,
   };
   const byGroup = GROUP_ORDER
     .map((g) => ({ group: g, items: prompts.data!.filter((p) => p.group === g) }))

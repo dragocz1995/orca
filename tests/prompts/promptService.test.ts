@@ -32,6 +32,12 @@ describe('PromptService.render', () => {
     expect(prompts.render('worker', {}, 2)).toBe(rawTemplate('worker'));
   });
 
+  it('renders nested CLI prompt templates', () => {
+    expect(prompts.render('cli/plan-mode', {}, 1)).toContain('<proposed_plan>');
+    store.set(1, 'cli/plan-mode', 'CUSTOM PLAN MODE');
+    expect(prompts.render('cli/plan-mode', {}, 1)).toBe('CUSTOM PLAN MODE');
+  });
+
   it('ignores an override for a non-editable template name', () => {
     store.set(1, 'planner-fallback', 'SHOULD NOT WIN');
     expect(prompts.render('planner-fallback', {}, 1)).toBe(rawTemplate('planner-fallback'));

@@ -1,4 +1,4 @@
-import * as p from '@clack/prompts';
+import * as p from '../../ui/prompts.js';
 import { apiJson } from '../http.js';
 import { OPENROUTER_BASE, RECOMMENDED_EMBEDDING_MODEL } from '../constants.js';
 import { guard, type StepResult, type WizardCtx } from '../types.js';
@@ -75,7 +75,7 @@ async function runTest(ctx: WizardCtx): Promise<'ok' | 'kept' | 'edit' | 'off'> 
     const s = p.spinner(); s.start('Testing embeddings…');
     const r = await apiJson<{ ok?: boolean; dimensions?: number; error?: string }>(ctx, 'POST', '/memory/embedding/test');
     if (r.data?.ok) { s.stop(`Embeddings working — ${r.data.dimensions} dimensions.`); return 'ok'; }
-    s.stop(`Embedding test failed: ${r.data?.error ?? `HTTP ${r.status}`}`);
+    s.stop(`Embedding test failed: ${r.data?.error ?? `HTTP ${r.status}`}`, 'error');
     const next = guard(await p.select({
       message: 'What next?',
       options: [

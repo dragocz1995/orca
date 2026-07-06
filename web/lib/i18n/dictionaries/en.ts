@@ -1465,6 +1465,7 @@ export const en = {
     groupPilot: 'Planner (Pilot)',
     groupOverseer: 'Oversight (Overseer)',
     groupAdvisor: 'Assistant (Advisor)',
+    groupCli: 'CLI chat',
     badgeOverridden: 'Customized',
     badgeDefault: 'Default',
     badgeJson: 'Must return JSON',

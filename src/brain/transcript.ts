@@ -1,5 +1,6 @@
 import type { BrainCard, BrainEvent } from './events.js';
 import { isEmptyCard } from './cards.js';
+import type { ToolOutputView } from './messageView.js';
 
 /** The shared, UI-free transcript model + fold. This is the single source the chat surfaces build their
  *  view from: the CLI TUI (`src/cli/chat`) imports it directly; the web dock mirrors it in
@@ -8,8 +9,9 @@ import { isEmptyCard } from './cards.js';
  *
  *  An assistant turn is an ordered list of segments so text and tool calls render in the sequence they
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment — the
- *  Claude-Code "grouped" look. Tool OUTPUT is never shown; only names, argument summaries and edit diffs. */
-export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string }
+ *  Claude-Code "grouped" look. Tool outputs are attached only when the daemon marks a compact preview
+ *  as useful enough to show (tests, shell errors, browser/search observations). */
+export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string; output?: ToolOutputView; id?: string }
 export type Segment =
   | { kind: 'text'; text: string }
   /** The model's reasoning/thinking stream — rendered dim + separate from the answer. */
@@ -28,7 +30,7 @@ export interface ChatView { turns: ChatTurn[]; thinking: boolean; notice?: strin
 export interface HistoryMessage {
   role: string;
   text: string;
-  segments?: ({ kind: 'text'; text: string } | { kind: 'tool'; name: string; detail?: string; diff?: string })[];
+  segments?: ({ kind: 'text'; text: string } | { kind: 'tool'; name: string; detail?: string; diff?: string; output?: ToolOutputView })[];
 }
 
 export const emptyView = (): ChatView => ({ turns: [], thinking: false });
@@ -47,7 +49,7 @@ export function fromHistory(msgs: HistoryMessage[]): ChatView {
       if (seg.kind === 'text') {
         segments.push({ kind: 'text', text: seg.text });
       } else {
-        const item: ToolItem = { name: seg.name, detail: seg.detail, diff: seg.diff };
+        const item: ToolItem = { name: seg.name, detail: seg.detail, diff: seg.diff, output: seg.output };
         const tail = segments[segments.length - 1];
         if (tail?.kind === 'tools') tail.items.push(item);
         else segments.push({ kind: 'tools', items: [item] });
@@ -110,23 +112,22 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     }
     case 'tool': {
       const t = ensureOrca();
-      const item: ToolItem = { name: e.name, detail: e.detail, icon: e.icon };
+      const item: ToolItem = { name: e.name, detail: e.detail, icon: e.icon, ...(e.id ? { id: e.id } : {}) };
       const tail = t.segments[t.segments.length - 1];
       if (tail?.kind === 'tools') t.segments[t.segments.length - 1] = { kind: 'tools', items: [...tail.items, item] };
       else t.segments.push({ kind: 'tools', items: [item] });
       return { turns, thinking: true, notice: view.notice };
     }
     case 'diff': {
-      // An edit finished — attach its diff to the most recent tool call of the streaming turn.
+      // An edit finished — attach its diff to the matching tool when PI gives an id; fall back to the
+      // most recent tool for legacy events.
       const t = ensureOrca();
-      for (let i = t.segments.length - 1; i >= 0; i--) {
-        const seg = t.segments[i]!;
-        if (seg.kind !== 'tools') continue;
-        const items = seg.items.slice();
-        items[items.length - 1] = { ...items[items.length - 1]!, diff: e.diff };
-        t.segments[i] = { kind: 'tools', items };
-        break;
-      }
+      attachToTool(t, e.id, (item) => ({ ...item, diff: e.diff }));
+      return { turns, thinking: true, notice: view.notice };
+    }
+    case 'tool_output': {
+      const t = ensureOrca();
+      attachToTool(t, e.id, (item) => ({ ...item, output: e.output }));
       return { turns, thinking: true, notice: view.notice };
     }
     case 'idle': {
@@ -142,6 +143,19 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     }
     default:
       return view;
+  }
+}
+
+function attachToTool(t: OrcaTurn, id: string | undefined, patch: (item: ToolItem) => ToolItem): void {
+  for (let i = t.segments.length - 1; i >= 0; i--) {
+    const seg = t.segments[i]!;
+    if (seg.kind !== 'tools') continue;
+    const index = id ? seg.items.findIndex((item) => item.id === id) : seg.items.length - 1;
+    if (index < 0) continue;
+    const items = seg.items.slice();
+    items[index] = patch(items[index]!);
+    t.segments[i] = { kind: 'tools', items };
+    return;
   }
 }
 

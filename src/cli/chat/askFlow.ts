@@ -4,7 +4,7 @@ import { getSelectListTheme } from '@earendil-works/pi-coding-agent';
 import type { AskAnswer, AskQuestion } from '../../brain/events.js';
 import { ChatEditor } from './picker.js';
 import { ansi, chatTheme, color } from './theme.js';
-import { padAnsi } from './components.js';
+import { padAnsi } from '../ui/text.js';
 
 const OTHER = '\u0000other';
 

@@ -26,7 +26,9 @@ function fakeDeps() {
     subscribe: (l: (e: unknown) => void) => { listeners.push(l); return () => {}; },
     setModel: vi.fn(), dispose: vi.fn(), abort: vi.fn(async () => {}), messages, isStreaming: false,
     steer: vi.fn(async () => {}),
-    getContextUsage: () => undefined, compact: vi.fn(async () => {}),
+    __contextUsage: undefined as { tokens: number; contextWindow: number; percent: number } | undefined,
+    getContextUsage(this: { __contextUsage?: { tokens: number; contextWindow: number; percent: number } }) { return this.__contextUsage; },
+    compact: vi.fn(async () => {}),
     // Tool-visibility surface (applyToolVisibility): getAllTools mirrors the composed customTools (wired
     // by createSession below), active starts as the full set, and setActiveToolsByName is a spy so tests
     // can assert the per-turn slice.
@@ -189,6 +191,130 @@ describe('BrainService', () => {
     expect(roles).toContain('assistant');
   });
 
+  it('persistent goal starts a first turn, persists subgoals, and pauses on budget', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const goal = await svc.setGoal(1, 'Fix all failing tests', { turnBudget: 1 });
+    expect(goal.goal).toBe('Fix all failing tests');
+    expect(d.session.prompt.mock.calls[0][0]).toContain('Persistent goal started');
+    const paused = svc.goalStatus(1);
+    expect(paused?.status).toBe('paused');
+    expect(paused?.paused_reason).toMatch(/turn budget reached/);
+
+    svc.goalAction(1, 'resume');
+    const withSubgoal = svc.subgoal(1, 'add', 'Run npm test');
+    expect(withSubgoal.subgoals).toContain('Run npm test');
+    const removed = svc.subgoal(1, 'remove', 1);
+    expect(removed.subgoals).toBe('[]');
+    expect(svc.goalAction(1, 'clear')).toBeNull();
+    expect(svc.goalStatus(1)).toBeNull();
+  });
+
+  it('persistent goal pauses with an error when the kickoff turn fails', async () => {
+    const d = fakeDeps();
+    d.session.prompt.mockRejectedValueOnce(new Error('provider down'));
+    const svc = new BrainService(d as never);
+    await expect(svc.setGoal(1, 'Fix flaky tests')).rejects.toThrow(/provider down/);
+    const goal = svc.goalStatus(1);
+    expect(goal?.status).toBe('paused');
+    expect(goal?.last_verdict).toBe('error');
+    expect(goal?.paused_reason).toContain('provider down');
+  });
+
+  it('internal goal continuations bypass mid-run user steering', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.prompt.mockClear();
+    d.session.steer.mockClear();
+    d.session.isStreaming = true;
+    await svc.send(1, 'Continue the active persistent goal.', undefined, 'build', { goalContinue: true });
+    expect(d.session.steer).not.toHaveBeenCalled();
+    expect(d.session.prompt).toHaveBeenCalledWith('Continue the active persistent goal.');
+  });
+
+  it('plan mode injects the CLI plan prompt into the live prompt but keeps history clean', async () => {
+    const d = fakeDeps();
+    d.prompts.render.mockImplementation((name: string, vars: Record<string, string>) =>
+      name === 'cli/plan-mode' ? 'PLAN MODE PROMPT' : `PERSONA:${name}:${vars.userName}`,
+    );
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'outline the migration', undefined, 'plan');
+    expect(d.session.prompt).toHaveBeenCalledWith('PLAN MODE PROMPT\n\noutline the migration');
+    const stored = d.store.getMessages('brain-1')
+      .filter((m) => m.role === 'user')
+      .map((m) => JSON.parse(m.content).content);
+    expect(stored).toContain('outline the migration');
+    expect(stored.join('\n')).not.toContain('PLAN MODE PROMPT');
+  });
+
+  it('plan mode hides mutating tools from the model for that turn', async () => {
+    const d = fakeDeps();
+    d.prompts.render.mockImplementation((name: string, vars: Record<string, string>) =>
+      name === 'cli/plan-mode' ? 'PLAN MODE PROMPT' : `PERSONA:${name}:${vars.userName}`,
+    );
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.setActiveToolsByName.mockClear();
+
+    await svc.send(1, 'plan it first', undefined, 'plan');
+
+    const activeTools = d.session.setActiveToolsByName.mock.calls.at(-1)?.[0] ?? d.session.__active;
+    expect(activeTools).toContain('orca_list_tasks');
+    expect(activeTools).not.toContain('orca_create_task');
+    expect(activeTools).not.toContain('orca_plan');
+  });
+
+  it('plan mode keeps planning/checklist tools but hides unsafe plugin tools', async () => {
+    const d = fakeDeps();
+    d.prompts.render.mockImplementation((name: string, vars: Record<string, string>) =>
+      name === 'cli/plan-mode' ? 'PLAN MODE PROMPT' : `PERSONA:${name}:${vars.userName}`,
+    );
+    const reg = new PluginRegistry();
+    const ctx = reg.contextFor('demo', {}, { info() {}, warn() {}, error() {} });
+    for (const name of ['todo_write', 'todo_update', 'read_file', 'send_message', 'sql_query', 'str_replace', 'set_config']) {
+      ctx.registerTool(defineTool({
+        name, label: name, description: name, parameters: Type.Object({}),
+        execute: async () => ({ content: [{ type: 'text' as const, text: 'ok' }], details: {} }),
+      }));
+    }
+    (d as unknown as { plugins: unknown }).plugins = new PluginRegistryProvider(async () => reg);
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.setActiveToolsByName.mockClear();
+
+    await svc.send(1, 'make a checklist', undefined, 'plan');
+
+    const activeTools = d.session.setActiveToolsByName.mock.calls.at(-1)?.[0] ?? d.session.__active;
+    expect(activeTools).toContain('todo_write');
+    expect(activeTools).toContain('todo_update');
+    expect(activeTools).toContain('read_file');
+    expect(activeTools).not.toContain('send_message');
+    expect(activeTools).not.toContain('sql_query');
+    expect(activeTools).not.toContain('str_replace');
+    expect(activeTools).not.toContain('set_config');
+  });
+
+  it('mid-run plan steer applies plan tool visibility before enqueueing the message', async () => {
+    const d = fakeDeps();
+    d.prompts.render.mockImplementation((name: string, vars: Record<string, string>) =>
+      name === 'cli/plan-mode' ? 'PLAN MODE PROMPT' : `PERSONA:${name}:${vars.userName}`,
+    );
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.setActiveToolsByName.mockClear();
+    d.session.isStreaming = true;
+
+    await svc.send(1, 'switch to planning', undefined, 'plan');
+
+    expect(d.session.steer).toHaveBeenCalledWith('PLAN MODE PROMPT\n\nswitch to planning');
+    const activeTools = d.session.setActiveToolsByName.mock.calls.at(-1)?.[0] ?? d.session.__active;
+    expect(activeTools).toContain('orca_list_tasks');
+    expect(activeTools).not.toContain('orca_create_task');
+    expect(activeTools).not.toContain('orca_plan');
+  });
+
   it('history builds ordered segments: text + tool calls (with edit diffs), never raw tool output', () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
@@ -237,16 +363,37 @@ describe('BrainService', () => {
   it('enforces maxSteps: counts turn_start events and aborts the run past the ceiling', async () => {
     const d = fakeDeps();
     const svc = new BrainService({ ...d, maxSteps: () => 2 } as never);
-    const steps: number[] = [];
+    const steps: { step: number; usage?: { tokens: number | null; percent: number | null } }[] = [];
     await svc.start(1);
-    svc.subscribe(1, (e) => { if ((e as { type: string }).type === 'step') steps.push((e as { step: number }).step); });
+    svc.subscribe(1, (e) => {
+      if ((e as { type: string }).type === 'step') {
+        const ev = e as { step: number; usage?: { tokens: number | null; percent: number | null } };
+        steps.push({ step: ev.step, usage: ev.usage });
+      }
+    });
     d.emit({ type: 'agent_start' });
+    d.session.__contextUsage = { tokens: 1_000, contextWindow: 200_000, percent: 0.5 };
     d.emit({ type: 'turn_start' }); // step 1
+    d.session.__contextUsage = { tokens: 2_000, contextWindow: 200_000, percent: 1 };
     d.emit({ type: 'turn_start' }); // step 2 (== max)
     expect(d.session.abort).not.toHaveBeenCalled();
     d.emit({ type: 'turn_start' }); // step 3 (> max) → abort
-    expect(steps).toEqual([1, 2]);
+    expect(steps).toEqual([
+      { step: 1, usage: expect.objectContaining({ tokens: 1_000, percent: 0.5 }) },
+      { step: 2, usage: expect.objectContaining({ tokens: 2_000, percent: 1 }) },
+    ]);
     expect(d.session.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits step usage even when the max-steps ceiling is unlimited', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService({ ...d, maxSteps: () => 0 } as never);
+    const seen: { step: number; maxSteps: number; usage?: { tokens: number | null } }[] = [];
+    await svc.start(1);
+    svc.subscribe(1, (e) => { if ((e as { type: string }).type === 'step') seen.push(e as { step: number; maxSteps: number; usage?: { tokens: number | null } }); });
+    d.session.__contextUsage = { tokens: 3_000, contextWindow: 200_000, percent: 1.5 };
+    d.emit({ type: 'turn_start' });
+    expect(seen).toEqual([{ type: 'step', step: 1, maxSteps: 0, usage: expect.objectContaining({ tokens: 3_000 }) }]);
   });
 
   it('switchModel disposes the live session and respawns on the picked model', async () => {

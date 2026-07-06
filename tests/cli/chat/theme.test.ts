@@ -10,8 +10,8 @@ describe('chat theme', () => {
   });
 
   it('exposes the Orca brand glyphs', () => {
-    expect(glyph.whale).toBe('🐋');
-    expect(glyph.tool).toBe('⏺');
+    expect(glyph.whale).toBe('orca');
+    expect(glyph.tool).toBe('*');
   });
 
   it('switches the active terminal theme at runtime', () => {

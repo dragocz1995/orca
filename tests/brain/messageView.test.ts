@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripInlineReasoning, extractText } from '../../src/brain/messageView.js';
+import { stripInlineReasoning, extractText, toolOutputView } from '../../src/brain/messageView.js';
 
 describe('stripInlineReasoning', () => {
   it('leaves text without reasoning tags untouched', () => {
@@ -31,5 +31,21 @@ describe('extractText strips leaked reasoning', () => {
   });
   it('sanitizes a string-content message', () => {
     expect(extractText({ content: '<think>x</think>ok' })).toBe('ok');
+  });
+});
+
+describe('toolOutputView', () => {
+  it('shows isError tool results even when the text lacks error keywords', () => {
+    const out = toolOutputView('plugin_call', {}, { isError: true, content: [{ type: 'text', text: 'Unauthorized' }] });
+    expect(out).toMatchObject({ tone: 'warning', text: 'Unauthorized', status: 'needs attention' });
+  });
+
+  it('keeps only a compact tail of long command output', () => {
+    const text = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n');
+    const out = toolOutputView('run_command', { command: 'printf' }, { content: [{ type: 'text', text }], details: { exitCode: 0 } });
+    expect(out?.text).toContain('6 earlier lines hidden');
+    expect(out?.fullText).toContain('line 1');
+    expect(out?.text).toContain('line 12');
+    expect(out?.text).not.toContain('line 1\n');
   });
 });

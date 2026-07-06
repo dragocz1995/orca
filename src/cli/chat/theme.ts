@@ -129,9 +129,9 @@ export const color = {
 
 /** Brand glyphs and labels. */
 export const glyph = {
-  whale: '🐋',
-  tool: '⏺',
-  think: '💭',
+  whale: 'orca',
+  tool: '*',
+  think: 'thought',
   you: 'you',
   orca: 'orca',
   dot: '·',

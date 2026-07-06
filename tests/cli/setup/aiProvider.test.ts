@@ -4,10 +4,10 @@ import { runAiStep, shouldWireAutopilot } from '../../../src/cli/setup/steps/aiP
 import { keepProvider, type PublicProvider } from '../../../src/cli/setup/steps/shared.js';
 import type { WizardCtx } from '../../../src/cli/setup/types.js';
 
-// The wizard's steps drive @clack/prompts for interactive input. The wiring test below only exercises
+// The wizard's steps drive Orca's prompt adapter for interactive input. The wiring test below only exercises
 // the "reuse an already-configured provider" path, which needs just `select` (the top-level provider
 // choice, and — on a failed smoke test — the "What next?" follow-up); everything else is a silent stub.
-vi.mock('@clack/prompts', () => ({
+vi.mock('../../../src/cli/ui/prompts.js', () => ({
   select: vi.fn(),
   text: vi.fn(),
   password: vi.fn(),
@@ -59,14 +59,14 @@ function routedFetch(routes: Record<string, unknown>): { fetchFn: typeof fetch; 
   return { fetchFn, calls };
 }
 
-async function clackSelect(): Promise<Mock> {
-  const clack = await import('@clack/prompts');
-  return clack.select as unknown as Mock;
+async function promptSelect(): Promise<Mock> {
+  const prompts = await import('../../../src/cli/ui/prompts.js');
+  return prompts.select as unknown as Mock;
 }
 
 describe('cli/setup.runAiStep — reuse-provider wiring', () => {
   it('after reusing a saved provider: embeds defaults.exec as orca:<provider>/<model> and runs the smoke test', async () => {
-    const select = await clackSelect();
+    const select = await promptSelect();
     select.mockResolvedValueOnce('reuse:relay'); // the top-level "Connect an AI provider" choice
 
     const { fetchFn, calls } = routedFetch({
@@ -93,7 +93,7 @@ describe('cli/setup.runAiStep — reuse-provider wiring', () => {
   });
 
   it('keeps the exec wiring even when the smoke test fails and the user chooses "keep anyway"', async () => {
-    const select = await clackSelect();
+    const select = await promptSelect();
     select.mockResolvedValueOnce('reuse:relay'); // provider choice
     select.mockResolvedValueOnce('keep'); // "What next?" after a failed smoke test
 

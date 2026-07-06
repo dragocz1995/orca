@@ -13,10 +13,15 @@ import { UserProjectStore } from '../../src/store/userProjectStore.js';
 
 function fakeBrain() {
   const started = new Set<number>();
+  const sends: { id: number; text: string; mode?: string }[] = [];
   return {
+    sends,
     status: (id: number) => ({ running: started.has(id), sessionId: started.has(id) ? `brain-${id}` : null, model: 'm' }),
     start: async (id: number) => { started.add(id); return { sessionId: `brain-${id}` }; },
-    send: async (id: number, _text: string) => { if (!started.has(id)) throw new Error('brain not started for user'); },
+    send: async (id: number, text: string, _images?: unknown, mode?: string) => {
+      if (!started.has(id)) throw new Error('brain not started for user');
+      sends.push({ id, text, mode });
+    },
     subscribe: () => () => {},
     stop: (id: number) => { started.delete(id); },
     history: (_id: number) => [{ role: 'user', text: 'hi' }, { role: 'assistant', text: 'yo' }],
@@ -32,14 +37,15 @@ function setup() {
   users.create('admin', 'pw');
   const amy = users.create('amy', 'pw');
   const config = new ConfigStore(db);
+  const brain = fakeBrain();
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as never, spawn: null as never, tmux: null as never,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
     clock: new FakeClock(0), config, users, projects: new ProjectStore(db), userProjects: new UserProjectStore(db),
-    brain: fakeBrain() as never,
+    brain: brain as never,
   });
-  return { app, amyTok: users.issueToken(amy.id), agentTok: users.issueToken(amy.id, 'agent') };
+  return { app, amyTok: users.issueToken(amy.id), agentTok: users.issueToken(amy.id, 'agent'), brain };
 }
 const auth = (t: string) => ({ headers: { authorization: `Bearer ${t}` } });
 const post = (t: string, body: unknown) => ({ method: 'POST', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -53,6 +59,13 @@ describe('brain routes', () => {
     expect((await start.json() as { sessionId: string }).sessionId).toBe('brain-2');
     expect((await (await app.request('/brain/status', auth(amyTok))).json() as { running: boolean }).running).toBe(true);
     expect((await app.request('/brain/send', post(amyTok, { text: 'hi' }))).status).toBe(200);
+  });
+
+  it('passes plan mode through /brain/send', async () => {
+    const { app, amyTok, brain } = setup();
+    await app.request('/brain/start', post(amyTok, {}));
+    expect((await app.request('/brain/send', post(amyTok, { text: 'outline', mode: 'plan' }))).status).toBe(200);
+    expect(brain.sends.at(-1)).toEqual({ id: 2, text: 'outline', mode: 'plan' });
   });
 
   it('messages returns the display history', async () => {

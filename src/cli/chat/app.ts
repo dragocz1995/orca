@@ -1,13 +1,16 @@
-import { TUI, ProcessTerminal, Text, Container, matchesKey, CombinedAutocompleteProvider } from '@earendil-works/pi-tui';
+import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { TUI, ProcessTerminal, Container, matchesKey, CombinedAutocompleteProvider } from '@earendil-works/pi-tui';
 import { initTheme, getMarkdownTheme, getSelectListTheme } from '@earendil-works/pi-coding-agent';
-import { chatTheme, chatThemeItems, color, glyph, isChatThemeName, setChatTheme } from './theme.js';
+import { chatThemeItems, color, glyph, isChatThemeName, setChatTheme } from './theme.js';
 import { StatusBar, CardPanel } from './components.js';
-import { ChatEditor, sessionItems, modelItems, parseModelValue, openPicker } from './picker.js';
+import { ChatEditor, sessionItems, modelItems, parseModelValue, openPicker, openTextInput } from './picker.js';
 import { runAskFlow } from './askFlow.js';
-import { BrainClient } from './brainClient.js';
+import { BrainClient, type BrainWorkMode } from './brainClient.js';
 import { fromHistory, pushUser, beginAssistant, reduce, upsertCard, type ChatView } from '../../brain/transcript.js';
-import { commandsFor } from '../../brain/slashCommands.js';
+import { commandsFor, type SlashCommandDef } from '../../brain/slashCommands.js';
 import type { AskQuestion, BrainCard } from '../../brain/events.js';
+import { formatK } from '../ui/text.js';
 import {
   ChatViewport,
   DISABLE_MOUSE,
@@ -38,6 +41,7 @@ export function viewToPlainText(view: ChatView): string[] {
           for (const item of seg.items) {
             lines.push(`  ${glyph.tool} ${item.name}${item.detail ? ` ${item.detail}` : ''}`);
             if (item.diff) lines.push(...item.diff.replace(/\n+$/, '').split('\n').map((l) => `    ${l}`));
+            if (item.output) lines.push(...item.output.text.split('\n').map((l) => `    ${l}`));
           }
         } else if (seg.kind === 'reasoning') {
           lines.push(...seg.text.split('\n').map((l) => `  ${glyph.think} ${l}`));
@@ -53,7 +57,7 @@ export function viewToPlainText(view: ChatView): string[] {
 
 /** Local slash-command routing: returns the recognized command (with its argument) or null for a
  *  regular chat message. Pure, so the command surface is unit-testable without a TTY. */
-export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'delete' | 'model' | 'think' | 'theme' | 'compact' | 'help'; arg?: string } | null {
+export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'delete' | 'model' | 'think' | 'theme' | 'mcp' | 'skills' | 'tools' | 'goal' | 'subgoal' | 'compact' | 'plan' | 'build' | 'help'; arg?: string } | null {
   const m = /^\/(\w+)(?:\s+(.+))?$/.exec(text.trim());
   if (!m) return null;
   switch (m[1]) {
@@ -68,14 +72,54 @@ export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'st
     case 'model': return { cmd: 'model' };
     case 'think': return { cmd: 'think', arg: m[2] };
     case 'theme': return { cmd: 'theme', arg: m[2] };
+    case 'mcp': return { cmd: 'mcp' };
+    case 'skills': return { cmd: 'skills' };
+    case 'tools': return { cmd: 'tools' };
+    case 'goal': return { cmd: 'goal', arg: m[2] };
+    case 'subgoal': return { cmd: 'subgoal', arg: m[2] };
     case 'compact': return { cmd: 'compact' };
+    case 'plan': return { cmd: 'plan' };
+    case 'build': return { cmd: 'build' };
     case 'help': return { cmd: 'help' };
     default: return null;
   }
 }
 
-/** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
-const fmtK = (n: number): string => n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`;
+function modelMetaLine(mode: BrainWorkMode, modelName: string, thinkingLevel: string): string {
+  const raw = modelName || '—';
+  const slash = raw.indexOf('/');
+  const provider = slash > 0 ? raw.slice(0, slash) : '';
+  const model = slash > 0 ? raw.slice(slash + 1) : raw;
+  return [
+    `  ${color.accent(mode === 'plan' ? 'Plan' : 'Build')}`,
+    color.faint('·'),
+    color.text(model),
+    provider ? color.dim(provider) : '',
+    thinkingLevel ? color.warning(thinkingLevel) : '',
+  ].filter(Boolean).join(' ');
+}
+
+function prettyCwd(cwd = process.cwd()): string {
+  const home = homedir();
+  return cwd.startsWith(`${home}/`) ? `~/${cwd.slice(home.length + 1)}` : cwd;
+}
+
+function gitBranch(cwd = process.cwd()): string {
+  try {
+    const branch = execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (branch) return branch;
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return '';
+  }
+}
+
+export function isModeToggleKey(data: string): boolean {
+  return data === '\x1b[Z' // Shift+Tab in xterm-compatible terminals.
+    || data === '\x1b[9;5u' // Ctrl+Tab when modifyOtherKeys/kitty-style reporting is enabled.
+    || matchesKey(data, 'shift+tab')
+    || matchesKey(data, 'ctrl+tab');
+}
 
 /** Render the bottom statusline from the plugin's display toggles + live usage. Empty string when the
  *  statusline plugin is disabled or nothing is toggled on. Pure — unit-testable without a TTY. */
@@ -88,9 +132,9 @@ export function statusline(
   const parts: string[] = [];
   if (cfg.showModel && model) parts.push(model);
   if (cfg.showContext && usage && usage.percent != null) {
-    parts.push(`context ${Math.round(usage.percent)}% (${fmtK(usage.tokens ?? 0)}/${fmtK(usage.contextWindow)})`);
+    parts.push(`context ${Math.round(usage.percent)}% (${formatK(usage.tokens ?? 0)}/${formatK(usage.contextWindow)})`);
   }
-  if (cfg.showTokens && usage) parts.push(`Σ ${fmtK(usage.totalTokens)} tok`);
+  if (cfg.showTokens && usage) parts.push(`Σ ${formatK(usage.totalTokens)} tok`);
   if (cfg.showCost && usage) parts.push(`$${usage.cost.toFixed(2)}`);
   return parts.join('  ·  ');
 }
@@ -107,8 +151,9 @@ export interface RunChatOpts {
   client?: BrainClient;
 }
 
-// Built from the SHARED command registry so /help never drifts from the actual command set.
-const HELP = commandsFor('cli', true).map((c) => `/${c.name} — ${c.description}`).join('\n');
+function helpText(commands: SlashCommandDef[]): string {
+  return commands.map((c) => `/${c.name} — ${c.description}`).join('\n');
+}
 
 /** Launch the interactive Orca chat TUI — an opencode-style layout (user blocks with a teal rail,
  *  markdown replies with a metadata line, a bottom status bar) rendered on pi-tui + pi's markdown theme.
@@ -129,7 +174,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   let usage = boot?.usage ?? null;
   let thinkingLevel = boot?.thinkingLevel ?? '';
   let thinkingLevels = boot?.thinkingLevels ?? [];
-  let sessionTitle = '';
+  let workMode: BrainWorkMode = 'build';
   const history0 = await client.history().catch(() => []);
   let view = fromHistory(history0);
   /** Live display cards (ctx.emitCard) — a persistent panel above the status bar, tracked outside the
@@ -141,17 +186,18 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   let notice = '';
 
   const refreshMeta = async (): Promise<void> => {
-    const [st, sessions] = await Promise.all([
-      client.status().catch(() => null),
-      client.sessions().catch(() => []),
-    ]);
+    const st = await client.status().catch(() => null);
     if (st) { modelName = st.model || modelName; lineCfg = st.statusline; usage = st.usage; thinkingLevel = st.thinkingLevel ?? ''; thinkingLevels = st.thinkingLevels ?? []; cards = st.cards ?? []; }
-    sessionTitle = sessions.find((s) => s.active)?.title ?? '';
   };
   await refreshMeta();
+  let commandDefs = await client.commands().catch(() => commandsFor('cli', true));
+  if (commandDefs.length === 0) commandDefs = commandsFor('cli', true);
+  const help = helpText(commandDefs);
 
   const term = new ProcessTerminal();
   const tui = new TUI(term);
+  const cwdLabel = prettyCwd();
+  const branchLabel = gitBranch();
   const editor = new ChatEditor(tui, { borderColor: color.faint, selectList: getSelectListTheme() }, {});
   /** Ask-user-question still borrows this slot for its multi-step flow. Other pickers use modals. */
   const editorSlot = new Container();
@@ -159,10 +205,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   /** Persistent card panel (ctx.emitCard — the todo checklist is the canonical one), pinned above the
    *  status line — lives in the fixed tree, NOT the rebuilt messages container, so it stays put across turns. */
   const cardPanel = new CardPanel();
-  const statusUnder = new Text('', 1, 0);
-  const bottomBar = new StatusBar(color.faint('  ⏎ send   ·   /help commands   ·   ctrl+r reasoning'), color.faint('ctrl+c quit  '));
+  const promptMeta = new StatusBar('', '');
+  const bottomBar = new StatusBar(color.faint('  ⏎ send   ·   /help commands   ·   ctrl+r reasoning   ·   shift+tab mode'), color.faint('ctrl+c quit  '));
 
-  const slashItems = commandsFor('cli', true).map((cmd) => ({
+  const slashItems = commandDefs.map((cmd) => ({
     value: `/${cmd.name}`,
     label: `/${cmd.name}`,
     description: cmd.description,
@@ -172,7 +218,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   let panelHandle: ReturnType<TUI['showOverlay']> | null = null;
   let slashHandle: ReturnType<TUI['showOverlay']> | null = null;
-  let panelWidth = 38;
+  let panelWidth = 46;
   let resizingPanel = false;
   let draggingHistoryScroll = false;
   const panelVisible = (): boolean => term.columns >= 104 && !panelHandle?.isHidden();
@@ -192,15 +238,14 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     () => TOP_RULE_ROWS + 1,
     chatWidth,
   );
+  let currentRunSeconds = 0;
   const telemetry = new TelemetryPanel(() => ({
-    modelName,
-    sessionTitle,
     usage,
-    thinkingLevel,
-    thinkingLevels,
     running: view.thinking,
-    cards,
-    themeLabel: chatTheme().label,
+    runSeconds: currentRunSeconds,
+    workMode,
+    cwd: cwdLabel,
+    branch: branchLabel,
   }));
 
   const showPanel = (hidden = false): void => {
@@ -223,19 +268,16 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     } else {
       thinkStart = 0;
     }
-    const thinkingSeconds = thinkStart ? Math.max(0, Math.round((Date.now() - thinkStart) / 1000)) : 0;
-    viewport.setState({ view, notice, modelName, thinkingSeconds });
+    currentRunSeconds = thinkStart ? Math.max(0, Math.round((Date.now() - thinkStart) / 1000)) : 0;
+    viewport.setState({ view, notice, modelName, thinkingSeconds: currentRunSeconds });
     // Contextual footer: while streaming, Esc interrupts.
     bottomBar.setLeft(view.thinking
       ? color.faint('  esc interrupt   ·   /help commands   ·   ctrl+r reasoning')
-      : color.faint('  ⏎ send   ·   / slash   ·   ctrl+r reasoning   ·   ctrl+p telemetry'));
-    // The line above the input shows the model; the statusline plugin adds context/tokens when enabled,
-    // and the active reasoning effort rides on the end when the model has one set.
-    const line = statusline(lineCfg, usage, modelName);
-    const think = thinkingLevel ? `think:${thinkingLevel}` : '';
-    const base = line || (modelName || '—');
-    const full = think ? `${base}  ·  ${think}` : base;
-    statusUnder.setText(line ? color.faint(`  ${full}`) : `  ${color.accentDim(modelName || '—')}${think ? color.faint(`  ·  ${think}`) : ''}`);
+      : color.faint('  ⏎ send   ·   / slash   ·   shift+tab mode   ·   ctrl+r reasoning   ·   ctrl+p telemetry'));
+    const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
+    const line = statusline(lineCfg ? { ...lineCfg, showModel: false } : null, usage, modelName);
+    promptMeta.setLeft(modelMetaLine(workMode, modelName, thinkingLevel));
+    promptMeta.setRight(panelVisible() || !line ? projectLine : `${color.faint(line)} ${color.faint('·')} ${projectLine}`);
     cardPanel.set(cards);
     tui.requestRender();
   };
@@ -284,6 +326,215 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     });
   };
 
+  const openSessionsModal = (): void => {
+    void client.sessions().then((list) => {
+      listed = list.map((s) => ({ id: s.id, title: s.title }));
+      if (list.length === 0) { notice = color.dim('no conversations'); render(); return; }
+      const refresh = () => openSessionsModal();
+      const confirmDelete = (id: string, title: string, active: boolean): void => {
+        openPicker({
+          tui, slot: editorSlot, editor, title: `Delete "${title || '(untitled)'}"?`,
+          items: [
+            { value: 'no', label: 'Cancel', description: 'keep the conversation' },
+            { value: 'yes', label: 'Delete', description: 'also removes goal state for this session' },
+          ],
+          onPick: (v) => {
+            if (v !== 'yes') { refresh(); return; }
+            void client.deleteSession(id).then(async () => {
+              notice = color.dim('conversation deleted');
+              if (active) await switchTo({});
+              refresh();
+              render();
+            })
+              .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+          },
+        });
+      };
+      openPicker({
+        tui, slot: editorSlot, editor, title: 'Conversations', items: sessionItems(list),
+        footer: 'enter resume · ctrl+r rename · ctrl+d delete · esc close',
+        onPick: (id) => void switchTo({ session: id }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); }),
+        onInput: (data, item, close) => {
+          if (!item) return false;
+          const row = list.find((s) => s.id === item.value);
+          if (!row) return false;
+          if (matchesKey(data, 'ctrl+d')) { close(); confirmDelete(row.id, row.title, row.active); return true; }
+          if (matchesKey(data, 'ctrl+r')) {
+            close();
+            openTextInput({
+              tui, editor, title: 'Rename conversation', initial: row.title,
+              onSubmit: (title) => {
+                void client.renameSession(row.id, title).then(() => { notice = color.dim('conversation renamed'); refresh(); render(); })
+                  .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+              },
+            });
+            return true;
+          }
+          return false;
+        },
+      });
+    }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+  };
+
+  const openMcpModal = (): void => {
+    void client.mcpServers().then((servers) => {
+      const items = servers.map((s) => ({
+        value: s.name,
+        label: `${s.status === 'connected' ? color.success('●') : s.status === 'connecting' ? color.warning('●') : color.faint('○')} ${s.name}`,
+        description: `${s.transport} · ${s.toolCount} tools${s.lastError ? ` · ${s.lastError}` : ''}`,
+      }));
+      if (items.length === 0) { notice = color.dim('no MCP servers configured'); render(); return; }
+      const refresh = () => openMcpModal();
+      const reconnect = (name: string): void => {
+        notice = color.dim(`reconnecting ${name}…`); render();
+        void client.reconnectMcp(name).then(() => { notice = color.dim(`MCP ${name} connected`); refresh(); render(); })
+          .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+      };
+      const detail = (name: string): void => {
+        const server = servers.find((s) => s.name === name);
+        if (!server) return;
+        const rows = [
+          { value: '__back', label: 'Back', description: 'return to servers' },
+          { value: '__reconnect', label: 'Reconnect', description: server.status === 'connected' ? 'already connected' : 'try reconnect' },
+          ...server.tools.map((tool) => ({
+            value: tool.name,
+            label: tool.name,
+            description: `${tool.description ?? ''}${tool.schema ? ' · schema available' : ''}`.trim(),
+          })),
+        ];
+        openPicker({ tui, slot: editorSlot, editor, title: `MCP ${server.name}`, items: rows, onPick: (v) => {
+          if (v === '__back') refresh();
+          else if (v === '__reconnect') reconnect(server.name);
+          else { notice = color.dim(`tool: ${v}`); render(); }
+        } });
+      };
+      openPicker({
+        tui, slot: editorSlot, editor, title: 'MCP servers', items,
+        footer: 'enter detail · r reconnect · R reconnect failed · esc close',
+        onPick: detail,
+        onInput: (data, item) => {
+          if (data === 'R') {
+            notice = color.dim('reconnecting disconnected/error MCP servers…'); render();
+            void client.reconnectMcpAll().then(() => { notice = color.dim('MCP reconnect complete'); refresh(); render(); })
+              .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+            return true;
+          }
+          if (data === 'r' && item) { reconnect(item.value); return true; }
+          return false;
+        },
+      });
+    }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+  };
+
+  const openSkillsModal = (): void => {
+    void client.skills().then((skills) => {
+      if (skills.length === 0) { notice = color.dim('no skills found'); render(); return; }
+      const refresh = () => openSkillsModal();
+      const confirmDelete = (name: string): void => {
+        openPicker({
+          tui, slot: editorSlot, editor, title: `Delete skill "${name}"?`,
+          items: [
+            { value: 'no', label: 'Cancel', description: 'keep the skill' },
+            { value: 'yes', label: 'Delete', description: 'user skill only' },
+          ],
+          onPick: (v) => {
+            if (v !== 'yes') { refresh(); return; }
+            void client.deleteSkill(name).then(() => { notice = color.dim('skill deleted'); refresh(); render(); })
+              .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+          },
+        });
+      };
+      openPicker({
+        tui, slot: editorSlot, editor, title: 'Skills',
+        items: skills.map((s) => ({ value: s.name, label: s.name, description: `${s.scope ?? s.source}${s.description ? ` · ${s.description}` : ''}` })),
+        footer: 'type filter · enter detail · ctrl+d delete user skill · esc close',
+        onPick: (name) => {
+          const s = skills.find((skill) => skill.name === name);
+          if (!s) return;
+          openPicker({
+            tui, slot: editorSlot, editor, title: `Skill ${s.name}`,
+            items: [
+              { value: '__back', label: 'Back', description: 'return to skills' },
+              { value: '__delete', label: s.canDelete ? 'Delete' : 'Protected', description: s.canDelete ? 'delete this user-defined skill' : 'bundled/system skill cannot be deleted' },
+              { value: '__location', label: 'Location', description: s.location ?? '' },
+              { value: '__active', label: 'State', description: s.active ? 'active/loaded' : 'skills plugin disabled' },
+            ],
+            onPick: (v) => { if (v === '__back') refresh(); else if (v === '__delete' && s.canDelete) confirmDelete(s.name); },
+          });
+        },
+        onInput: (data, item) => {
+          if (!matchesKey(data, 'ctrl+d') || !item) return false;
+          const s = skills.find((skill) => skill.name === item.value);
+          if (!s?.canDelete) { notice = color.dim('bundled/system skills are protected'); render(); return true; }
+          confirmDelete(s.name);
+          return true;
+        },
+      });
+    }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+  };
+
+  const openToolsModal = (): void => {
+    void client.tools().then((tools) => {
+      if (tools.length === 0) { notice = color.dim('no active plugin tools'); render(); return; }
+      const refresh = () => openToolsModal();
+      openPicker({
+        tui, slot: editorSlot, editor, title: 'Tools',
+        items: tools.map((t) => ({ value: t.name, label: t.name, description: `${t.plugin}${t.schema ? ` · ${t.schema}` : ''}` })),
+        onPick: (name) => {
+          const t = tools.find((tool) => tool.name === name);
+          if (!t) { notice = color.dim(name); render(); return; }
+          openPicker({
+            tui, slot: editorSlot, editor, title: `Tool ${t.name}`,
+            items: [
+              { value: '__back', label: 'Back', description: 'return to tools' },
+              { value: '__plugin', label: 'Plugin', description: t.plugin },
+              { value: '__schema', label: 'Schema', description: t.schema ?? 'no input schema' },
+              { value: '__description', label: 'Description', description: t.description ?? 'no description' },
+            ],
+            onPick: (v) => { if (v === '__back') refresh(); },
+          });
+        },
+      });
+    }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+  };
+
+  const goalSummary = (g: Awaited<ReturnType<BrainClient['goal']>>): string => {
+    if (!g) return 'no active goal';
+    const bits = [`goal ${g.status}`, `${g.turns_used}/${g.turn_budget} turns`, g.goal];
+    if (g.paused_reason) bits.push(`paused: ${g.paused_reason}`);
+    if (g.last_evidence) bits.push(`evidence: ${g.last_evidence}`);
+    return bits.join(' · ');
+  };
+
+  const handleGoalCommand = (arg?: string): void => {
+    const raw = (arg ?? '').trim();
+    if (!raw || raw === 'status' || raw === 'show') {
+      void client.goal().then((g) => { notice = color.dim(goalSummary(g)); render(); })
+        .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+      return;
+    }
+    if (raw === 'pause' || raw === 'resume' || raw === 'clear') {
+      void client.goalAction(raw).then((g) => { notice = color.dim(raw === 'clear' ? 'goal cleared' : goalSummary(g)); render(); })
+        .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+      return;
+    }
+    const draft = raw.startsWith('draft ');
+    const text = draft ? raw.slice('draft '.length).trim() : raw;
+    notice = color.dim(draft ? 'drafting goal…' : 'starting persistent goal…');
+    render();
+    void client.setGoal(text, draft).then((g) => { notice = color.dim(draft ? `goal draft:\n${g.draft}` : goalSummary(g)); render(); })
+      .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+  };
+
+  const handleSubgoalCommand = (arg?: string): void => {
+    const raw = (arg ?? '').trim();
+    if (!raw) { notice = color.dim('usage: /subgoal <text> · /subgoal remove <N> · /subgoal clear'); render(); return; }
+    const remove = /^remove\s+(\d+)$/i.exec(raw);
+    const action = raw === 'clear' ? ['clear', undefined] as const : remove ? ['remove', Number(remove[1])] as const : ['add', raw] as const;
+    void client.subgoal(action[0], action[1]).then((g) => { notice = color.dim(goalSummary(g)); render(); })
+      .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+  };
+
   const closeSlash = (): void => {
     slashHandle?.hide();
     slashHandle = null;
@@ -301,8 +552,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       editor.onSubmit?.(value);
     }, closeSlash);
     slashHandle = tui.showOverlay(overlay, {
-      row: Math.max(TOP_RULE_ROWS, term.rows - fixedRows() - 14),
-      col: 0,
+      anchor: 'bottom-left',
       width,
       maxHeight: 14,
       margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom: fixedRows() },
@@ -318,6 +568,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       // questions aren't a conversation segment).
       if (e.type === 'ask') { launchAsk(e.id, e.questions); return; }
       if (e.type === 'idle' && e.usage) usage = e.usage;
+      if (e.type === 'step' && e.usage) usage = e.usage;
       if (e.type === 'card') cards = upsertCard(cards, e.card); // update the persistent panel (not part of the ChatView)
       view = reduce(view, e);
       render();
@@ -345,22 +596,14 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     if (command) {
       switch (command.cmd) {
         case 'quit': quit(); return;
-        case 'help': notice = color.dim(HELP).split('\n').join('\n'); render(); return;
+        case 'help': notice = color.dim(help).split('\n').join('\n'); render(); return;
         case 'new':
           void switchTo({ fresh: true }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         case 'sessions':
         case 'resume': {
           if (!command.arg) {
-            // Both open the arrow-key picker over the stored conversations (select = resume).
-            void client.sessions().then((list) => {
-              listed = list.map((s) => ({ id: s.id, title: s.title }));
-              if (list.length === 0) { notice = color.dim('no conversations'); render(); return; }
-              openPicker({
-                tui, slot: editorSlot, editor, title: 'Resume conversation', items: sessionItems(list),
-                onPick: (id) => void switchTo({ session: id }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); }),
-              });
-            }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+            openSessionsModal();
             return;
           }
           const n = Number(command.arg);
@@ -384,7 +627,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
                   streamAc = new AbortController();
                   openStream();
                   await refreshMeta();
-                  notice = color.dim(`switched to ${r.model}`);
+                  notice = '';
                   render();
                 }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
               },
@@ -397,7 +640,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           const apply = (level: string): void => {
             void client.setThinkingLevel(level).then((r) => {
               thinkingLevel = r.thinkingLevel;
-              notice = color.dim(`reasoning effort: ${r.thinkingLevel}`);
+              notice = '';
               render();
             }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           };
@@ -418,7 +661,12 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         case 'delete': {
           const doDelete = (target: string): void => {
             void client.deleteSession(target)
-              .then(() => { listed = listed.filter((s) => s.id !== target); notice = color.dim('conversation deleted'); render(); })
+              .then(async () => {
+                listed = listed.filter((s) => s.id !== target);
+                notice = color.dim('conversation deleted');
+                await switchTo({});
+                render();
+              })
               .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           };
           // Deleting is destructive → always a two-step picker: choose the conversation, then confirm.
@@ -449,6 +697,21 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           confirmDelete(target, listed.find((s) => s.id === target)?.title ?? '');
           return;
         }
+        case 'mcp':
+          openMcpModal();
+          return;
+        case 'skills':
+          openSkillsModal();
+          return;
+        case 'tools':
+          openToolsModal();
+          return;
+        case 'goal':
+          handleGoalCommand(command.arg);
+          return;
+        case 'subgoal':
+          handleSubgoalCommand(command.arg);
+          return;
         case 'compact': {
           notice = color.dim('compacting…');
           render();
@@ -457,6 +720,16 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
             .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         }
+        case 'plan':
+          workMode = 'plan';
+          notice = '';
+          render();
+          return;
+        case 'build':
+          workMode = 'build';
+          notice = '';
+          render();
+          return;
         case 'stop': {
           if (!view.thinking) { notice = color.dim('nothing is running'); render(); return; }
           notice = color.dim('stopping…');
@@ -472,8 +745,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
             if (s?.model) parts.push(`model: ${s.model}`);
             const u = s?.usage;
             if (u) {
-              if (u.percent != null) parts.push(`context ${Math.round(u.percent)}% (${fmtK(u.tokens ?? 0)}/${fmtK(u.contextWindow)})`);
-              parts.push(`Σ ${fmtK(u.totalTokens)} tok`);
+              if (u.percent != null) parts.push(`context ${Math.round(u.percent)}% (${formatK(u.tokens ?? 0)}/${formatK(u.contextWindow)})`);
+              parts.push(`Σ ${formatK(u.totalTokens)} tok`);
               parts.push(`$${u.cost.toFixed(2)}`);
             }
             if (s?.thinkingLevel) parts.push(`reasoning: ${s.thinkingLevel}`);
@@ -494,7 +767,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     }
     view = beginAssistant(pushUser(view, trimmed));
     render();
-    void client.send(trimmed).catch((e: Error) => { view = reduce(view, { type: 'error', message: e.message }); render(); });
+    void client.send(trimmed, workMode).catch((e: Error) => { view = reduce(view, { type: 'error', message: e.message }); render(); });
   };
 
   // Esc while a turn streams aborts it server-side (agent_end → idle winds the spinner down).
@@ -506,9 +779,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   root.addChild(new TopRule());
   root.addChild(new MainColumn(panelReserve, [
     viewport,
-    editorSlot,
     cardPanel,
-    statusUnder,
+    editorSlot,
+    promptMeta,
     bottomBar,
   ]));
   tui.addChild(root);
@@ -517,8 +790,12 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   let done!: () => void;
   const finished = new Promise<void>((r) => { done = r; });
+  const thinkingTimer = setInterval(() => {
+    if (view.thinking) render();
+  }, 1000);
   const quit = (): void => {
     streamAc.abort();
+    clearInterval(thinkingTimer);
     term.write(DISABLE_MOUSE);
     panelHandle?.hide();
     slashHandle?.hide();
@@ -553,7 +830,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           return { consume: true };
         }
         if (resizingPanel && ev.down) {
-          panelWidth = Math.max(30, Math.min(52, term.columns - ev.x + 1));
+          panelWidth = Math.max(36, Math.min(68, term.columns - ev.x + 1));
           showPanel(false);
           if (slashHandle) openSlash();
           tui.requestRender(true);
@@ -566,8 +843,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       }
     }
     const click = mouseClick(data);
-    if (click && viewport.isThoughtRow(click.y)) {
-      viewport.toggleThought();
+    if (click && viewport.isThoughtRow(click.x, click.y)) {
+      viewport.toggleThought(click.y);
       tui.requestRender();
       return { consume: true };
     }
@@ -582,23 +859,31 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       const hidden = !panelHandle?.isHidden();
       panelHandle?.setHidden(hidden);
       resizingPanel = false;
-      tui.requestRender();
+      render();
       return { consume: true };
     }
     if (matchesKey(data, 'ctrl+r')) {
       openThinkingPicker();
       return { consume: true };
     }
+    if (isModeToggleKey(data)) {
+      workMode = workMode === 'plan' ? 'build' : 'plan';
+      notice = color.dim(workMode === 'plan'
+        ? 'plan mode: Orca will reason through approach, risks and tests before editing'
+        : 'build mode: Orca can implement with tools');
+      render();
+      return { consume: true };
+    }
     if (!slashHandle && editor.getText() === '' && data === '/') {
       openSlash();
       return { consume: true };
     }
-    if (!slashHandle && (data === 'k' || data === '\x1b[5~')) {
+    if (!slashHandle && data === '\x1b[5~') {
       viewport.scroll(4);
       tui.requestRender();
       return { consume: true };
     }
-    if (!slashHandle && (data === 'j' || data === '\x1b[6~')) {
+    if (!slashHandle && data === '\x1b[6~') {
       viewport.scroll(-4);
       tui.requestRender();
       return { consume: true };

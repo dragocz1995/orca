@@ -31,6 +31,16 @@ describe('BrainClient', () => {
     expect(f).toHaveBeenCalledWith('http://x/brain/send', expect.objectContaining({ method: 'POST', body: JSON.stringify({ text: 'hi' }) }));
   });
 
+  it('send can pass the work mode', async () => {
+    const f = vi.fn(async () => j(200, { ok: true })) as unknown as typeof fetch;
+    const c = new BrainClient({ base: 'http://x', token: 't', fetchImpl: f });
+    await c.send('outline this first', 'plan');
+    expect(f).toHaveBeenCalledWith('http://x/brain/send', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ text: 'outline this first', mode: 'plan' }),
+    }));
+  });
+
   it('history GETs /brain/messages', async () => {
     const f = vi.fn(async () => j(200, [{ role: 'user', text: 'hi' }])) as unknown as typeof fetch;
     const c = new BrainClient({ base: 'http://x', token: 't', fetchImpl: f });
@@ -41,6 +51,15 @@ describe('BrainClient', () => {
     const f = vi.fn(async () => j(200, { running: true, sessionId: 'brain-1', model: 'kimi' })) as unknown as typeof fetch;
     const c = new BrainClient({ base: 'http://x', token: 't', fetchImpl: f });
     expect((await c.status()).model).toBe('kimi');
+  });
+
+  it('commands GETs the caller-filtered CLI slash catalog', async () => {
+    const f = vi.fn(async () => j(200, { commands: [{ name: 'help', description: 'Help', kind: 'info' }] })) as unknown as typeof fetch;
+    const c = new BrainClient({ base: 'http://x', token: 't', fetchImpl: f });
+    expect(await c.commands()).toEqual([{ name: 'help', description: 'Help', kind: 'info' }]);
+    expect(f).toHaveBeenCalledWith('http://x/brain/commands?surface=cli', expect.objectContaining({
+      headers: expect.objectContaining({ authorization: 'Bearer t' }),
+    }));
   });
 
   it('maps a 401 to Unauthorized', async () => {

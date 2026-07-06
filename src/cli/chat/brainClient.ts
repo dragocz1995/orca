@@ -1,5 +1,6 @@
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent } from '../../brain/events.js';
 import type { BrainMessageView } from '../../brain/messageView.js';
+import type { SlashCommandDef } from '../../brain/slashCommands.js';
 
 /** Thrown on a 401 so the caller can drop the cached token and re-login. */
 export class Unauthorized extends Error {
@@ -11,7 +12,12 @@ export interface BrainClientOpts { base: string; token: string; fetchImpl?: type
 /** Statusline display toggles (the statusline plugin's config; null when the plugin is disabled). */
 interface StatuslineConfig { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean }
 export interface BrainUsageView { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
+export type BrainWorkMode = 'build' | 'plan';
 export interface BrainStatus { running: boolean; sessionId: string | null; model: string; usage: BrainUsageView | null; statusline: StatuslineConfig | null; thinkingLevel?: string; thinkingLevels?: string[]; pendingAsk?: { id: string; questions: AskQuestion[] } | null; cards?: BrainCard[] }
+export interface McpServerView { name: string; transport: string; status: 'connected' | 'connecting' | 'disconnected' | 'error' | 'disabled'; toolCount: number; tools: { name: string; title?: string; description?: string; schema?: unknown }[]; lastError: string | null; reconnecting?: boolean }
+export interface SkillView { name: string; description: string; source: 'bundled' | 'user'; scope?: string; location?: string; active?: boolean; canDelete?: boolean; missingRequirement?: string }
+export interface GoalView { session_id: string; user_id: number; status: 'active' | 'draft' | 'paused' | 'done'; goal: string; draft: string; subgoals: string; turns_used: number; turn_budget: number; last_verdict: string; last_evidence: string; paused_reason: string }
+export interface RuntimeToolView { name: string; plugin: string; description?: string; schema?: string }
 
 /** Parse accumulated SSE text into complete frames, returning the events and the unconsumed tail.
  *  Pure and buffer-safe (a frame split across chunks stays in `rest` until its blank-line terminator).
@@ -69,8 +75,8 @@ export class BrainClient {
     return (await res.json()) as { id: string; title: string; model: string; updated_at: string; active: boolean }[];
   }
 
-  async send(text: string): Promise<void> {
-    await this.post('/brain/send', { text });
+  async send(text: string, mode?: BrainWorkMode): Promise<void> {
+    await this.post('/brain/send', { text, ...(mode ? { mode } : {}) });
   }
 
   /** Answer a parked ask_user_question — settles the paused turn so it resumes with the user's picks. */
@@ -120,6 +126,14 @@ export class BrainClient {
     return (await res.json()) as { provider: string; providerLabel: string; model: string }[];
   }
 
+  async commands(): Promise<SlashCommandDef[]> {
+    const res = await this.f(`${this.o.base}/brain/commands?surface=cli`, { headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/commands`);
+    const body = (await res.json()) as { commands?: SlashCommandDef[] };
+    return body.commands ?? [];
+  }
+
   async status(): Promise<BrainStatus> {
     const res = await this.f(`${this.o.base}/brain/status`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
@@ -131,6 +145,73 @@ export class BrainClient {
     const res = await this.f(`${this.o.base}/brain/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/sessions`);
+  }
+
+  async renameSession(id: string, title: string): Promise<{ id: string; title: string }> {
+    const res = await this.f(`${this.o.base}/brain/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', headers: this.headers(true), body: JSON.stringify({ title }) });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `orca brain ${res.status} on /brain/sessions`);
+    return (await res.json()) as { id: string; title: string };
+  }
+
+  async mcpServers(): Promise<McpServerView[]> {
+    const res = await this.f(`${this.o.base}/plugins/mcp/servers`, { headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca plugins ${res.status} on /plugins/mcp/servers`);
+    return (await res.json()) as McpServerView[];
+  }
+
+  async reconnectMcp(name: string): Promise<McpServerView> {
+    const res = await this.post(`/plugins/mcp/servers/${encodeURIComponent(name)}/reconnect`, {});
+    return (await res.json()) as McpServerView;
+  }
+
+  async reconnectMcpAll(): Promise<McpServerView[]> {
+    const res = await this.post('/plugins/mcp/reconnect', {});
+    return (await res.json()) as McpServerView[];
+  }
+
+  async skills(): Promise<SkillView[]> {
+    const res = await this.f(`${this.o.base}/plugins/skills/list`, { headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca plugins ${res.status} on /plugins/skills/list`);
+    return (await res.json()) as SkillView[];
+  }
+
+  async tools(): Promise<RuntimeToolView[]> {
+    const res = await this.f(`${this.o.base}/plugins/runtime`, { headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca plugins ${res.status} on /plugins/runtime`);
+    const body = (await res.json()) as { tools?: RuntimeToolView[] };
+    return body.tools ?? [];
+  }
+
+  async deleteSkill(name: string): Promise<void> {
+    const res = await this.f(`${this.o.base}/plugins/skills/${encodeURIComponent(name)}`, { method: 'DELETE', headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `orca plugins ${res.status} on /plugins/skills`);
+  }
+
+  async goal(): Promise<GoalView | null> {
+    const res = await this.f(`${this.o.base}/brain/goal`, { headers: this.headers() });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/goal`);
+    return (await res.json()) as GoalView | null;
+  }
+
+  async setGoal(text: string, draft = false): Promise<GoalView> {
+    const res = await this.post('/brain/goal', { text, draft });
+    return (await res.json()) as GoalView;
+  }
+
+  async goalAction(action: 'pause' | 'resume' | 'clear'): Promise<GoalView | null> {
+    const res = await this.post(`/brain/goal/action?action=${action}`, {});
+    return (await res.json()) as GoalView | null;
+  }
+
+  async subgoal(action: 'add' | 'remove' | 'clear', value?: string | number): Promise<GoalView> {
+    const res = await this.post('/brain/subgoal', action === 'add' ? { action, text: value } : action === 'remove' ? { action, index: value } : { action });
+    return (await res.json()) as GoalView;
   }
 
   async history(): Promise<BrainMessageView[]> {

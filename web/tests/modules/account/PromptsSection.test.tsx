@@ -22,6 +22,7 @@ const PROMPTS = [
   { name: 'worker', group: 'workers', vars: ['taskId'], jsonContract: false, default: 'DEFAULT worker {{taskId}}', override: null },
   { name: 'decision-question', group: 'overseer', vars: ['question'], jsonContract: true, default: 'DEFAULT dq', override: 'MY dq' },
   { name: 'advisor', group: 'advisor', vars: ['userName'], jsonContract: false, appendOnly: true, default: '', override: null },
+  { name: 'cli/plan-mode', group: 'cli', vars: [], jsonContract: false, default: 'DEFAULT plan mode', override: null },
 ];
 
 function renderSection() {
@@ -34,6 +35,7 @@ describe('PromptsSection', () => {
     server.use(http.get('*/api/auth/me/prompts', () => HttpResponse.json(PROMPTS)));
     renderSection();
     expect(await screen.findByText('worker')).toBeTruthy();
+    expect(screen.getByText('cli/plan-mode')).toBeTruthy();
     expect(screen.getByText('Must return JSON')).toBeTruthy();
     expect(screen.getByText('Customized')).toBeTruthy(); // the overridden one
     // Row click opens the modal seeded with the effective text (override else default).

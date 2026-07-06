@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +29,7 @@ describe('files plugin', () => {
   });
 
   it('registers read/write/edit/list tools', () => {
-    expect(reg.tools.map((t) => t.name).sort()).toEqual(['edit_file', 'list_dir', 'read_file', 'write_file']);
+    expect(reg.tools.map((t) => t.name).sort()).toEqual(['edit_file', 'file_info', 'git_status', 'list_dir', 'read_file', 'search_files', 'write_file']);
   });
 
   it('reads a file inside an allowed root', async () => {
@@ -77,5 +78,39 @@ describe('files plugin', () => {
   it('refuses a path outside the allowed roots', async () => {
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: '/etc/hostname' }));
     expect(res.content[0].text).toMatch(/not allowed/);
+  });
+
+  it('search_files finds content and file names with structured metadata', async () => {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'search-target.ts'), 'export const needle = 42;\n');
+    writeFileSync(join(dir, 'src', 'search-target.tsx'), 'export const tsxNeedle = 42;\n');
+    const content = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'search_files', { path: dir, query: 'needle', include: '*.ts' }));
+    expect(content.content[0].text).toContain('search-target.ts');
+    expect((content as { details?: { ok?: boolean; matches?: number } }).details?.ok).toBe(true);
+    expect((content as { details?: { matches?: number } }).details?.matches).toBeGreaterThan(0);
+    const braceGlob = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'search_files', { path: dir, query: 'tsxNeedle', include: '*.{ts,tsx}' }));
+    expect(braceGlob.content[0].text).toContain('search-target.tsx');
+    const files = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'search_files', { path: dir, query: 'search-target', mode: 'files' }));
+    expect(files.content[0].text).toContain('src/search-target.ts');
+  });
+
+  it('file_info reports type and byte size', async () => {
+    const f = join(dir, 'hello.txt');
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'file_info', { path: f }));
+    expect(res.content[0].text).toContain('"type": "file"');
+    expect((res as { details?: { bytes?: number } }).details?.bytes).toBeGreaterThan(0);
+  });
+
+  it('git_status reports branch and dirty files for an allowed repo', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'orca-files-git-'));
+    execFileSync('git', ['init', '-b', 'main'], { cwd: repo, stdio: 'ignore' });
+    writeFileSync(join(repo, 'tracked.txt'), 'one\n');
+    execFileSync('git', ['add', 'tracked.txt'], { cwd: repo, stdio: 'ignore' });
+    execFileSync('git', ['-c', 'user.email=a@example.test', '-c', 'user.name=A', 'commit', '-m', 'init'], { cwd: repo, stdio: 'ignore' });
+    writeFileSync(join(repo, 'tracked.txt'), 'two\n');
+    const res = await runWithPolicy(userPolicy([repo]), () => runTool(reg, 'git_status', { path: join(repo, 'tracked.txt') }));
+    expect(res.content[0].text).toContain('branch main');
+    expect(res.content[0].text).toContain('M tracked.txt');
+    expect((res as { details?: { dirtyFiles?: number } }).details?.dirtyFiles).toBe(1);
   });
 });
