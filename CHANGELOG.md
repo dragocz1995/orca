@@ -3,6 +3,15 @@
 All notable changes to Orcasynth are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); the daemon version is the root `package.json` version.
 
+## [1.8.6] - 2026-07-06
+
+### Added
+- **More AI-provider presets in the setup wizard.** The AI step's "Use an API key" list now covers the
+  common providers out of the box, each with its base URL prefilled: OpenAI, Anthropic, OpenRouter, Google
+  Gemini, xAI (Grok), DeepSeek, Groq, Mistral, Together AI, Fireworks AI, Cerebras, Perplexity, DeepInfra,
+  Moonshot (Kimi), Z.AI (GLM), NVIDIA NIM, Hugging Face, Baseten, Ollama Cloud. Anything else still goes
+  through "Custom OpenAI-compatible endpoint". Listed under Brain & Chat → Supported providers in the docs.
+
 ## [1.8.5] - 2026-07-06
 
 ### Fixed
