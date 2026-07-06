@@ -109,7 +109,7 @@ export interface BrainModelSelection { provider?: string; model?: string }
 /** Sensible default for a provider with no explicitly configured models (a bare connected OAuth
  *  account): the catalog is alphabetical, so "first" would be the OLDEST model. Prefer a known-good
  *  current model; fall back to the first catalog entry if it ever disappears. */
-const PREFERRED_DEFAULT: Record<string, string> = {
+export const PREFERRED_DEFAULT: Record<string, string> = {
   anthropic: 'claude-opus-4-8',
   'openai-codex': 'gpt-5.5',
   'github-copilot': 'claude-opus-4.8',

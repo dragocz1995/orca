@@ -23,6 +23,8 @@ USAGE
   orca <command> [options]
 
 SETUP
+  setup                           run the onboarding wizard (account, project, AI provider, memory)
+                                    --reset                   start over from scratch
   install                         provision orca as a service: systemd units, a reverse proxy
                                   and the first admin (run as root). See \`orca install --help\`.
 
@@ -281,6 +283,10 @@ async function main() {
   // `orca install` is the root provisioning wizard — it sets up systemd, the proxy and the admin
   // itself, so it must run BEFORE ensureDaemon (no auto-spawn) and before the lifecycle commands.
   if (argv[0] === 'install') { const { install } = await import('./install/index.js'); await install(argv.slice(1)); return; }
+  // `orca setup` runs the onboarding wizard on demand. Like install it manages the daemon itself, so it
+  // runs BEFORE ensureDaemon/runLifecycle and is NOT an API command. In a non-TTY it prints a next step
+  // and exits 0 (never blocks CI). Dynamic import keeps the cold-path wizard out of the hot dispatch.
+  if (argv[0] === 'setup') { const { runSetup } = await import('./setup/command.js'); await runSetup(argv.slice(1), process.env, BASE, version); return; }
   // `orca update --auto` is the hourly systemd timer's entrypoint: gated on the opt-in flag + live
   // missions (read straight from the DB), it never auto-spawns a daemon and stays silent-success when
   // it decides not to update — so handle it before both runLifecycle and ensureDaemon.

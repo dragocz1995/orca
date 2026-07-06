@@ -75,19 +75,26 @@ export function buildSetupPlan(a: SetupAnswers): SetupPlan {
   return { user: { username: a.username, password: a.password }, config: { autopilot } };
 }
 
+/** Log in with existing credentials and return a full-scope bearer token. Shared by createAdmin and the
+ *  onboarding wizard's "an admin already exists → sign in" branch. */
+export async function login(fetchFn: typeof fetch, base: string, creds: { username: string; password: string }): Promise<string> {
+  const r = await fetchFn(`${base}/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(creds),
+  });
+  if (!r.ok) throw new Error(`setup: login failed (${r.status})`);
+  const { token } = await r.json() as { token?: string };
+  if (!token) throw new Error('setup: login returned no token');
+  return token;
+}
+
 /** Create the admin (open during setup) and log in for a bearer token. The first user created is
  *  automatically the admin (userStore.create), so subsequent authenticated calls succeed. */
 export async function createAdmin(fetchFn: typeof fetch, base: string, user: { username: string; password: string }): Promise<string> {
-  const post = (path: string, body: unknown) => fetchFn(`${base}${path}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  const created = await fetchFn(`${base}/users`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(user),
   });
-  const created = await post('/users', user);
   if (!created.ok) throw new Error(`setup: creating the admin failed (${created.status})`);
-  const login = await post('/auth/login', user);
-  if (!login.ok) throw new Error(`setup: login failed (${login.status})`);
-  const { token } = await login.json() as { token?: string };
-  if (!token) throw new Error('setup: login returned no token');
-  return token;
+  return login(fetchFn, base, user);
 }
 
 /** Persist the config patch with an admin bearer token. */

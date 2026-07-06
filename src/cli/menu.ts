@@ -2,8 +2,7 @@ import { spawn } from 'node:child_process';
 import * as p from '@clack/prompts';
 import { status } from './launcher.js';
 import { defaultLifecycleDeps, formatStatus, runLifecycle } from './commands.js';
-import { isFirstRun } from './setup.js';
-import { runSetupWizard } from './setupWizard.js';
+import { maybeOfferSetup } from './setup/command.js';
 import { readInstallInfo, type InstallInfo } from './installInfo.js';
 import { update } from './update.js';
 import { SERVICES, runCmd, systemctl, servicesActive } from './systemd.js';
@@ -22,6 +21,8 @@ function openUrl(url: string): void {
  *  shows the real public URL the operator chose — never spawns a second, port-conflicting daemon. */
 async function systemdMenu(info: InstallInfo, version: string): Promise<void> {
   p.intro(`🐋 orca v${version}  ·  systemd`);
+  // A systemd box was provisioned by `orca install`, which already created the admin — don't nag. The
+  // `orca setup` command still runs the wizard here on demand.
   for (;;) {
     const active = await servicesActive();
     const state = active ? `● orca is running  ·  ${info.publicUrl}` : '○ orca is stopped';
@@ -82,6 +83,8 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
 
   const deps = defaultLifecycleDeps(version);
   p.intro(`🐋 orca v${version}`);
+  // Offer onboarding once on a fresh install (marker-gated — no daemon call when already set up).
+  await maybeOfferSetup(BASE, env, version);
 
   for (;;) {
     const st = await status(env);
@@ -127,12 +130,6 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
     if (action === 'up') {
       try { await runLifecycle('up', env, deps); }
       catch (e) { p.log.error((e as Error).message); continue; }
-      // A brand-new install has no admin yet — offer the wizard right after the daemon is up.
-      try {
-        if (await isFirstRun(fetch, BASE) && await runSetupWizard(BASE)) {
-          p.log.success(`Sign in at ${webUrl}`);
-        }
-      } catch (e) { p.log.warn(`Skipped setup: ${(e as Error).message}`); }
       continue;
     }
     // 'down' | 'update' — catch so a failed update (registry blip / restart error) doesn't throw out
