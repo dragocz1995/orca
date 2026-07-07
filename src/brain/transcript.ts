@@ -135,6 +135,12 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
       }));
       return { turns, thinking: true, notice: view.notice };
     }
+    case 'session': {
+      // Idle rollover mid-send: the server moved this message into a fresh session. The transcript
+      // restarts at the turn that triggered it — everything before belongs to the previous conversation.
+      const lastYou = turns.map((t) => t.role).lastIndexOf('you');
+      return { turns: lastYou >= 0 ? turns.slice(lastYou) : [], thinking: view.thinking, notice: view.notice };
+    }
     case 'idle': {
       const last = turns[turns.length - 1];
       if (last && last.role === 'orca') turns[turns.length - 1] = { ...last, streaming: false };

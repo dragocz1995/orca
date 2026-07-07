@@ -20,6 +20,11 @@ export interface LiveBrain {
   pluginToolNames: Set<string>;
   /** True while the session runs on the user's vision-fallback model (an image turn hopped onto it). */
   visionFallback?: boolean;
+  /** Epoch ms of the user's last EXPLICIT interaction with this conversation (resume via the session
+   *  picker / `/resume`, a model switch, a manual compact, a reasoning-effort change). Consulted by the
+   *  idle-rollover check (send()) so a deliberately reopened old conversation continues instead of being
+   *  cut over to a fresh session. Unset for auto-resumed sessions (client boot). */
+  interactedAt?: number;
   /** Platform id (e.g. Discord author) of the sender whose turn is currently in flight — set at the
    *  start of a channel turn. Mid-run injection only STEERS a message into the running turn when it comes
    *  from this SAME sender, so one member can never inject instructions into another's (or the admin's)

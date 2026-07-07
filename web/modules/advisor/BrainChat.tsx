@@ -270,6 +270,16 @@ export function BrainChat() {
       setNotice(message);
       setTimeout(() => void connect().then(() => setNotice('')).catch(() => setReady(true)), 2000);
     });
+    // Idle rollover: the server continued the just-sent message in a FRESH conversation (the previous
+    // one sat idle past the cutoff). The shared fold trims the transcript to the new turn; the session
+    // list refreshes so the sidebar marks the new conversation active, and a transient notice says why.
+    es.addEventListener('session', (e) => {
+      const ev = JSON.parse((e as MessageEvent).data) as { sessionId: string };
+      setCards([]); // display cards belonged to the previous conversation
+      setTurns((cur) => fold(cur, { type: 'session', sessionId: ev.sessionId }));
+      setNotice(t.brainChat.freshConversation);
+      void qc.invalidateQueries({ queryKey: ['brain-sessions'] });
+    });
     es.addEventListener('reasoning', (e) => {
       const { delta } = JSON.parse((e as MessageEvent).data) as { delta: string };
       setTurns((cur) => fold(cur, { type: 'reasoning', delta }));

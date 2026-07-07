@@ -47,10 +47,13 @@ function fakeDeps() {
     session.__active = session.__tools.map((t) => t.name); // PI starts every tool active
     return { session };
   });
+  const db = openDb(':memory:');
   return {
     /** Push a raw PI session event through everything subscribed via spawnLive (tests event mapping). */
     emit: (e: unknown) => listeners.forEach((l) => l(e)),
-    store: new BrainStore(openDb(':memory:')),
+    /** Raw DB handle so tests can backdate stored rows (the idle-rollover cutoff). */
+    db,
+    store: new BrainStore(db),
     users: { ensureAdvisorToken: () => 'full-token', get: () => ({ name: 'Filip', username: 'filip' }) },
     config: { providers: [{ id: 'relay', label: 'Relay', type: 'openai' as const, baseUrl: 'http://x/v1', models: ['m'], apiKey: 'k' }] },
     prompts: { render: vi.fn((name: string, vars: Record<string, string>) => `PERSONA:${name}:${vars.userName}`) },
@@ -1031,5 +1034,83 @@ describe('channel tool composition + per-turn gate', () => {
     // applyToolVisibility narrowed the active set to the role's allow-list before prompting.
     expect(d.session.setActiveToolsByName).toHaveBeenCalledWith(['demo_echo']);
     expect(d.session.getActiveToolNames()).toEqual(['demo_echo']);
+  });
+});
+
+describe('idle rollover (send)', () => {
+  /** Backdate every stored brain message so the conversation looks idle past the 30-min cutoff. */
+  const backdate = (d: ReturnType<typeof fakeDeps>) =>
+    d.db.prepare("UPDATE brain_messages SET created_at = datetime('now', '-31 minutes')").run();
+
+  it('a message into a conversation idle past the cutoff rolls over into a FRESH session', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'first');
+    backdate(d);
+    const seen: { type: string; sessionId?: string }[] = [];
+    svc.subscribe(1, (e) => seen.push(e as { type: string; sessionId?: string }));
+    await svc.send(1, 'second');
+    const sessionId = svc.status(1).sessionId!;
+    expect(sessionId).not.toBe('brain-1');
+    expect(sessionId).toMatch(/^brain-1-/);
+    // The subscriber survived the rollover: it was told about the new session, then saw the turn settle.
+    const rolled = seen.find((e) => e.type === 'session');
+    expect(rolled?.sessionId).toBe(sessionId);
+    expect(seen.some((e) => e.type === 'idle')).toBe(true);
+    // The triggering user message landed in the NEW session, never the stale one.
+    const userTexts = (id: string) => d.store.getMessages(id).filter((m) => m.role === 'user').map((m) => JSON.parse(m.content).content);
+    expect(userTexts('brain-1')).toEqual(['first']);
+    expect(userTexts(sessionId)).toContain('second');
+    // Both conversations remain listed; the fresh one is active.
+    const list = svc.listSessions(1);
+    expect(list.map((s) => s.id).sort()).toEqual(['brain-1', sessionId].sort());
+    expect(list.find((s) => s.id === sessionId)?.active).toBe(true);
+  });
+
+  it('stays in the session while the last message is within the cutoff', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'first');
+    await svc.send(1, 'second');
+    expect(svc.status(1).sessionId).toBe('brain-1');
+    expect(svc.listSessions(1)).toHaveLength(1);
+  });
+
+  it('never cuts a running turn: a stale conversation mid-stream steers instead of rolling over', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'first');
+    backdate(d);
+    d.session.isStreaming = true; // a turn is in flight
+    await svc.send(1, 'still there?');
+    expect(d.session.steer).toHaveBeenCalledWith('still there?');
+    expect(svc.status(1).sessionId).toBe('brain-1'); // same conversation — no rollover
+  });
+
+  it('respects an explicit resume: a deliberately reopened old conversation continues', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'first');
+    backdate(d);
+    await svc.start(1, { session: 'brain-1' }); // the session picker / `/resume` path
+    await svc.send(1, 'continue please');
+    expect(svc.status(1).sessionId).toBe('brain-1');
+    expect(svc.listSessions(1)).toHaveLength(1);
+  });
+
+  it('a default (client-boot) start does NOT shield a stale conversation from rolling over', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'first');
+    backdate(d);
+    svc.stop(1);
+    await svc.start(1); // reconnecting client auto-resumes the most recent conversation
+    await svc.send(1, 'morning');
+    expect(svc.status(1).sessionId).toMatch(/^brain-1-/);
   });
 });

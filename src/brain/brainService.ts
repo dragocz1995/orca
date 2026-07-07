@@ -43,6 +43,7 @@ import { toBrainEvent, usageOf, runCompaction } from './events.js';
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult } from './events.js';
 import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from './sessionId.js';
 import { allSubgoalsDone, applySubgoalDone, goalContinuePrompt, goalDraft, goalPrompt, judgeGoalBlocked, judgeGoalCompletion, lastAssistantText, parseProgress, parseSubgoalDone, parseSubgoals } from './goal.js';
+import { rolloverDue } from './session/idleRollover.js';
 
 
 export interface BrainDeps {
@@ -351,6 +352,7 @@ export class BrainService {
     return this.serial(sessionId, async () => {
       const live = this.sessions.get(sessionId);
       if (!live) throw new Error('brain not started');
+      live.interactedAt = Date.now(); // a manual compact is a deliberate touch — don't idle-roll it over
       return runCompaction(live.session);
     });
   }
@@ -413,6 +415,7 @@ export class BrainService {
         autoCompact: !!userCfg?.autoCompact,
         autoCompactAt: userCfg?.autoCompactAt ? userCfg.autoCompactAt / 100 : DEFAULT_AUTO_COMPACT_AT,
       });
+      live.interactedAt = Date.now(); // a model switch is a deliberate touch — don't idle-roll it over
       this.sessions.set(sessionId, live);
       this.sessions.setActive(userId, sessionId);
       return { model: live.model };
@@ -431,6 +434,7 @@ export class BrainService {
     if (!available.has(level)) throw new Error(`model does not support reasoning effort "${level}"`);
     sess.setThinkingLevel?.(level);
     b.thinkingLevel = level;
+    b.interactedAt = Date.now(); // a reasoning-effort change is a deliberate touch — don't idle-roll it over
     return { thinkingLevel: (sess.thinkingLevel as string) ?? level };
   }
 
@@ -747,7 +751,15 @@ export class BrainService {
     // (its timer self-deleted when it fired), so pausing it here would kill a running goal.
     // Serialized per conversation: two concurrent starts would both spawn and leak one PI session.
     return this.serial(sessionId, async () => {
-      if (this.sessions.has(sessionId)) return { sessionId }; // idempotent resume of a live conversation
+      // An EXPLICIT resume (the session picker / `/resume <id>`) is a deliberate choice to continue
+      // that conversation — stamp it so the idle-rollover check in send() respects it. A default
+      // start (client boot, no `session` opt) deliberately does NOT stamp: a stale conversation
+      // auto-resumed by a reconnecting client must still roll over on the next message.
+      const already = this.sessions.get(sessionId);
+      if (already) {
+        if (opts?.session) already.interactedAt = Date.now();
+        return { sessionId }; // idempotent resume of a live conversation
+      }
       // Model selection: an explicit start option wins, else the user's saved provider+model override,
       // else the first configured provider's first model. A saved model the user is no longer
       // allowed to run falls back to the server default rather than blocking the brain.
@@ -763,6 +775,7 @@ export class BrainService {
         autoCompact: !!userCfg?.autoCompact,
         autoCompactAt: userCfg?.autoCompactAt ? userCfg.autoCompactAt / 100 : DEFAULT_AUTO_COMPACT_AT,
       });
+      if (opts?.session) live.interactedAt = Date.now();
       this.sessions.set(sessionId, live);
       return { sessionId };
     });
@@ -772,7 +785,13 @@ export class BrainService {
     const b = this.activeLive(userId);
     if (!b) throw new Error('brain not started for user');
     b.listeners.add(listener);
-    return () => b.listeners.delete(listener);
+    return () => {
+      b.listeners.delete(listener);
+      // An idle rollover may have MOVED this listener onto the replacement session (send() carries
+      // subscribers over so open streams survive) — drop it from the now-active live too, else a
+      // disconnected client would keep receiving (and leaking) events there.
+      this.activeLive(userId)?.listeners.delete(listener);
+    };
   }
 
   private ownerToolPolicy(userId: number, live: LiveBrain, mode: 'build' | 'plan'): ToolPolicy | undefined {
@@ -825,6 +844,23 @@ export class BrainService {
     await this.serial(`user-${userId}`, async () => {
     let b = this.activeLive(userId);
     if (!b) throw new Error('brain not started for user');
+    // Idle rollover — the ONE chokepoint every owner-chat message funnels through (web, CLI): a
+    // conversation whose last message sits past the cutoff continues as a FRESH session instead —
+    // the provider's prompt cache is long expired, so continuing would drag the whole stale context
+    // back in at full price. A running turn is never cut (a streaming send steers above; one that
+    // queued here behind a finishing turn sees a fresh lastMessageAt and stays). An explicitly
+    // reopened conversation counts as fresh interaction (LiveBrain.interactedAt). Subscribers are
+    // carried onto the replacement session so open event streams survive, then told via the
+    // `session` event so their transcript restarts at this message.
+    if (!b.session.isStreaming && rolloverDue({ lastMessageAt: this.d.store.lastMessageAt(b.sessionId), interactedAt: b.interactedAt, now: Date.now() })) {
+      const carried = b.listeners;
+      this.stop(userId);
+      await this.start(userId, { fresh: true });
+      b = this.activeLive(userId);
+      if (!b) throw new Error('brain not started for user');
+      for (const l of carried) b.listeners.add(l);
+      for (const l of b.listeners) l({ type: 'session', sessionId: b.sessionId });
+    }
     // Vision fallback (Account → CLI): an image turn on a text-only model hops onto the user's
     // configured vision model — the session respawns there (history rehydrates from SQLite) and hops
     // back on the next text-only turn, so the fallback never silently becomes the permanent model.

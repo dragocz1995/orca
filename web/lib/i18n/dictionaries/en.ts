@@ -1337,6 +1337,7 @@ export const en = {
     searchPlaceholder: 'Search conversations…',
     searchEmpty: 'No matches',
     searchOpenError: 'This conversation cannot be opened',
+    freshConversation: 'The previous conversation was idle — continuing in a new one',
     readOnly: 'Read-only history (Discord channel or task session)',
     readOnlyExit: 'Back to chat',
     untitled: 'Untitled',

@@ -649,6 +649,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       }
       if (e.type === 'step' && e.usage) usage = e.usage;
       if (e.type === 'card') cards = upsertCard(cards, e.card); // update the persistent panel (not part of the ChatView)
+      // Idle rollover: the server continued this message in a FRESH conversation. The shared fold below
+      // trims the transcript to the new turn; refresh the title bar / session metadata and say why.
+      if (e.type === 'session') { notice = color.dim('previous conversation was idle — continuing in a fresh one'); void refreshMeta().then(render); }
       view = reduce(view, e);
       render();
     }, ac.signal).catch(() => { /* aborted/gone */ });

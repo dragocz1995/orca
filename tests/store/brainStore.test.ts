@@ -33,6 +33,16 @@ describe('BrainStore', () => {
     expect(store.getSession('a')?.model).toBe('m2');
   });
 
+  it('lastMessageAt returns the newest message timestamp, undefined for an empty session', () => {
+    store.createSession({ id: 'a', userId: 1, model: 'm' });
+    expect(store.lastMessageAt('a')).toBeUndefined();
+    store.appendMessage({ id: 'm1', sessionId: 'a', parentId: null, role: 'user', content: { text: 'hi' } });
+    const first = store.lastMessageAt('a');
+    expect(first).toBe(store.getMessages('a')[0]!.created_at);
+    store.appendMessage({ id: 'm2', sessionId: 'a', parentId: null, role: 'assistant', content: { text: 'yo' } });
+    expect(store.lastMessageAt('a')! >= first!).toBe(true); // MAX — never an older row
+  });
+
   it('removeForUser drops the user rows and their messages', () => {
     store.createSession({ id: 'a', userId: 1, model: 'm' });
     store.appendMessage({ id: 'x', sessionId: 'a', parentId: null, role: 'user', content: {} });

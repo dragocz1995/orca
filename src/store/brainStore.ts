@@ -77,6 +77,13 @@ export class BrainStore {
     return this.db.prepare('SELECT * FROM brain_messages WHERE id = ?').get(input.id) as BrainMessageRow;
   }
 
+  /** created_at of the session's newest stored message (undefined when it has none) — drives the
+   *  idle-rollover check without loading the whole history. */
+  lastMessageAt(sessionId: string): string | undefined {
+    const row = this.db.prepare('SELECT MAX(created_at) AS ts FROM brain_messages WHERE session_id = ?').get(sessionId) as { ts: string | null };
+    return row.ts ?? undefined;
+  }
+
   getMessages(sessionId: string): BrainMessageRow[] {
     return this.db.prepare('SELECT * FROM brain_messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC')
       .all(sessionId) as BrainMessageRow[];

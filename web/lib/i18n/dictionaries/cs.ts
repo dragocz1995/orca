@@ -1337,6 +1337,7 @@ export const cs = {
     searchPlaceholder: 'Hledat v konverzacích…',
     searchEmpty: 'Nic nenalezeno',
     searchOpenError: 'Tuto konverzaci nelze otevřít',
+    freshConversation: 'Předchozí konverzace byla neaktivní — pokračujeme v nové',
     readOnly: 'Historie jen ke čtení (Discord kanál nebo task relace)',
     readOnlyExit: 'Zpět do chatu',
     untitled: 'Bez názvu',
