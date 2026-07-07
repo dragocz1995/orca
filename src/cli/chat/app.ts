@@ -557,6 +557,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const goalSummary = (g: Awaited<ReturnType<BrainClient['goal']>>): string => {
     if (!g) return 'no active goal';
     const bits = [`goal ${g.status}`, `${g.turns_used}/${g.turn_budget} turns`, g.goal];
+    try {
+      const subs = JSON.parse(g.subgoals) as { text?: string; done?: boolean }[];
+      if (Array.isArray(subs) && subs.length) bits.push(`subgoals: ${subs.filter((s) => s?.done).length}/${subs.length}`);
+    } catch { /* malformed subgoals JSON → skip the count */ }
     if (g.paused_reason) bits.push(`paused: ${g.paused_reason}`);
     if (g.last_evidence) bits.push(`evidence: ${g.last_evidence}`);
     return bits.join(' · ');

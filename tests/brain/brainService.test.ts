@@ -244,6 +244,44 @@ describe('BrainService', () => {
     expect(d.store.getGoal(sid)?.status).toBe('active');
   });
 
+  it('a GOAL_BLOCKED turn pauses the goal with a blocked verdict (no budget burn)', async () => {
+    const d = fakeDeps();
+    d.session.prompt.mockImplementationOnce(async () => {
+      d.emit({ type: 'agent_end', willRetry: false, messages: [{ role: 'assistant', content: 'GOAL_BLOCKED: needs a credential I do not have' }] });
+    });
+    const svc = new BrainService(d as never);
+    await svc.setGoal(1, 'Ship it', { turnBudget: 8 });
+    const g = svc.goalStatus(1);
+    expect(g?.status).toBe('paused');
+    expect(g?.last_verdict).toBe('blocked');
+    expect(g?.paused_reason).toContain('credential');
+  });
+
+  it('gates GOAL_DONE behind open subgoals; SUBGOAL_DONE then unlocks completion', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const sid = d.store.listSessions(1)[0]!.id;
+    d.store.upsertGoal({ sessionId: sid, userId: 1, goal: 'g', draft: '', status: 'active', turnBudget: 8 });
+    d.store.updateGoal(sid, { subgoals: JSON.stringify([{ text: 'write tests', done: false }]) });
+
+    // Turn 1: claims done while the subgoal is still open → NOT accepted, loop continues.
+    d.session.prompt.mockImplementationOnce(async () => {
+      d.emit({ type: 'agent_end', willRetry: false, messages: [{ role: 'assistant', content: 'GOAL_DONE: shipped' }] });
+    });
+    await svc.send(1, 'continue', undefined, 'build', { goalContinue: true });
+    expect(d.store.getGoal(sid)?.status).toBe('active');
+
+    // Turn 2: checks the subgoal off AND declares done → completes.
+    d.session.prompt.mockImplementationOnce(async () => {
+      d.emit({ type: 'agent_end', willRetry: false, messages: [{ role: 'assistant', content: 'SUBGOAL_DONE: 1\nGOAL_DONE: shipped, subgoal closed' }] });
+    });
+    await svc.send(1, 'continue', undefined, 'build', { goalContinue: true });
+    const g = d.store.getGoal(sid);
+    expect(g?.status).toBe('done');
+    expect(JSON.parse(g!.subgoals)[0].done).toBe(true);
+  });
+
   it('persistent goal pauses with an error when the kickoff turn fails', async () => {
     const d = fakeDeps();
     d.session.prompt.mockRejectedValueOnce(new Error('provider down'));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { judgeGoalCompletion, goalPrompt, goalContinuePrompt } from '../../src/brain/goal.js';
+import { judgeGoalCompletion, judgeGoalBlocked, parseSubgoalDone, applySubgoalDone, allSubgoalsDone, parseProgress, goalPrompt, goalContinuePrompt } from '../../src/brain/goal.js';
 import type { BrainGoalRow } from '../../src/store/brainStore.js';
 
 const row = (over: Partial<BrainGoalRow> = {}): BrainGoalRow => ({
@@ -43,9 +43,53 @@ describe('judgeGoalCompletion — explicit GOAL_DONE sentinel only', () => {
   });
 });
 
-describe('goal prompts advertise the sentinel', () => {
-  it('kickoff and continuation both instruct the model to emit GOAL_DONE only on real completion', () => {
-    expect(goalPrompt(row())).toContain('GOAL_DONE:');
-    expect(goalContinuePrompt(row())).toContain('GOAL_DONE:');
+describe('judgeGoalBlocked — explicit GOAL_BLOCKED sentinel', () => {
+  it('marks blocked with a reason, tolerating markdown', () => {
+    expect(judgeGoalBlocked('Tried everything.\nGOAL_BLOCKED: missing DB credentials')).toEqual({ blocked: true, reason: 'missing DB credentials' });
+    expect(judgeGoalBlocked('`GOAL_BLOCKED: needs a human decision`').blocked).toBe(true);
+  });
+  it('rejects an empty/placeholder reason and prose mentions', () => {
+    expect(judgeGoalBlocked('GOAL_BLOCKED:').blocked).toBe(false);
+    expect(judgeGoalBlocked('GOAL_BLOCKED: <reason>').blocked).toBe(false);
+    expect(judgeGoalBlocked('I am not blocked, continuing.').blocked).toBe(false);
+  });
+});
+
+describe('subgoal check-off protocol', () => {
+  it('parses SUBGOAL_DONE indices (multiple, deduped, markdown-tolerant)', () => {
+    expect(parseSubgoalDone('SUBGOAL_DONE: 1\nwork\nSUBGOAL_DONE: 3\n`SUBGOAL_DONE: 1`')).toEqual([1, 3]);
+    expect(parseSubgoalDone('no markers here')).toEqual([]);
+  });
+  it('applies check-offs and reports whether all are done', () => {
+    const subs = [{ text: 'a', done: false }, { text: 'b', done: false }];
+    const after = applySubgoalDone(subs, [1]);
+    expect(after[0]!.done).toBe(true);
+    expect(after[1]!.done).toBe(false);
+    expect(allSubgoalsDone(after)).toBe(false);
+    expect(allSubgoalsDone(applySubgoalDone(subs, [1, 2]))).toBe(true);
+    expect(allSubgoalsDone([])).toBe(true); // vacuous
+  });
+});
+
+describe('parseProgress — durable per-turn progress line', () => {
+  it('extracts the PROGRESS summary and rejects the placeholder', () => {
+    expect(parseProgress('did stuff\nPROGRESS: wired the API and added a test')).toBe('wired the API and added a test');
+    expect(parseProgress('PROGRESS: <summary>')).toBe('');
+    expect(parseProgress('no progress line')).toBe('');
+  });
+});
+
+describe('goal prompts advertise the sentinels', () => {
+  it('kickoff and continuation both teach GOAL_DONE / GOAL_BLOCKED / SUBGOAL_DONE / PROGRESS', () => {
+    for (const p of [goalPrompt(row()), goalContinuePrompt(row())]) {
+      expect(p).toContain('GOAL_DONE:');
+      expect(p).toContain('GOAL_BLOCKED:');
+      expect(p).toContain('SUBGOAL_DONE:');
+      expect(p).toContain('PROGRESS:');
+    }
+  });
+  it('the continuation prompt injects durable progress so it survives compaction/resume', () => {
+    expect(goalContinuePrompt(row({ last_evidence: 'migrated 3 of 5 tables' }))).toContain('Progress so far: migrated 3 of 5 tables');
+    expect(goalContinuePrompt(row({ last_evidence: '' }))).not.toContain('Progress so far');
   });
 });

@@ -24,6 +24,16 @@ export function goalDraft(text: string): string {
   ].join('\n');
 }
 
+/** The sentinel protocol every goal turn is taught: GOAL_DONE to finish, GOAL_BLOCKED to stop on an
+ *  unresolvable blocker (instead of burning budget), SUBGOAL_DONE to check off a subgoal. Shared by the
+ *  kickoff and continuation prompts so the model always sees the same contract. */
+const SENTINEL_RULES = [
+  'End each turn with a one-line `PROGRESS: <what you accomplished this turn>` — this is remembered across turns even if earlier messages are summarized away, so keep it concrete.',
+  'When — and ONLY when — the goal is fully achieved and you can cite concrete evidence, end your message with a line of its own: `GOAL_DONE: <evidence>` (e.g. `GOAL_DONE: all tests pass, build is green`). Never write that line to describe remaining or planned work — it terminates the goal.',
+  'If you are genuinely blocked (missing credentials, a required decision, an unsafe/destructive step), do NOT keep looping — end with a line of its own: `GOAL_BLOCKED: <reason>`. That pauses the goal for the operator instead of wasting turns.',
+  'As you finish each numbered subgoal, mark it on a line of its own: `SUBGOAL_DONE: <number>`. You may not write GOAL_DONE while any subgoal is still unchecked.',
+].join('\n');
+
 export function goalPrompt(row: BrainGoalRow): string {
   const subgoals = parseSubgoals(row.subgoals);
   return [
@@ -31,10 +41,10 @@ export function goalPrompt(row: BrainGoalRow): string {
     '',
     `Goal: ${row.goal}`,
     row.draft ? `\nDraft contract:\n${row.draft}` : '',
-    subgoals.length ? `\nSubgoals:\n${subgoals.map((s, i) => `${i + 1}. ${s.text}`).join('\n')}` : '',
+    subgoals.length ? `\nSubgoals:\n${subgoals.map((s, i) => `${i + 1}. ${s.done ? '[x]' : '[ ]'} ${s.text}`).join('\n')}` : '',
     '',
     'Work autonomously toward the goal. After each turn, provide concrete evidence for progress.',
-    'When — and ONLY when — the goal is fully achieved and you can cite concrete evidence, end your message with a line of its own: `GOAL_DONE: <evidence>` (e.g. `GOAL_DONE: all tests pass, build is green`). Never write that line to describe remaining or planned work — it terminates the goal.',
+    SENTINEL_RULES,
   ].filter(Boolean).join('\n');
 }
 
@@ -44,8 +54,11 @@ export function goalContinuePrompt(row: BrainGoalRow): string {
     'Continue the active persistent goal.',
     `Goal: ${row.goal}`,
     `Budget: turn ${row.turns_used + 1}/${row.turn_budget}`,
+    // Durable progress carried across turns — survives PI context compaction and a pause/resume, so a long
+    // goal keeps its bearings even after earlier raw messages are gone.
+    row.last_evidence ? `Progress so far: ${row.last_evidence}` : '',
     subgoals.length ? `Subgoals:\n${subgoals.map((s, i) => `${i + 1}. ${s.done ? '[x]' : '[ ]'} ${s.text}`).join('\n')}` : '',
-    'If the goal is fully achieved, end your message with a line of its own: `GOAL_DONE: <evidence>` — only with concrete evidence, and never to describe remaining work. If blocked or unsafe, explain the blocker clearly instead of looping (do not write GOAL_DONE).',
+    SENTINEL_RULES,
   ].filter(Boolean).join('\n');
 }
 
@@ -70,4 +83,48 @@ export function judgeGoalCompletion(text: string): { done: boolean; evidence: st
   // Guard against a model echoing the literal instruction placeholder rather than real evidence.
   if (!evidence || evidence === '<evidence>') return { done: false, evidence: '' };
   return { done: true, evidence: evidence.slice(0, 240) };
+}
+
+/** Decide whether a goal turn declared itself BLOCKED via an explicit start-of-line `GOAL_BLOCKED:`
+ *  sentinel (symmetric to GOAL_DONE). Lets the model stop an unresolvable goal for the operator instead
+ *  of looping until the turn budget runs out. Same markdown tolerance + placeholder guard. */
+export function judgeGoalBlocked(text: string): { blocked: boolean; reason: string } {
+  const m = /^[^\S\r\n]*[`*_~]*\s*GOAL_BLOCKED:[^\S\r\n]*(.+)$/im.exec(text);
+  if (!m) return { blocked: false, reason: '' };
+  const reason = (m[1] ?? '').replace(/[`*_~]+\s*$/, '').replace(/\s+/g, ' ').trim();
+  if (!reason || reason === '<reason>') return { blocked: false, reason: '' };
+  return { blocked: true, reason: reason.slice(0, 240) };
+}
+
+/** The turn's `PROGRESS: <summary>` line, if any — a durable one-line record of what the turn achieved,
+ *  kept on the goal row so it survives context compaction and pause/resume. Markdown-tolerant. */
+export function parseProgress(text: string): string {
+  const m = /^[^\S\r\n]*[`*_~]*\s*PROGRESS:[^\S\r\n]*(.+)$/im.exec(text);
+  const summary = (m?.[1] ?? '').replace(/[`*_~]+\s*$/, '').replace(/\s+/g, ' ').trim();
+  return summary === '<summary>' ? '' : summary.slice(0, 240);
+}
+
+/** 1-based subgoal indices the turn checked off via `SUBGOAL_DONE: <n>` lines (one per finished subgoal).
+ *  Deduplicated; non-positive/garbage indices are dropped (the caller bounds them against the list). */
+export function parseSubgoalDone(text: string): number[] {
+  const out = new Set<number>();
+  const re = /^[^\S\r\n]*[`*_~]*\s*SUBGOAL_DONE:[^\S\r\n]*(\d+)/gim;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const n = Number(m[1]);
+    if (Number.isInteger(n) && n >= 1) out.add(n);
+  }
+  return [...out];
+}
+
+/** Apply the turn's `SUBGOAL_DONE` marks to the subgoal list, returning a new list (indices are 1-based
+ *  and bounded to the list). Pure — the caller persists the result. */
+export function applySubgoalDone(subgoals: StoredSubgoal[], doneIndices: number[]): StoredSubgoal[] {
+  const set = new Set(doneIndices);
+  return subgoals.map((s, i) => (set.has(i + 1) && !s.done ? { ...s, done: true } : s));
+}
+
+/** Whether every subgoal is checked off (vacuously true when there are none) — the gate GOAL_DONE must
+ *  clear so a goal can't be declared complete with open subgoals. */
+export function allSubgoalsDone(subgoals: StoredSubgoal[]): boolean {
+  return subgoals.every((s) => s.done === true);
 }

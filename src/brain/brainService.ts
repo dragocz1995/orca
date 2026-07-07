@@ -42,7 +42,7 @@ import type { BrainMessageView } from './messageView.js';
 import { toBrainEvent, usageOf, runCompaction } from './events.js';
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult } from './events.js';
 import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from './sessionId.js';
-import { goalContinuePrompt, goalDraft, goalPrompt, judgeGoalCompletion, lastAssistantText, parseSubgoals } from './goal.js';
+import { allSubgoalsDone, applySubgoalDone, goalContinuePrompt, goalDraft, goalPrompt, judgeGoalBlocked, judgeGoalCompletion, lastAssistantText, parseProgress, parseSubgoalDone, parseSubgoals } from './goal.js';
 
 
 export interface BrainDeps {
@@ -922,34 +922,38 @@ export class BrainService {
     if (!row || row.user_id !== userId || row.status !== 'active') return;
     const turns = row.turns_used + 1;
     const assistantText = lastAssistantText(this.d.store, sessionId);
+
+    // Check off any subgoals the turn finished, and carry a durable progress line (both survive PI context
+    // compaction and a pause/resume, injected back into the continuation prompt).
+    const subgoals = applySubgoalDone(parseSubgoals(row.subgoals), parseSubgoalDone(assistantText));
+    const subgoalsJson = JSON.stringify(subgoals);
+    const progress = parseProgress(assistantText) || row.last_evidence; // keep the prior note if none this turn
+
+    // Blocked: the model declared an unresolvable blocker — pause for the operator instead of looping the
+    // budget away. (There is no `waiting_for_user` pause: an ask_user_question parks INSIDE session.prompt(),
+    // so by the time this judge runs the question is always resolved/timed-out.)
+    const blocked = judgeGoalBlocked(assistantText);
+    if (blocked.blocked) {
+      this.d.store.updateGoal(sessionId, { status: 'paused', turns_used: turns, subgoals: subgoalsJson, last_verdict: 'blocked', last_evidence: progress, paused_reason: blocked.reason });
+      return;
+    }
+
+    // Completion — gated on every subgoal being checked off, so a goal can't be declared done with open
+    // subgoals (an unresolved GOAL_DONE falls through to a normal continuation turn).
     const verdict = judgeGoalCompletion(assistantText);
-    if (verdict.done) {
-      this.d.store.updateGoal(sessionId, {
-        status: 'done',
-        turns_used: turns,
-        last_verdict: 'done',
-        last_evidence: verdict.evidence,
-        paused_reason: '',
-      });
+    if (verdict.done && allSubgoalsDone(subgoals)) {
+      this.d.store.updateGoal(sessionId, { status: 'done', turns_used: turns, subgoals: subgoalsJson, last_verdict: 'done', last_evidence: verdict.evidence, paused_reason: '' });
       return;
     }
-    // (There is no `waiting_for_user` pause here: an ask_user_question parks INSIDE session.prompt(), so
-    // by the time this post-turn judge runs the question is always resolved/timed-out — pendingForSession
-    // would be null. A timed-out question feeds "[no answer]" back and the loop continues on budget.)
+
     if (turns >= row.turn_budget) {
-      this.d.store.updateGoal(sessionId, {
-        status: 'paused',
-        turns_used: turns,
-        last_verdict: 'budget_reached',
-        paused_reason: `turn budget reached (${turns}/${row.turn_budget})`,
-      });
+      this.d.store.updateGoal(sessionId, { status: 'paused', turns_used: turns, subgoals: subgoalsJson, last_verdict: 'budget_reached', last_evidence: progress, paused_reason: `turn budget reached (${turns}/${row.turn_budget})` });
       return;
     }
-    const next = this.d.store.updateGoal(sessionId, { turns_used: turns, last_verdict: 'continue', last_evidence: verdict.evidence }) ?? row;
-    const activeId = this.activeSessionId(userId);
-    if (activeId !== sessionId) return;
+
+    this.d.store.updateGoal(sessionId, { turns_used: turns, subgoals: subgoalsJson, last_verdict: 'continue', last_evidence: progress });
+    if (this.activeSessionId(userId) !== sessionId) return;
     this.scheduleGoalContinuation(userId, sessionId, mode, internal?.goalContinue ? 250 : 100);
-    void next;
   }
 
   /** Restart a user's live session so changed settings (model override, plugins) apply immediately.
