@@ -271,12 +271,18 @@ export function BrainChat() {
       setTimeout(() => void connect().then(() => setNotice('')).catch(() => setReady(true)), 2000);
     });
     // Idle rollover: the server continued the just-sent message in a FRESH conversation (the previous
-    // one sat idle past the cutoff). The shared fold trims the transcript to the new turn; the session
-    // list refreshes so the sidebar marks the new conversation active, and a transient notice says why.
+    // one sat idle past the cutoff). The SENDING client folds (its last turn is the just-typed message);
+    // a passively connected client (second tab, CLI + web together) has no fresh local user turn — its
+    // last 'you' belongs to the OLD conversation, so folding would misattribute old history to the new
+    // one. That client refetches the transcript instead. Session list refreshes for both.
     es.addEventListener('session', (e) => {
       const ev = JSON.parse((e as MessageEvent).data) as { sessionId: string };
       setCards([]); // display cards belonged to the previous conversation
-      setTurns((cur) => fold(cur, { type: 'session', sessionId: ev.sessionId }));
+      setTurns((cur) => {
+        if (cur[cur.length - 1]?.role === 'you') return fold(cur, { type: 'session', sessionId: ev.sessionId });
+        void loadHistory().catch(() => { /* transcript refetch is best-effort */ });
+        return cur;
+      });
       setNotice(t.brainChat.freshConversation);
       void qc.invalidateQueries({ queryKey: ['brain-sessions'] });
     });

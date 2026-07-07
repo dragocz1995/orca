@@ -410,6 +410,7 @@ export class BrainService {
     this.elicitation.cancelForSession(sessionId, 'model switched');
     this.cancelGoalContinuation(sessionId);
     return this.serial(sessionId, async () => {
+      const prevWorkDir = this.sessions.get(sessionId)?.workDir; // the switch must not move the session cwd
       this.sessions.dispose(sessionId);
       const userCfg = this.d.userSettings?.(userId);
       const live = await this.spawnLive({
@@ -419,6 +420,7 @@ export class BrainService {
         policy: this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] },
         autoCompact: !!userCfg?.autoCompact,
         autoCompactAt: userCfg?.autoCompactAt ? userCfg.autoCompactAt / 100 : DEFAULT_AUTO_COMPACT_AT,
+        clientCwd: prevWorkDir,
       });
       live.interactedAt = Date.now(); // a model switch is a deliberate touch — don't idle-roll it over
       this.sessions.set(sessionId, live);
@@ -725,7 +727,7 @@ export class BrainService {
       const parts = providers.map((f) => { try { return f(); } catch { return ''; } }).filter((x) => x && x.trim());
       return parts.length ? `<context>\n${parts.join('\n')}\n</context>\n\n` : '';
     };
-    return { session, sessionId, model: model.id, thinkingLevel: opts.thinkingLevel, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners, turnContext, pluginToolNames: new Set(pluginTools.map((t) => t.name)) };
+    return { session, sessionId, model: model.id, thinkingLevel: opts.thinkingLevel, policy: opts.policy, autoCompact: opts.autoCompact, autoCompactAt: opts.autoCompactAt, listeners, turnContext, pluginToolNames: new Set(pluginTools.map((t) => t.name)), workDir: cwd };
   }
 
   /** Start (or resume) a conversation. `session` resumes that stored conversation (ownership checked);
@@ -795,11 +797,11 @@ export class BrainService {
     if (!b) throw new Error('brain not started for user');
     b.listeners.add(listener);
     return () => {
-      b.listeners.delete(listener);
-      // An idle rollover may have MOVED this listener onto the replacement session (send() carries
-      // subscribers over so open streams survive) — drop it from the now-active live too, else a
-      // disconnected client would keep receiving (and leaking) events there.
-      this.activeLive(userId)?.listeners.delete(listener);
+      // An idle rollover may have MOVED this listener onto a replacement session (send() carries
+      // subscribers over so open streams survive) — and the user may have switched active sessions
+      // since, so sweep EVERY live session, not just the original and the currently active one
+      // (a listener left on a non-active live would keep receiving events for a dead stream forever).
+      for (const [, live] of this.sessions.liveEntries()) live.listeners.delete(listener);
     };
   }
 
@@ -879,8 +881,10 @@ export class BrainService {
     // queued here behind a finishing turn sees a fresh lastMessageAt and stays). An explicitly
     // reopened conversation counts as fresh interaction (LiveBrain.interactedAt). Subscribers are
     // carried onto the replacement session so open event streams survive, then told via the
-    // `session` event so their transcript restarts at this message.
-    if (!b.session.isStreaming && rolloverDue({ lastMessageAt: this.d.store.lastMessageAt(b.sessionId), interactedAt: b.interactedAt, now: Date.now() })) {
+    // `session` event so their transcript restarts at this message. INTERNAL sends (goal kickoff /
+    // continuation) never roll over — the goal row is keyed to the session it was set on; moving its
+    // kickoff to a fresh session would orphan the goal (judge finds no row, loop never starts).
+    if (!internal && !b.session.isStreaming && rolloverDue({ lastMessageAt: this.d.store.lastMessageAt(b.sessionId), interactedAt: b.interactedAt, now: Date.now() })) {
       const carried = b.listeners;
       this.stop(userId);
       await this.start(userId, { fresh: true, cwd: clientCwd });
@@ -898,8 +902,9 @@ export class BrainService {
       currentModel: b.model, visionModel: settings?.visionModel, visionModelProvider: settings?.visionModelProvider,
     });
     if (hop.action !== 'none') {
+      const prevWorkDir = b.workDir; // survive the respawn — the hop must not move the session cwd
       this.stop(userId);
-      await this.start(userId, hop.action === 'hop' ? { provider: hop.provider, model: hop.model } : undefined);
+      await this.start(userId, { cwd: clientCwd ?? prevWorkDir, ...(hop.action === 'hop' ? { provider: hop.provider, model: hop.model } : {}) });
       b = this.activeLive(userId);
       if (!b) throw new Error('brain not started for user');
       // Mark the fallback active only if start() actually reached the requested vision model (not the
@@ -983,7 +988,9 @@ export class BrainService {
       // Bind the turn's default tool cwd to the user's project: the CLI reports where it was launched
       // (validated below), else fall back to their first repo root / the daemon's primary project.
       // Without this an all-access chat ran tools in the daemon's own cwd — `/` under systemd.
-      const workDir = this.turnWorkDir(live.policy, clientCwd);
+      // Sends without a client cwd (goal kickoff/continuation) reuse the SESSION's resolved workDir so
+      // autonomous turns run where the model believes it runs, not in the daemon's primary project.
+      const workDir = this.turnWorkDir(live.policy, clientCwd ?? live.workDir);
       await runWithPolicy(live.policy, () => {
         const prompted = memoryBlock + hookBlock + live.turnContext() + modeInstruction + text;
         return options ? live.session.prompt(prompted, options) : live.session.prompt(prompted);
@@ -1058,8 +1065,9 @@ export class BrainService {
     // Release a parked ask_user_question first, else `settled` waits out its full timeout.
     this.elicitation.cancelForSession(b.sessionId, 'session restarted');
     await this.sessions.settled(b.sessionId); // let an in-flight turn settle before disposing the session
+    const prevWorkDir = b.workDir; // the restart must not move the session cwd
     this.stop(userId);
-    await this.start(userId);
+    await this.start(userId, { cwd: prevWorkDir });
   }
 
   /** A user changed their active personality profile: respawn so the new persona chunk lands in the

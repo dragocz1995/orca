@@ -245,6 +245,11 @@ export class LspClient {
     if (version === 1) {
       this.notify('textDocument/didOpen', { textDocument: { uri, languageId: language, version, text } });
     } else {
+      // The cached publish belongs to the PREVIOUS document version — drop it, or a slow re-check
+      // (server busy past timeoutMs) would pass the old verdict off as `published:true` for the new
+      // text: a clean cache + a freshly introduced error = exactly the false all-clear this class
+      // exists to prevent.
+      this.diagnosticsByUri.delete(uri);
       this.notify('textDocument/didChange', { textDocument: { uri, version }, contentChanges: [{ text }] });
     }
     return wait;

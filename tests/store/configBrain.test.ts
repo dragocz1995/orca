@@ -41,3 +41,33 @@ describe('ConfigStore brain providers', () => {
     expect(cs.brainProviders()).toEqual([]);
   });
 });
+
+describe('brain provider wire-API (api) round-trip', () => {
+  const oa = { id: 'oa', label: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', models: ['gpt-x'] };
+
+  it('persists the pin, exposes it in the public view, and keeps it across a keyless echo', () => {
+    const cs = new ConfigStore(openDb(':memory:'));
+    cs.update({ brain: { providers: [{ ...oa, api: 'openai-completions', apiKey: 'sk-1' }] } });
+    expect(cs.get().brain.providers[0]).toMatchObject({ api: 'openai-completions', apiKeySet: true });
+    // The UI/setup round-trip re-sends the keyless public entry — pin AND key must both survive.
+    cs.update({ brain: { providers: [{ ...oa, api: 'openai-completions' }] } });
+    expect(cs.brainProviders()[0]).toMatchObject({ api: 'openai-completions', apiKey: 'sk-1' });
+  });
+
+  it('an entry arriving WITHOUT api resets the pin to auto (documented contract)', () => {
+    const cs = new ConfigStore(openDb(':memory:'));
+    cs.update({ brain: { providers: [{ ...oa, api: 'openai-responses', apiKey: 'sk-1' }] } });
+    cs.update({ brain: { providers: [{ ...oa }] } });
+    expect(cs.get().brain.providers[0]!.api).toBeUndefined();
+  });
+
+  it('drops api on non-openai types and rejects unknown values', () => {
+    const cs = new ConfigStore(openDb(':memory:'));
+    cs.update({ brain: { providers: [
+      { id: 'an', label: 'Ant', type: 'anthropic', baseUrl: '', models: [], api: 'openai-responses' },
+      { ...oa, api: 'not-a-real-api' },
+    ] } });
+    expect(cs.get().brain.providers.find((p) => p.id === 'an')!.api).toBeUndefined();
+    expect(cs.get().brain.providers.find((p) => p.id === 'oa')!.api).toBeUndefined();
+  });
+});

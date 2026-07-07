@@ -30,6 +30,11 @@ export interface LiveBrain {
    *  from this SAME sender, so one member can never inject instructions into another's (or the admin's)
    *  turn and inherit its policy/toolset. */
   turnSender?: string;
+  /** The session's resolved working directory (validated client cwd → policy root → primary project).
+   *  Reused as the per-turn workDir fallback for sends that carry no client cwd (goal kickoff/continue)
+   *  and re-passed on respawns (model switch, vision hop, restart) so the session cwd never silently
+   *  reverts away from where the user launched their CLI. */
+  workDir?: string;
 }
 
 /** What it takes to spawn one live conversation — composed by BrainService.spawnLive and reused by

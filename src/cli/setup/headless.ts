@@ -77,7 +77,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
     const existing = providers.find((x) => x.type === type && x.baseUrl === baseUrl);
     const id = existing?.id ?? uniqueSlug(deriveSlug(label), new Set(providers.map((x) => x.id)));
     const models = model ? [model] : (existing?.models ?? []);
-    const entry = { id, label: existing?.label ?? label, type, baseUrl, models, ...(o.apiKey ? { apiKey: o.apiKey } : {}) };
+    const entry = { id, label: existing?.label ?? label, type, baseUrl, models, ...(existing?.api ? { api: existing.api } : {}), ...(o.apiKey ? { apiKey: o.apiKey } : {}) };
     const kept = providers.filter((e) => e.id !== id).map(keepProvider);
     const saved = await apiJson(ctx, 'PUT', '/config', { brain: { providers: [...kept, entry] } });
     if (!saved.ok) return die(`Saving the provider failed (${saved.status}).`);
@@ -114,7 +114,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
     if (o.memoryKey) {
       const id = existing?.id ?? uniqueSlug('openrouter', new Set(providers.map((x) => x.id)));
       const kept = providers.filter((e) => e.id !== id).map(keepProvider);
-      const saved = await apiJson(ctx, 'PUT', '/config', { brain: { providers: [...kept, { id, label: existing?.label ?? 'OpenRouter', type: 'openai', baseUrl: OPENROUTER_BASE, models: existing?.models ?? [], apiKey: o.memoryKey }] } });
+      const saved = await apiJson(ctx, 'PUT', '/config', { brain: { providers: [...kept, { id, label: existing?.label ?? 'OpenRouter', type: 'openai', baseUrl: OPENROUTER_BASE, models: existing?.models ?? [], ...(existing?.api ? { api: existing.api } : {}), apiKey: o.memoryKey }] } });
       if (saved.ok) providerId = id;
       else warn('memory', `couldn't save the OpenRouter provider (${saved.status})`);
     } else if (existing?.apiKeySet) {
@@ -131,12 +131,13 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
   }
 
   // ── LSP (opt-in via --lsp) — install the TypeScript language server so the agent can type-check its
-  //    own edits. Local npm work, no daemon call; a failure warns but never fails the run. ───────────
+  //    own edits. Goes through the daemon (its prefix is what the diagnostics tool resolves), falling
+  //    back to local npm without one; a failure warns but never fails the run. ─────────────────────
   if (o.lsp) {
     if (commandExists(TS_SERVER_COMMAND)) ok('lsp', `${TS_SERVER_COMMAND} already installed`);
     else {
-      const r = await installTsServer();
-      if (r.ok && commandExists(TS_SERVER_COMMAND)) ok('lsp', `${TS_SERVER_COMMAND} installed`);
+      const r = await installTsServer(ctx);
+      if (r.ok && (r.verified || commandExists(TS_SERVER_COMMAND))) ok('lsp', `${TS_SERVER_COMMAND} installed`);
       else warn('lsp', `install failed — ${r.ok ? `${TS_SERVER_COMMAND} not on PATH` : r.detail} (try: ${TS_SERVER_INSTALL_HINT})`);
     }
   }

@@ -109,6 +109,21 @@ export interface StartScreenState {
   version: string;
 }
 
+/** The centered input box geometry of the start screen — shared with overlay anchoring (the slash
+ *  suggestions must open right under this input, not at the normal layout's bottom-of-screen slot). */
+export function startScreenBox(width: number): { boxWidth: number; leftPad: number } {
+  const boxWidth = Math.max(32, Math.min(72, width - 8));
+  return { boxWidth, leftPad: Math.max(0, Math.floor((width - boxWidth) / 2)) };
+}
+
+/** Row (0-based, within the start screen's rows) where the input box starts — mirror of the vertical
+ *  centering in {@link StartScreen.render}, kept here so overlay anchoring can never drift from it. */
+export function startScreenInputTop(rows: number, inputRows: number, noticeRows: number): number {
+  const bodyLength = ORCA_ART.length + 1 + inputRows + 2 + 2 + 1 + (noticeRows ? 1 + noticeRows : 0);
+  const topPad = Math.max(0, Math.floor((rows - 1 - bodyLength) / 2) - 1);
+  return topPad + ORCA_ART.length + 1;
+}
+
 /** The empty-conversation start screen (opencode-style): a centered two-tone ORCA wordmark, the input
  *  box beneath it with the model line, keyboard hints, a tip — and a slim bottom status row with the
  *  project on the left and the Orca version in the bottom-right corner. The right telemetry panel stays
@@ -123,26 +138,28 @@ export class StartScreen implements Component {
   render(width: number): string[] {
     const st = this.getState();
     const center = (text: string): string => `${' '.repeat(Math.max(0, Math.floor((width - visibleWidth(text)) / 2)))}${text}`;
-    const boxWidth = Math.max(32, Math.min(72, width - 8));
-    const leftPad = Math.max(0, Math.floor((width - boxWidth) / 2));
+    const { boxWidth, leftPad } = startScreenBox(width);
     const indent = ' '.repeat(leftPad);
+    const inputLines = this.input.render(boxWidth);
+    const noticeLines = st.notice ? st.notice.split('\n') : [];
     const body = [
       ...ORCA_ART.map((line) => center(`${color.faint(line.slice(0, 12))}${color.text(line.slice(12))}`)),
       '',
-      ...this.input.render(boxWidth).map((line) => `${indent}${line}`),
+      ...inputLines.map((line) => `${indent}${line}`),
       `${indent}${truncateToWidth(st.modelLine, boxWidth, '…')}`,
       `${' '.repeat(Math.max(0, leftPad + boxWidth - visibleWidth(st.hints)))}${st.hints}`,
       '',
       '',
       center(st.tip),
-      ...(st.notice ? ['', ...st.notice.split('\n').map((line) => center(line))] : []),
+      ...(noticeLines.length ? ['', ...noticeLines.map((line) => center(line))] : []),
     ];
     const versionLabel = color.faint(`orca v${st.version}`);
     const statusGap = Math.max(1, width - 2 - visibleWidth(st.statusLeft) - visibleWidth(versionLabel) - 2);
     const statusRow = `  ${st.statusLeft}${' '.repeat(statusGap)}${versionLabel}`;
     const rows = this.getRows();
-    // Center the block vertically, biased slightly upward; the status row is pinned to the last line.
-    const topPad = Math.max(0, Math.floor((rows - 1 - body.length) / 2) - 1);
+    // Center the block vertically, biased slightly upward (startScreenInputTop mirrors this math);
+    // the status row is pinned to the last line.
+    const topPad = Math.max(0, startScreenInputTop(rows, inputLines.length, noticeLines.length) - ORCA_ART.length - 1);
     const lines: string[] = Array.from({ length: topPad }, () => '');
     lines.push(...body);
     while (lines.length < rows - 1) lines.push('');

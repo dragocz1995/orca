@@ -4,7 +4,7 @@ import { apiJson } from '../http.js';
 import type { WizardCtx } from '../types.js';
 
 /** A brain provider from the public config view — secrets masked to `apiKeySet`. */
-export interface PublicProvider { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; apiKeySet: boolean }
+export interface PublicProvider { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; api?: 'openai-completions' | 'openai-responses'; apiKeySet: boolean }
 
 /** Read the configured brain providers (public view). */
 export async function getBrainProviders(ctx: WizardCtx): Promise<PublicProvider[]> {
@@ -13,9 +13,10 @@ export async function getBrainProviders(ctx: WizardCtx): Promise<PublicProvider[
 }
 
 /** Re-send shape for an existing provider when replacing the whole list: NO apiKey, so the config store
- *  keeps its stored key (never echoing or dropping a secret). */
-export function keepProvider(e: PublicProvider): { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[] } {
-  return { id: e.id, label: e.label, type: e.type, baseUrl: e.baseUrl, models: e.models };
+ *  keeps its stored key (never echoing or dropping a secret). The wire-API pin (`api`) MUST ride along —
+ *  the store treats an absent `api` as an explicit reset to auto. */
+export function keepProvider(e: PublicProvider): { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; api?: 'openai-completions' | 'openai-responses' } {
+  return { id: e.id, label: e.label, type: e.type, baseUrl: e.baseUrl, models: e.models, ...(e.api ? { api: e.api } : {}) };
 }
 
 /** Point the default task executor at the embedded (in-process) engine on a provider. PUTs ONLY the

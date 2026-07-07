@@ -25,6 +25,8 @@ import {
   PANEL_GUTTER_COLUMNS,
   SlashOverlay,
   StartScreen,
+  startScreenBox,
+  startScreenInputTop,
   TelemetryPanel,
   TOP_RULE_ROWS,
   TopRule,
@@ -351,10 +353,19 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   };
 
   // ctrl+r: cycle the reasoning effort in place — popping a modal for a one-key toggle just interrupts
-  // the user's typing. The /think command still opens the explicit picker.
+  // the user's typing. The /think command still opens the explicit picker. The local level advances
+  // OPTIMISTICALLY so rapid presses step through the levels instead of re-sending the same target
+  // (the server reply is authoritative; an error rolls back).
   const cycleThinkingLevel = (): void => {
     if (thinkingLevels.length === 0) { notice = color.dim('this model has no reasoning-effort levels'); render(); return; }
-    applyThinkingLevel(thinkingLevels[(thinkingLevels.indexOf(thinkingLevel) + 1) % thinkingLevels.length]!);
+    const previous = thinkingLevel;
+    const next = thinkingLevels[(thinkingLevels.indexOf(thinkingLevel) + 1) % thinkingLevels.length]!;
+    thinkingLevel = next;
+    notice = color.dim(`reasoning effort: ${next}`);
+    render();
+    void client.setThinkingLevel(next)
+      .then((r) => { thinkingLevel = r.thinkingLevel; notice = color.dim(`reasoning effort: ${r.thinkingLevel}`); render(); })
+      .catch((e: Error) => { thinkingLevel = previous; notice = color.error(`error: ${e.message}`); render(); });
   };
 
   // /model → ctrl+p: manage brain providers right from the CLI. Presets come from the setup wizard's
@@ -381,7 +392,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           onPick: (v) => {
             const next = { ...p };
             if (v === 'auto') delete next.api; else next.api = v as 'openai-responses' | 'openai-completions';
-            saveAll([...all.filter((x) => x.id !== p.id), next], `${p.label}: ${v === 'auto' ? 'auto' : v} · /model to pick a model`);
+            // In-place update — order is load-bearing (providers[0] is the default for users with no
+            // saved model), so an edit must never move the entry to the end.
+            const replaced = all.some((x) => x.id === p.id) ? all.map((x) => (x.id === p.id ? next : x)) : [...all, next];
+            saveAll(replaced, `${p.label}: ${v === 'auto' ? 'auto' : v} · /model to pick a model`);
           },
         });
       };
@@ -731,6 +745,16 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       ];
       // ctrl+i installs / ctrl+u uninstalls the highlighted server daemon-side. In a terminal ctrl+i IS
       // Tab (\t) — same byte — so Tab doubles as the install key here.
+      const runManage = (srv: { label: string; command: string }, install: boolean): void => {
+        notice = color.dim(install ? `installing ${srv.label} (npm, this can take a minute)…` : `uninstalling ${srv.label}…`);
+        render();
+        // Deliberately NO modal reopen when npm finishes: the user may be typing (or inside another
+        // picker) minutes later — a surprise overlay would steal focus and strand the one beneath it.
+        // The outcome lands as a notice; /lsp shows the fresh state on demand.
+        void (install ? client.lspInstall(srv.command) : client.lspUninstall(srv.command))
+          .then(async (message) => { notice = color.dim(`${message} · /lsp shows the current state`); await refreshMeta(); render(); })
+          .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
+      };
       const manageKey = (data: string, selected: { value: string } | null, close: () => void): boolean => {
         const install = data === '\t' || matchesKey(data, 'tab');
         const uninstall = !install && matchesKey(data, 'ctrl+u');
@@ -743,11 +767,16 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           return true;
         }
         close();
-        notice = color.dim(install ? `installing ${srv.label} (npm, this can take a minute)…` : `uninstalling ${srv.label}…`);
-        render();
-        void (install ? client.lspInstall(srv.command) : client.lspUninstall(srv.command))
-          .then((message) => { notice = color.dim(message); refresh(); render(); })
-          .catch((e: Error) => { notice = color.error(`error: ${e.message}`); refresh(); render(); });
+        if (install) { runManage(srv, true); return true; }
+        // Uninstalling is destructive (and ctrl+u doubles as "clear line" muscle memory) → confirm first.
+        openPicker({
+          tui, editor, title: `Uninstall ${srv.label}?`,
+          items: [
+            { value: 'no', label: 'Cancel', description: 'keep the server' },
+            { value: 'yes', label: 'Uninstall', description: "removes it from Orca's prefix and stops running servers" },
+          ],
+          onPick: (v) => { if (v === 'yes') runManage(srv, false); },
+        });
         return true;
       };
       openPicker({
@@ -844,20 +873,35 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
    *  including the leading '/'), while the overlay just mirrors it as a filter via editor.onChange. */
   const openSlash = (): void => {
     closeSlash();
-    const reserve = panelReserve();
-    const width = Math.max(50, term.columns - reserve - 1);
     const overlay = new SlashOverlay(slashItems);
     overlay.setFilter(editor.getText());
     slashOverlay = overlay;
-    slashHandle = tui.showOverlay(overlay, {
-      anchor: 'bottom-left',
-      width,
-      // Tallest render: top + hint + blank + 10 items + counter + bottom = 15 rows. One less would clip
-      // the bottom border whenever the counter row shows (which, with 20+ commands, is always).
-      maxHeight: 15,
-      margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom: fixedRows() },
-      nonCapturing: true,
-    });
+    // Tallest render: top + hint + blank + 10 items + counter + bottom = 15 rows. One less would clip
+    // the bottom border whenever the counter row shows (which, with 20+ commands, is always).
+    if (!hasMessages()) {
+      // Start screen: the input is vertically centered, so anchor the suggestions right UNDER it
+      // (aligned to the box) — the normal bottom-of-screen slot would float rows below the input.
+      const { boxWidth, leftPad } = startScreenBox(term.columns);
+      const inputRows = editorSlot.render(boxWidth).length;
+      const noticeRows = notice ? notice.split('\n').length : 0;
+      const top = TOP_RULE_ROWS + startScreenInputTop(Math.max(12, term.rows - TOP_RULE_ROWS), inputRows, noticeRows) + inputRows;
+      slashHandle = tui.showOverlay(overlay, {
+        anchor: 'top-left',
+        width: boxWidth,
+        maxHeight: 15,
+        margin: { top, left: leftPad, right: 0, bottom: 0 },
+        nonCapturing: true,
+      });
+    } else {
+      const reserve = panelReserve();
+      slashHandle = tui.showOverlay(overlay, {
+        anchor: 'bottom-left',
+        width: Math.max(50, term.columns - reserve - 1),
+        maxHeight: 15,
+        margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom: fixedRows() },
+        nonCapturing: true,
+      });
+    }
     tui.requestRender();
   };
 
@@ -879,9 +923,18 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       }
       if (e.type === 'step' && e.usage) usage = e.usage;
       if (e.type === 'card') cards = upsertCard(cards, e.card); // update the persistent panel (not part of the ChatView)
-      // Idle rollover: the server continued this message in a FRESH conversation. The shared fold below
-      // trims the transcript to the new turn; refresh the title bar / session metadata and say why.
-      if (e.type === 'session') { notice = color.dim('previous conversation was idle — continuing in a fresh one'); void refreshMeta().then(render); }
+      // Idle rollover: the server continued this message in a FRESH conversation. The SENDING client's
+      // last turn is the just-typed message, so the shared fold trims correctly; a passively connected
+      // client (second CLI/web on the same account) has no fresh local user turn — folding would carry
+      // OLD history into the new conversation, so it refetches the transcript instead.
+      if (e.type === 'session') {
+        notice = color.dim('previous conversation was idle — continuing in a fresh one');
+        void refreshMeta().then(render);
+        if (view.turns[view.turns.length - 1]?.role !== 'you') {
+          void client.history().then((h) => { view = fromHistory(h); render(); }).catch(() => { /* best-effort */ });
+          return;
+        }
+      }
       view = reduce(view, e);
       render();
     }, ac.signal).catch(() => { /* aborted/gone */ });
