@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { getMarkdownTheme, initTheme } from '@earendil-works/pi-coding-agent';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { beginAssistant, emptyView, pushUser, reduce } from '../../../src/brain/transcript.js';
-import { ChatViewport, mouseWheel, SlashOverlay, TelemetryPanel } from '../../../src/cli/chat/layout.js';
+import { ChatViewport, mouseWheel, SlashOverlay, StartScreen, TelemetryPanel, type TelemetryState } from '../../../src/cli/chat/layout.js';
 
 describe('chat layout components', () => {
   beforeAll(() => { initTheme(); });
@@ -208,15 +208,20 @@ describe('chat layout components', () => {
     expect(overlay.render(48).join('\n')).toContain('No matching commands');
   });
 
+  const telemetryState = (over: Partial<TelemetryState> = {}): TelemetryState => ({
+    workMode: 'build',
+    usage: { tokens: 10, contextWindow: 100, percent: 10, totalTokens: 20, cost: 0 },
+    running: true,
+    runSeconds: 12,
+    cwd: '~/orca',
+    branch: 'main',
+    mcp: null,
+    lspEnabled: null,
+    ...over,
+  });
+
   it('renders telemetry panel without duplicating the model name', () => {
-    const panel = new TelemetryPanel(() => ({
-      workMode: 'build',
-      usage: { tokens: 10, contextWindow: 100, percent: 10, totalTokens: 20, cost: 0 },
-      running: true,
-      runSeconds: 12,
-      cwd: '~/orca',
-      branch: 'main',
-    }));
+    const panel = new TelemetryPanel(() => telemetryState());
     const rows = panel.render(36);
     expect(rows.every((line) => visibleWidth(line) === 36)).toBe(true);
     expect(rows.join('\n')).not.toContain('kimi');
@@ -226,5 +231,95 @@ describe('chat layout components', () => {
     expect(rows.join('\n')).not.toContain('reasoning');
     expect(rows.join('\n')).not.toContain('theme');
     expect(rows.join('\n')).not.toContain('Dev');
+  });
+
+  it('scales the context bar with the panel width, keeping equal edge margins', () => {
+    const cells = (width: number): number => {
+      const panel = new TelemetryPanel(() => telemetryState());
+      // The empty-cell glyphs identify the meter row (the panel logo also uses █).
+      const bar = panel.render(width).find((line) => /[▱░]/.test(line))!;
+      return bar.match(/[▰▱█░]/g)!.length;
+    };
+    // Bar spans the panel minus a 2-column margin on each side, at any drag-resized width.
+    expect(cells(36)).toBe(32);
+    expect(cells(68)).toBe(64);
+  });
+
+  it('uses heavier bar glyphs on a wide panel', () => {
+    const panel = new TelemetryPanel(() => telemetryState({ usage: { tokens: 50, contextWindow: 100, percent: 50, totalTokens: 50, cost: 0 } }));
+    expect(panel.render(40).join('\n')).toContain('▰');
+    const wide = panel.render(60).join('\n');
+    expect(wide).toContain('█');
+    expect(wide).not.toContain('▰');
+  });
+
+  it('lists connected MCP servers with a count and shows the LSP state', () => {
+    const panel = new TelemetryPanel(() => telemetryState({
+      mcp: [
+        { name: 'github', status: 'connected' },
+        { name: 'chrome-devtools', status: 'connected' },
+        { name: 'flaky', status: 'error' },
+      ],
+      lspEnabled: true,
+    }));
+    const rendered = panel.render(46).join('\n');
+    expect(rendered).toContain('MCP');
+    expect(rendered).toContain('2/3 active');
+    expect(rendered).toContain('github');
+    expect(rendered).toContain('chrome-devtools');
+    expect(rendered).not.toContain('flaky');
+    expect(rendered).toContain('LSP');
+    expect(rendered).toContain('Active');
+  });
+
+  it('shows LSP as inactive and hides MCP/LSP sections when unreported', () => {
+    const off = new TelemetryPanel(() => telemetryState({ mcp: [], lspEnabled: false }));
+    const offRendered = off.render(46).join('\n');
+    expect(offRendered).toContain('none active');
+    expect(offRendered).toContain('Inactive');
+    const hidden = new TelemetryPanel(() => telemetryState());
+    const hiddenRendered = hidden.render(46).join('\n');
+    expect(hiddenRendered).not.toContain('MCP');
+    expect(hiddenRendered).not.toContain('LSP');
+  });
+
+  it('renders the start screen: logo, centered input, hints, tip and the version bottom-right', () => {
+    const input = { invalidate: (): void => { /* stateless */ }, render: (width: number): string[] => [`[input ${width}]`] };
+    const screen = new StartScreen(input, () => 24, () => ({
+      modelLine: 'Build · kimi-k2 moonshot',
+      hints: '⏎ send · / commands',
+      tip: 'Tip ask anything',
+      notice: '',
+      statusLeft: '~/orca · main',
+      version: '1.8.7',
+    }));
+    const rows = screen.render(90);
+    expect(rows).toHaveLength(24);
+    const rendered = rows.join('\n');
+    expect(rendered).toContain('█████'); // the ORCA wordmark
+    expect(rendered).toContain('Build · kimi-k2 moonshot');
+    expect(rendered).toContain('⏎ send · / commands');
+    expect(rendered).toContain('Tip ask anything');
+    const inputRow = rows.find((line) => line.includes('[input'))!;
+    // The input renders at a narrowed box width and sits centered (left padding ≈ (90 - box) / 2).
+    expect(inputRow).toContain('[input 72]');
+    expect(inputRow.indexOf('[')).toBe(9);
+    const last = rows[rows.length - 1]!;
+    expect(last).toContain('~/orca · main');
+    expect(last).toContain('orca v1.8.7');
+    expect(last.indexOf('orca v1.8.7')).toBeGreaterThan(last.indexOf('~/orca · main'));
+  });
+
+  it('surfaces transient notices on the start screen', () => {
+    const input = { invalidate: (): void => { /* stateless */ }, render: (): string[] => ['[input]'] };
+    const screen = new StartScreen(input, () => 20, () => ({
+      modelLine: 'Build · kimi',
+      hints: 'hints',
+      tip: 'tip',
+      notice: 'error: daemon unreachable',
+      statusLeft: '~/orca',
+      version: '1.8.7',
+    }));
+    expect(screen.render(80).join('\n')).toContain('error: daemon unreachable');
   });
 });

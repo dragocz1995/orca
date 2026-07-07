@@ -6,11 +6,12 @@ import { chatThemeItems, color, glyph, isChatThemeName, setChatTheme } from './t
 import { StatusBar, CardPanel } from './components.js';
 import { ChatEditor, sessionItems, modelItems, parseModelValue, openPicker, openTextInput, openInfoModal } from './picker.js';
 import { runAskFlow } from './askFlow.js';
-import { BrainClient, type BrainWorkMode } from './brainClient.js';
+import { BrainClient, type BrainWorkMode, type McpServerView } from './brainClient.js';
 import { fromHistory, pushUser, beginAssistant, reduce, upsertCard, type ChatView } from '../../brain/transcript.js';
 import { commandsFor, expandPromptCommand } from '../../brain/slashCommands.js';
 import type { AskQuestion, BrainCard } from '../../brain/events.js';
 import { formatK } from '../ui/text.js';
+import { ORCA_CLI_VERSION } from '../version.js';
 import {
   ChatViewport,
   DISABLE_MOUSE,
@@ -21,6 +22,7 @@ import {
   mouseWheel,
   PANEL_GUTTER_COLUMNS,
   SlashOverlay,
+  StartScreen,
   TelemetryPanel,
   TOP_RULE_ROWS,
   TopRule,
@@ -179,6 +181,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   let usage = boot?.usage ?? null;
   let thinkingLevel = boot?.thinkingLevel ?? '';
   let thinkingLevels = boot?.thinkingLevels ?? [];
+  let lspEnabled: boolean | null = boot?.lspEnabled ?? null;
+  /** MCP servers for the telemetry panel; null (fetch failed / non-admin) hides the section. */
+  let mcpList: McpServerView[] | null = null;
   let workMode: BrainWorkMode = 'build';
   const history0 = await client.history().catch(() => []);
   let view = fromHistory(history0);
@@ -191,8 +196,12 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   let notice = '';
 
   const refreshMeta = async (): Promise<void> => {
-    const st = await client.status().catch(() => null);
-    if (st) { modelName = st.model || modelName; conversationTitle = st.title ?? conversationTitle; lineCfg = st.statusline; usage = st.usage; thinkingLevel = st.thinkingLevel ?? ''; thinkingLevels = st.thinkingLevels ?? []; cards = st.cards ?? []; }
+    const [st, mcp] = await Promise.all([
+      client.status().catch(() => null),
+      client.mcpServers().catch(() => null),
+    ]);
+    if (st) { modelName = st.model || modelName; conversationTitle = st.title ?? conversationTitle; lineCfg = st.statusline; usage = st.usage; thinkingLevel = st.thinkingLevel ?? ''; thinkingLevels = st.thinkingLevels ?? []; cards = st.cards ?? []; lspEnabled = st.lspEnabled ?? null; }
+    mcpList = mcp;
   };
   await refreshMeta();
   let commandDefs = await client.commands().catch(() => commandsFor('cli', true));
@@ -226,7 +235,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   let panelWidth = 46;
   let resizingPanel = false;
   let draggingHistoryScroll = false;
-  const panelVisible = (): boolean => term.columns >= 104 && !panelHandle?.isHidden();
+  /** An empty conversation renders the centered start screen instead of the chat stack + panel. */
+  const hasMessages = (): boolean => view.turns.length > 0;
+  const panelVisible = (): boolean => term.columns >= 104 && hasMessages() && !panelHandle?.isHidden();
   const panelReserve = (): number => panelVisible() ? panelWidth + PANEL_GUTTER_COLUMNS : 0;
   const chatWidth = (): number => Math.max(24, term.columns - panelReserve());
   const panelLeftEdge = (): number => term.columns - panelWidth;
@@ -251,7 +262,21 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     workMode,
     cwd: cwdLabel,
     branch: branchLabel,
+    mcp: mcpList,
+    lspEnabled,
   }));
+  const startScreen = new StartScreen(
+    editorSlot,
+    () => Math.max(12, term.rows - TOP_RULE_ROWS),
+    () => ({
+      modelLine: modelMetaLine(workMode, modelName, thinkingLevel),
+      hints: color.faint('⏎ send · / commands · shift+tab mode'),
+      tip: `${color.warning('●')} ${color.bold(color.text('Tip'))} ${color.dim('ask anything — try')} ${color.text('"What is the tech stack of this project?"')}`,
+      notice,
+      statusLeft: `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`,
+      version: ORCA_CLI_VERSION,
+    }),
+  );
 
   const showPanel = (hidden = false): void => {
     panelHandle?.hide();
@@ -260,7 +285,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       width: panelWidth,
       maxHeight: Math.max(1, term.rows - TOP_RULE_ROWS),
       margin: { top: TOP_RULE_ROWS, right: 0, bottom: 0, left: 0 },
-      visible: (width) => width >= 104,
+      // The panel only exists alongside a running conversation — the start screen hides it entirely.
+      visible: (width) => width >= 104 && hasMessages(),
       nonCapturing: true,
     });
     panelHandle.setHidden(hidden);
@@ -784,7 +810,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         }
         case 'lsp':
           void client.command('lsp')
-            .then((r) => { notice = color.dim(r?.message ?? 'toggled LSP'); render(); })
+            .then(async (r) => { await refreshMeta(); notice = color.dim(r?.message ?? 'toggled LSP'); render(); })
             .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         case 'mcp':
@@ -881,13 +907,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   const root = new Container();
   root.addChild(new TopRule(() => conversationTitle));
-  root.addChild(new MainColumn(panelReserve, [
-    viewport,
-    cardPanel,
-    editorSlot,
-    promptMeta,
-    bottomBar,
-  ]));
+  const chatStack = [viewport, cardPanel, editorSlot, promptMeta, bottomBar];
+  root.addChild(new MainColumn(panelReserve, () => hasMessages() ? chatStack : [startScreen]));
   tui.addChild(root);
   tui.setFocus(editor);
   showPanel(false);
@@ -921,7 +942,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         tui.requestRender();
         return { consume: true };
       }
-      if (isPrimaryDrag && viewport.isScrollbarHit(ev.x, ev.y)) {
+      if (isPrimaryDrag && hasMessages() && viewport.isScrollbarHit(ev.x, ev.y)) {
         draggingHistoryScroll = true;
         viewport.setScrollFromRow(ev.y);
         tui.requestRender();
@@ -949,7 +970,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     // Background transcript/card interactions must not fire while a modal owns focus (a picker, the rename
     // input, the ask dock — which unfocus the editor — or the inline slash overlay): otherwise a click or
     // scroll inside the overlay would toggle the Todos checklist / scroll the transcript hidden underneath.
-    const noModal = editor.focused && !slashHandle;
+    // The start screen has no transcript, so those interactions also need a rendered chat stack.
+    const noModal = editor.focused && !slashHandle && hasMessages();
     const click = mouseClick(data);
     if (click && noModal && viewport.isThoughtRow(click.x, click.y)) {
       viewport.toggleThought(click.y);
@@ -993,7 +1015,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     // shift+tab would hijack an open modal (a picker, the rename input, the ask-question dock) instead
     // of reaching it.
     const editing = editor.focused && !slashHandle;
-    if (editing && matchesKey(data, 'ctrl+p')) {
+    // No telemetry panel on the start screen — a toggle there would silently pre-hide it for later.
+    if (editing && hasMessages() && matchesKey(data, 'ctrl+p')) {
       const hidden = !panelHandle?.isHidden();
       panelHandle?.setHidden(hidden);
       resizingPanel = false;

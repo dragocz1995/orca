@@ -1,3 +1,10 @@
+import { readPkgVersion } from '../shared/pkgVersion.js';
+
+/** This CLI's version from its package.json (same source as `orca --version`), shown on the chat
+ *  start screen. Read here — two dirs below the package root — because `readPkgVersion` resolves
+ *  package.json relative to the calling module. */
+export const ORCA_CLI_VERSION = readPkgVersion(import.meta.url);
+
 /** True when `candidate` is a strictly higher version than `current`. Compares dot segments
  *  numerically (so 1.10.0 > 1.9.0, unlike a string compare), tolerates a leading `v`, and pads a
  *  shorter version with zeros (1.2 == 1.2.0). Deliberately tiny — no full semver/prerelease support;

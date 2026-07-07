@@ -2,7 +2,7 @@ import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@eare
 import type { Component, MarkdownTheme } from '@earendil-works/pi-tui';
 import { framedDiffBlock, toolOutputBlock, UserBlock } from './components.js';
 import { ansi, chatTheme, color, glyph } from './theme.js';
-import type { BrainUsageView } from './brainClient.js';
+import type { BrainUsageView, McpServerView } from './brainClient.js';
 import type { ChatView } from '../../brain/transcript.js';
 import { formatK, padAnsi } from '../ui/text.js';
 
@@ -78,17 +78,75 @@ export class TopRule implements Component {
 }
 
 export class MainColumn implements Component {
-  constructor(private getReserve: () => number, private children: Component[]) {}
-  invalidate(): void { for (const child of this.children) child.invalidate?.(); }
+  /** `getChildren` so the column can swap its stack per render (start screen ↔ normal chat layout). */
+  constructor(private getReserve: () => number, private getChildren: () => Component[]) {}
+  invalidate(): void { for (const child of this.getChildren()) child.invalidate?.(); }
   render(width: number): string[] {
     const reserve = Math.max(0, Math.min(width - 24, this.getReserve()));
     const mainWidth = Math.max(24, width - reserve);
     const lines: string[] = [];
-    for (const child of this.children) {
+    for (const child of this.getChildren()) {
       for (const line of child.render(mainWidth)) {
         lines.push(`${padAnsi(line, mainWidth)}${' '.repeat(reserve)}`);
       }
     }
+    return lines;
+  }
+}
+
+export interface StartScreenState {
+  /** Pre-coloured model/mode line shown under the input (mirrors the normal prompt meta line). */
+  modelLine: string;
+  /** Pre-coloured keyboard hints, right-aligned to the input box edge. */
+  hints: string;
+  /** Pre-coloured tip line, centered below the hints. */
+  tip: string;
+  /** Transient system lines (command output, errors) that normally render in the transcript. */
+  notice: string;
+  /** Pre-coloured bottom-left status (project dir · git branch). */
+  statusLeft: string;
+  /** Plain version string, rendered faint in the bottom-right corner. */
+  version: string;
+}
+
+/** The empty-conversation start screen (opencode-style): a centered two-tone ORCA wordmark, the input
+ *  box beneath it with the model line, keyboard hints, a tip — and a slim bottom status row with the
+ *  project on the left and the Orca version in the bottom-right corner. The right telemetry panel stays
+ *  hidden until the first message lands. */
+export class StartScreen implements Component {
+  constructor(
+    private readonly input: Component,
+    private readonly getRows: () => number,
+    private readonly getState: () => StartScreenState,
+  ) {}
+  invalidate(): void { this.input.invalidate?.(); }
+  render(width: number): string[] {
+    const st = this.getState();
+    const center = (text: string): string => `${' '.repeat(Math.max(0, Math.floor((width - visibleWidth(text)) / 2)))}${text}`;
+    const boxWidth = Math.max(32, Math.min(72, width - 8));
+    const leftPad = Math.max(0, Math.floor((width - boxWidth) / 2));
+    const indent = ' '.repeat(leftPad);
+    const body = [
+      ...ORCA_ART.map((line) => center(`${color.faint(line.slice(0, 12))}${color.text(line.slice(12))}`)),
+      '',
+      ...this.input.render(boxWidth).map((line) => `${indent}${line}`),
+      `${indent}${truncateToWidth(st.modelLine, boxWidth, '…')}`,
+      `${' '.repeat(Math.max(0, leftPad + boxWidth - visibleWidth(st.hints)))}${st.hints}`,
+      '',
+      '',
+      center(st.tip),
+      ...(st.notice ? ['', ...st.notice.split('\n').map((line) => center(line))] : []),
+    ];
+    const versionLabel = color.faint(`orca v${st.version}`);
+    const statusGap = Math.max(1, width - 2 - visibleWidth(st.statusLeft) - visibleWidth(versionLabel) - 2);
+    const statusRow = `  ${st.statusLeft}${' '.repeat(statusGap)}${versionLabel}`;
+    const rows = this.getRows();
+    // Center the block vertically, biased slightly upward; the status row is pinned to the last line.
+    const topPad = Math.max(0, Math.floor((rows - 1 - body.length) / 2) - 1);
+    const lines: string[] = Array.from({ length: topPad }, () => '');
+    lines.push(...body);
+    while (lines.length < rows - 1) lines.push('');
+    lines.push(statusRow);
     return lines;
   }
 }
@@ -193,17 +251,6 @@ export class ChatViewport implements Component {
     const rows: TranscriptRow[] = [{ line: '' }];
     const add = (line: string, kind?: TranscriptRow['kind'], key?: string): void => { rows.push(kind ? { line, kind, key } : { line }); };
     const addBlank = (): void => add('');
-    if (this.state.view.turns.length === 0) {
-      addBlank();
-      for (const line of ORCA_ART) {
-        const pad = Math.max(0, Math.floor((width - visibleWidth(line)) / 2));
-        add(`${' '.repeat(pad)}${color.faint(line.slice(0, 12))}${color.text(line.slice(12))}`);
-      }
-      addBlank();
-      const hint = color.faint('Ask anything. /help commands · shift+tab mode · ctrl+p telemetry');
-      add(`${' '.repeat(Math.max(0, Math.floor((width - visibleWidth(hint)) / 2)))}${hint}`);
-      addBlank();
-    }
     for (const [turnIndex, turn] of this.state.view.turns.entries()) {
       if (turn.role === 'you') {
         for (const line of new UserBlock(turn.text).render(width)) add(line);
@@ -324,7 +371,14 @@ export interface TelemetryState {
   runSeconds: number;
   cwd: string;
   branch: string;
+  /** MCP servers from the daemon; null when unavailable (plugin off, non-admin) → section hidden. */
+  mcp: Pick<McpServerView, 'name' | 'status'>[] | null;
+  /** Live LSP diagnostics state; null when the daemon doesn't report it → line hidden. */
+  lspEnabled: boolean | null;
 }
+
+const PANEL_BAR_MARGIN = 2;
+const MCP_NAMES_SHOWN = 4;
 
 export class TelemetryPanel implements Component {
   constructor(private getState: () => TelemetryState) {}
@@ -340,8 +394,8 @@ export class TelemetryPanel implements Component {
       ...logo,
       '',
       `  ${color.bold(color.text('Context'))}`,
-      `  ${color.text(tokens)} ${color.faint('tokens')}`,
-      `  ${this.contextBar(usage?.percent ?? 0, width)} ${color.faint(pct)} ${usage ? color.faint(`· $${usage.cost.toFixed(2)}`) : ''}`,
+      `  ${color.text(tokens)} ${color.faint('tokens')} ${color.faint(`· ${pct}`)}${usage ? ` ${color.faint(`· $${usage.cost.toFixed(2)}`)}` : ''}`,
+      `${' '.repeat(PANEL_BAR_MARGIN)}${this.contextBar(usage?.percent ?? 0, width)}`,
       '',
       `  ${color.bold(color.text('Project'))}`,
       `  ${color.text(truncateToWidth(st.cwd, Math.max(1, width - 4), '…'))}`,
@@ -349,14 +403,45 @@ export class TelemetryPanel implements Component {
       '',
       `  ${color.bold(color.text('Run'))}`,
       `  ${st.running ? color.success('●') : color.faint('○')} ${color.text(st.workMode === 'plan' ? 'Plan' : 'Build')} ${color.faint(st.running ? `${st.runSeconds}s` : 'idle')}`,
+      ...this.mcpRows(st.mcp, width),
+      ...this.lspRows(st.lspEnabled),
     ];
     return rows.map((r) => color.panelBg(padAnsi(r, width)));
   }
 
+  /** The context meter spans the panel minus an equal margin on both edges, so it grows and shrinks
+   *  with the drag-resized panel; a wide panel carries visually heavier block glyphs. */
   private contextBar(percent: number, width: number): string {
-    const cells = Math.max(12, Math.min(22, width - 16));
+    const cells = Math.max(8, width - PANEL_BAR_MARGIN * 2);
     const filled = Math.max(0, Math.min(cells, Math.round((percent / 100) * cells)));
-    return `${color.accent('▰'.repeat(filled))}${color.faint('▱'.repeat(cells - filled))}`;
+    const heavy = width >= 52;
+    const [full, empty] = heavy ? ['█', '░'] : ['▰', '▱'];
+    return `${color.accent(full.repeat(filled))}${color.faint(empty.repeat(cells - filled))}`;
+  }
+
+  /** Active (connected) MCP servers by name plus a connected/total count; hidden when unavailable. */
+  private mcpRows(mcp: TelemetryState['mcp'], width: number): string[] {
+    if (!mcp) return [];
+    const connected = mcp.filter((s) => s.status === 'connected');
+    const rows = ['', `  ${color.bold(color.text('MCP'))} ${color.faint(`${connected.length}/${mcp.length} active`)}`];
+    if (connected.length === 0) {
+      rows.push(`  ${color.faint('○ none active')}`);
+      return rows;
+    }
+    for (const server of connected.slice(0, MCP_NAMES_SHOWN)) {
+      rows.push(`  ${color.success('●')} ${color.text(truncateToWidth(server.name, Math.max(1, width - 6), '…'))}`);
+    }
+    if (connected.length > MCP_NAMES_SHOWN) rows.push(`  ${color.faint(`… +${connected.length - MCP_NAMES_SHOWN} more`)}`);
+    return rows;
+  }
+
+  private lspRows(lspEnabled: boolean | null): string[] {
+    if (lspEnabled == null) return [];
+    return [
+      '',
+      `  ${color.bold(color.text('LSP'))}`,
+      `  ${lspEnabled ? color.success('●') : color.faint('○')} ${color.text(lspEnabled ? 'Active' : 'Inactive')} ${color.faint('· /lsp toggles')}`,
+    ];
   }
 }
 

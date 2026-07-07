@@ -12,6 +12,12 @@ export function lspManager(): LspManager {
   return manager;
 }
 
+/** Current LSP diagnostics state WITHOUT building the manager (it defaults to enabled). Read by
+ *  /brain/status so chat clients can show the live Active/Inactive state next to the `/lsp` toggle. */
+export function lspEnabled(): boolean {
+  return manager ? manager.isEnabled() : true;
+}
+
 /** The `/lsp` toggle: flip live diagnostics on/off and report the new state. Off frees every spawned
  *  server. Shared by the CLI `/lsp` command via the /brain/command dispatch. */
 export function toggleLsp(): { enabled: boolean; message: string } {

@@ -25,7 +25,9 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     const statusline = d.config.get().plugins.enabled.includes('statusline')
       ? d.config.pluginConfig('statusline')
       : null;
-    return c.json({ ...d.brain.status(c.get('user').id), statusline });
+    // Live LSP diagnostics state (the `/lsp` toggle's source of truth) so chat clients can show it.
+    const { lspEnabled } = await import('../../brain/tools/lspTools.js');
+    return c.json({ ...d.brain.status(c.get('user').id), statusline, lspEnabled: lspEnabled() });
   });
 
   app.post('/brain/start', async c => {

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { readPkgVersion } from '../shared/pkgVersion.js';
+import { ORCA_CLI_VERSION } from './version.js';
 import { OrcaClient } from './client.js';
 import { defaultLifecycleDeps, runLifecycle, runApiCommand } from './commands.js';
 import { callOrcaApi } from '../shared/apiClient.js';
@@ -93,11 +93,6 @@ const API_COMMANDS = new Set(['ls', 'ready', 'sessions', 'send', 'close', 'note'
 /** True only for verbs that need the daemon API up — the gate for ensureDaemon's auto-spawn. */
 export function needsDaemon(cmd: string | undefined): boolean {
   return cmd !== undefined && API_COMMANDS.has(cmd);
-}
-
-/** This package's version, read from its package.json (two dirs up from dist/cli/index.js). */
-function pkgVersion(): string {
-  return readPkgVersion(import.meta.url);
 }
 
 async function ensureDaemon() {
@@ -279,7 +274,7 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
 
 async function main() {
   const argv = process.argv.slice(2);
-  const version = pkgVersion();
+  const version = ORCA_CLI_VERSION;
   // Bare `orca` in a terminal opens the interactive launcher menu. Piped/non-TTY falls through to the
   // usage error from `run`, so scripts still get deterministic behavior.
   if (argv.length === 0 && process.stdin.isTTY) { await menu(process.env, version); return; }
