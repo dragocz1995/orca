@@ -33,11 +33,11 @@ const auth = (t: string) => ({ headers: { authorization: `Bearer ${t}` } });
 const patch = (t: string, body: unknown) => ({ method: 'PATCH', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('GET/PATCH /auth/me/permissions', () => {
-  it('GET returns empty rules + YOLO off by default', async () => {
+  it('GET returns empty rules + YOLO off + unattended asks allowed by default', async () => {
     const { app, amyTok } = setup();
     const res = await app.request('/auth/me/permissions', auth(amyTok));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ tools: {}, bash: {}, yolo: false });
+    expect(await res.json()).toEqual({ tools: {}, bash: {}, yolo: false, unattendedAsks: 'allow' });
   });
 
   it('PATCH round-trips rules + the persisted YOLO default, sanitizing junk', async () => {
@@ -48,10 +48,22 @@ describe('GET/PATCH /auth/me/permissions', () => {
       yolo: true,
     }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ tools: { write_file: 'allow' }, bash: { '*': 'ask', 'git *': 'allow' }, yolo: true });
+    expect(await res.json()).toEqual({ tools: { write_file: 'allow' }, bash: { '*': 'ask', 'git *': 'allow' }, yolo: true, unattendedAsks: 'allow' });
     // A yolo-only patch keeps the stored rules (the web toggle sends just { yolo }).
     const res2 = await app.request('/auth/me/permissions', patch(amyTok, { yolo: false }));
-    expect(await res2.json()).toEqual({ tools: { write_file: 'allow' }, bash: { '*': 'ask', 'git *': 'allow' }, yolo: false });
+    expect(await res2.json()).toEqual({ tools: { write_file: 'allow' }, bash: { '*': 'ask', 'git *': 'allow' }, yolo: false, unattendedAsks: 'allow' });
+  });
+
+  it('PATCH round-trips the unattended-asks strict mode independently of the other fields', async () => {
+    const { app, amyTok } = setup();
+    await app.request('/auth/me/permissions', patch(amyTok, { yolo: true }));
+    const res = await app.request('/auth/me/permissions', patch(amyTok, { unattendedAsks: 'deny' }));
+    expect(await res.json()).toEqual({ tools: {}, bash: {}, yolo: true, unattendedAsks: 'deny' });
+    // Junk sanitizes back to the permissive default; an unrelated patch keeps the stored strict mode.
+    const kept = await app.request('/auth/me/permissions', patch(amyTok, { yolo: false }));
+    expect((await kept.json()).unattendedAsks).toBe('deny');
+    const junk = await app.request('/auth/me/permissions', patch(amyTok, { unattendedAsks: 'whatever' }));
+    expect((await junk.json()).unattendedAsks).toBe('allow');
   });
 
   it('round-trips rule-map KEY ORDER — it is the precedence (last match wins) the web editor sends', async () => {

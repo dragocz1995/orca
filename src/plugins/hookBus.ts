@@ -15,6 +15,13 @@ export interface HookExecutionRecord {
   changed?: string;
 }
 
+/** Event-specific per-hook budgets, overriding the global default for lifecycle points whose hooks
+ *  legitimately outlive 2s. `tools.call.after` is AWAITED by the tool-result path (the result returns
+ *  only after its hooks settle) and its main consumer — the formatters plugin — runs a real formatter
+ *  with a 10s exec timeout of its own, so the budget must exceed that without raising the global
+ *  default for every other hook. */
+const EVENT_BUDGETS: Partial<Record<PluginHookName, number>> = { 'tools.call.after': 12_000 };
+
 interface HookBusDeps {
   /** Every hook registered across all plugins (the flat `PluginRegistry.hooks` list). */
   hooks: PluginHook[];
@@ -28,8 +35,12 @@ interface HookBusDeps {
   audit?: (e: HookExecutionRecord) => void;
   /** Where isolated hook failures (throws + timeouts) are reported. Optional — silent when absent. */
   logger?: HookBusLogger;
-  /** Per-hook wall-clock budget in ms; a hook that outruns it is skipped. Default 2000. */
+  /** Per-hook wall-clock budget in ms; a hook that outruns it is skipped. Default 2000. Events named
+   *  in {@link EVENT_BUDGETS} (or `eventBudgets`) use their own budget instead. */
   timeoutMs?: number;
+  /** Event-specific budget overrides, merged OVER the built-in {@link EVENT_BUDGETS}. Primarily for
+   *  tests (a 12s real budget is untestable); production callers rely on the built-in map. */
+  eventBudgets?: Partial<Record<PluginHookName, number>>;
 }
 
 /** The traced result of running one hook: its outcome, its returned value (if any), and how long it
@@ -57,6 +68,7 @@ export class PluginHookBus {
   private readonly audit?: (e: HookExecutionRecord) => void;
   private readonly logger?: HookBusLogger;
   private readonly timeoutMs: number;
+  private readonly eventBudgets: Partial<Record<PluginHookName, number>>;
 
   constructor(deps: HookBusDeps) {
     this.hooks = deps.hooks;
@@ -65,6 +77,7 @@ export class PluginHookBus {
     this.audit = deps.audit;
     this.logger = deps.logger;
     this.timeoutMs = deps.timeoutMs ?? 2000;
+    this.eventBudgets = { ...EVENT_BUDGETS, ...deps.eventBudgets };
   }
 
   /** All hooks subscribed to a given lifecycle point (introspection for the runtime endpoint). */
@@ -108,16 +121,18 @@ export class PluginHookBus {
     return accepted.length > 0 ? { appendContext: accepted.join('') } : {};
   }
 
-  /** Run a single hook under a timeout, capturing its outcome + return value without ever rejecting. A
-   *  throw or timeout is warned about and reported as 'threw'/'timeout' with no result (fail-open). */
+  /** Run a single hook under its event's timeout budget, capturing its outcome + return value without
+   *  ever rejecting. A throw or timeout is warned about and reported as 'threw'/'timeout' with no
+   *  result (fail-open). */
   private runTraced(name: PluginHookName, hook: PluginHook, payload: unknown): Promise<TracedRun> {
+    const budgetMs = this.eventBudgets[name] ?? this.timeoutMs;
     const started = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<TracedRun>((resolve) => {
       timer = setTimeout(() => {
-        this.logger?.warn(`hook "${name}" timed out after ${this.timeoutMs}ms (skipped)`);
+        this.logger?.warn(`hook "${name}" timed out after ${budgetMs}ms (skipped)`);
         resolve({ outcome: 'timeout', result: undefined, durationMs: Date.now() - started });
-      }, this.timeoutMs);
+      }, budgetMs);
     });
     const invoke = (async (): Promise<TracedRun> => {
       try {

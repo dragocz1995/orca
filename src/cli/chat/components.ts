@@ -337,7 +337,9 @@ export function toolOutputBlock(output: ToolOutputView, width: number, expanded 
   if (lines.length > 0) lines.push('');
   const expandable = Boolean(output.fullText && output.fullText !== output.text);
   const body = expanded && output.fullText ? output.fullText : output.text;
-  for (const raw of body.split('\n')) {
+  // A notes-only view (e.g. a formatter annotation under an edit diff) has an empty body — skip the
+  // stray blank row it would otherwise render.
+  for (const raw of body ? body.split('\n') : []) {
     if (!raw) { lines.push(''); continue; }
     // Bookkeeping lines ((cwd: …), [exit N], repeated $ command echoes) drop to faint — they are
     // context, not content, and at full muted they competed with the agent's actual reply.
@@ -350,6 +352,8 @@ export function toolOutputBlock(output: ToolOutputView, width: number, expanded 
           : theme.muted;
     lines.push(` ${ansi.open(toneColor, raw)}`);
   }
+  // Hook-appended notes ("formatted a.ts with prettier") — faint suffix lines: context, not content.
+  for (const note of output.notes ?? []) lines.push(` ${ansi.open(theme.faint, `· ${note}`)}`);
   if (expandable) {
     lines.push('');
     lines.push(` ${color.faint(expanded ? 'Click to collapse' : 'Click to expand')}`);

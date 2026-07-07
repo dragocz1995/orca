@@ -17,7 +17,7 @@ const CLI: CliSettings = {
   autoCompact: false, autoCompactAt: 80, advisorStyle: 'professional', discordUserId: '', whatsappNumber: '',
   autoRecall: true, autoSave: true,
 };
-const PERMISSIONS: PermissionSettings = { tools: {}, bash: {}, yolo: false };
+const PERMISSIONS: PermissionSettings = { tools: {}, bash: {}, yolo: false, unattendedAsks: 'allow' };
 vi.mock('../../../lib/queries', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useMyCliSettings: () => ({ data: CLI, isLoading: false }),
@@ -46,6 +46,26 @@ describe('CliSection — YOLO default toggle', () => {
     await waitFor(() => expect(savePermissions).toHaveBeenCalled(), { timeout: 1500 });
     expect(savePermissions.mock.calls[0]![0]).toEqual({ yolo: true });
     // The YOLO flip never rides the cli-settings PATCH (that one restarts the brain).
+    expect(saveCli).not.toHaveBeenCalled();
+  });
+});
+
+describe('CliSection — unattended asks (strict mode) segmented switch', () => {
+  it('renders the card seeded on Allow (the server default)', () => {
+    renderSection();
+    expect(screen.getByText(en.cli.unattendedTitle)).toBeTruthy();
+    const allow = screen.getAllByRole('radio', { name: en.cli.unattendedAllow })
+      .find((r) => r.closest('[role="radiogroup"]')?.getAttribute('aria-label') === en.cli.unattendedTitle)!;
+    expect(allow.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('picking Block autosaves ONLY { unattendedAsks: "deny" } on the permissions blob', async () => {
+    renderSection();
+    const block = screen.getAllByRole('radio', { name: en.cli.unattendedDeny })
+      .find((r) => r.closest('[role="radiogroup"]')?.getAttribute('aria-label') === en.cli.unattendedTitle)!;
+    fireEvent.click(block);
+    await waitFor(() => expect(savePermissions).toHaveBeenCalled(), { timeout: 1500 });
+    expect(savePermissions.mock.calls[0]![0]).toEqual({ unattendedAsks: 'deny' });
     expect(saveCli).not.toHaveBeenCalled();
   });
 });

@@ -26,3 +26,19 @@ describe('retry notices (reconnect line above the input)', () => {
     expect(ev({ type: 'auto_retry_end', success: false })).toEqual({ type: 'notice', kind: 'retry', message: 'reconnect failed', done: true });
   });
 });
+
+describe('tool_execution_end → diff event (hook-annotated edits)', () => {
+  it('a plain diff result maps to a diff event without an output view', () => {
+    expect(ev({ type: 'tool_execution_end', toolName: 'edit_file', toolCallId: 'c1', result: { content: [], details: { diff: '+    1 x' } } }))
+      .toEqual({ type: 'diff', diff: '+    1 x', id: 'c1' });
+  });
+
+  it('a diff result carrying details.notes rides a notes-only output view alongside the diff', () => {
+    const e = ev({
+      type: 'tool_execution_end', toolName: 'edit_file', toolCallId: 'c1',
+      result: { content: [], details: { diff: '+    1 x', notes: ['formatted a.ts with prettier'] } },
+    });
+    expect(e).toMatchObject({ type: 'diff', diff: '+    1 x', id: 'c1' });
+    expect((e as { output?: { notes?: string[]; text?: string } }).output).toMatchObject({ text: '', notes: ['formatted a.ts with prettier'] });
+  });
+});

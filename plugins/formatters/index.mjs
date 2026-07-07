@@ -166,6 +166,11 @@ export async function formatToolResult(ctx, payload) {
     try {
       await execFileP(argv[0], argv.slice(1), { cwd: root, timeout: RUN_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 });
       ctx.logger.info(`formatted ${file} with ${formatter.name}`);
+      // Annotate the tool result so the note reaches the transcript: the tools.call.after observer is
+      // awaited before the result travels onward, so appending to details.notes here is race-free
+      // (the supported annotation channel — see the hook contract in src/plugins/api.js).
+      const notes = Array.isArray(details.notes) ? details.notes : (details.notes = []);
+      notes.push(`formatted ${basename(file)} with ${formatter.name}`);
     } catch (e) {
       ctx.logger.warn(`formatter ${formatter.name} failed for ${file}: ${e instanceof Error ? e.message : String(e)}`);
     }

@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAutoSave } from '../../lib/useAutoSave';
-import { Eye, Gauge, SlidersHorizontal, Zap } from 'lucide-react';
+import { Eye, Gauge, MoonStar, SlidersHorizontal, Zap } from 'lucide-react';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
+import { Segmented } from '../../components/ui/Segmented';
 import { SettingCard } from '../../components/ui/SettingCard';
 import { Toggle } from '../../components/ui/Toggle';
 import { Slider } from '../../components/ui/Slider';
@@ -43,20 +44,26 @@ export function CliSection() {
     }
   }, [data]);
 
-  // YOLO default lives in the separate permissions blob (GET/PATCH /auth/me/permissions) — its own
-  // query + seed + autosave so flipping it never touches (or restarts through) cli-settings.
+  // YOLO default + unattended-ask mode live in the separate permissions blob (GET/PATCH
+  // /auth/me/permissions) — their own query + seed + autosave so flipping them never touches (or
+  // restarts through) cli-settings. Each control patches ONLY its own field.
   const permissions = useMyPermissions();
   const savePermissions = useSaveMyPermissions();
   const [yolo, setYolo] = useState(false);
+  const [unattendedAsks, setUnattendedAsks] = useState<'allow' | 'deny'>('allow');
   const [yoloSeeded, setYoloSeeded] = useState(false);
   useEffect(() => {
     if (permissions.data) {
       setYolo(permissions.data.yolo);
+      setUnattendedAsks(permissions.data.unattendedAsks);
       setYoloSeeded(true);
     }
   }, [permissions.data]);
   useAutoSave([yolo], () => {
     savePermissions.mutate({ yolo }, { onError: () => toast(t.cli.saveError, 'error') });
+  }, { ready: yoloSeeded });
+  useAutoSave([unattendedAsks], () => {
+    savePermissions.mutate({ unattendedAsks }, { onError: () => toast(t.cli.saveError, 'error') });
   }, { ready: yoloSeeded });
 
   // Auto-persist shortly after any change. Sends only the fields this section owns — the PATCH merges,
@@ -131,6 +138,18 @@ export function CliSection() {
             {t.cli.yoloWarning}
           </p>
         </div>
+      </SettingCard>
+
+      <SettingCard title={t.cli.unattendedTitle} icon={MoonStar} description={t.help.cliUnattendedAsks}>
+        <Segmented
+          value={unattendedAsks}
+          onChange={(v) => setUnattendedAsks(v === 'deny' ? 'deny' : 'allow')}
+          options={[
+            { value: 'allow', label: t.cli.unattendedAllow },
+            { value: 'deny', label: t.cli.unattendedDeny },
+          ]}
+          aria-label={t.cli.unattendedTitle}
+        />
       </SettingCard>
 
       <PermissionRulesCard />

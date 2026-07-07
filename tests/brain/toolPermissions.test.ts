@@ -74,9 +74,15 @@ describe('resolveToolPermission — last matching rule in insertion order wins',
 });
 
 describe('sanitizePermissionSettings / mergePermissionSettings', () => {
-  it('drops invalid actions and empty patterns, defaults yolo to false', () => {
-    const s = sanitizePermissionSettings({ tools: { good: 'deny', bad: 'nuke', '': 'allow' }, bash: 'nope', yolo: 'yes' });
-    expect(s).toEqual({ tools: { good: 'deny' }, bash: {}, yolo: false });
+  it('drops invalid actions and empty patterns, defaults yolo to false and unattendedAsks to allow', () => {
+    const s = sanitizePermissionSettings({ tools: { good: 'deny', bad: 'nuke', '': 'allow' }, bash: 'nope', yolo: 'yes', unattendedAsks: 'nuke' });
+    expect(s).toEqual({ tools: { good: 'deny' }, bash: {}, yolo: false, unattendedAsks: 'allow' });
+  });
+
+  it('unattendedAsks: only the exact strict opt-in survives; anything else falls back to allow', () => {
+    expect(sanitizePermissionSettings({ unattendedAsks: 'deny' }).unattendedAsks).toBe('deny');
+    expect(sanitizePermissionSettings({}).unattendedAsks).toBe('allow');
+    expect(sanitizePermissionSettings({ unattendedAsks: true }).unattendedAsks).toBe('allow');
   });
 
   it('preserves rule-map insertion order (it decides precedence)', () => {
@@ -87,8 +93,17 @@ describe('sanitizePermissionSettings / mergePermissionSettings', () => {
   it('merge replaces a present rule map wholesale and keeps absent fields', () => {
     const cur = settings({ tools: { a: 'deny' }, bash: { 'x *': 'allow' }, yolo: true });
     const next = mergePermissionSettings(cur, { tools: { b: 'ask' } });
-    expect(next).toEqual({ tools: { b: 'ask' }, bash: { 'x *': 'allow' }, yolo: true });
+    expect(next).toEqual({ tools: { b: 'ask' }, bash: { 'x *': 'allow' }, yolo: true, unattendedAsks: 'allow' });
     expect(mergePermissionSettings(cur, { yolo: false }).yolo).toBe(false);
+  });
+
+  it('unattendedAsks round-trips through merge: patched when present, kept when absent', () => {
+    const cur = settings({});
+    const strict = mergePermissionSettings(cur, { unattendedAsks: 'deny' });
+    expect(strict.unattendedAsks).toBe('deny');
+    // An unrelated patch keeps the stored strict mode; an explicit patch flips it back.
+    expect(mergePermissionSettings(strict, { yolo: true }).unattendedAsks).toBe('deny');
+    expect(mergePermissionSettings(strict, { unattendedAsks: 'allow' }).unattendedAsks).toBe('allow');
   });
 });
 

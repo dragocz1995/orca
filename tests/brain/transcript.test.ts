@@ -34,6 +34,20 @@ describe('transcript fold: session (idle rollover)', () => {
   });
 });
 
+describe('transcript fold: diff with a notes-only output view', () => {
+  it('attaches both the diff and the riding output to the matching tool item', () => {
+    let v = beginAssistant(pushUser(emptyView(), 'edit it'));
+    v = reduce(v, { type: 'tool', name: 'edit_file', detail: 'a.ts', id: 'c1' });
+    const output = { title: 'tool result', kind: 'result' as const, text: '', tone: 'normal' as const, notes: ['formatted a.ts with prettier'] };
+    v = reduce(v, { type: 'diff', diff: '+    1 x', id: 'c1', output });
+    const turn = v.turns[v.turns.length - 1]!;
+    if (turn.role !== 'orca') throw new Error('expected orca turn');
+    const seg = turn.segments.find((s) => s.kind === 'tools');
+    if (seg?.kind !== 'tools') throw new Error('expected tools segment');
+    expect(seg.items[0]).toMatchObject({ diff: '+    1 x', output });
+  });
+});
+
 describe('transcript fold: subagent progress', () => {
   const delegateCall = (): ChatView => {
     let v = pushUser(emptyView(), 'do it');

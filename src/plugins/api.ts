@@ -9,10 +9,12 @@ export type PluginSkill = Skill;
 /** The observable lifecycle points a plugin hook can subscribe to. The union constrains only the NAME;
  *  payloads stay `unknown` in v1 so adding a hook site never churns the type. Grouped by subsystem:
  *  platform ingress, brain session/turn lifecycle, tool registry/calls, memory I/O, and plugin reloads.
- *  Wired sites: `tools.call.after` fires (observationally, fire-and-forget) after each PERMITTED plugin
- *  tool execute resolves, with a `PluginToolResultEvent`-shaped payload `{ tool, params, result }`
- *  (see brain/session/capabilities.ts) — e.g. the formatters plugin formats files written by the files
- *  plugin from it. */
+ *  Wired sites: `tools.call.after` fires after each PERMITTED plugin tool execute resolves, with a
+ *  `PluginToolResultEvent`-shaped payload `{ tool, params, result }` (see brain/session/capabilities.ts),
+ *  and is AWAITED before the result travels onward (per-event budget — see hookBus EVENT_BUDGETS): a
+ *  hook may mutate the written file and/or append short strings to `result.details.notes: string[]`
+ *  (create if absent) to annotate the transcript — e.g. the formatters plugin formats files written by
+ *  the files plugin and notes "formatted <file> with <name>". */
 export type PluginHookName =
   | 'platform.message.received' | 'platform.message.normalized'
   | 'brain.session.beforeSpawn' | 'brain.session.afterSpawn'

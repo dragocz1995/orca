@@ -12,8 +12,10 @@ import type { PermissionSettings } from '../../../lib/types';
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
 
-/** Mount the card against an msw-served permissions blob; returns the captured PATCH bodies. */
-function mountWith(settings: PermissionSettings) {
+/** Mount the card against an msw-served permissions blob; returns the captured PATCH bodies. The card
+ *  only reads/writes the rule maps, so the blob's other fields ride server defaults. */
+function mountWith(rules: Omit<PermissionSettings, 'yolo' | 'unattendedAsks'> & Partial<PermissionSettings>) {
+  const settings: PermissionSettings = { yolo: false, unattendedAsks: 'allow', ...rules };
   const patches: unknown[] = [];
   server.use(
     http.get('*/api/auth/me/permissions', () => HttpResponse.json(settings)),

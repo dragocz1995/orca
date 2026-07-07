@@ -129,15 +129,15 @@ describe('UserSettingStore', () => {
 
   it('permission settings: empty defaults, sanitized round-trip, corrupt blob degrades cleanly', () => {
     const s = new UserSettingStore(openDb(':memory:'));
-    expect(s.permissionSettings(1)).toEqual({ tools: {}, bash: {}, yolo: false });
-    s.setPermissionSettings(1, { tools: { write_file: 'allow', junk: 'nuke' }, bash: { 'rm *': 'deny' }, yolo: true });
-    expect(s.permissionSettings(1)).toEqual({ tools: { write_file: 'allow' }, bash: { 'rm *': 'deny' }, yolo: true });
-    // A patch replaces a present rule map wholesale but keeps absent fields (yolo stays true).
+    expect(s.permissionSettings(1)).toEqual({ tools: {}, bash: {}, yolo: false, unattendedAsks: 'allow' });
+    s.setPermissionSettings(1, { tools: { write_file: 'allow', junk: 'nuke' }, bash: { 'rm *': 'deny' }, yolo: true, unattendedAsks: 'deny' });
+    expect(s.permissionSettings(1)).toEqual({ tools: { write_file: 'allow' }, bash: { 'rm *': 'deny' }, yolo: true, unattendedAsks: 'deny' });
+    // A patch replaces a present rule map wholesale but keeps absent fields (yolo + strict mode stay).
     s.setPermissionSettings(1, { bash: { 'git *': 'allow' } });
-    expect(s.permissionSettings(1)).toEqual({ tools: { write_file: 'allow' }, bash: { 'git *': 'allow' }, yolo: true });
+    expect(s.permissionSettings(1)).toEqual({ tools: { write_file: 'allow' }, bash: { 'git *': 'allow' }, yolo: true, unattendedAsks: 'deny' });
     // Corrupt stored JSON → full defaults, never a throw.
     s.set(1, 'permissions', '{not json');
-    expect(s.permissionSettings(1)).toEqual({ tools: {}, bash: {}, yolo: false });
+    expect(s.permissionSettings(1)).toEqual({ tools: {}, bash: {}, yolo: false, unattendedAsks: 'allow' });
   });
 
   it('addPermissionAllowRule appends (or moves) the pattern to the END so it wins last-match resolution', () => {

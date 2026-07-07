@@ -146,15 +146,29 @@ describe('formatters plugin — tools.call.after hook flow', () => {
     expect(reg.tools).toHaveLength(0);
   });
 
-  it('formats a written file with the project formatter and logs it', async () => {
+  it('formats a written file with the project formatter, logs it and annotates the result (details.notes)', async () => {
     const { hook, lines } = await loadHook();
     const dir = projectWithPrettier();
     const file = join(dir, 'src', 'a.ts');
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, 'const x=1');
-    await fire(hook, dir, writeResult(file));
+    const payload = writeResult(file);
+    await fire(hook, dir, payload);
     expect(existsSync(`${file}.formatted`)).toBe(true);
     expect(lines.some((l) => l.includes(`formatted ${file} with prettier`))).toBe(true);
+    // The awaited tools.call.after contract: a successful format appends a transcript note in place.
+    expect((payload.result.details as { notes?: string[] }).notes).toEqual(['formatted a.ts with prettier']);
+  });
+
+  it('appends its note to an EXISTING details.notes array instead of clobbering it', async () => {
+    const { hook } = await loadHook();
+    const dir = projectWithPrettier();
+    const file = join(dir, 'a.ts');
+    writeFileSync(file, 'const x=1');
+    const payload = writeResult(file);
+    (payload.result.details as { notes?: string[] }).notes = ['earlier note'];
+    await fire(hook, dir, payload);
+    expect((payload.result.details as { notes?: string[] }).notes).toEqual(['earlier note', 'formatted a.ts with prettier']);
   });
 
   it('rejects a path outside the current work dir (resolve + prefix check)', async () => {
@@ -210,14 +224,16 @@ describe('formatters plugin — tools.call.after hook flow', () => {
     expect(existsSync(`${file}.formatted`)).toBe(false);
   });
 
-  it('logs a warning (fail-soft) when the formatter binary exits non-zero', async () => {
+  it('logs a warning (fail-soft) when the formatter binary exits non-zero — and appends NO note', async () => {
     const { hook, lines } = await loadHook();
     const dir = mkdtempSync(join(tmpdir(), 'orca-fmt-fail-'));
     fakeBin(join(dir, 'node_modules/.bin/prettier'), '#!/bin/sh\nexit 3\n');
     const file = join(dir, 'a.ts');
     writeFileSync(file, 'const x=1');
-    await expect(fire(hook, dir, writeResult(file))).resolves.not.toThrow();
+    const payload = writeResult(file);
+    await expect(fire(hook, dir, payload)).resolves.not.toThrow();
     expect(lines.some((l) => l.includes('formatter prettier failed'))).toBe(true);
+    expect((payload.result.details as { notes?: string[] }).notes).toBeUndefined();
   });
 
   it('does nothing without a turn work dir', async () => {

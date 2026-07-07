@@ -14,7 +14,10 @@ export type BrainEvent =
   /** A tool call starting. `icon` is resolved daemon-side from the core map + plugin manifest `icons`
    *  (single source; clients render it, falling back to a generic glyph when absent). */
   | { type: 'tool'; name: string; detail?: string; icon?: string; id?: string; command?: string }
-  | { type: 'diff'; diff: string; id?: string }
+  /** An edit finished. `output`, when present, is a minimal notes-only view (hook annotations like
+   *  "formatted a.ts with prettier" — see `details.notes`) the reducer attaches alongside the diff;
+   *  clients that ignore it lose only the note, never the diff. */
+  | { type: 'diff'; diff: string; id?: string; output?: ToolOutputView }
   | { type: 'tool_output'; output: ToolOutputView; id?: string }
   /** A structured display card a plugin pushed via `ctx.emitCard` — a live panel (CLI above the status
    *  bar, Discord in the streamed message, web in a cards region) keyed by `card.id` so a re-emit
@@ -168,7 +171,12 @@ export function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   // Edits carry a display diff in their result details — that's the one tool output worth showing.
   if (anyE.type === 'tool_execution_end') {
     const diff = anyE.result?.details?.diff;
-    if (typeof diff === 'string' && diff.trim()) return { type: 'diff', diff, id: anyE.toolCallId };
+    if (typeof diff === 'string' && diff.trim()) {
+      // A hook-annotated edit (details.notes) keeps its note: toolOutputView builds a notes-only view
+      // for diff results, riding the diff event so live rendering matches the history path.
+      const output = typeof anyE.toolName === 'string' ? toolOutputView(anyE.toolName, anyE.args, anyE.result, anyE.isError === true) : undefined;
+      return { type: 'diff', diff, id: anyE.toolCallId, ...(output ? { output } : {}) };
+    }
     // Image tools return a markdown link to the stored file; surface it as a first-class event so
     // channel adapters can attach the real file (models often omit the link from their final text).
     const parts = (anyE.result as { content?: { type?: string; text?: string }[] } | undefined)?.content;

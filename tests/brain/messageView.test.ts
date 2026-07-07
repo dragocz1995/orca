@@ -69,6 +69,31 @@ describe('toolOutputView', () => {
   });
 });
 
+describe('toolOutputView — hook-appended notes (details.notes)', () => {
+  it('a diff result stays hidden without notes, but yields a notes-only view WITH them', () => {
+    const base = { content: [{ type: 'text', text: 'Edited a.ts' }], details: { diff: '+    1 x' } };
+    expect(toolOutputView('edit_file', { path: 'a.ts' }, base)).toBeUndefined();
+    const out = toolOutputView('edit_file', { path: 'a.ts' }, { ...base, details: { ...base.details, notes: ['formatted a.ts with prettier'] } });
+    expect(out).toMatchObject({ kind: 'result', text: '', tone: 'normal', notes: ['formatted a.ts with prettier'] });
+  });
+
+  it('notes earn an otherwise-hidden non-console result its block and ride a shown one', () => {
+    const hidden = toolOutputView('write_file', { path: 'a.ts' }, { content: [{ type: 'text', text: '' }], details: { notes: ['formatted a.ts with prettier'] } });
+    expect(hidden?.notes).toEqual(['formatted a.ts with prettier']);
+    const shown = toolOutputView('run_command', { command: 'x' }, { content: [{ type: 'text', text: 'out' }], details: { exitCode: 0, notes: ['note'] } });
+    expect(shown).toMatchObject({ text: 'out', notes: ['note'] });
+  });
+
+  it('validates the untrusted notes array: non-strings dropped, whitespace collapsed, capped at 5', () => {
+    const notes = [' a  note ', 42, '', 'b', 'c', 'd', 'e', 'f'];
+    const out = toolOutputView('write_file', { path: 'a.ts' }, { content: [], details: { diff: '+ x', notes } });
+    expect(out?.notes).toEqual(['a note', 'b', 'c', 'd', 'e']);
+    // A non-array (or all-invalid) notes value contributes nothing — the diff result stays hidden.
+    expect(toolOutputView('write_file', {}, { content: [], details: { diff: '+ x', notes: 'nope' } })).toBeUndefined();
+    expect(toolOutputView('write_file', {}, { content: [], details: { diff: '+ x', notes: [42, '  '] } })).toBeUndefined();
+  });
+});
+
 describe('tool output tone (needs attention)', () => {
   it('a clean exit 0 is success even when the output mentions errors/warnings', () => {
     const v = toolOutputView('run_command', { command: 'grep -rn error src' }, {

@@ -174,9 +174,10 @@ export interface CliSettings { model: string; modelProvider: string; visionModel
 
 /** Per-user granular tool permissions (mirror src/brain/toolPermissions.ts): allow/ask/deny rule maps
  *  (`tools` keyed by tool-name pattern, `bash` by command pattern — insertion order decides precedence,
- *  last match wins) plus the persisted YOLO default that auto-approves "ask" rules. */
+ *  last match wins), the persisted YOLO default that auto-approves "ask" rules, and what an "ask" does
+ *  on unattended runs (cron/channels/sub-agents): auto-allow (default) or block (strict). */
 export type PermissionAction = 'allow' | 'ask' | 'deny';
-export interface PermissionSettings { tools: Record<string, PermissionAction>; bash: Record<string, PermissionAction>; yolo: boolean }
+export interface PermissionSettings { tools: Record<string, PermissionAction>; bash: Record<string, PermissionAction>; yolo: boolean; unattendedAsks: 'allow' | 'deny' }
 
 /** Full xterm ANSI palette exposed for per-user customization (mirrors `@xterm/xterm`'s ITheme colour
  *  fields). Each value is an `#rrggbb` string; applied only when the terminal theme is `custom`. */

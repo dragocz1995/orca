@@ -197,12 +197,13 @@ export class ChannelSessionService {
         // allow-list narrows plugin tools. Applies on the next prompt; the execute gate stays as backup.
         applyToolVisibility(ch.session, ch.pluginToolNames, opts.toolPolicy);
         // Granular tool permissions WITHOUT an approval channel: a channel/cron/subagent turn has no
-        // human parked on a blocking prompt, so the gate resolves `ask` rules to allow — only explicit
-        // `deny` rules bite. Rules come from the verified sender's account (their web-chat rules follow
+        // human parked on a blocking prompt, so the gate resolves `ask` rules per the account's
+        // `unattendedAsks` setting — allow by default, refuse under strict mode; explicit `deny` rules
+        // always bite. Rules come from the verified sender's account (their web-chat rules follow
         // them here), else the channel owner's; YOLO is irrelevant when nothing ever asks.
         const permSettings = this.d.permissions?.(opts.writerUserId ?? opts.ownerUserId);
         const permissions: TurnPermissions | undefined = permSettings
-          ? { ruleset: buildPermissionRuleset(permSettings), yolo: false }
+          ? { ruleset: buildPermissionRuleset(permSettings), yolo: false, unattendedAsks: permSettings.unattendedAsks }
           : undefined;
         // Build the prompt INSIDE the identity/policy scope so turnContext providers can scope to the
         // channel sender via currentIdentity() (e.g. per-user todos, not one global list across senders).

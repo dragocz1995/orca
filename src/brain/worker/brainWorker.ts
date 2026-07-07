@@ -145,14 +145,15 @@ export class BrainWorkerService {
     // Run plugin tools through the shared composer so the "a task worker never gets the owner's orca_*
     // control-plane tools" invariant is actually enforced here (not just true by construction) — the
     // worker's own close tool is added separately below.
-    // Same observational `tools.call.after` fan-out as chat sessions (fire-and-forget, fail-open), so
-    // e.g. the formatters plugin also runs on files a task worker writes.
+    // Same `tools.call.after` fan-out as chat sessions (awaited by the tool gate, fail-open), so e.g.
+    // the formatters plugin also runs — and finishes before the result returns — on files a task
+    // worker writes.
     const toolHookBus = plugins && plugins.hooks.length > 0
       ? new PluginHookBus({ hooks: plugins.hooks, hookOwners: plugins.hookOwners, capabilities: plugins.pluginCapabilities, logger: log })
       : undefined;
     const pluginTools = composeSessionTools({
       kind: 'task-worker', pluginTools: plugins?.tools ?? [],
-      onToolResult: toolHookBus ? (e) => { void toolHookBus.emit('tools.call.after', e); } : undefined,
+      onToolResult: toolHookBus ? (e) => toolHookBus.emit('tools.call.after', e) : undefined,
     });
     const skills = plugins?.skills ?? [];
     const append = [skills.length ? formatSkillsForPrompt(skills) : '', ...(plugins?.promptFragments ?? [])].filter((s) => s.length > 0);

@@ -27,7 +27,10 @@ type SessionKind =
 
 /** What a plugin tool call produced — the payload the `tools.call.after` hook receives. `params` is the
  *  tool's input object (second `execute` argument) and `result` its resolved return value; both stay
- *  `unknown` so observers parse defensively (the v1 hook contract keeps payloads untyped). */
+ *  `unknown` so observers parse defensively (the v1 hook contract keeps payloads untyped). The observer
+ *  is AWAITED before the result travels onward, so a hook may annotate it in place: appending short
+ *  strings to `result.details.notes: string[]` (create the array if absent) is the supported channel —
+ *  e.g. the formatters plugin pushes "formatted <file> with <name>" so the note reaches the transcript. */
 export interface PluginToolResultEvent { tool: string; params: unknown; result: unknown }
 
 export interface CapabilitySpec {
@@ -42,9 +45,12 @@ export interface CapabilitySpec {
   pluginTools: ToolDefinition[];
   /** Observer fired after a PERMITTED plugin tool's execute resolves (never for a policy-denied call or
    *  a throwing execute). The caller typically forwards it to the plugin hook bus as `tools.call.after`.
-   *  Purely observational and fail-soft: it runs inside the tool's ALS turn scope (so hooks can read
-   *  currentWorkDir etc.), must not block, and a throwing observer never fails the tool result. */
-  onToolResult?: (e: PluginToolResultEvent) => void;
+   *  AWAITED before the tool result returns — so a hook that rewrites the just-written file (formatters)
+   *  finishes before the model's next tool call can race it, and a `result.details.notes` annotation
+   *  reaches the transcript. Still fail-soft: it runs inside the tool's ALS turn scope (so hooks can
+   *  read currentWorkDir etc.) and a throwing/rejecting observer never fails the tool result; the hook
+   *  bus bounds each hook by its event budget, so a hung hook delays the result at most that long. */
+  onToolResult?: (e: PluginToolResultEvent) => void | Promise<void>;
 }
 
 /** Wrap a plugin tool so its access is decided at EXECUTE time from the current turn's ToolPolicy.
@@ -54,7 +60,7 @@ export interface CapabilitySpec {
  *  clear locked no-op instead of running, so the model always gets something to reason over. Because a
  *  channel session is shared across senders, the tool SET is fixed at spawn; this per-turn gate is what
  *  makes access correct for whoever is actually speaking. */
-function gateToolAccess(tool: ToolDefinition, onToolResult?: (e: PluginToolResultEvent) => void): ToolDefinition {
+function gateToolAccess(tool: ToolDefinition, onToolResult?: (e: PluginToolResultEvent) => void | Promise<void>): ToolDefinition {
   if (typeof tool.execute !== 'function') return tool; // defensive (test stubs) — nothing to gate
   const run = tool.execute.bind(tool);
   const execute = (async (...args: Parameters<ToolDefinition['execute']>) => {
@@ -62,9 +68,12 @@ function gateToolAccess(tool: ToolDefinition, onToolResult?: (e: PluginToolResul
       return { content: [{ type: 'text' as const, text: `The tool "${tool.name}" is not available to you in this conversation.` }], details: {} };
     }
     const result = await run(...args);
-    // Observe AFTER a permitted execute resolved, still inside the turn's ALS scope. Fail-soft: an
-    // observer is never allowed to fail (or delay — callers pass a fire-and-forget) the tool result.
-    try { onToolResult?.({ tool: tool.name, params: args[1], result }); } catch { /* observer only */ }
+    // Observe AFTER a permitted execute resolved, still inside the turn's ALS scope, and AWAIT it
+    // BEFORE returning: a hook that rewrites the written file (formatters) must finish before the
+    // result — and the model's next tool call — moves on, and its `details.notes` annotation must be
+    // in the result when it travels onward. Fail-soft: a throwing/rejecting observer never fails the
+    // result (the hook bus additionally bounds each hook by its event budget).
+    try { await onToolResult?.({ tool: tool.name, params: args[1], result }); } catch { /* observer only */ }
     return result;
   }) as ToolDefinition['execute'];
   return { ...tool, execute };
@@ -77,9 +86,12 @@ const refused = (text: string) => ({ content: [{ type: 'text' as const, text }],
  *  passes (built-in orca_* and memory_* tools and plugin tools alike; composeSessionTools applies it
  *  to the whole composed set). The turn's rules resolve to allow/ask/deny (resolveToolPermission — last matching
  *  rule wins): `deny` returns an error result naming the rule; `ask` blocks on the turn's approval
- *  channel where a human is attached (owner CLI/web chat) and resolves to allow everywhere else
- *  (channel/cron/subagent turns — nobody can answer a blocking prompt there) or while YOLO is on for
- *  the session (deny still denies under YOLO). An "Always allow" pick persists a rule through the
+ *  channel where a human is attached (owner CLI/web chat) and, everywhere else (channel/cron/subagent
+ *  turns — nobody can answer a blocking prompt there), follows the user's `unattendedAsks` setting:
+ *  'allow' (default) runs, 'deny' (strict mode) refuses with a deny-shaped error. YOLO auto-approves
+ *  asks that WOULD prompt (deny still denies under YOLO) — it deliberately does NOT override the
+ *  unattended-strict denial, because strict is a hard safety opt-in that must not be silently undone
+ *  by a convenience toggle. An "Always allow" pick persists a rule through the
  *  turn's `persistAllow` before running. Shell tools (BASH_PERMISSION_TOOLS) resolve in the `bash`
  *  pattern space against their command string; everything else in `tools` against the tool name. No
  *  TurnPermissions scope on the turn (task workers, tests) → the gate is inert. */
@@ -96,19 +108,29 @@ function gatePermissions(tool: ToolDefinition): ToolDefinition {
     if (rule.action === 'deny') {
       return refused(`Denied by permission rule "${rule.pattern}" — the user's settings forbid this call.`);
     }
-    if (rule.action === 'ask' && !perms.yolo && perms.requestApproval) {
-      const alwaysPattern = bash ? bashAlwaysPattern(command ?? '') : tool.name;
-      let decision: ApprovalDecision;
-      try {
-        decision = await perms.requestApproval({ tool: tool.name, scope: rule.scope, command, alwaysPattern });
-      } catch {
-        decision = 'deny'; // the prompt was cancelled (turn aborted / session switched) — fail closed
-      }
-      if (decision === 'deny') {
-        return refused(`The user denied running "${tool.name}"${command ? ` (${command})` : ''}. Do not retry it without asking them first.`);
-      }
-      if (decision === 'always') {
-        try { perms.persistAllow?.(rule.scope, alwaysPattern); } catch { /* persistence is best-effort */ }
+    if (rule.action === 'ask') {
+      if (!perms.requestApproval) {
+        // UNATTENDED turn (channel/cron/subagent — no approval channel). Default ('allow', incl. absent)
+        // keeps the historical behaviour: the ask resolves to allow. Strict mode ('deny') fails closed
+        // with the same error shape as a deny rule. Checked BEFORE the YOLO shortcut on purpose: YOLO
+        // only auto-approves asks that WOULD prompt, and strict is a hard safety opt-in it must not undo.
+        if (perms.unattendedAsks === 'deny') {
+          return refused(`Denied by permission rule "${rule.pattern}" — ask rule blocked in unattended run (strict mode).`);
+        }
+      } else if (!perms.yolo) {
+        const alwaysPattern = bash ? bashAlwaysPattern(command ?? '') : tool.name;
+        let decision: ApprovalDecision;
+        try {
+          decision = await perms.requestApproval({ tool: tool.name, scope: rule.scope, command, alwaysPattern });
+        } catch {
+          decision = 'deny'; // the prompt was cancelled (turn aborted / session switched) — fail closed
+        }
+        if (decision === 'deny') {
+          return refused(`The user denied running "${tool.name}"${command ? ` (${command})` : ''}. Do not retry it without asking them first.`);
+        }
+        if (decision === 'always') {
+          try { perms.persistAllow?.(rule.scope, alwaysPattern); } catch { /* persistence is best-effort */ }
+        }
       }
     }
     return run(...args);

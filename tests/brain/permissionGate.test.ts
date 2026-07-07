@@ -117,12 +117,40 @@ describe('permission gate — the single tool-call choke point (composeSessionTo
 
   it('non-interactive (channel/cron/subagent — no approval channel): ask resolves to allow, deny still denies', async () => {
     const { gated, ran } = composed('run_command');
-    // ask → allow (no requestApproval wired)
+    // ask → allow (no requestApproval wired; default unattendedAsks, absent AND explicit 'allow')
     await callTool(gated, { command: 'rm -rf x' }, perms());
     expect(ran()).toBe(1);
+    await callTool(gated, { command: 'rm -rf x' }, perms({ unattendedAsks: 'allow' }));
+    expect(ran()).toBe(2);
     // deny still bites
     const res = await callTool(gated, { command: 'rm -rf x' }, perms({ user: { bash: { 'rm *': 'deny' } } }));
-    expect(ran()).toBe(1);
+    expect(ran()).toBe(2);
     expect(res.content[0]!.text).toContain('Denied by permission rule');
+  });
+
+  it('unattended strict mode (unattendedAsks: deny): ask fails closed with a deny-shaped error naming strict mode', async () => {
+    const { gated, ran } = composed('run_command');
+    const res = await callTool(gated, { command: 'rm -rf x' }, perms({ unattendedAsks: 'deny' }));
+    expect(ran()).toBe(0);
+    expect(res.content[0]!.text).toContain('Denied by permission rule "*"');
+    expect(res.content[0]!.text).toContain('ask rule blocked in unattended run (strict mode)');
+    // allow rules are untouched by strict mode
+    await callTool(gated, { command: 'git status' }, perms({ unattendedAsks: 'deny' }));
+    expect(ran()).toBe(1);
+  });
+
+  it('unattended strict mode is NOT overridden by YOLO (strict is a hard safety opt-in)', async () => {
+    const { gated, ran } = composed('run_command');
+    const res = await callTool(gated, { command: 'rm -rf x' }, perms({ unattendedAsks: 'deny', yolo: true }));
+    expect(ran()).toBe(0);
+    expect(res.content[0]!.text).toContain('ask rule blocked in unattended run (strict mode)');
+  });
+
+  it('unattendedAsks: deny is inert on ATTENDED turns — the approval prompt still decides', async () => {
+    const { gated, ran } = composed('run_command');
+    const requestApproval = vi.fn(async (): Promise<ApprovalDecision> => 'once');
+    await callTool(gated, { command: 'rm -rf x' }, perms({ unattendedAsks: 'deny', requestApproval }));
+    expect(ran()).toBe(1);
+    expect(requestApproval).toHaveBeenCalledTimes(1);
   });
 });

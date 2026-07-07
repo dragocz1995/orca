@@ -132,9 +132,9 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     }
     case 'diff': {
       // An edit finished — attach its diff to the matching tool when PI gives an id; fall back to the
-      // most recent tool for legacy events.
+      // most recent tool for legacy events. A notes-only output view (hook annotations) rides along.
       const t = ensureOrca();
-      attachToTool(t, e.id, (item) => ({ ...item, diff: e.diff }));
+      attachToTool(t, e.id, (item) => ({ ...item, diff: e.diff, ...(e.output ? { output: e.output } : {}) }));
       return { turns, thinking: true, notice: view.notice };
     }
     case 'tool_output': {

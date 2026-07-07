@@ -12,6 +12,9 @@ export interface ToolOutputView {
   command?: string;
   status?: string;
   tone?: 'normal' | 'success' | 'warning' | 'danger';
+  /** Hook-appended annotations lifted off `result.details.notes` (the `tools.call.after` contract —
+   *  e.g. "formatted a.ts with prettier"). Rendered as faint suffix lines under the output body. */
+  notes?: string[];
 }
 
 /** One display piece of an assistant turn, in the order it happened: a text block, or a tool call
@@ -110,11 +113,33 @@ function expandedOutput(text: string): string {
   return clipped.length > 12000 ? `${clipped.slice(0, 11999)}…` : clipped;
 }
 
+/** Hook-appended annotations riding a tool result (`details.notes` — the `tools.call.after` contract),
+ *  validated defensively: the array is untrusted plugin output, so non-strings are dropped and the
+ *  survivors are whitespace-collapsed and capped. Undefined when nothing usable remains. */
+function resultNotes(details: Record<string, unknown> | undefined): string[] | undefined {
+  const raw = details?.notes;
+  if (!Array.isArray(raw)) return undefined;
+  const notes = raw
+    .filter((n): n is string => typeof n === 'string' && n.trim().length > 0)
+    .slice(0, 5)
+    .map((n) => {
+      const s = n.replace(/\s+/g, ' ').trim();
+      return s.length > 200 ? `${s.slice(0, 199)}…` : s;
+    });
+  return notes.length > 0 ? notes : undefined;
+}
+
 /** Return a compact, user-useful tool output preview. Most raw tool results stay hidden; command/test
- *  output, browser/search observations, and warnings/errors are useful enough to show in the chat. */
+ *  output, browser/search observations, warnings/errors — and hook-appended notes — are useful enough
+ *  to show in the chat. */
 export function toolOutputView(toolName: string, args: unknown, result: unknown, isError?: boolean): ToolOutputView | undefined {
   const r = (result && typeof result === 'object') ? result as { content?: unknown; details?: Record<string, unknown>; status?: unknown; error?: unknown; isError?: unknown } : {};
-  if (typeof r.details?.diff === 'string' && r.details.diff.trim()) return undefined;
+  const notes = resultNotes(r.details);
+  if (typeof r.details?.diff === 'string' && r.details.diff.trim()) {
+    // The diff renders as its own block, so no output preview — unless a hook annotated the result
+    // (e.g. "formatted a.ts with prettier"): the note then survives as a minimal notes-only view.
+    return notes ? { title: outputTitle(toolName, 'result'), kind: 'result', text: '', tone: 'normal', notes } : undefined;
+  }
   const raw = textParts(r.content);
   const errorText = typeof r.error === 'string' ? r.error : '';
   const joined = [raw, errorText].filter(Boolean).join('\n');
@@ -132,7 +157,9 @@ export function toolOutputView(toolName: string, args: unknown, result: unknown,
   // fall back to the result object's own flag for the history path.
   const exitCode = (isError ?? r.isError) === true ? true : (r.details?.exitCode ?? r.details?.code ?? r.status);
   const tone = outputTone(text, exitCode);
-  if (!consoleCommand) {
+  // A hook-appended note always earns the block a spot — otherwise keep the old gating (most raw
+  // results stay hidden unless useful).
+  if (!consoleCommand && !notes) {
     if (!text) return undefined;
     if (!shouldShowToolOutput(toolName, text, tone)) return undefined;
   }
@@ -146,7 +173,7 @@ export function toolOutputView(toolName: string, args: unknown, result: unknown,
           ? 'done'
           : undefined;
   const fullText = expandedOutput(joined);
-  return { title: outputTitle(toolName, kind), kind, text, ...(fullText && fullText !== text ? { fullText } : {}), command, status, tone };
+  return { title: outputTitle(toolName, kind), kind, text, ...(fullText && fullText !== text ? { fullText } : {}), command, status, tone, ...(notes ? { notes } : {}) };
 }
 
 /** The verbatim shell command a console tool ran (for the always-on first line), collapsed to one line

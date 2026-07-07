@@ -96,6 +96,29 @@ describe('PluginHookBus', () => {
     expect(logger.warnings[0]).toContain('timed out');
   });
 
+  it('an event-specific budget overrides the global timeout for THAT event only', async () => {
+    const calls: string[] = [];
+    const hang = () => new Promise<void>(() => { /* never resolves */ });
+    const hooks: PluginHook[] = [
+      { name: 'tools.call.after', run: hang },
+      { name: 'tools.call.after', run: () => { calls.push('fast-after'); } },
+      { name: 'plugin.reload.after', run: hang },
+    ];
+    // Global timeout 15ms; the tools.call.after budget is stretched to 60ms (the production map gives
+    // it 12s — untestable — so the deps override stands in for it here).
+    const bus = new PluginHookBus({ hooks, logger, timeoutMs: 15, eventBudgets: { 'tools.call.after': 60 } });
+
+    const started = Date.now();
+    await expect(bus.emit('tools.call.after', {})).resolves.toBeUndefined();
+    expect(Date.now() - started).toBeGreaterThanOrEqual(55); // outlived the 15ms global default
+    expect(calls).toEqual(['fast-after']);
+    expect(logger.warnings[0]).toContain('timed out after 60ms');
+
+    // An event NOT named in the budgets map still uses the global timeout.
+    await bus.emit('plugin.reload.after', {});
+    expect(logger.warnings[1]).toContain('timed out after 15ms');
+  });
+
   it('works without a logger (silent fail-open)', async () => {
     const calls: string[] = [];
     const hooks: PluginHook[] = [

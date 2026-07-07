@@ -196,7 +196,7 @@ export class BrainService {
       memoryService: d.memoryService, curator: this.curator, userSettings: d.userSettings,
       elicitation: this.elicitation, // one registry so Discord interactions resolve channel questions
       titler: this.titler, // name a brand-new channel conversation, same as owner chat
-      permissions: d.permissions, // deny rules apply to channel turns too (ask resolves to allow there)
+      permissions: d.permissions, // deny rules apply to channel turns too (asks follow unattendedAsks there)
     });
     this.platforms = new PlatformOrchestrator({
       plugins: () => this.resolvePlugins(),
@@ -751,9 +751,11 @@ export class BrainService {
     const memCats = this.d.memoryCategoryStore;
     const memCategorizer = this.d.memoryCategorizer;
     const pluginTools = plugins?.tools ?? [];
-    // Observational plugin hook point: after a permitted plugin tool's execute resolves, fan the call
-    // out to `tools.call.after` subscribers (e.g. the formatters plugin). Fire-and-forget — the bus is
-    // fail-open and the emit is never awaited, so a slow/broken hook can't delay or fail the tool result.
+    // Plugin hook point: after a permitted plugin tool's execute resolves, fan the call out to
+    // `tools.call.after` subscribers (e.g. the formatters plugin). AWAITED by the tool gate before the
+    // result returns, so a hook that rewrites the written file finishes before the transcript diff /
+    // next tool call — the bus stays fail-open and bounds each hook by the event's budget, so a broken
+    // hook can never fail (only briefly delay) the tool result.
     const toolHookBus = plugins && plugins.hooks.length > 0
       ? new PluginHookBus({ hooks: plugins.hooks, hookOwners: plugins.hookOwners, capabilities: plugins.pluginCapabilities, logger: logger('plugin-hooks') })
       : undefined;
@@ -766,7 +768,7 @@ export class BrainService {
       pluginTools,
       // Plugin tools are gated at EXECUTE time from the turn's ToolPolicy (set in runWithPolicy), not
       // filtered at compose — one shared mechanism for owner chat and shared channels alike.
-      onToolResult: toolHookBus ? (e) => { void toolHookBus.emit('tools.call.after', e); } : undefined,
+      onToolResult: toolHookBus ? (e) => toolHookBus.emit('tools.call.after', e) : undefined,
     });
     const skills = plugins?.skills ?? [];
     const skillsBlock = skills.length ? formatSkillsForPrompt(skills) : '';
@@ -1028,12 +1030,13 @@ export class BrainService {
    *  approval channel: an `ask` rule parks the tool call as an `ask` BrainEvent of kind 'approval' on
    *  the SAME elicitation pipeline as ask_user_question (answered via /brain/answer), and an "Always
    *  allow" pick persists a rule via saveAlwaysAllow. Non-interactive turns get no approval channel, so
-   *  the gate resolves their `ask` rules to allow (deny still denies). Undefined when permissions
-   *  aren't wired at all — the gate is then inert. */
+   *  the gate resolves their `ask` rules per the user's `unattendedAsks` setting — allow by default,
+   *  refuse under strict mode (deny rules always deny). Undefined when permissions aren't wired at all —
+   *  the gate is then inert. */
   private turnPermissions(userId: number, live: LiveBrain, interactive: boolean): TurnPermissions | undefined {
     const settings = this.d.permissions?.(userId);
     if (!settings) return undefined;
-    const base: TurnPermissions = { ruleset: buildPermissionRuleset(settings), yolo: this.effectiveYolo(userId, live) };
+    const base: TurnPermissions = { ruleset: buildPermissionRuleset(settings), yolo: this.effectiveYolo(userId, live), unattendedAsks: settings.unattendedAsks };
     if (!interactive) return base;
     return {
       ...base,

@@ -2,8 +2,10 @@ import type { AskAnswer, AskQuestion } from './events.js';
 
 /** Granular tool permissions (opencode-style): every tool call resolves to one of three actions.
  *  `allow` runs, `deny` returns an error result to the model, `ask` blocks on a human approval prompt
- *  where one is attached (owner CLI/web chat) and resolves to `allow` everywhere else (channel/cron/
- *  subagent turns — deny still denies there; see the execute-time gate in session/capabilities.ts). */
+ *  where one is attached (owner CLI/web chat). Everywhere else (channel/cron/subagent turns — no
+ *  approval channel) `ask` follows the user's `unattendedAsks` setting: 'allow' (default) runs, 'deny'
+ *  (strict mode) refuses; `deny` rules always deny (see the execute-time gate in
+ *  session/capabilities.ts). */
 export type PermissionAction = 'allow' | 'ask' | 'deny';
 
 /** Two independent pattern spaces: `tools` matches TOOL NAMES; `bash` matches the COMMAND STRING of
@@ -22,6 +24,10 @@ export interface PermissionSettings {
   /** Default YOLO state for new sessions: `ask` resolves to `allow` without prompting (deny still
    *  denies). The CLI `/yolo` command overrides it per session without touching this value. */
   yolo: boolean;
+  /** What an `ask` rule does on an UNATTENDED turn (channel/cron/subagent — no human parked on an
+   *  approval prompt): 'allow' (default) resolves it to allow, 'deny' (strict mode) refuses the call
+   *  outright. A hard safety opt-in — even YOLO never overrides the strict denial. */
+  unattendedAsks: 'allow' | 'deny';
 }
 
 /** Tool names whose permission is decided in the `bash` pattern space, against `args.command`. */
@@ -65,13 +71,15 @@ function sanitizeRuleMap(input: unknown): Record<string, PermissionAction> {
 }
 
 /** Coerce an untrusted value (parsed JSON blob or request body) into complete, valid settings.
- *  Never throws; missing/invalid fields fall back to empty rules + YOLO off. */
+ *  Never throws; missing/invalid fields fall back to empty rules + YOLO off + unattended asks allowed
+ *  (the historical behaviour — strict mode is an explicit opt-in). */
 export function sanitizePermissionSettings(input: unknown): PermissionSettings {
   const src = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   return {
     tools: sanitizeRuleMap(src.tools),
     bash: sanitizeRuleMap(src.bash),
     yolo: typeof src.yolo === 'boolean' ? src.yolo : false,
+    unattendedAsks: src.unattendedAsks === 'deny' ? 'deny' : 'allow',
   };
 }
 
@@ -84,6 +92,7 @@ export function mergePermissionSettings(current: PermissionSettings, patch: unkn
     tools: p.tools !== undefined ? p.tools : current.tools,
     bash: p.bash !== undefined ? p.bash : current.bash,
     yolo: p.yolo !== undefined ? p.yolo : current.yolo,
+    unattendedAsks: p.unattendedAsks !== undefined ? p.unattendedAsks : current.unattendedAsks,
   });
 }
 
@@ -156,9 +165,13 @@ export interface TurnPermissions {
   /** Effective YOLO for this turn: the session override when set, else the user's persisted default.
    *  True → `ask` resolves to `allow` without prompting; `deny` rules still deny. */
   yolo: boolean;
-  /** Blocking human approval — wired ONLY for owner chat turns (CLI/web). Undefined → `ask` resolves
-   *  to `allow` (channel/cron/subagent turns keep their pre-permission behaviour, minus denies). */
+  /** Blocking human approval — wired ONLY for owner chat turns (CLI/web). Undefined → the turn is
+   *  UNATTENDED (channel/cron/subagent) and `ask` follows `unattendedAsks` instead of prompting. */
   requestApproval?: (req: ApprovalRequest) => Promise<ApprovalDecision>;
+  /** How `ask` resolves on an unattended turn (no `requestApproval`): 'allow' runs (the default —
+   *  absent means 'allow'), 'deny' refuses (strict mode; YOLO never overrides it). Mirrors the
+   *  persisted {@link PermissionSettings.unattendedAsks}. */
+  unattendedAsks?: 'allow' | 'deny';
   /** Persist an "Always allow" pick into the user's stored rules. Best-effort. */
   persistAllow?: (scope: PermissionScope, pattern: string) => void;
 }

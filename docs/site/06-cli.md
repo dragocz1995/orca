@@ -216,6 +216,13 @@ you three choices:
 always resolves to **Deny** — it never aborts the turn, the tool just reports back
 that it was refused.
 
+Approval prompts only exist where a human is attached — the interactive CLI or web
+chat. Unattended runs (cron jobs, platform channels, sub-agents) have nobody to answer
+them, so an `ask` rule there resolves to **allow** by default, while explicit `deny`
+rules always deny. Prefer failing closed? Switch **Account → Orca AI → Unattended
+runs** to *Block*: every `ask` in an unattended run is then denied outright (strict
+mode) — and YOLO does not override that.
+
 For a fully hands-off session, `/yolo` (or `/yolo on`/`off`) auto-approves every tool
 ask — deny rules still apply. It's session-scoped only: the meta line grows a
 warning-toned **YOLO** chip so an unattended session is never silently unsupervised,
