@@ -1466,7 +1466,6 @@ export const cs = {
   },
   terminal: {
     saveError: 'Nepodařilo se uložit nastavení terminálu.',
-    previewTitle: 'Náhled',
     fontTitle: 'Písmo',
     fontSize: 'Velikost',
     fontFamily: 'Rodina písma',

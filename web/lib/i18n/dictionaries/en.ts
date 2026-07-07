@@ -1466,7 +1466,6 @@ export const en = {
   },
   terminal: {
     saveError: 'Failed to save terminal settings.',
-    previewTitle: 'Preview',
     fontTitle: 'Font',
     fontSize: 'Size',
     fontFamily: 'Font family',

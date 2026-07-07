@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Type, TextCursorInput, ScrollText, Palette, Eye } from 'lucide-react';
+import { Type, TextCursorInput, ScrollText, Palette } from 'lucide-react';
 import { SettingCard } from '../../components/ui/SettingCard';
 import { Segmented } from '../../components/ui/Segmented';
 import { Slider } from '../../components/ui/Slider';
@@ -59,8 +59,49 @@ export function TerminalSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <SettingCard title={t.terminal.previewTitle} icon={Eye}>
-        <TerminalPreview settings={settings} resolvedTheme={resolvedTheme} />
+      <SettingCard title={t.terminal.colorsTitle} icon={Palette} description={t.terminal.colorsHelp}>
+        {/* The live preview sits NEXT TO the swatches (right column on wide screens, on top on narrow
+            ones) so a color tweak is visible without scrolling back to a separate preview card. */}
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <div className="self-start lg:sticky lg:top-4 lg:order-2">
+            <TerminalPreview settings={settings} resolvedTheme={resolvedTheme} />
+          </div>
+          <div className="flex flex-col gap-4 lg:order-1">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className={label}>{t.terminal.themeMode}</span>
+                <Segmented
+                  options={[{ value: 'auto', label: t.terminal.themeAuto }, { value: 'custom', label: t.terminal.themeCustom }]}
+                  value={theme} onChange={(v) => setTheme(v as TerminalThemeMode)} aria-label={t.terminal.themeMode}
+                />
+              </div>
+              {theme === 'custom' ? (
+                <select
+                  aria-label={t.terminal.loadPreset}
+                  className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
+                  value="" onChange={(e) => { const p = PALETTE_PRESETS.find((x) => x.id === e.target.value); if (p) setPalette({ ...p.palette }); }}
+                >
+                  <option value="">{t.terminal.presetPlaceholder}</option>
+                  {PALETTE_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+              ) : null}
+            </div>
+            {theme === 'custom' ? (
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                {PALETTE_KEYS.map((key) => (
+                  <label key={key} className="flex flex-col gap-1" title={t.terminal.palette[key]}>
+                    <input
+                      type="color" aria-label={t.terminal.palette[key]} value={palette[key]}
+                      onChange={(e) => setPalette((prev) => ({ ...prev, [key]: e.target.value }))}
+                      className="h-8 w-full cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+                    />
+                    <span className={`truncate ${label}`}>{t.terminal.palette[key]}</span>
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </SettingCard>
 
       <SettingCard title={t.terminal.fontTitle} icon={Type}>
@@ -109,43 +150,6 @@ export function TerminalSection() {
         </div>
       </SettingCard>
 
-      <SettingCard title={t.terminal.colorsTitle} icon={Palette} description={t.terminal.colorsHelp}>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="flex flex-col gap-1.5">
-              <span className={label}>{t.terminal.themeMode}</span>
-              <Segmented
-                options={[{ value: 'auto', label: t.terminal.themeAuto }, { value: 'custom', label: t.terminal.themeCustom }]}
-                value={theme} onChange={(v) => setTheme(v as TerminalThemeMode)} aria-label={t.terminal.themeMode}
-              />
-            </div>
-            {theme === 'custom' ? (
-              <select
-                aria-label={t.terminal.loadPreset}
-                className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
-                value="" onChange={(e) => { const p = PALETTE_PRESETS.find((x) => x.id === e.target.value); if (p) setPalette({ ...p.palette }); }}
-              >
-                <option value="">{t.terminal.presetPlaceholder}</option>
-                {PALETTE_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-              </select>
-            ) : null}
-          </div>
-          {theme === 'custom' ? (
-            <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-7">
-              {PALETTE_KEYS.map((key) => (
-                <label key={key} className="flex flex-col gap-1" title={t.terminal.palette[key]}>
-                  <input
-                    type="color" aria-label={t.terminal.palette[key]} value={palette[key]}
-                    onChange={(e) => setPalette((prev) => ({ ...prev, [key]: e.target.value }))}
-                    className="h-8 w-full cursor-pointer rounded-md border border-border bg-transparent p-0.5"
-                  />
-                  <span className={`truncate ${label}`}>{t.terminal.palette[key]}</span>
-                </label>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </SettingCard>
     </div>
   );
 }
