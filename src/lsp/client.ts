@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { encodeMessage, MessageDecoder, type JsonRpcMessage } from './protocol.js';
-import { commandExists, type LanguageServerSpec } from './servers.js';
+import { resolveServerCommand, type LanguageServerSpec } from './servers.js';
 
 /** One diagnostic the agent cares about: where it is and what's wrong. Flattened from the LSP shape so
  *  the rest of Orca never touches raw protocol objects. Lines/columns are 1-based (editor convention)
@@ -59,9 +59,11 @@ export interface LspTransport {
  *  an async 'error' event, so relying on a try/catch would return a dead-pipe transport that stalls every
  *  request. The child is detached-safe: on error/exit the transport notifies so the client can fail fast. */
 export function spawnStdioTransport(spec: LanguageServerSpec, cwd: string): LspTransport | null {
-  if (!commandExists(spec.command)) return null;
+  // Resolved (not bare) command: servers installed into Orca's own LSP prefix aren't on the daemon's PATH.
+  const bin = resolveServerCommand(spec.command);
+  if (!bin) return null;
   let child;
-  try { child = spawn(spec.command, spec.args, { cwd, stdio: ['pipe', 'pipe', 'ignore'] }); }
+  try { child = spawn(bin, spec.args, { cwd, stdio: ['pipe', 'pipe', 'ignore'] }); }
   catch { return null; }
   const decoder = new MessageDecoder();
   let alive = true;

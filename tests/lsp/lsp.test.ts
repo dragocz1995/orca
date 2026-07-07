@@ -1,7 +1,10 @@
 import { runWithPolicy } from '../../src/plugins/policyContext.js';
 import { describe, it, expect } from 'vitest';
 import { encodeMessage, MessageDecoder } from '../../src/lsp/protocol.js';
-import { detectLanguage, serverForLanguage, commandExists, listServers } from '../../src/lsp/servers.js';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { detectLanguage, serverForLanguage, commandExists, listServers, resolveServerCommand } from '../../src/lsp/servers.js';
 import { parsePublishDiagnostics, LspClient, type LspTransport, type JsonRpcMessage } from '../../src/lsp/client.js';
 import { LspManager, formatCheckResult } from '../../src/lsp/manager.js';
 import { buildLspTools, toggleLsp, lspManager } from '../../src/brain/tools/lspTools.js';
@@ -73,6 +76,21 @@ describe('LSP server registry', () => {
     expect(commandExists('node', { PATH: process.env.PATH } as NodeJS.ProcessEnv)).toBe(true);
     expect(commandExists('definitely-not-a-real-binary-xyz', { PATH: process.env.PATH } as NodeJS.ProcessEnv)).toBe(false);
     expect(commandExists('anything', { PATH: '' } as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  it("resolves servers from Orca's own LSP prefix even when they are not on PATH", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-lsp-'));
+    const prev = process.env.ORCA_DB;
+    process.env.ORCA_DB = join(dir, 'orca.db'); // lspPrefixDir → <dir>/lsp
+    try {
+      mkdirSync(join(dir, 'lsp', 'bin'), { recursive: true });
+      writeFileSync(join(dir, 'lsp', 'bin', 'fake-server'), '#!/bin/sh\n');
+      expect(resolveServerCommand('fake-server', { PATH: '' } as NodeJS.ProcessEnv)).toBe(join(dir, 'lsp', 'bin', 'fake-server'));
+      expect(commandExists('fake-server', { PATH: '' } as NodeJS.ProcessEnv)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.ORCA_DB; else process.env.ORCA_DB = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
