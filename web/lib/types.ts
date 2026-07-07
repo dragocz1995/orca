@@ -77,19 +77,19 @@ export interface ToolOutputView {
   status?: string;
   tone?: 'normal' | 'success' | 'warning' | 'danger';
 }
-export type BrainSegment =
+type BrainSegment =
   | { kind: 'text'; text: string }
   | { kind: 'tool'; name: string; detail?: string; diff?: string; output?: ToolOutputView };
 export interface BrainMessage { role: string; text: string; segments?: BrainSegment[] }
 
 /** ask_user_question wire shapes (mirror src/brain/events.ts). The `ask` SSE event carries `id` +
  *  `questions`; the client POSTs `answers` back to /brain/answer. */
-export interface AskOption { label: string; description?: string }
+interface AskOption { label: string; description?: string }
 export interface AskQuestion { question: string; header: string; multiSelect: boolean; options: AskOption[] }
 export interface AskAnswer { header: string; selected: string[]; other?: string }
 
 /** ctx.emitCard display card (mirror src/brain/events.ts) — a live panel keyed by `id`. */
-export interface BrainCardItem { text: string; status?: 'pending' | 'in_progress' | 'completed' }
+interface BrainCardItem { text: string; status?: 'pending' | 'in_progress' | 'completed' }
 export interface BrainCard { id: string; title?: string; items?: BrainCardItem[]; body?: string; pinned?: boolean }
 /** Live statusline numbers for the active conversation. */
 export interface BrainUsage { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
@@ -120,10 +120,10 @@ export interface ConfigPatch {
   /** Wholesale brain provider list; an entry may carry `apiKey` to (re)set that provider's secret. */
   brain?: { providers?: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number> };
 }
-export interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null; labels?: string[]; outcome?: TaskOutcome | null }
+interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null; labels?: string[]; outcome?: TaskOutcome | null }
 interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }
-export interface MissionDeps { taskId: string; dependsOnId: string }
-export interface MissionPrInfo { branch: string; prNumber: number | null; prUrl: string | null; prState: string | null; fixRounds: number; lastFeedback: string | null }
+interface MissionDeps { taskId: string; dependsOnId: string }
+interface MissionPrInfo { branch: string; prNumber: number | null; prUrl: string | null; prState: string | null; fixRounds: number; lastFeedback: string | null }
 export interface MissionDetail {
   mission: Mission;
   epic: MissionTask | null;
@@ -223,7 +223,7 @@ export interface PluginInfo {
 }
 
 /** Localized overrides for a plugin's manifest strings, keyed by config-field key. */
-export interface PluginI18n {
+interface PluginI18n {
   description?: string;
   fields?: Record<string, { label?: string; hint?: string }>;
 }
@@ -291,7 +291,7 @@ export interface McpServerSpec { name: string; command: string; args: string[]; 
  *  means the plugin CANNOT perform that action: `mutates` lists the runtime mutation targets it is allowed
  *  to touch (only `turnContext` is runtime-wired in v1), `network` flags outbound access, `reads` names the
  *  data surfaces it reads, `hooks` the hook points it subscribes to. `{}` = declares nothing → mutates nothing. */
-export interface PluginCapabilities {
+interface PluginCapabilities {
   hooks?: string[];
   mutates?: ('prompt' | 'turnContext' | 'tools' | 'memory')[];
   reads?: string[];
@@ -322,7 +322,7 @@ export interface PluginContributions {
 }
 
 /** One entry of a plugin's bounded log ring buffer (scope-stripped, oldest-first). */
-export interface PluginLogEntry {
+interface PluginLogEntry {
   ts: number;
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
@@ -451,7 +451,7 @@ export interface SystemInfo {
 
 /** Per-provider install status of the `orca-workflow` agent skill (Settings → System). The backend also
  *  returns a parsed `version`, but the panel renders only the derived state below, so it's omitted here. */
-export interface SkillStatus {
+interface SkillStatus {
   provider: string;
   present: boolean;
   installed: boolean;
@@ -585,7 +585,7 @@ export interface RetrievalResult {
 }
 
 /** Where a cost figure came from, so the UI never presents an estimate as billed truth. */
-export type CostSource = 'provider_reported' | 'calculated' | 'unavailable';
+type CostSource = 'provider_reported' | 'calculated' | 'unavailable';
 
 /** Token/cost usage for a task's agent run, read from the executor CLI's local session storage or the
  *  embedded brain's session (+ the provider's reported cost, when it sends one). */
@@ -614,7 +614,7 @@ export interface ModelUsage {
  *  role (e.g. memory tools every session gets), not a per-user grant; `disabled` = an admin switched
  *  this plugin tool off for the user; `unavailable` = out of reach (e.g. the operator-only orca_*
  *  control plane for a non-admin). */
-export type UserToolState = 'allowed' | 'inherited' | 'disabled' | 'unavailable';
+type UserToolState = 'allowed' | 'inherited' | 'disabled' | 'unavailable';
 
 /** One tool on the users-panel access overview. `icon` is a manifest/built-in emoji, or null → the
  *  client renders a fallback glyph. `plugin` is the owning plugin id, or null for built-ins.

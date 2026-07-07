@@ -24,12 +24,12 @@ export type TranscriptEvent =
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment → the
  *  Claude-Code "grouped pills" look. Useful tool output previews attach to their matching item. */
 export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string; output?: ToolOutputView; id?: string }
-export type Segment =
+type Segment =
   | { kind: 'text'; text: string }
   | { kind: 'reasoning'; text: string }
   | { kind: 'tools'; items: ToolItem[] };
-export type YouTurn = { role: 'you'; text: string };
-export type OrcaTurn = { role: 'orca'; segments: Segment[]; streaming: boolean };
+type YouTurn = { role: 'you'; text: string };
+type OrcaTurn = { role: 'orca'; segments: Segment[]; streaming: boolean };
 export type ChatTurn = YouTurn | OrcaTurn;
 
 /** The whole view model the dock renders. `notice` is a transient runtime line (retry/compaction). */

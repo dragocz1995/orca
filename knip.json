@@ -2,22 +2,49 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["plugins/**/index.mjs"],
-      "project": ["src/**/*.ts", "tests/**/*.ts", "plugins/**/*.mjs"]
+      "entry": [
+        "plugins/**/index.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "plugins/**/*.mjs"
+      ]
     },
     "web": {
-      "entry": ["app/providers.tsx"]
+      "entry": [
+        "app/providers.tsx"
+      ]
     }
   },
-  "ignore": ["web/public/sw.js"],
-  "ignoreBinaries": ["tmux", "which", "dot", "gh", "orca"],
+  "ignoreBinaries": [
+    "tmux",
+    "which",
+    "dot",
+    "gh",
+    "orca"
+  ],
   "ignoreIssues": {
-    "web/lib/types.ts": ["types"],
-    "web/lib/i18n/types.ts": ["types"],
-    "web/lib/i18n/dictionaries/index.ts": ["types"],
-    "src/integrations/cliDetection.ts": ["types"],
-    "src/plugins/api.ts": ["types"],
-    "src/brain/transcript.ts": ["types"],
-    "web/lib/transcript.ts": ["types", "exports"]
-  }
+    "web/lib/i18n/types.ts": [
+      "types"
+    ],
+    "web/lib/i18n/dictionaries/index.ts": [
+      "types"
+    ],
+    "src/integrations/cliDetection.ts": [
+      "types"
+    ],
+    "src/plugins/api.ts": [
+      "types"
+    ],
+    "src/brain/transcript.ts": [
+      "types"
+    ],
+    "web/lib/transcript.ts": [
+      "exports"
+    ]
+  },
+  "ignore": [
+    "web/public/sw.js"
+  ]
 }
