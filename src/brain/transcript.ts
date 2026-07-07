@@ -11,7 +11,19 @@ import type { ToolOutputView } from './messageView.js';
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment — the
  *  Claude-Code "grouped" look. Tool outputs are attached only when the daemon marks a compact preview
  *  as useful enough to show (tests, shell errors, browser/search observations). */
-export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string; output?: ToolOutputView; id?: string; command?: string }
+export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string; output?: ToolOutputView; id?: string; command?: string; sub?: SubagentState }
+
+/** Live progress of a delegated sub-agent, attached to its `delegate` tool item by call id — what the
+ *  CLI renders as the `↳ …` line under the tool row (current child tool, counters, drill-in target). */
+export interface SubagentState {
+  sessionId: string;
+  status: 'running' | 'done' | 'error';
+  task: string;
+  detail?: string;
+  tools: number;
+  tokens?: number;
+  seconds: number;
+}
 export type Segment =
   | { kind: 'text'; text: string }
   /** The model's reasoning/thinking stream — rendered dim + separate from the answer. */
@@ -132,6 +144,16 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
       attachToTool(t, e.id, (item) => ({
         ...item,
         output: item.command && !e.output.command ? { ...e.output, command: item.command } : e.output,
+      }));
+      return { turns, thinking: true, notice: view.notice };
+    }
+    case 'subagent': {
+      // Live progress of a delegated child run — attach to the matching `delegate` tool item so the
+      // renderer can draw the `↳ current tool · Ns · tokens` line and offer the drill-in target.
+      const t = ensureOrca();
+      attachToTool(t, e.id, (item) => ({
+        ...item,
+        sub: { sessionId: e.sessionId, status: e.status, task: e.task, detail: e.detail, tools: e.tools, tokens: e.tokens, seconds: e.seconds },
       }));
       return { turns, thinking: true, notice: view.notice };
     }

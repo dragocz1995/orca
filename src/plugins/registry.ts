@@ -6,7 +6,7 @@ import type { PluginCapabilities, PluginCommand, PluginContext, PluginControl, P
 import { isBuiltinCommand } from '../brain/slashCommands.js';
 import type { PluginManifest } from './manifest.js';
 import { assertPathAllowed, allowedRoots, defaultCwd, isAllAccess, currentAccess } from './pathGuard.js';
-import { currentIdentity, currentElicitor, currentCardEmitter, currentWorkDir } from './policyContext.js';
+import { currentIdentity, currentElicitor, currentCardEmitter, currentSubagentEmitter, currentWorkDir } from './policyContext.js';
 import type { AskAnswer } from '../brain/events.js';
 
 /** Recursively collect every string value in a plugin's config slice — the set of provider ids the
@@ -175,6 +175,7 @@ export class PluginRegistry {
       // Fire-and-forget display card into the current conversation (no-op outside an interactive turn —
       // e.g. cron/worker sessions wire no emitter). Reads the emitter off the same ALS as askUser.
       emitCard: (card) => { currentCardEmitter()?.(card); },
+      subagentEmitter: currentSubagentEmitter,
       notify: notify ?? (async () => { /* no notification sink wired */ }),
       listModels: listModels ?? (async () => []),
       // Gate central-key access (deny-by-default): a plugin may resolve a provider only if that id was

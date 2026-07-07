@@ -166,6 +166,10 @@ export class ChannelSessionService {
       // Optional live streaming (Discord edit-in-place): forward this turn's events to the caller.
       const onEvent = opts.onEvent;
       const detach = onEvent ? (ch.listeners.add(onEvent), () => ch.listeners.delete(onEvent)) : undefined;
+      // Tell the caller which persisted session this channel runs as, BEFORE the turn starts — the
+      // delegate plugin keys its live progress row on the child's session id (and the CLI drills into
+      // the child transcript with it). Consumers that don't care (Discord) ignore the event type.
+      onEvent?.({ type: 'session', sessionId });
       // Turn-bound elicitor: ctx.askUser emits the `ask` event to the channel's listeners (so the Discord
       // adapter renders the choice components) and parks the answer in the shared registry, resolved by
       // the platform's interaction handler via BrainService.answerQuestion.

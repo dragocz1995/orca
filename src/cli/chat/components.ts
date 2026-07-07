@@ -11,6 +11,15 @@ import { padAnsi } from '../ui/text.js';
 /** Bold that resets ONLY bold (\x1b[22m), so it never clears the surrounding background. */
 const bold = (s: string): string => `\x1b[1m${s}\x1b[22m`;
 
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+/** Time-based braille spinner frame — every render advances it (the app re-renders on a 250ms ticker
+ *  while a turn streams, so animation needs no timer of its own). Shared by the prompt meta chip and
+ *  the live sub-agent row. */
+export function spinnerFrame(now = Date.now()): string {
+  return SPINNER_FRAMES[Math.floor(now / 120) % SPINNER_FRAMES.length]!;
+}
+
 const WHITE = color.text;
 const DIM = color.dim;
 const FAINTC = color.faint;

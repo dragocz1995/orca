@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Policy } from './policy.js';
-import type { AskAnswer, AskQuestion } from '../brain/events.js';
+import type { AskAnswer, AskQuestion, SubagentUpdate } from '../brain/events.js';
 
 /** Ask the current user one or more multiple-choice questions and await their pick(s). Bound per-turn by
  *  BrainService (it knows which conversation's clients to emit to and where to park the answer). */
@@ -9,6 +9,10 @@ export type Elicitor = (questions: AskQuestion[]) => Promise<AskAnswer[]>;
 /** Push a display card to the current conversation's clients (see `ctx.emitCard`). Bound per-turn by
  *  BrainService to the active conversation's card registry + listener set. */
 export type CardEmitter = (card: unknown) => void;
+
+/** Push live sub-agent progress to the current conversation's clients as `subagent` BrainEvents.
+ *  Bound per-turn by BrainService (see `ctx.subagentEmitter`). */
+export type SubagentEmitter = (update: SubagentUpdate) => void;
 
 /** Who is driving the current prompt turn. Plugins that persist per-user state (long-term memory)
  *  key it on this: a linked platform sender resolves to their Orca username, an unknown sender to
@@ -47,7 +51,7 @@ export function toolPermitted(name: string, tp: ToolPolicy | undefined): boolean
   return true;
 }
 
-interface TurnScope { policy: Policy; workDir?: string; identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; toolPolicy?: ToolPolicy }
+interface TurnScope { policy: Policy; workDir?: string; identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; emitSubagent?: SubagentEmitter; toolPolicy?: ToolPolicy }
 
 /** pi tools have no per-call session context, so a plugin tool can't be told which user's policy applies
  *  through its arguments. We carry the resolved Policy (+ the sender's identity + their effective tool
@@ -59,8 +63,8 @@ const store = new AsyncLocalStorage<TurnScope>();
 /** Run `fn` (a brain prompt turn) with `policy` established for any plugin tool it invokes. `opts`
  *  carries the sender's identity, a turn-bound elicitor/card-emitter, and the effective tool policy —
  *  all read at tool-execute time via the `current*()` accessors. */
-export function runWithPolicy<T>(policy: Policy, fn: () => T, opts?: { workDir?: string; identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; toolPolicy?: ToolPolicy }): T {
-  return store.run({ policy, workDir: opts?.workDir, identity: opts?.identity, elicit: opts?.elicit, emitCard: opts?.emitCard, toolPolicy: opts?.toolPolicy }, fn);
+export function runWithPolicy<T>(policy: Policy, fn: () => T, opts?: { workDir?: string; identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; emitSubagent?: SubagentEmitter; toolPolicy?: ToolPolicy }): T {
+  return store.run({ policy, workDir: opts?.workDir, identity: opts?.identity, elicit: opts?.elicit, emitCard: opts?.emitCard, emitSubagent: opts?.emitSubagent, toolPolicy: opts?.toolPolicy }, fn);
 }
 
 /** The Policy in effect for the current prompt turn, or undefined outside a `runWithPolicy` scope. */
@@ -90,6 +94,14 @@ export function currentToolPolicy(): ToolPolicy | undefined {
  *  driving the turn wired none — e.g. non-interactive worker sessions). */
 export function currentElicitor(): Elicitor | null {
   return store.getStore()?.elicit ?? null;
+}
+
+/** The turn-bound sub-agent progress emitter, or null outside a prompt turn (or a transport that wired
+ *  none — e.g. worker/cron sessions). Captured ONCE by the delegating tool before it spawns the child:
+ *  callbacks fired from the child's own turn run inside the CHILD's scope, where this would resolve to
+ *  nothing useful. */
+export function currentSubagentEmitter(): SubagentEmitter | null {
+  return store.getStore()?.emitSubagent ?? null;
 }
 
 /** The turn-bound card emitter for `ctx.emitCard`, or null outside a prompt turn (or a transport that

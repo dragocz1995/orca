@@ -277,8 +277,11 @@ export class BrainClient {
     return (await res.json()) as GoalView;
   }
 
-  async history(): Promise<BrainMessageView[]> {
-    const res = await this.f(`${this.o.base}/brain/messages`, { headers: this.headers() });
+  /** Transcript of the active conversation, or of an explicit session id (e.g. a delegated sub-agent's
+   *  `brain-ch-subagent-…` session for the read-only drill-in view). */
+  async history(session?: string): Promise<BrainMessageView[]> {
+    const qs = session ? `?session=${encodeURIComponent(session)}` : '';
+    const res = await this.f(`${this.o.base}/brain/messages${qs}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/messages`);
     return (await res.json()) as BrainMessageView[];

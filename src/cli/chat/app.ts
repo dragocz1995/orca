@@ -4,7 +4,7 @@ import { TUI, ProcessTerminal, Container, matchesKey, CombinedAutocompleteProvid
 import { initTheme, getMarkdownTheme, getSelectListTheme } from '@earendil-works/pi-coding-agent';
 import { chatThemeItems, color, glyph, isChatThemeName, setChatTheme, setCustomChatTheme } from './theme.js';
 import { loadPrefs, savePrefs } from './prefs.js';
-import { StatusBar, CardPanel } from './components.js';
+import { StatusBar, CardPanel, spinnerFrame } from './components.js';
 import { ChatEditor, sessionItems, modelItems, parseModelValue, openPicker, openTextInput, openInfoModal } from './picker.js';
 import { runAskFlow } from './askFlow.js';
 import { BrainClient, type BrainProviderView, type BrainWorkMode, type McpServerView } from './brainClient.js';
@@ -99,13 +99,11 @@ export function isSlashCommandDraft(text: string): boolean {
   return /^\/[^\s/]*$/.test(text);
 }
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
 /** The animated "model is generating" chip for the prompt meta line — a subtle spinner + elapsed
  *  seconds next to the reasoning level, replacing the old `thinking… Ns` transcript line (which kept
  *  pushing the conversation around). Time-based frame so every render advances it. */
-function generatingChip(seconds: number, now = Date.now()): string {
-  return `${color.accent(SPINNER_FRAMES[Math.floor(now / 120) % SPINNER_FRAMES.length]!)} ${color.faint(`${seconds}s`)}`;
+function generatingChip(seconds: number): string {
+  return `${color.accent(spinnerFrame())} ${color.faint(`${seconds}s`)}`;
 }
 
 function modelMetaLine(mode: BrainWorkMode, modelName: string, thinkingLevel: string, generating?: string): string {
@@ -314,6 +312,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     panelHandle.setHidden(hidden);
   };
 
+  // Read-only drill-in to a delegated sub-agent's transcript (opened by clicking its live row or
+  // ctrl+o). Purely local: the server session stays targeted at the PARENT conversation — Esc returns.
+  let childView: { sessionId: string; view: ChatView; refreshQueued?: boolean } | null = null;
+
   let thinkStart = 0;
   const render = (): void => {
     if (view.thinking) {
@@ -322,11 +324,18 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       thinkStart = 0;
     }
     currentRunSeconds = thinkStart ? Math.max(0, Math.round((Date.now() - thinkStart) / 1000)) : 0;
-    viewport.setState({ view, notice, modelName, thinkingSeconds: currentRunSeconds });
-    // Contextual footer: while streaming, Esc interrupts.
-    bottomBar.setLeft(view.thinking
-      ? color.faint('  esc interrupt   ·   /help commands   ·   ctrl+r reasoning')
-      : color.faint('  ⏎ send   ·   / slash   ·   shift+tab mode   ·   ctrl+r reasoning   ·   ctrl+p telemetry'));
+    viewport.setState({
+      view: childView?.view ?? view,
+      notice: childView ? color.dim('· sub-agent session (read-only)') : notice,
+      modelName,
+      thinkingSeconds: currentRunSeconds,
+    });
+    // Contextual footer: while streaming, Esc interrupts; inside a sub-agent view, Esc returns.
+    bottomBar.setLeft(childView
+      ? color.faint('  esc back to conversation   ·   sub-agent transcript is read-only')
+      : view.thinking
+        ? color.faint(`  esc interrupt   ·   /help commands   ·   ctrl+r reasoning${latestSubagent() ? '   ·   ctrl+o subagent' : ''}`)
+        : color.faint('  ⏎ send   ·   / slash   ·   shift+tab mode   ·   ctrl+r reasoning   ·   ctrl+p telemetry'));
     const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
     const line = statusline(lineCfg ? { ...lineCfg, showModel: false } : null, usage, modelName);
     promptMeta.setLeft(modelMetaLine(workMode, modelName, thinkingLevel, view.thinking ? generatingChip(currentRunSeconds) : undefined));
@@ -915,6 +924,42 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     tui.requestRender();
   };
 
+  /** The most recent delegated sub-agent in the parent transcript (running preferred, else last seen) —
+   *  the ctrl+o target. */
+  const latestSubagent = (): string | null => {
+    let last: string | null = null;
+    for (const turn of view.turns) {
+      if (turn.role !== 'orca') continue;
+      for (const seg of turn.segments) {
+        if (seg.kind !== 'tools') continue;
+        for (const item of seg.items) if (item.sub) last = item.sub.status === 'running' ? item.sub.sessionId : (last ?? item.sub.sessionId);
+      }
+    }
+    return last;
+  };
+
+  /** Open (or refresh) the read-only view of a sub-agent's transcript. */
+  const openSubagent = async (sessionId: string): Promise<void> => {
+    const msgs = await client.history(sessionId).catch(() => null);
+    if (!msgs) { notice = color.error('could not load the sub-agent transcript'); render(); return; }
+    childView = { sessionId, view: fromHistory(msgs) };
+    render();
+  };
+
+  /** Live follow: a `subagent` progress event for the OPEN child refreshes its transcript, throttled to
+   *  one in-flight fetch (updates ride tool starts/steps, so this stays a light poll-on-signal). */
+  const refreshOpenSubagent = (sessionId: string): void => {
+    if (!childView || childView.sessionId !== sessionId || childView.refreshQueued) return;
+    childView.refreshQueued = true;
+    setTimeout(() => {
+      void client.history(sessionId).then((msgs) => {
+        if (childView?.sessionId !== sessionId) return;
+        childView = { sessionId, view: fromHistory(msgs) };
+        render();
+      }).catch(() => { if (childView?.sessionId === sessionId) childView.refreshQueued = false; });
+    }, 700);
+  };
+
   let streamAc = new AbortController();
   // `ac` is captured by the CALLER at switch time: two rapid switches (`/new` + `/model` mid-roundtrip)
   // both pass their own controller, and the superseded one bails here instead of opening a second live
@@ -933,6 +978,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       }
       if (e.type === 'step' && e.usage) usage = e.usage;
       if (e.type === 'card') cards = upsertCard(cards, e.card); // update the persistent panel (not part of the ChatView)
+      // Sub-agent progress: the shared fold attaches it to the delegate tool row; if the user is
+      // currently INSIDE that child's transcript, also refresh what they're looking at.
+      if (e.type === 'subagent') refreshOpenSubagent(e.sessionId);
       // Idle rollover: the server continued this message in a FRESH conversation. The SENDING client's
       // last turn is the just-typed message, so the shared fold trims correctly; a passively connected
       // client (second CLI/web on the same account) has no fresh local user turn — folding would carry
@@ -966,6 +1014,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   editor.onSubmit = (text: string): void => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (childView) childView = null; // sending always talks to the PARENT — snap back so the user sees it
     editor.addToHistory(trimmed); // Up-arrow recall of sent inputs (session-local, capped by the editor)
     editor.setText('');
     notice = '';
@@ -1142,9 +1191,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     }
   };
 
-  // Esc while a turn streams aborts it server-side (agent_end → idle winds the spinner down). When idle
-  // it returns false so Esc falls through to the base editor instead of being swallowed.
+  // Esc closes an open sub-agent view first; while a turn streams it aborts server-side (agent_end →
+  // idle winds the spinner down). When idle it returns false so Esc falls through to the base editor.
   editor.onEscape = (): boolean => {
+    if (childView) { childView = null; render(); return true; }
     if (!view.thinking) return false;
     void client.abort().catch(() => { /* already idle */ });
     return true;
@@ -1220,6 +1270,11 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     // The start screen has no transcript, so those interactions also need a rendered chat stack.
     const noModal = editor.focused && !slashHandle && hasMessages();
     const click = mouseClick(data);
+    // A sub-agent row opens the child transcript (its own registry — these rows don't expand in place).
+    if (click && noModal && !childView) {
+      const subId = viewport.subagentAt(click.x, click.y);
+      if (subId) { void openSubagent(subId); return { consume: true }; }
+    }
     if (click && noModal && viewport.isThoughtRow(click.x, click.y)) {
       viewport.toggleThought(click.y);
       tui.requestRender();
@@ -1272,6 +1327,14 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     }
     if (editing && matchesKey(data, 'ctrl+r')) {
       cycleThinkingLevel();
+      return { consume: true };
+    }
+    // ctrl+o toggles into/out of the most recent sub-agent's transcript (mirrors clicking its row).
+    if (editing && matchesKey(data, 'ctrl+o')) {
+      if (childView) { childView = null; render(); return { consume: true }; }
+      const subId = latestSubagent();
+      if (subId) void openSubagent(subId);
+      else { notice = color.dim('no sub-agent in this conversation yet'); render(); }
       return { consume: true };
     }
     if (editing && isModeToggleKey(data)) {

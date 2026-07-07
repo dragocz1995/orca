@@ -1,9 +1,9 @@
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import type { Component, MarkdownTheme } from '@earendil-works/pi-tui';
-import { framedDiffBlock, toolOutputBlock, UserBlock } from './components.js';
+import { framedDiffBlock, spinnerFrame, toolOutputBlock, UserBlock } from './components.js';
 import { ansi, chatTheme, color, glyph } from './theme.js';
 import type { BrainUsageView, McpServerView } from './brainClient.js';
-import type { ChatView } from '../../brain/transcript.js';
+import type { ChatView, ToolItem } from '../../brain/transcript.js';
 import { formatK, padAnsi } from '../ui/text.js';
 
 export const TOP_RULE_ROWS = 1;
@@ -57,7 +57,7 @@ function toolTitle(name: string, detail?: string): string {
 
 interface TranscriptRow {
   line: string;
-  kind?: 'thought' | 'expandable';
+  kind?: 'thought' | 'expandable' | 'subagent';
   key?: string;
 }
 
@@ -183,6 +183,7 @@ export class ChatViewport implements Component {
   private totalLines = 0;
   private scrollbarColumn = 0;
   private expandableRows = new Map<number, string>();
+  private subagentRows = new Map<number, string>();
   private expandedThoughts = new Set<string>();
   private expandedTools = new Set<string>();
 
@@ -209,6 +210,14 @@ export class ChatViewport implements Component {
   isThoughtRow(x: number, absRow: number): boolean {
     const localRow = absRow - this.getTopRow() + 1;
     return x >= 1 && x <= this.scrollbarColumn - 2 && this.expandableRows.has(localRow);
+  }
+
+  /** The sub-agent session id under a click, or null — subagent rows open the child transcript
+   *  instead of expanding in place, so they live in their own registry. */
+  subagentAt(x: number, absRow: number): string | null {
+    const localRow = absRow - this.getTopRow() + 1;
+    if (x < 1 || x > this.scrollbarColumn - 2) return null;
+    return this.subagentRows.get(localRow) ?? null;
   }
 
   toggleThought(absRow: number): void {
@@ -251,12 +260,14 @@ export class ChatViewport implements Component {
     this.scrollbarColumn = chatWidth;
     this.totalLines = rows.length;
     this.expandableRows = new Map();
+    this.subagentRows = new Map();
 
     const start = Math.max(0, rows.length - height - this.scrollOffset);
     const visible = rows.slice(start, start + height);
     while (visible.length < height) visible.push({ line: '' });
     return visible.map((entry, i) => {
       if ((entry.kind === 'thought' || entry.kind === 'expandable') && entry.key) this.expandableRows.set(i + 1, entry.key);
+      if (entry.kind === 'subagent' && entry.key) this.subagentRows.set(i + 1, entry.key);
       const content = i === 0 && this.scrollOffset > 0
         ? this.historyChip(entry.line, chatWidth - 2)
         : entry.line;
@@ -279,6 +290,11 @@ export class ChatViewport implements Component {
         if (seg.kind === 'tools') {
           for (const item of seg.items) {
             const keyBase = item.id ? `tool:${item.id}` : `tool:${turnIndex}:${segIndex}:${item.name}:${item.detail ?? ''}`;
+            if (item.sub) {
+              // A delegated sub-agent: header with its task + a live `↳` line mirroring what the child
+              // is doing right now (opencode-style). Both rows are clickable → open the child transcript.
+              for (const line of this.subagentBlock(item.sub, width)) add(line.line, line.kind, line.key);
+            }
             if (item.diff) {
               for (const line of framedDiffBlock(item.diff, width, toolTitle(item.name, item.detail))) add(line);
             }
@@ -289,7 +305,7 @@ export class ChatViewport implements Component {
               if (item.output.fullText && item.output.fullText !== item.output.text) {
                 for (let i = before + 1; i <= rows.length; i++) rows[i - 1] = { ...rows[i - 1]!, kind: 'expandable', key: keyBase };
               }
-            } else if (!item.diff) {
+            } else if (!item.diff && !item.sub) {
               // A shell/console tool that finished silently still shows its command on its own line.
               if (item.command) add(`  ${color.faint('$')} ${color.text(truncateToWidth(item.command, Math.max(12, width - 10), '…'))} ${color.faint('· done')}`);
               else add(`  ${color.success('●')} ${color.dim(toolTitle(item.name, item.detail))}`);
@@ -321,6 +337,30 @@ export class ChatViewport implements Component {
     // No "thinking… Ns" transcript line — the generating state animates in the prompt meta line
     // under the input instead (a line under the message just pushed the conversation around).
     return rows;
+  }
+
+  /** The two-row sub-agent block: `⠼ Sub-agent — <task>` while running (✓/✗ when settled) plus a faint
+   *  `↳` line with the child's current tool, elapsed seconds and token spend. Every row carries the
+   *  child session id so a click can open its transcript. */
+  private subagentBlock(sub: NonNullable<ToolItem['sub']>, width: number): TranscriptRow[] {
+    const out: TranscriptRow[] = [];
+    const glyphFor = sub.status === 'running' ? color.accent(spinnerFrame())
+      : sub.status === 'done' ? color.success('✓') : color.error('✗');
+    const task = truncateToWidth(sub.task.replace(/\s+/g, ' ').trim(), Math.max(12, width - 26), '…');
+    out.push({ line: '' });
+    out.push({
+      line: `  ${glyphFor} ${color.text('Sub-agent')} ${color.faint('click')} ${color.dim(task)}`,
+      kind: 'subagent', key: sub.sessionId,
+    });
+    const tok = sub.tokens ? `${formatK(sub.tokens)} tok` : '';
+    const parts = sub.status === 'running'
+      ? [sub.detail ?? 'starting…', `${sub.seconds}s`, tok]
+      : [`${sub.tools} tool${sub.tools === 1 ? '' : 's'}`, `${sub.seconds}s`, tok];
+    out.push({
+      line: `    ${color.faint(truncateToWidth(`↳ ${parts.filter(Boolean).join(' · ')}`, Math.max(12, width - 6), '…'))}`,
+      kind: 'subagent', key: sub.sessionId,
+    });
+    return out;
   }
 
   private historyChip(line: string, width: number): string {

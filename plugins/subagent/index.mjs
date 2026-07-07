@@ -26,12 +26,29 @@ export function register(ctx) {
     parameters: Type.Object({
       task: Type.String({ description: 'The complete, self-contained instruction for the sub-agent — it does not see this conversation.' }),
     }),
-    execute: async (_id, p) => {
+    execute: async (id, p) => {
       if (!run) return ok('Error: delegation is not wired up on this server.');
       const access = { ...ctx.currentAccess(), prompt: 'You are a focused sub-agent. Complete the task and report the result concisely — no preamble.' };
       const channelId = `sub-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      const reply = await run({ platform: 'subagent', userId: 'subagent', roleIds: [], channelId, access }, p.task)
-        .catch((e) => `Error: ${e?.message ?? e}`);
+      // Capture the PARENT turn's progress emitter NOW: the child's event callbacks below run inside the
+      // CHILD session's turn scope, where ctx accessors no longer resolve to the delegating conversation.
+      const emit = ctx.subagentEmitter();
+      const started = Date.now();
+      const st = { sessionId: '', tools: 0, detail: undefined, tokens: undefined };
+      const push = (status) => {
+        if (!emit || !st.sessionId) return;
+        emit({ id, sessionId: st.sessionId, status, task: p.task, detail: st.detail, tools: st.tools, tokens: st.tokens, seconds: Math.round((Date.now() - started) / 1000) });
+      };
+      // Distil the child's live stream into progress updates: which tool it runs, how many so far, its
+      // token spend. Low-frequency events only (tool starts + step boundaries) — text deltas are ignored.
+      const onEvent = (e) => {
+        if (e.type === 'session' && e.sessionId) { st.sessionId = e.sessionId; push('running'); }
+        else if (e.type === 'tool' && e.name) { st.tools += 1; st.detail = e.detail ? `${e.name} ${e.detail}` : e.name; push('running'); }
+        else if ((e.type === 'step' || e.type === 'idle') && e.usage?.totalTokens) { st.tokens = e.usage.totalTokens; push('running'); }
+      };
+      const reply = await run({ platform: 'subagent', userId: 'subagent', roleIds: [], channelId, access }, p.task, onEvent)
+        .catch((e) => { push('error'); return `Error: ${e?.message ?? e}`; });
+      if (!reply?.startsWith('Error:')) push('done');
       return ok(reply || '(the sub-agent returned nothing)');
     },
   }));

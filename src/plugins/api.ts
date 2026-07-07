@@ -1,5 +1,5 @@
 import type { Skill, ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { TurnIdentity } from './policyContext.js';
+import type { SubagentEmitter, TurnIdentity } from './policyContext.js';
 import type { AskAnswer, AskQuestion, BrainCard } from '../brain/events.js';
 
 /** A skill contributed by a plugin. Reuses pi's file-backed `Skill` (name/description/filePath…), so it
@@ -206,6 +206,12 @@ export interface PluginContext {
    *  above the status bar) — a non-pinned card won't surface there. No-op outside an interactive prompt
    *  turn (cron/worker sessions wire no emitter). */
   emitCard(card: BrainCard): void;
+  /** The current turn's live sub-agent progress emitter, or null when the transport wired none
+   *  (worker/cron sessions, platforms without a live stream). A delegating plugin MUST capture this
+   *  BEFORE spawning its child: callbacks fired from the child's turn run inside the CHILD's scope,
+   *  where the accessor no longer resolves to the delegating conversation. Each update fans out to the
+   *  parent's clients as a `subagent` BrainEvent (live row in the CLI transcript). */
+  subagentEmitter(): SubagentEmitter | null;
   /** Pickable brain models across every configured provider (feeds the Discord /model dropdown).
    *  Empty when nothing is wired. */
   listModels(): Promise<{ provider: string; providerLabel: string; model: string }[]>;

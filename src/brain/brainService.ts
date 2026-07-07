@@ -42,7 +42,7 @@ import { PlatformOrchestrator } from './platforms.js';
 import { shapeBrainMessages } from './messageView.js';
 import type { BrainMessageView } from './messageView.js';
 import { toBrainEvent, usageOf, runCompaction } from './events.js';
-import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult } from './events.js';
+import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult, SubagentUpdate } from './events.js';
 import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from './sessionId.js';
 import { allSubgoalsDone, applySubgoalDone, goalContinuePrompt, goalDraft, goalPrompt, judgeGoalBlocked, judgeGoalCompletion, lastAssistantText, parseProgress, parseSubgoalDone, parseSubgoals } from './goal.js';
 import { rolloverDue } from './session/idleRollover.js';
@@ -977,6 +977,9 @@ export class BrainService {
       const elicit = (qs: AskQuestion[]) => this.elicitation.ask(live.sessionId, qs, (e) => { for (const l of live.listeners) l(e); });
       // ctx.emitCard: update the conversation's card registry and broadcast a `card` event to its clients.
       const emitCard = (raw: unknown) => { const card = this.cards.set(live.sessionId, raw); if (card) for (const l of live.listeners) l({ type: 'card', card }); };
+      // Live sub-agent progress: the delegate plugin captures this before spawning its child and pushes
+      // updates as the child works — each fans out to THIS conversation's clients as a `subagent` event.
+      const emitSubagent = (u: SubagentUpdate) => { for (const l of live.listeners) l({ type: 'subagent', ...u }); };
       // Assemble the live prompt INSIDE the identity/policy scope: turnContext providers run here, so a
       // plugin can scope its injection to the current user via currentIdentity() (e.g. per-user todos
       // instead of one global list leaking across users). memoryBlock/hookBlock are already resolved.
@@ -994,7 +997,7 @@ export class BrainService {
       await runWithPolicy(live.policy, () => {
         const prompted = memoryBlock + hookBlock + live.turnContext() + modeInstruction + text;
         return options ? live.session.prompt(prompted, options) : live.session.prompt(prompted);
-      }, { identity, elicit, emitCard, toolPolicy, workDir });
+      }, { identity, elicit, emitCard, emitSubagent, toolPolicy, workDir });
       // Post-turn curator: extract durable facts from this exchange in the background. Fire-and-forget
       // (mirrors brainWorker) — never awaited, never touches live.session, swallows its own errors.
       if (this.curator && memSettings?.autoSave !== false) {
