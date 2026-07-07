@@ -318,7 +318,8 @@ export class ChatViewport implements Component {
     }
     if (this.state.notice) for (const line of this.state.notice.split('\n')) add(`  ${line}`);
     if (this.state.view.notice) add(`  ${color.faint(`· ${this.state.view.notice}`)}`);
-    if (this.state.view.thinking) add(`  ${color.faint(`thinking… ${this.state.thinkingSeconds}s`)}`);
+    // No "thinking… Ns" transcript line — the generating state animates in the prompt meta line
+    // under the input instead (a line under the message just pushed the conversation around).
     return rows;
   }
 

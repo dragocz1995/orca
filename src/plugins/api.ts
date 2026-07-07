@@ -184,6 +184,10 @@ export interface PluginContext {
   /** Who is driving the current turn (platform sender, resolved Orca account, admin flag) — plugins
    *  that persist per-user state (long-term memory) key it on this. Null outside a prompt turn. */
   currentIdentity(): TurnIdentity | null;
+  /** The current turn's resolved working directory (the project the CLI was launched in, a channel's
+   *  policy root, the daemon's primary project as fallback) — plugins that persist per-PROJECT state
+   *  (e.g. a todo checklist) key on this alongside the identity. Undefined outside a prompt turn. */
+  currentWorkDir(): string | undefined;
   /** Push a proactive message out to every platform that has a notification channel configured (e.g.
    *  Discord). Fire-and-forget; no-op when nothing is wired. Used by cron/tick to echo results. */
   notify(text: string, channelId?: string): Promise<void>;

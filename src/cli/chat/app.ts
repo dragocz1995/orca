@@ -99,7 +99,16 @@ export function isSlashCommandDraft(text: string): boolean {
   return /^\/[^\s/]*$/.test(text);
 }
 
-function modelMetaLine(mode: BrainWorkMode, modelName: string, thinkingLevel: string): string {
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+/** The animated "model is generating" chip for the prompt meta line — a subtle spinner + elapsed
+ *  seconds next to the reasoning level, replacing the old `thinking… Ns` transcript line (which kept
+ *  pushing the conversation around). Time-based frame so every render advances it. */
+function generatingChip(seconds: number, now = Date.now()): string {
+  return `${color.accent(SPINNER_FRAMES[Math.floor(now / 120) % SPINNER_FRAMES.length]!)} ${color.faint(`${seconds}s`)}`;
+}
+
+function modelMetaLine(mode: BrainWorkMode, modelName: string, thinkingLevel: string, generating?: string): string {
   const raw = modelName || '—';
   const slash = raw.indexOf('/');
   const provider = slash > 0 ? raw.slice(0, slash) : '';
@@ -110,6 +119,7 @@ function modelMetaLine(mode: BrainWorkMode, modelName: string, thinkingLevel: st
     color.text(model),
     provider ? color.dim(provider) : '',
     thinkingLevel ? color.warning(thinkingLevel) : '',
+    generating ?? '',
   ].filter(Boolean).join(' ');
 }
 
@@ -319,7 +329,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       : color.faint('  ⏎ send   ·   / slash   ·   shift+tab mode   ·   ctrl+r reasoning   ·   ctrl+p telemetry'));
     const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
     const line = statusline(lineCfg ? { ...lineCfg, showModel: false } : null, usage, modelName);
-    promptMeta.setLeft(modelMetaLine(workMode, modelName, thinkingLevel));
+    promptMeta.setLeft(modelMetaLine(workMode, modelName, thinkingLevel, view.thinking ? generatingChip(currentRunSeconds) : undefined));
     promptMeta.setRight(panelVisible() || !line ? projectLine : `${color.faint(line)} ${color.faint('·')} ${projectLine}`);
     cardPanel.set(cards);
     tui.requestRender();
@@ -1150,9 +1160,11 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   let done!: () => void;
   const finished = new Promise<void>((r) => { done = r; });
+  // 250ms: fast enough to animate the generating spinner in the prompt meta line, cheap enough to
+  // leave idle sessions alone (renders fire only while a turn streams).
   const thinkingTimer = setInterval(() => {
     if (view.thinking) render();
-  }, 1000);
+  }, 250);
   const quit = (): void => {
     streamAc.abort();
     clearInterval(thinkingTimer);

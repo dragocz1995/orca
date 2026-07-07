@@ -1,5 +1,5 @@
 import { createAgentSession, DefaultResourceLoader } from '@earendil-works/pi-coding-agent';
-import type { AgentSession, AgentSessionEvent, ResourceLoader, ToolDefinition, ModelRegistry } from '@earendil-works/pi-coding-agent';
+import type { AgentSession, AgentSessionEvent, ExtensionAPI, ResourceLoader, ToolDefinition, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
 import type { BrainStore } from '../../store/brainStore.js';
 import { projectEvent, rehydrate } from '../persistence.js';
@@ -30,15 +30,30 @@ export interface SessionFactoryDeps {
   createSession?: typeof createAgentSession;
   /** Injected for tests; builds the resource loader that carries the system prompt. A test passes
    *  `() => undefined` so no disk-touching loader is constructed. */
-  resourceLoaderFactory?: (o: { cwd: string; systemPrompt: string; appendSystemPrompt?: string[] }) => ResourceLoader | undefined;
+  resourceLoaderFactory?: (o: { cwd: string; systemPrompt: string; appendSystemPrompt?: string[]; codexReasoningFix?: boolean }) => ResourceLoader | undefined;
+}
+
+/** The ChatGPT (Codex) backend returns reasoning-summary text ONLY for `reasoning.summary:"concise"`
+ *  — with pi's default "auto" (and even "detailed") the reasoning item comes back EMPTY, so the UI
+ *  never sees the model's thinking. Verified empirically against gpt-5.5 (auto/detailed → 0 summary
+ *  chars, concise → text). pi offers no per-session summary option, so an inline extension patches the
+ *  outgoing payload; registered only for openai-codex sessions (the official API honors "auto"). */
+function codexReasoningSummary(pi: ExtensionAPI): void {
+  pi.on('before_provider_request', (event) => {
+    const payload = event.payload as { reasoning?: Record<string, unknown> } | null | undefined;
+    if (!payload?.reasoning || typeof payload.reasoning !== 'object') return undefined;
+    return { ...payload, reasoning: { ...payload.reasoning, summary: 'concise' } };
+  });
 }
 
 /** Default resource loader: carries the composed system prompt, appends the extra chunks after it,
- *  and disables all disk discovery — the brain is a lean, in-process agent. */
-function defaultResourceLoaderFactory(o: { cwd: string; systemPrompt: string; appendSystemPrompt?: string[] }): ResourceLoader {
+ *  and disables all disk discovery — the brain is a lean, in-process agent. `noExtensions` skips only
+ *  DISCOVERED extensions; the inline factories below still load. */
+function defaultResourceLoaderFactory(o: { cwd: string; systemPrompt: string; appendSystemPrompt?: string[]; codexReasoningFix?: boolean }): ResourceLoader {
   return new DefaultResourceLoader({
     cwd: o.cwd, agentDir: o.cwd, systemPrompt: o.systemPrompt, appendSystemPrompt: o.appendSystemPrompt,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    ...(o.codexReasoningFix ? { extensionFactories: [codexReasoningSummary] } : {}),
   });
 }
 
@@ -62,6 +77,7 @@ export class BrainSessionFactory {
     const sessionManager = rehydrate(this.d.store, spec.sessionId, spec.cwd);
     const resourceLoader = (this.d.resourceLoaderFactory ?? defaultResourceLoaderFactory)({
       cwd: spec.cwd, systemPrompt: spec.systemPrompt, appendSystemPrompt: spec.appendSystemPrompt,
+      codexReasoningFix: spec.model.provider === 'openai-codex',
     });
     // A resource loader passed to createAgentSession is NOT auto-reloaded (only one it builds itself
     // is), so its system prompt stays empty unless we reload it here. Without this the brain falls
