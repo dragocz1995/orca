@@ -8,7 +8,9 @@ export function defaultUserSessionId(userId: number): string {
 }
 
 export function freshUserSessionId(userId: number): string {
-  return `brain-${userId}-${Date.now().toString(36)}`;
+  // Timestamp for rough ordering + a random suffix so two clients opening fresh conversations in the
+  // same millisecond (two CLIs launched together) can never mint the SAME id and share a session.
+  return `brain-${userId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export function channelSessionId(channelId: string): string {

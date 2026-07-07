@@ -43,10 +43,29 @@ export function parseSse(buffer: string): { frames: { event?: string; data: stri
 }
 
 /** Thin client over the daemon's /brain/* surface. Runs no agent loop — it only starts the session,
- *  posts user turns, reads history, and streams the brain's events. */
+ *  posts user turns, reads history, and streams the brain's events.
+ *
+ *  SESSION-BOUND: start() records the conversation id the server resolved, and every session-scoped
+ *  call (send/status/compact/abort/model/think/yolo/goal/stream/history) passes it explicitly from
+ *  then on. The client never relies on the server's per-user ACTIVE pointer after startup, so a second
+ *  CLI (or the web dock) working another conversation can't interleave into this one. */
 export class BrainClient {
   private f: typeof fetch;
+  /** The conversation this client is bound to — set by start(), updated by rebind() (idle rollover). */
+  private bound?: string;
   constructor(private o: BrainClientOpts) { this.f = o.fetchImpl ?? fetch; }
+
+  /** The bound conversation id (undefined before the first start()). */
+  get boundSession(): string | undefined { return this.bound; }
+
+  /** Rebind to another conversation WITHOUT a server round-trip — used when the server rolls the idle
+   *  conversation over into a fresh one (the `session` event carries the replacement id). */
+  rebind(sessionId: string): void { this.bound = sessionId; }
+
+  /** `?session=<bound>` suffix for GET routes (empty before the first start()). */
+  private boundQs(prefix = '?'): string {
+    return this.bound ? `${prefix}session=${encodeURIComponent(this.bound)}` : '';
+  }
 
   private headers(json = false): Record<string, string> {
     const h: Record<string, string> = { authorization: `Bearer ${this.o.token}` };
@@ -66,25 +85,31 @@ export class BrainClient {
   }
 
   async start(opts: { provider?: string; session?: string; fresh?: boolean } = {}): Promise<{ sessionId: string }> {
-    // The launch directory rides along so the SESSION cwd (which pi tells the model about) is the
-    // user's project too, not just the per-message tool default.
+    // The launch directory rides along: it drives the server's default-session resolution (resume the
+    // conversation belonging to THIS directory, never one another client holds) and becomes the SESSION
+    // cwd (which pi tells the model about), not just the per-message tool default.
     const res = await this.post('/brain/start', { ...opts, cwd: process.cwd() });
-    return (await res.json()) as { sessionId: string };
+    const body = (await res.json()) as { sessionId: string };
+    this.bound = body.sessionId; // every session-scoped call from here on targets this conversation
+    return body;
   }
 
-  /** The caller's stored conversations, most recent first (drives /sessions in the TUI). */
-  async sessions(): Promise<{ id: string; title: string; model: string; updated_at: string; active: boolean }[]> {
+  /** The caller's stored conversations, most recent first (drives /sessions in the TUI). `attached` =
+   *  live client streams currently holding the conversation (another terminal / the web dock). */
+  async sessions(): Promise<{ id: string; title: string; model: string; updated_at: string; active: boolean; attached: number }[]> {
     const res = await this.f(`${this.o.base}/brain/sessions`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/sessions`);
-    return (await res.json()) as { id: string; title: string; model: string; updated_at: string; active: boolean }[];
+    return (await res.json()) as { id: string; title: string; model: string; updated_at: string; active: boolean; attached: number }[];
   }
 
   async send(text: string, mode?: BrainWorkMode, images?: { data: string; mimeType: string }[]): Promise<void> {
     // Report where the user launched the CLI — the daemon binds the turn's tools to this project
     // directory (validated server-side against the caller's repo access). `images` are base64 content
     // blocks (≤4, per brainSendSchema) — `@image.png` mentions, `@clipboard` and /paste feed them.
-    await this.post('/brain/send', { text, cwd: process.cwd(), ...(mode ? { mode } : {}), ...(images?.length ? { images } : {}) });
+    // The bound session id rides along so the turn lands in THIS client's conversation regardless of
+    // where the server's active pointer moved meanwhile.
+    await this.post('/brain/send', { text, cwd: process.cwd(), ...(this.bound ? { session: this.bound } : {}), ...(mode ? { mode } : {}), ...(images?.length ? { images } : {}) });
   }
 
   /** Answer a parked ask_user_question — settles the paused turn so it resumes with the user's picks. */
@@ -92,17 +117,17 @@ export class BrainClient {
     await this.post('/brain/answer', { id, answers });
   }
 
-  /** Manually compact the active conversation; resolves with the post-compaction usage plus whether
+  /** Manually compact the bound conversation; resolves with the post-compaction usage plus whether
    *  anything was compacted (`compacted:false` = benign no-op, nothing to compact yet). */
   async compact(): Promise<{ usage: BrainUsageView | null; compacted: boolean; message?: string }> {
-    const res = await this.post('/brain/compact', {});
+    const res = await this.post('/brain/compact', this.bound ? { session: this.bound } : {});
     const body = (await res.json()) as { usage?: BrainUsageView; compacted?: boolean; message?: string };
     return { usage: body.usage ?? null, compacted: !!body.compacted, message: body.message };
   }
 
-  /** Stop the streaming turn (Esc). */
+  /** Stop the streaming turn (Esc) — on the bound conversation. */
   async abort(): Promise<void> {
-    await this.post('/brain/abort', {});
+    await this.post('/brain/abort', this.bound ? { session: this.bound } : {});
   }
 
   /** Run a server-side (`action`) slash command through the shared dispatcher (`/stop`, `/new`,
@@ -113,23 +138,23 @@ export class BrainClient {
     return (await res.json().catch(() => null)) as { message?: string } | null;
   }
 
-  /** Switch the active conversation to another configured model; resolves with the live model name.
+  /** Switch the bound conversation to another configured model; resolves with the live model name.
    *  The server rebuilds the session, so the caller must reopen its event stream afterwards. */
   async setModel(sel: { provider?: string; model?: string }): Promise<{ model: string }> {
-    const res = await this.post('/brain/model', sel);
+    const res = await this.post('/brain/model', { ...sel, ...(this.bound ? { session: this.bound } : {}) });
     return (await res.json()) as { model: string };
   }
 
-  /** Set the active conversation's reasoning effort live (the /think picker); resolves with the level. */
+  /** Set the bound conversation's reasoning effort live (the /think picker); resolves with the level. */
   async setThinkingLevel(level: string): Promise<{ thinkingLevel: string }> {
-    const res = await this.post('/brain/think', { level });
+    const res = await this.post('/brain/think', { level, ...(this.bound ? { session: this.bound } : {}) });
     return (await res.json()) as { thinkingLevel: string };
   }
 
   /** Flip the SESSION-scoped YOLO override (the /yolo command): `on` forces a state, omitted toggles.
    *  Resolves with the new effective state (the persisted default lives in Account → Orca AI). */
   async setYolo(on?: boolean): Promise<{ yolo: boolean }> {
-    const res = await this.post('/brain/yolo', on === undefined ? {} : { on });
+    const res = await this.post('/brain/yolo', { ...(on === undefined ? {} : { on }), ...(this.bound ? { session: this.bound } : {}) });
     return (await res.json()) as { yolo: boolean };
   }
 
@@ -171,7 +196,7 @@ export class BrainClient {
   }
 
   async status(): Promise<BrainStatus> {
-    const res = await this.f(`${this.o.base}/brain/status`, { headers: this.headers() });
+    const res = await this.f(`${this.o.base}/brain/status${this.boundQs()}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     // Match every sibling method: a daemon error must throw, not get parsed as a garbage BrainStatus.
     if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/status`);
@@ -275,30 +300,31 @@ export class BrainClient {
   }
 
   async goal(): Promise<GoalView | null> {
-    const res = await this.f(`${this.o.base}/brain/goal`, { headers: this.headers() });
+    const res = await this.f(`${this.o.base}/brain/goal${this.boundQs()}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/goal`);
     return (await res.json()) as GoalView | null;
   }
 
   async setGoal(text: string, draft = false, turnBudget?: number): Promise<GoalView> {
-    const res = await this.post('/brain/goal', { text, draft, ...(turnBudget ? { turnBudget } : {}) });
+    const res = await this.post('/brain/goal', { text, draft, ...(turnBudget ? { turnBudget } : {}), ...(this.bound ? { session: this.bound } : {}) });
     return (await res.json()) as GoalView;
   }
 
   async goalAction(action: 'pause' | 'resume' | 'clear'): Promise<GoalView | null> {
-    const res = await this.post(`/brain/goal/action?action=${action}`, {});
+    const res = await this.post(`/brain/goal/action?action=${action}${this.boundQs('&')}`, {});
     return (await res.json()) as GoalView | null;
   }
 
   async subgoal(action: 'add' | 'remove' | 'clear', value?: string | number): Promise<GoalView> {
-    const res = await this.post('/brain/subgoal', action === 'add' ? { action, text: value } : action === 'remove' ? { action, index: value } : { action });
+    const body = action === 'add' ? { action, text: value } : action === 'remove' ? { action, index: value } : { action };
+    const res = await this.post('/brain/subgoal', { ...body, ...(this.bound ? { session: this.bound } : {}) });
     return (await res.json()) as GoalView;
   }
 
-  /** Transcript of the active conversation, or of an explicit session id (e.g. a delegated sub-agent's
-   *  `brain-ch-subagent-…` session for the read-only drill-in view). */
-  async history(session?: string): Promise<BrainMessageView[]> {
+  /** Transcript of the bound conversation by default, or of an explicit session id (e.g. a delegated
+   *  sub-agent's `brain-ch-subagent-…` session for the drill-in view). */
+  async history(session: string | undefined = this.bound): Promise<BrainMessageView[]> {
     const qs = session ? `?session=${encodeURIComponent(session)}` : '';
     const res = await this.f(`${this.o.base}/brain/messages${qs}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
@@ -318,12 +344,16 @@ export class BrainClient {
   }
 
   /** Open the SSE stream and deliver each BrainEvent to `onEvent` until `signal` aborts. Follows the
-   *  active conversation by default, or one explicit owned session when `session` is given (the
-   *  sub-agent drill-in stream). Reconnects with a fixed backoff on a dropped connection (the server
-   *  re-streams live events). A 401 propagates so the caller can re-login. */
+   *  BOUND conversation by default (an explicit server-side session tap — never the active pointer,
+   *  so another client's conversation can't leak in), or one explicit owned session when `session` is
+   *  given (the sub-agent drill-in stream). Reconnects with a fixed backoff on a dropped connection
+   *  (the server re-streams live events). A 401 propagates so the caller can re-login. */
   async stream(onEvent: (e: BrainEvent) => void, signal: AbortSignal, backoffMs = 1000, onOpen?: () => void, session?: string): Promise<void> {
-    const qs = session ? `?session=${encodeURIComponent(session)}` : '';
     while (!signal.aborted) {
+      // Re-resolve per attempt: an idle rollover rebinds the client mid-stream, and a RECONNECT must
+      // tap the replacement conversation, not the dead one it originally opened on.
+      const sid = session ?? this.bound;
+      const qs = sid ? `?session=${encodeURIComponent(sid)}` : '';
       try {
         const res = await this.f(`${this.o.base}/brain/stream${qs}`, { headers: this.headers(), signal });
         if (res.status === 401) throw new Unauthorized();

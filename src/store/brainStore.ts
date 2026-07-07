@@ -2,7 +2,7 @@ import type { Db } from './db.js';
 import { extractText } from '../brain/messageView.js';
 
 export interface BrainSessionRow {
-  id: string; user_id: number; title: string; model: string; created_at: string; updated_at: string;
+  id: string; user_id: number; title: string; model: string; work_dir: string; created_at: string; updated_at: string;
 }
 export interface BrainMessageRow {
   id: string; session_id: string; parent_id: string | null; role: string; content: string; created_at: string;
@@ -144,6 +144,13 @@ export class BrainStore {
       });
     }
     return hits;
+  }
+
+  /** Bind a conversation to the client-reported working directory it was started/used from (already
+   *  validated by the caller — see BrainService.stampWorkDir). Empty stays empty: a cwd-less legacy or
+   *  web session is never stamped, so it keeps working as "matches nowhere" for the CLI resolution. */
+  setWorkDir(id: string, workDir: string): void {
+    this.db.prepare('UPDATE brain_sessions SET work_dir = ? WHERE id = ?').run(workDir, id);
   }
 
   /** Set a session's display title (derived from its first user message; set once). */

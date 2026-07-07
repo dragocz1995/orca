@@ -32,4 +32,22 @@ describe('openDb', () => {
     const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_events_project'").get();
     expect(idx).toBeTruthy();
   });
+
+  it('migrates a pre-work_dir brain_sessions table (adds the column, existing rows read cwd-less)', () => {
+    dir = mkdtempSync(join(tmpdir(), 'orca-db-'));
+    const path = join(dir, 'old.db');
+    // Simulate a DB created before brain sessions carried a working directory.
+    const old = new Database(path);
+    old.exec(`CREATE TABLE brain_sessions (
+      id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '',
+      model TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+    old.prepare("INSERT INTO brain_sessions (id, user_id, title, model) VALUES ('brain-1', 1, 'old chat', 'm')").run();
+    old.close();
+    const db = openDb(path);
+    const cols = db.prepare('PRAGMA table_info(brain_sessions)').all().map((r: any) => r.name);
+    expect(cols).toContain('work_dir');
+    // Legacy rows come back with an EMPTY work_dir — treated as cwd-less by the CLI start resolution.
+    expect((db.prepare("SELECT work_dir FROM brain_sessions WHERE id='brain-1'").get() as any).work_dir).toBe('');
+  });
 });

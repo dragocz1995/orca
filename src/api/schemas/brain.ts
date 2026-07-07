@@ -12,10 +12,12 @@ export const brainStartSchema = z.object({
   cwd: z.string().max(4096).optional(),
 });
 
-/** Switch the active conversation to another configured provider/model (the /model picker). */
+/** Switch a conversation to another configured provider/model (the /model picker). `session` targets
+ *  the caller's own explicit conversation (a bound CLI); absent → the active one. */
 export const brainModelSchema = z.object({
   provider: z.string().optional(),
   model: z.string().optional(),
+  session: z.string().max(200).optional(),
 });
 
 /** One attached image: base64 payload + its mime type. ~7 MB of base64 ≈ 5 MB binary — enough for
@@ -27,12 +29,15 @@ const imageSchema = z.object({
 
 /** A single user message sent into the brain conversation, optionally with image attachments. `cwd` is
  *  the client's working directory (the CLI reports where the user launched it) — the daemon binds the
- *  turn's tools there when it is a real directory within the caller's repo access. */
+ *  turn's tools there when it is a real directory within the caller's repo access. `session` binds the
+ *  message to the caller's own explicit conversation (a session-bound CLI; ownership-checked, channel
+ *  sessions rejected server-side); absent → the active conversation (web dock). */
 export const brainSendSchema = z.object({
   text: z.string().min(1),
   mode: z.enum(['build', 'plan']).optional(),
   images: z.array(imageSchema).max(4).optional(),
   cwd: z.string().max(4096).optional(),
+  session: z.string().max(200).optional(),
 });
 
 /** Install one registry language server by its binary name (POST /brain/lsp/install, admin-only). */

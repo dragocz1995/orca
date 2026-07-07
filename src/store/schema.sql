@@ -140,6 +140,10 @@ CREATE TABLE IF NOT EXISTS brain_sessions (
   user_id INTEGER NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   model TEXT NOT NULL DEFAULT '',
+  -- The client-reported working directory the conversation belongs to (validated realpath; empty =
+  -- cwd-less, e.g. web-dock sessions). Drives the CLI's default-start resolution: a CLI launched in a
+  -- directory resumes the most recent unattached conversation with a matching work_dir.
+  work_dir TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -33,6 +33,13 @@ describe('BrainStore', () => {
     expect(store.getSession('a')?.model).toBe('m2');
   });
 
+  it('sessions start cwd-less; setWorkDir binds them to a directory', () => {
+    store.createSession({ id: 'a', userId: 1, model: 'm' });
+    expect(store.getSession('a')?.work_dir).toBe('');
+    store.setWorkDir('a', '/repo/project');
+    expect(store.getSession('a')?.work_dir).toBe('/repo/project');
+  });
+
   it('lastMessageAt returns the newest message timestamp, undefined for an empty session', () => {
     store.createSession({ id: 'a', userId: 1, model: 'm' });
     expect(store.lastMessageAt('a')).toBeUndefined();

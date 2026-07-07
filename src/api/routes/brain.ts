@@ -27,7 +27,9 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
       : null;
     // Live LSP diagnostics state (the `/lsp` toggle's source of truth) so chat clients can show it.
     const { lspEnabled } = await import('../../brain/tools/lspTools.js');
-    return c.json({ ...d.brain.status(c.get('user').id), statusline, lspEnabled: lspEnabled() });
+    // `?session=<id>`: a session-bound client (the CLI) asks about ITS conversation, not the active one.
+    try { return c.json({ ...d.brain.status(c.get('user').id, c.req.query('session')), statusline, lspEnabled: lspEnabled() }); }
+    catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
   app.post('/brain/start', async c => {
@@ -161,11 +163,13 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(await d.brain.smokeTest(sel));
   });
 
-  // Stop the streaming turn (the Esc key in chat clients).
+  // Stop the streaming turn (the Esc key in chat clients). `session` scopes it to the caller's own
+  // bound conversation (the CLI); absent → the active one.
   app.post('/brain/abort', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    try { await d.brain.abort(c.get('user').id); return c.json({ ok: true }); }
+    const b = (await c.req.json().catch(() => ({}))) as { session?: unknown };
+    try { await d.brain.abort(c.get('user').id, typeof b.session === 'string' ? b.session : undefined); return c.json({ ok: true }); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
@@ -174,8 +178,8 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/brain/model', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const sel = await parseBody(c, brainModelSchema);
-    try { return c.json(await d.brain.switchModel(c.get('user').id, sel)); }
+    const { session, ...sel } = await parseBody(c, brainModelSchema);
+    try { return c.json(await d.brain.switchModel(c.get('user').id, sel, session)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
@@ -183,9 +187,9 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/brain/think', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { level?: unknown };
+    const b = (await c.req.json().catch(() => ({}))) as { level?: unknown; session?: unknown };
     if (typeof b.level !== 'string') return c.json({ error: 'level must be a string' }, 400);
-    try { return c.json(await d.brain.setThinkingLevel(c.get('user').id, b.level)); }
+    try { return c.json(await d.brain.setThinkingLevel(c.get('user').id, b.level, typeof b.session === 'string' ? b.session : undefined)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
@@ -195,8 +199,8 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/brain/yolo', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { on?: unknown };
-    try { return c.json(d.brain.setYolo(c.get('user').id, typeof b.on === 'boolean' ? b.on : undefined)); }
+    const b = (await c.req.json().catch(() => ({}))) as { on?: unknown; session?: unknown };
+    try { return c.json(d.brain.setYolo(c.get('user').id, typeof b.on === 'boolean' ? b.on : undefined, typeof b.session === 'string' ? b.session : undefined)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
@@ -206,7 +210,8 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/brain/compact', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    try { return c.json(await d.brain.compact(c.get('user').id)); }
+    const b = (await c.req.json().catch(() => ({}))) as { session?: unknown };
+    try { return c.json(await d.brain.compact(c.get('user').id, typeof b.session === 'string' ? b.session : undefined)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
@@ -306,9 +311,11 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/brain/send', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const { text, images, mode, cwd } = await parseBody(c, brainSendSchema);
-    try { await d.brain.send(c.get('user').id, text, images, mode, undefined, cwd); return c.json({ ok: true }); }
-    catch (e) { return c.json({ error: (e as Error).message }, 409); } // not started yet
+    const { text, images, mode, cwd, session } = await parseBody(c, brainSendSchema);
+    // `session` binds the turn to the caller's own explicit conversation (ownership-checked in send();
+    // channel/task sessions rejected). Absent → the active conversation, exactly as before.
+    try { await d.brain.send(c.get('user').id, text, images, mode, undefined, cwd, session); return c.json({ ok: true }); }
+    catch (e) { return c.json({ error: (e as Error).message }, 409); } // not started yet / unknown session
   });
 
   // Answer a parked ask_user_question. Deliberately bypasses the per-turn send() lock (the parked turn
@@ -322,19 +329,22 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ ok: true, matched });
   });
 
+  // Goal routes: `session` (query on GET/action, body on POST) scopes the goal to the caller's own
+  // bound conversation (the CLI); absent → the active one.
   app.get('/brain/goal', c => {
     if (!d.brain) return c.json(null);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    return c.json(d.brain.goalStatus(c.get('user').id));
+    try { return c.json(d.brain.goalStatus(c.get('user').id, c.req.query('session'))); }
+    catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
   app.post('/brain/goal', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown; draft?: unknown; turnBudget?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown; draft?: unknown; turnBudget?: unknown; session?: unknown };
     if (typeof body.text !== 'string') return c.json({ error: 'text must be a string' }, 400);
     const turnBudget = typeof body.turnBudget === 'number' && Number.isFinite(body.turnBudget) ? Math.max(1, Math.min(50, Math.floor(body.turnBudget))) : undefined;
-    try { return c.json(await d.brain.setGoal(c.get('user').id, body.text, { draft: body.draft === true, turnBudget }), 201); }
+    try { return c.json(await d.brain.setGoal(c.get('user').id, body.text, { draft: body.draft === true, turnBudget }, typeof body.session === 'string' ? body.session : undefined), 201); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
@@ -343,17 +353,18 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
     const action = c.req.query('action');
     if (action !== 'pause' && action !== 'resume' && action !== 'clear') return c.json({ error: 'unknown action' }, 400);
-    return c.json(d.brain.goalAction(c.get('user').id, action));
+    try { return c.json(d.brain.goalAction(c.get('user').id, action, c.req.query('session'))); }
+    catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
   app.post('/brain/subgoal', async c => {
     if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; text?: unknown; index?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; text?: unknown; index?: unknown; session?: unknown };
     if (body.action !== 'add' && body.action !== 'remove' && body.action !== 'clear') return c.json({ error: 'unknown action' }, 400);
     try {
       const value = body.action === 'add' ? body.text : body.action === 'remove' ? body.index : undefined;
-      return c.json(d.brain.subgoal(c.get('user').id, body.action, value as string | number | undefined));
+      return c.json(d.brain.subgoal(c.get('user').id, body.action, value as string | number | undefined, typeof body.session === 'string' ? body.session : undefined));
     } catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 

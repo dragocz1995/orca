@@ -95,6 +95,9 @@ export function openDb(path: string): Db {
   addColumn(db, 'memory_categories', 'icon', "TEXT NOT NULL DEFAULT ''");
   // Which model performed a memory mutation (curator/categorizer). Nullable — human/API events have none.
   addColumn(db, 'memory_events', 'model', 'TEXT');
+  // Brain conversation ↔ working directory binding (per-client CLI sessions). Empty on migrated rows =
+  // a cwd-less legacy/web session; stamped from the validated client-reported cwd on start/send.
+  addColumn(db, 'brain_sessions', 'work_dir', "TEXT NOT NULL DEFAULT ''");
   // Extended usage/cost accounting (see task_usage in schema.sql). All nullable/zero-default so existing
   // rows read as legacy (reasoning 0, no currency, cost_source NULL treated as unknown).
   addColumn(db, 'task_usage', 'reasoning', 'INTEGER NOT NULL DEFAULT 0');

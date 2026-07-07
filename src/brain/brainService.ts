@@ -134,7 +134,17 @@ export interface BrainDeps {
  *  but holds in-process PI AgentSessions (one per conversation) instead of spawning an external CLI.
  *  A thin facade over the focused units: session state (LiveSessionRegistry), assembly
  *  (BrainSessionFactory), identities (IdentityResolver), channel turns (ChannelSessionService) and
- *  platform adapters (PlatformOrchestrator). */
+ *  platform adapters (PlatformOrchestrator).
+ *
+ *  TWO-TIER SESSION ADDRESSING. Conversations are reachable two ways:
+ *  - POINTER-BASED (the web dock, platform surfaces): calls carry no session id and act on the user's
+ *    ACTIVE conversation (`activeSessionId`). start() moves the pointer; everything else follows it.
+ *  - SESSION-BOUND (the CLI): the client resolves ITS conversation once at start() and passes the id
+ *    explicitly on every subsequent call (send/stream/compact/goal/…). Bound calls are ownership-checked,
+ *    never READ the active pointer and never MOVE it — so two CLIs (or a CLI plus the dock) can work
+ *    independent conversations concurrently without leaking events or hijacking each other's session.
+ *  start() still sets the pointer even for a CLI start (opening a conversation anywhere makes it the
+ *  web default); after that a bound client is immune to pointer movement. */
 export class BrainService {
   /** All mutable live-session state: user sessions, active pointers, channel LRU and the per-key
    *  locks (PI sessions are single-conversation — concurrent prompt()/spawn calls on one session id
@@ -160,6 +170,12 @@ export class BrainService {
    *  the `card` event. Shared by owner chat and channel sessions. */
   private cards = new CardRegistry();
   private goalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Live client streams (SSE listeners from /brain/stream) → the session id each is attached to.
+   *  Only REAL client streams register here (subscribe + tapSession); internal fanout listeners and the
+   *  respawn re-attach never do. An idle rollover re-keys entries onto the replacement session (the
+   *  listeners are carried there). Powers `attached` in listSessions, the CLI default-start resolution
+   *  ("don't grab a conversation another client holds") and the switch-away cleanup guard. */
+  private clientStreams = new Map<(e: BrainEvent) => void, string>();
   constructor(private d: BrainDeps) {
     this.factory = new BrainSessionFactory({ store: d.store, createSession: d.createSession, resourceLoaderFactory: d.resourceLoaderFactory });
     this.identity = new IdentityResolver({ platformOwner: d.platformOwner, resolvePlatformUser: d.resolvePlatformUser, users: d.users });
@@ -237,24 +253,34 @@ export class BrainService {
     }
   }
 
+  /** Whether an autonomous goal on this session still has a driver: the conversation is the user's
+   *  active one (pointer clients — web dock) OR a live client stream is attached to it (a bound CLI
+   *  working the goal from a non-active conversation). Without a driver the loop stops and the
+   *  switch-away reconcile pauses the goal row. */
+  private goalDriven(userId: number, sessionId: string): boolean {
+    return this.activeSessionId(userId) === sessionId || this.attachedCount(sessionId) > 0;
+  }
+
   private scheduleGoalContinuation(userId: number, sessionId: string, mode: 'build' | 'plan', delay: number): void {
     this.cancelGoalContinuation(sessionId);
     const timer = setTimeout(() => {
       if (this.goalTimers.get(sessionId) !== timer) return;
       this.goalTimers.delete(sessionId);
       const current = this.d.store.getGoal(sessionId);
-      if (!current || current.status !== 'active' || this.activeSessionId(userId) !== sessionId) return;
+      if (!current || current.status !== 'active' || !this.goalDriven(userId, sessionId)) return;
       // Ensure a live session BEFORE sending. A `/goal resume` (or resume via a bare API client after a
       // restart) may have no live brain, and send() would throw "brain not started" and error-pause the
-      // goal it just resumed. start() is idempotent when the session is already live.
-      void this.start(userId, { session: sessionId })
+      // goal it just resumed. ensureLive is idempotent when the session is already live and — unlike
+      // start() — never moves the active pointer, so a background continuation can't hijack a user who
+      // switched conversations in the meantime.
+      void this.ensureLive(userId, sessionId, { explicitResume: true })
         .then(() => {
-          // Re-verify AFTER the async start(): the user may have switched conversations in that gap, and
-          // send() targets the currently-ACTIVE session — without this re-check the continuation could fire
-          // its prompt into an unrelated conversation. Read the goal row fresh so the prompt is up to date.
+          // Re-verify AFTER the async spawn: the goal may have been paused/cleared (or its last driver
+          // detached) in that gap. Read the goal row fresh so the prompt is up to date, then send BOUND
+          // to the goal's own session — never into whatever conversation happens to be active.
           const now = this.d.store.getGoal(sessionId);
-          if (!now || now.status !== 'active' || this.activeSessionId(userId) !== sessionId) return;
-          return this.send(userId, goalContinuePrompt(now), undefined, mode, { goalContinue: true });
+          if (!now || now.status !== 'active' || !this.goalDriven(userId, sessionId)) return;
+          return this.send(userId, goalContinuePrompt(now), undefined, mode, { goalContinue: true }, undefined, sessionId);
         })
         .catch((e) => {
           this.d.store.updateGoal(sessionId, {
@@ -275,6 +301,38 @@ export class BrainService {
     if (set) return set;
     const recent = this.d.store.listSessions(userId).find((s) => !isNonUserSession(s.id));
     return recent?.id ?? defaultUserSessionId(userId);
+  }
+
+  /** How many live client streams are currently attached to this session (web dock subscriptions +
+   *  CLI session taps). 0 = no client is following the conversation right now. */
+  private attachedCount(sessionId: string): number {
+    let n = 0;
+    for (const sid of this.clientStreams.values()) if (sid === sessionId) n += 1;
+    return n;
+  }
+
+  /** Authorize an EXPLICIT client-bound session id: it must be the caller's own conversation, never a
+   *  channel/task session (mirrors the /brain/subagent/send validation). Returns the id or throws. */
+  private ownedUserSession(userId: number, sessionId: string): string {
+    const row = this.d.store.getSession(sessionId);
+    if (!row || row.user_id !== userId || isNonUserSession(sessionId)) throw new Error('unknown session');
+    return sessionId;
+  }
+
+  /** DEFAULT start resolution for a cwd-reporting client (the CLI): the most recent conversation whose
+   *  stored work_dir matches the launch directory AND that no other client stream currently holds; else
+   *  the most recent unattached cwd-less conversation (legacy/web sessions, so a lone CLI keeps resuming
+   *  what it always resumed); else a brand-new one. Never grabs a conversation another live client is
+   *  attached to — that is exactly the two-terminals bug this resolution exists to fix. */
+  private resolveStartSession(userId: number, cwd: string): string {
+    let real = '';
+    try { real = realpathSync(cwd); } catch { /* vanished/unreadable dir — no cwd match possible */ }
+    const rows = this.d.store.listSessions(userId).filter((s) => !isNonUserSession(s.id));
+    const unattached = (s: { id: string }) => this.attachedCount(s.id) === 0;
+    const match = real ? rows.find((s) => s.work_dir === real && unattached(s)) : undefined;
+    if (match) return match.id;
+    const legacy = rows.find((s) => !s.work_dir && unattached(s));
+    return legacy?.id ?? freshUserSessionId(userId);
   }
 
   private activeLive(userId: number): LiveBrain | undefined {
@@ -356,12 +414,13 @@ export class BrainService {
     return this.d.plugins?.get();
   }
 
-  /** Manually compact the active conversation (the /compact command): summarize the history so the
-   *  context shrinks while the session stays usable. Serialized on the session lock (mirrors the channel
-   *  variant) so it can't race an in-flight prompt(). A too-small/already-compacted session is a benign
-   *  no-op (compacted:false), not an error. Throws only when nothing is running. */
-  async compact(userId: number): Promise<CompactResult> {
-    const sessionId = this.activeSessionId(userId);
+  /** Manually compact a conversation (the /compact command): summarize the history so the context
+   *  shrinks while the session stays usable. Targets the active conversation, or the caller's explicit
+   *  `session` (a bound CLI). Serialized on the session lock (mirrors the channel variant) so it can't
+   *  race an in-flight prompt(). A too-small/already-compacted session is a benign no-op
+   *  (compacted:false), not an error. Throws only when nothing is running. */
+  async compact(userId: number, session?: string): Promise<CompactResult> {
+    const sessionId = session ? this.ownedUserSession(userId, session) : this.activeSessionId(userId);
     if (!this.sessions.get(sessionId)) throw new Error('brain not started');
     return this.serial(sessionId, async () => {
       const live = this.sessions.get(sessionId);
@@ -371,10 +430,11 @@ export class BrainService {
     });
   }
 
-  /** Stop the streaming turn (the Esc key in chat clients). The agent settles into agent_end → the
-   *  idle event, so subscribed clients wind down on their own. */
-  async abort(userId: number): Promise<void> {
-    const b = this.activeLive(userId);
+  /** Stop the streaming turn (the Esc key in chat clients) — on the active conversation, or on the
+   *  caller's explicit `session` (a bound CLI). The agent settles into agent_end → the idle event, so
+   *  subscribed clients wind down on their own. */
+  async abort(userId: number, session?: string): Promise<void> {
+    const b = session ? this.sessions.get(this.ownedUserSession(userId, session)) : this.activeLive(userId);
     if (!b) throw new Error('brain not started');
     this.cancelGoalContinuation(b.sessionId);
     // A parked ask_user_question must fail cleanly when the turn is aborted, else the tool Promise
@@ -414,12 +474,13 @@ export class BrainService {
     return this.d.execAllowed(userId, orcaExec(sel.provider, sel.model));
   }
 
-  /** Switch the active conversation to another configured model (the /model picker). Mirrors the
-   *  channel pattern: dispose the live session and respawn on the new selection — history rehydrates
-   *  from the store, so the conversation continues seamlessly. */
-  async switchModel(userId: number, sel: { provider?: string; model?: string }): Promise<{ model: string }> {
+  /** Switch a conversation to another configured model (the /model picker) — the active one, or the
+   *  caller's explicit `session` (a bound CLI). Mirrors the channel pattern: dispose the live session
+   *  and respawn on the new selection — history rehydrates from the store, so the conversation
+   *  continues seamlessly. */
+  async switchModel(userId: number, sel: { provider?: string; model?: string }, session?: string): Promise<{ model: string }> {
     if (!this.selectionAllowed(userId, sel)) throw new Error('model not allowed for user');
-    const sessionId = this.activeSessionId(userId);
+    const sessionId = session ? this.ownedUserSession(userId, session) : this.activeSessionId(userId);
     // A parked ask_user_question holds this session's serial lock — release it FIRST (outside the lock)
     // so the switch doesn't wait out the question's timeout.
     this.elicitation.cancelForSession(sessionId, 'model switched');
@@ -439,7 +500,8 @@ export class BrainService {
       });
       live.interactedAt = Date.now(); // a model switch is a deliberate touch — don't idle-roll it over
       this.sessions.set(sessionId, live);
-      this.sessions.setActive(userId, sessionId);
+      // A bound (explicit-session) switch must not move the active pointer — the two-tier rule.
+      if (!session) this.sessions.setActive(userId, sessionId);
       return { model: live.model };
     });
   }
@@ -448,8 +510,8 @@ export class BrainService {
    *  the running session without a respawn, unlike a model switch. A level the current model doesn't
    *  support is clamped by PI. Returns the effective level. Session-scoped (like /model): the saved
    *  per-user default in Account → CLI is unchanged. */
-  async setThinkingLevel(userId: number, level: string): Promise<{ thinkingLevel: string }> {
-    const b = this.activeLive(userId);
+  async setThinkingLevel(userId: number, level: string, session?: string): Promise<{ thinkingLevel: string }> {
+    const b = session ? this.sessions.get(this.ownedUserSession(userId, session)) : this.activeLive(userId);
     if (!b) throw new Error('brain not started');
     const sess = b.session as { setThinkingLevel?: (l: string) => void; thinkingLevel?: string; getAvailableThinkingLevels?: () => string[] };
     const available = new Set(sess.getAvailableThinkingLevels?.() ?? ['minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -460,13 +522,16 @@ export class BrainService {
     return { thinkingLevel: (sess.thinkingLevel as string) ?? level };
   }
 
-  status(userId: number): { running: boolean; sessionId: string | null; title: string; model: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; yolo: boolean } {
-    const b = this.activeLive(userId);
+  /** Chat-client status — of the active conversation, or of the caller's explicit `session` (a bound
+   *  CLI), so a client bound elsewhere never renders another conversation's model/title/pending ask. */
+  status(userId: number, session?: string): { running: boolean; sessionId: string | null; title: string; model: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; yolo: boolean } {
+    const explicit = session ? this.ownedUserSession(userId, session) : undefined;
+    const b = explicit ? this.sessions.get(explicit) : this.activeLive(userId);
     const sess = b?.session as { thinkingLevel?: string; supportsThinking?: () => boolean; getAvailableThinkingLevels?: () => string[] } | undefined;
     const supports = sess?.supportsThinking?.() ?? false;
-    // The active conversation's title (from the store, so it's present even before a live session exists)
+    // The conversation's title (from the store, so it's present even before a live session exists)
     // — drives the CLI header and any client that wants to name the current chat.
-    const activeId = b?.sessionId ?? this.activeSessionId(userId);
+    const activeId = explicit ?? b?.sessionId ?? this.activeSessionId(userId);
     const title = (activeId && this.d.store.getSession(activeId)?.title) || '';
     return {
       running: !!b, sessionId: b?.sessionId ?? null, title, model: b?.model ?? '', usage: b ? usageOf(b.session) : null,
@@ -493,8 +558,8 @@ export class BrainService {
    *  toggles the current effective one. Never touches the persisted default (Account → Orca AI) and
    *  never survives a session respawn (model switch / restart) — by design a per-session override.
    *  Returns the new effective state. Throws when no conversation is live. */
-  setYolo(userId: number, on?: boolean): { yolo: boolean } {
-    const b = this.activeLive(userId);
+  setYolo(userId: number, on?: boolean, session?: string): { yolo: boolean } {
+    const b = session ? this.sessions.get(this.ownedUserSession(userId, session)) : this.activeLive(userId);
     if (!b) throw new Error('brain not started');
     b.yoloOverride = on ?? !this.effectiveYolo(userId, b);
     return { yolo: b.yoloOverride };
@@ -523,17 +588,25 @@ export class BrainService {
     return { id: sessionId, title: clean };
   }
 
-  goalStatus(userId: number): BrainGoalRow | null {
-    const sessionId = this.activeSessionId(userId);
+  goalStatus(userId: number, session?: string): BrainGoalRow | null {
+    const sessionId = session ? this.ownedUserSession(userId, session) : this.activeSessionId(userId);
     const row = this.d.store.getGoal(sessionId);
     return row && row.user_id === userId ? row : null;
   }
 
-  async setGoal(userId: number, text: string, opts?: { draft?: boolean; turnBudget?: number }): Promise<BrainGoalRow> {
+  async setGoal(userId: number, text: string, opts?: { draft?: boolean; turnBudget?: number }, session?: string): Promise<BrainGoalRow> {
     const goal = text.trim();
     if (!goal) throw new Error('goal cannot be empty');
-    await this.start(userId);
-    const sessionId = this.activeSessionId(userId);
+    let sessionId: string;
+    if (session) {
+      // A bound CLI sets the goal on ITS conversation — ensured live directly, never via start(),
+      // which would move the active pointer (the two-tier rule).
+      sessionId = this.ownedUserSession(userId, session);
+      await this.ensureLive(userId, sessionId, { explicitResume: true });
+    } else {
+      await this.start(userId);
+      sessionId = this.activeSessionId(userId);
+    }
     // Drop any continuation still scheduled for a PREVIOUS goal on this session — its status==='active'
     // guard would otherwise let it fire against the new goal and queue a duplicate continuation turn.
     this.cancelGoalContinuation(sessionId);
@@ -545,7 +618,7 @@ export class BrainService {
     });
     if (!opts?.draft) {
       try {
-        await this.send(userId, goalPrompt(row), undefined, 'build', { goalKickoff: true });
+        await this.send(userId, goalPrompt(row), undefined, 'build', { goalKickoff: true }, undefined, session);
       } catch (e) {
         this.d.store.updateGoal(sessionId, {
           status: 'paused',
@@ -558,8 +631,8 @@ export class BrainService {
     return this.d.store.getGoal(sessionId) ?? row;
   }
 
-  goalAction(userId: number, action: 'pause' | 'resume' | 'clear'): BrainGoalRow | null {
-    const sessionId = this.activeSessionId(userId);
+  goalAction(userId: number, action: 'pause' | 'resume' | 'clear', session?: string): BrainGoalRow | null {
+    const sessionId = session ? this.ownedUserSession(userId, session) : this.activeSessionId(userId);
     const row = this.d.store.getGoal(sessionId);
     if (!row || row.user_id !== userId) return null;
     if (action === 'clear') { this.cancelGoalContinuation(sessionId); this.d.store.clearGoal(sessionId); return null; }
@@ -575,8 +648,8 @@ export class BrainService {
     return resumed;
   }
 
-  subgoal(userId: number, action: 'add' | 'remove' | 'clear', value?: string | number): BrainGoalRow {
-    const sessionId = this.activeSessionId(userId);
+  subgoal(userId: number, action: 'add' | 'remove' | 'clear', value?: string | number, session?: string): BrainGoalRow {
+    const sessionId = session ? this.ownedUserSession(userId, session) : this.activeSessionId(userId);
     const row = this.d.store.getGoal(sessionId);
     if (!row || row.user_id !== userId) throw new Error('no active goal');
     let items = parseSubgoals(row.subgoals);
@@ -593,12 +666,14 @@ export class BrainService {
     return this.d.store.updateGoal(sessionId, { subgoals: JSON.stringify(items) })!;
   }
 
-  /** The user's conversations (channel sessions excluded), most recent first, with live/active flags. */
-  listSessions(userId: number): { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean }[] {
+  /** The user's conversations (channel sessions excluded), most recent first, with live/active flags
+   *  and how many client streams currently hold each one (pickers show an "attached" marker so the
+   *  user sees which conversations another terminal/dock is working in). */
+  listSessions(userId: number): { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean; attached: number }[] {
     const activeId = this.activeSessionId(userId);
     return this.d.store.listSessions(userId)
       .filter((s) => !isNonUserSession(s.id))
-      .map((s) => ({ id: s.id, title: s.title, model: s.model, updated_at: s.updated_at, running: this.sessions.has(s.id), active: s.id === activeId }));
+      .map((s) => ({ id: s.id, title: s.title, model: s.model, updated_at: s.updated_at, running: this.sessions.has(s.id), active: s.id === activeId, attached: this.attachedCount(s.id) }));
   }
 
   /** Fulltext search across the user's stored conversations (channel sessions included — they carry
@@ -781,24 +856,22 @@ export class BrainService {
   }
 
   /** Start (or resume) a conversation. `session` resumes that stored conversation (ownership checked);
-   *  `fresh` opens a brand-new one. Either way it becomes the user's active conversation. Idempotent
-   *  when the target is already live. */
+   *  `fresh` opens a brand-new one; a bare start with a client `cwd` (the CLI) resolves via
+   *  `resolveStartSession` (cwd match, never a conversation another client holds); a bare start without
+   *  one (the web dock) keeps following the active pointer. Either way it becomes the user's active
+   *  conversation. Idempotent when the target is already live. */
   async start(userId: number, opts?: { provider?: string; model?: string; session?: string; fresh?: boolean; cwd?: string }): Promise<{ sessionId: string }> {
     let sessionId: string;
-    if (opts?.fresh) {
-      sessionId = freshUserSessionId(userId);
-    } else if (opts?.session) {
-      const row = this.d.store.getSession(opts.session);
-      if (!row || row.user_id !== userId || isNonUserSession(opts.session)) throw new Error('unknown session');
-      sessionId = opts.session;
-    } else {
-      sessionId = this.activeSessionId(userId);
-    }
+    if (opts?.fresh) sessionId = freshUserSessionId(userId);
+    else if (opts?.session) sessionId = this.ownedUserSession(userId, opts.session);
+    else if (opts?.cwd) sessionId = this.resolveStartSession(userId, opts.cwd);
+    else sessionId = this.activeSessionId(userId);
     // Switching AWAY from a conversation that's parked on an ask_user_question: release its question so
-    // the abandoned turn settles and stops holding the per-user send() lock (else the next message on the
-    // new conversation would queue behind it until the question times out).
+    // the abandoned turn settles and frees its session lock. ONLY when no other client stream is still
+    // attached to it — a second terminal (or the dock) holding that conversation must keep its pending
+    // ask and its running goal; the pointer moving away from THEM must never kill THEIR turn.
     const prevActive = this.sessions.activeIdFor(userId);
-    if (prevActive && prevActive !== sessionId) {
+    if (prevActive && prevActive !== sessionId && this.attachedCount(prevActive) === 0) {
       this.elicitation.cancelForSession(prevActive, 'switched conversation');
       this.cancelGoalContinuation(prevActive);
       // Switching away stops the goal's only driver (the in-memory timer) — so don't leave the row saying
@@ -809,44 +882,66 @@ export class BrainService {
     // NOTE: no reconcile of the TARGET goal here. Restart zombies are handled once at boot
     // (reconcileGoalsOnBoot); a timer-less goal on a start()/reconnect is usually a healthy mid-flight turn
     // (its timer self-deleted when it fired), so pausing it here would kill a running goal.
-    // Serialized per conversation: two concurrent starts would both spawn and leak one PI session.
-    return this.serial(sessionId, async () => {
+    await this.ensureLive(userId, sessionId, { provider: opts?.provider, model: opts?.model, clientCwd: opts?.cwd, explicitResume: !!opts?.session });
+    return { sessionId };
+  }
+
+  /** Make one conversation live (spawn if needed) WITHOUT touching the active pointer — the shared tail
+   *  of start(), bound sends, goal continuations and respawns. `clientCwd` is a client-REPORTED launch
+   *  directory (validated, then stamped as the session's work_dir); `spawnCwd` is an internal carry-over
+   *  (respawn keeping its previous workDir) that must NOT be stamped — a cwd-less web session stays
+   *  cwd-less. Serialized per conversation: two concurrent spawns would leak one PI session. */
+  private async ensureLive(userId: number, sessionId: string, o: { provider?: string; model?: string; clientCwd?: string; spawnCwd?: string; explicitResume?: boolean } = {}): Promise<void> {
+    await this.serial(sessionId, async () => {
       // An EXPLICIT resume (the session picker / `/resume <id>`) is a deliberate choice to continue
       // that conversation — stamp it so the idle-rollover check in send() respects it. A default
       // start (client boot, no `session` opt) deliberately does NOT stamp: a stale conversation
       // auto-resumed by a reconnecting client must still roll over on the next message.
       const already = this.sessions.get(sessionId);
       if (already) {
-        if (opts?.session) already.interactedAt = Date.now();
-        return { sessionId }; // idempotent resume of a live conversation
+        if (o.explicitResume) already.interactedAt = Date.now();
+        return; // idempotent resume of a live conversation
       }
       // Model selection: an explicit start option wins, else the user's saved provider+model override,
       // else the first configured provider's first model. A saved model the user is no longer
       // allowed to run falls back to the server default rather than blocking the brain.
       const userCfg = this.d.userSettings?.(userId);
-      let selection: { provider?: string; model?: string } = { provider: opts?.provider ?? userCfg?.modelProvider, model: opts?.model ?? userCfg?.model };
+      let selection: { provider?: string; model?: string } = { provider: o.provider ?? userCfg?.modelProvider, model: o.model ?? userCfg?.model };
       if (!this.selectionAllowed(userId, selection)) selection = {};
+      const policy = this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] };
       const live = await this.spawnLive({
         sessionId,
         ownerUserId: userId,
         selection,
-        policy: this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] },
+        policy,
         thinkingLevel: userCfg?.thinkingLevel,
         autoCompact: !!userCfg?.autoCompact,
         autoCompactAt: userCfg?.autoCompactAt ? userCfg.autoCompactAt / 100 : DEFAULT_AUTO_COMPACT_AT,
-        clientCwd: opts?.cwd,
+        clientCwd: o.clientCwd ?? o.spawnCwd,
       });
-      if (opts?.session) live.interactedAt = Date.now();
+      if (o.explicitResume) live.interactedAt = Date.now();
       this.sessions.set(sessionId, live);
-      return { sessionId };
+      if (o.clientCwd) this.stampWorkDir(sessionId, o.clientCwd, policy);
     });
+  }
+
+  /** Persist the conversation ↔ launch-directory binding (feeds resolveStartSession). Only a VALIDATED
+   *  client-reported directory is ever stamped — fallback-resolved workDirs (policy root, primary
+   *  project) must not turn a cwd-less web session into a false cwd match. */
+  private stampWorkDir(sessionId: string, clientCwd: string, policy: Policy): void {
+    const dir = this.clientDir(policy, clientCwd);
+    if (!dir) return;
+    const row = this.d.store.getSession(sessionId);
+    if (row && row.work_dir !== dir) this.d.store.setWorkDir(sessionId, dir);
   }
 
   subscribe(userId: number, listener: (e: BrainEvent) => void): () => void {
     const b = this.activeLive(userId);
     if (!b) throw new Error('brain not started for user');
     b.listeners.add(listener);
+    this.clientStreams.set(listener, b.sessionId); // a real client stream is now attached here
     return () => {
+      this.clientStreams.delete(listener);
       // An idle rollover may have MOVED this listener onto a replacement session (send() carries
       // subscribers over so open streams survive) — and the user may have switched active sessions
       // since, so sweep EVERY live session, not just the original and the currently active one
@@ -859,19 +954,25 @@ export class BrainService {
    *  (re)spawns, so an open drill-in stream survives respawns (unlike a raw `listeners.add`). */
   private sessionTaps = new Map<string, Set<(e: BrainEvent) => void>>();
 
-  /** Follow one of the CALLER'S OWN sessions live, by explicit id — the sub-agent drill-in stream.
-   *  Unlike subscribe() (which follows the active conversation), a tap targets a fixed session and
-   *  keeps delivering across respawns. Throws on an unknown/foreign session. */
+  /** Follow one of the CALLER'S OWN sessions live, by explicit id — the CLI's bound conversation
+   *  stream and the sub-agent drill-in stream. Unlike subscribe() (which follows the active
+   *  conversation), a tap targets a fixed session and keeps delivering across respawns. Throws on an
+   *  unknown/foreign session. */
   tapSession(userId: number, sessionId: string, listener: (e: BrainEvent) => void): () => void {
     const row = this.d.store.getSession(sessionId);
     if (!row || row.user_id !== userId) throw new Error('unknown session');
     let taps = this.sessionTaps.get(sessionId);
     if (!taps) { taps = new Set(); this.sessionTaps.set(sessionId, taps); }
     taps.add(listener);
+    this.clientStreams.set(listener, sessionId); // a real client stream is now attached here
     this.liveFor(sessionId)?.listeners.add(listener); // the session may already be running — attach now
     return () => {
+      this.clientStreams.delete(listener);
       taps.delete(listener);
       if (taps.size === 0) this.sessionTaps.delete(sessionId);
+      // An idle rollover may have CARRIED this listener onto a replacement session (send() moves
+      // subscribers so open streams survive) — sweep every live user session, then the channel bucket.
+      for (const [, live] of this.sessions.liveEntries()) live.listeners.delete(listener);
       this.liveFor(sessionId)?.listeners.delete(listener);
     };
   }
@@ -954,21 +1055,34 @@ export class BrainService {
    *  systemd runs that at `/`. Returns undefined only when no fallback exists (tools then keep their
    *  own `defaultCwd()` chain). */
   private turnWorkDir(policy: Policy, clientCwd?: string): string | undefined {
-    if (clientCwd) {
-      try {
-        const real = realpathSync(clientCwd);
-        if (statSync(real).isDirectory()) {
-          if (policy.allowedProjectIds === 'all') return real;
-          const within = realPathWithin(real, policy.allowedPaths());
-          if (within) return within;
-        }
-      } catch { /* vanished or unreadable directory — fall through to the fallbacks */ }
-    }
-    return policy.allowedPaths()[0] ?? this.d.projectPath?.();
+    return this.clientDir(policy, clientCwd) ?? policy.allowedPaths()[0] ?? this.d.projectPath?.();
   }
 
-  async send(userId: number, text: string, images?: { data: string; mimeType: string }[], mode: 'build' | 'plan' = 'build', internal?: { goalKickoff?: boolean; goalContinue?: boolean }, clientCwd?: string): Promise<void> {
-    const active = this.activeLive(userId);
+  /** The client-reported directory, validated: a real directory the caller may access (all-access:
+   *  anywhere; scoped: inside an allowed repo root), realpath-resolved. Undefined otherwise. */
+  private clientDir(policy: Policy, clientCwd?: string): string | undefined {
+    if (!clientCwd) return undefined;
+    try {
+      const real = realpathSync(clientCwd);
+      if (!statSync(real).isDirectory()) return undefined;
+      if (policy.allowedProjectIds === 'all') return real;
+      return realPathWithin(real, policy.allowedPaths()) ?? undefined;
+    } catch { return undefined; /* vanished or unreadable directory — the caller falls back */ }
+  }
+
+  /** Run one user turn. Without `session` it targets the ACTIVE conversation (web dock — today's
+   *  behavior, unchanged); with `session` (a bound CLI) it targets exactly that conversation, wherever
+   *  the active pointer points, and never moves the pointer. A bound target that is not live (daemon
+   *  restart between turns) is respawned in place first. */
+  async send(userId: number, text: string, images?: { data: string; mimeType: string }[], mode: 'build' | 'plan' = 'build', internal?: { goalKickoff?: boolean; goalContinue?: boolean }, clientCwd?: string, session?: string): Promise<void> {
+    let targetId: string;
+    if (session) {
+      targetId = this.ownedUserSession(userId, session);
+      if (!this.sessions.get(targetId)) await this.ensureLive(userId, targetId, { clientCwd });
+    } else {
+      targetId = this.activeSessionId(userId);
+    }
+    const active = this.sessions.get(targetId);
     if (!active) throw new Error('brain not started for user');
     if (!internal?.goalKickoff && !internal?.goalContinue) this.cancelGoalContinuation(active.sessionId);
     const modeInstruction = mode === 'plan'
@@ -993,13 +1107,17 @@ export class BrainService {
       await active.session.steer(modeInstruction + text);
       return;
     }
-    // Serialized per USER for the whole turn: the vision-fallback respawn below disposes and recreates
-    // the session, which MUST NOT race a concurrent send() (a double-submit would dispose a session
-    // mid-prompt). This user-level lock guards the stop/start decision; the inner session lock still
-    // guards the prompt itself. `start()` uses its own (session-keyed) lock, so there's no re-entrancy.
+    // Serialized per CONVERSATION for the whole turn (outer `send-<id>` key): the idle rollover and the
+    // vision-fallback respawn below dispose and recreate the session, which MUST NOT race a concurrent
+    // send() into the same conversation (a double-submit would dispose a session mid-prompt). The key is
+    // the TARGET conversation — not the user — so two bound clients working DIFFERENT conversations run
+    // their turns concurrently. The inner (bare session id) lock still guards the prompt itself against
+    // compact/switchModel/start; `send-` prefixing is what keeps ensureLive() re-entrant from here.
     let completedSessionId = active.sessionId;
-    await this.serial(`user-${userId}`, async () => {
-    let b = this.activeLive(userId);
+    await this.serial(`send-${targetId}`, async () => {
+    // Re-resolve under the lock: an unbound send that queued behind a rollover/model switch must follow
+    // the active pointer to wherever the conversation went; a bound send stays on its explicit target.
+    let b = session ? this.sessions.get(targetId) : this.activeLive(userId);
     if (!b) throw new Error('brain not started for user');
     // Idle rollover — the ONE chokepoint every owner-chat message funnels through (web, CLI): a
     // conversation whose last message sits past the cutoff continues as a FRESH session instead —
@@ -1008,39 +1126,69 @@ export class BrainService {
     // queued here behind a finishing turn sees a fresh lastMessageAt and stays). An explicitly
     // reopened conversation counts as fresh interaction (LiveBrain.interactedAt). Subscribers are
     // carried onto the replacement session so open event streams survive, then told via the
-    // `session` event so their transcript restarts at this message. INTERNAL sends (goal kickoff /
-    // continuation) never roll over — the goal row is keyed to the session it was set on; moving its
-    // kickoff to a fresh session would orphan the goal (judge finds no row, loop never starts).
+    // `session` event so their transcript restarts at this message (a bound CLI rebinds to the id the
+    // event carries). INTERNAL sends (goal kickoff / continuation) never roll over — the goal row is
+    // keyed to the session it was set on; moving its kickoff to a fresh session would orphan the goal
+    // (judge finds no row, loop never starts).
     if (!internal && !b.session.isStreaming && rolloverDue({ lastMessageAt: this.d.store.lastMessageAt(b.sessionId), interactedAt: b.interactedAt, now: Date.now() })) {
       const carried = b.listeners;
-      this.stop(userId);
-      await this.start(userId, { fresh: true, cwd: clientCwd });
-      b = this.activeLive(userId);
+      const oldId = b.sessionId;
+      const wasActive = this.activeSessionId(userId) === oldId;
+      this.cancelGoalContinuation(oldId);
+      this.elicitation.cancelForSession(oldId, 'session stopped');
+      this.sessions.dispose(oldId);
+      const freshId = freshUserSessionId(userId);
+      await this.ensureLive(userId, freshId, { clientCwd });
+      b = this.sessions.get(freshId);
       if (!b) throw new Error('brain not started for user');
+      // The pointer follows the rollover only when it pointed at the rolled-over conversation — a bound
+      // send on a non-active conversation must not hijack the pointer from another client.
+      if (wasActive) this.sessions.setActive(userId, freshId);
+      // Attached client streams move with their listeners so `attached` stays truthful post-rollover.
+      for (const [l, sid] of this.clientStreams) if (sid === oldId) this.clientStreams.set(l, freshId);
+      // Session taps (the CLI's bound stream) follow too, so a later respawn of the REPLACEMENT session
+      // re-attaches them — the client just rebinds its id, its open stream never goes dark.
+      const taps = this.sessionTaps.get(oldId);
+      if (taps) {
+        this.sessionTaps.delete(oldId);
+        const existing = this.sessionTaps.get(freshId);
+        if (existing) for (const t of taps) existing.add(t);
+        else this.sessionTaps.set(freshId, taps);
+      }
       for (const l of carried) b.listeners.add(l);
       for (const l of b.listeners) l({ type: 'session', sessionId: b.sessionId });
     }
     // Vision fallback (Account → CLI): an image turn on a text-only model hops onto the user's
-    // configured vision model — the session respawns there (history rehydrates from SQLite) and hops
-    // back on the next text-only turn, so the fallback never silently becomes the permanent model.
+    // configured vision model — the session respawns there IN PLACE (same id; history rehydrates from
+    // SQLite) and hops back on the next text-only turn, so the fallback never silently becomes the
+    // permanent model. Never goes through start(): a hop must not move the active pointer.
     const settings = this.d.userSettings?.(userId);
     const hop = decideVisionHop({
       hasImages: !!images?.length, onFallback: !!b.visionFallback,
       currentModel: b.model, visionModel: settings?.visionModel, visionModelProvider: settings?.visionModelProvider,
     });
     if (hop.action !== 'none') {
+      const hopId = b.sessionId;
       const prevWorkDir = b.workDir; // survive the respawn — the hop must not move the session cwd
-      this.stop(userId);
-      await this.start(userId, { cwd: clientCwd ?? prevWorkDir, ...(hop.action === 'hop' ? { provider: hop.provider, model: hop.model } : {}) });
-      b = this.activeLive(userId);
+      this.cancelGoalContinuation(hopId);
+      this.elicitation.cancelForSession(hopId, 'session stopped');
+      this.sessions.dispose(hopId);
+      await this.ensureLive(userId, hopId, {
+        clientCwd, spawnCwd: prevWorkDir,
+        ...(hop.action === 'hop' ? { provider: hop.provider, model: hop.model } : {}),
+      });
+      b = this.sessions.get(hopId);
       if (!b) throw new Error('brain not started for user');
-      // Mark the fallback active only if start() actually reached the requested vision model (not the
+      // Mark the fallback active only if the respawn actually reached the requested vision model (not the
       // configured default because the vision model was unavailable/disallowed) — so the NEXT text turn
       // hops back. Compare the reached model id directly.
       if (hop.action === 'hop') b.visionFallback = b.model === hop.model;
     }
     const live = b;
     completedSessionId = live.sessionId;
+    // The conversation ↔ launch-directory binding follows explicit client cwds (feeds the CLI's
+    // default-start resolution); fallback-resolved dirs are never stamped.
+    if (clientCwd) this.stampWorkDir(live.sessionId, clientCwd, live.policy);
     // Serialized per conversation: concurrent prompt() calls on one PI session corrupt turn state.
     await this.serial(live.sessionId, async () => {
       // First user message names the conversation (once). A provisional slice fills the session list
@@ -1195,21 +1343,24 @@ export class BrainService {
     // rendered into goalContinuePrompt) instead of silently looping to budget.
     const doneRejected = verdict.done; // reached here only when NOT allSubgoalsDone
     this.d.store.updateGoal(sessionId, { turns_used: turns, subgoals: subgoalsJson, last_verdict: doneRejected ? 'done_pending_subgoals' : 'continue', last_evidence: progress });
-    if (this.activeSessionId(userId) !== sessionId) return;
+    if (!this.goalDriven(userId, sessionId)) return;
     this.scheduleGoalContinuation(userId, sessionId, mode, internal?.goalContinue ? 250 : 100);
   }
 
   /** Restart a user's live session so changed settings (model override, plugins) apply immediately.
-   *  No-op when not running. History survives — it rehydrates from SQLite on the fresh start. */
+   *  No-op when not running. History survives — it rehydrates from SQLite on the fresh start. Respawns
+   *  the SAME conversation in place (never a cwd re-resolution — this is a settings reload, not a
+   *  client boot) and carries the previous workDir over without stamping it. */
   async restart(userId: number): Promise<void> {
     const b = this.activeLive(userId);
     if (!b) return;
+    const sessionId = b.sessionId;
     // Release a parked ask_user_question first, else `settled` waits out its full timeout.
-    this.elicitation.cancelForSession(b.sessionId, 'session restarted');
-    await this.sessions.settled(b.sessionId); // let an in-flight turn settle before disposing the session
+    this.elicitation.cancelForSession(sessionId, 'session restarted');
+    await this.sessions.settled(sessionId); // let an in-flight turn settle before disposing the session
     const prevWorkDir = b.workDir; // the restart must not move the session cwd
     this.stop(userId);
-    await this.start(userId, { cwd: prevWorkDir });
+    await this.ensureLive(userId, sessionId, { spawnCwd: prevWorkDir });
   }
 
   /** A user changed their active personality profile: respawn so the new persona chunk lands in the

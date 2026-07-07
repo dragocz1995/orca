@@ -667,7 +667,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       listed = list.map((s) => ({ id: s.id, title: s.title }));
       if (list.length === 0) { notice = color.dim('no conversations'); render(); return; }
       const refresh = () => openSessionsModal();
-      const confirmDelete = (id: string, title: string, active: boolean): void => {
+      const confirmDelete = (id: string, title: string, current: boolean): void => {
         openPicker({
           tui, editor, title: `Delete "${title || '(untitled)'}"?`,
           items: [
@@ -678,7 +678,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
             if (v !== 'yes') { refresh(); return; }
             void client.deleteSession(id).then(async () => {
               notice = color.dim('conversation deleted');
-              if (active) await switchTo({});
+              // Rebind only when THIS client's own conversation was deleted — deleting another one must
+              // not yank the CLI off what it is working on.
+              if (current) await switchTo({});
               refresh();
               render();
             })
@@ -687,14 +689,14 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         });
       };
       openPicker({
-        tui, editor, title: 'Conversations', items: sessionItems(list),
+        tui, editor, title: 'Conversations', items: sessionItems(list, client.boundSession),
         footer: 'enter resume · ctrl+r rename · ctrl+d delete · esc close',
         onPick: (id) => void switchTo({ session: id }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); }),
         onInput: (data, item, close) => {
           if (!item) return false;
           const row = list.find((s) => s.id === item.value);
           if (!row) return false;
-          if (matchesKey(data, 'ctrl+d')) { close(); confirmDelete(row.id, row.title, row.active); return true; }
+          if (matchesKey(data, 'ctrl+d')) { close(); confirmDelete(row.id, row.title, row.id === client.boundSession); return true; }
           if (matchesKey(data, 'ctrl+r')) {
             close();
             openTextInput({
@@ -1192,11 +1194,15 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       if (e.type === 'card') cards = upsertCard(cards, e.card); // update the persistent panel (not part of the ChatView)
       // Sub-agent progress folds into the delegate tool row below; the open child view has its own
       // live tap stream, so nothing extra to do here.
-      // Idle rollover: the server continued this message in a FRESH conversation. The SENDING client's
-      // last turn is the just-typed message, so the shared fold trims correctly; a passively connected
-      // client (second CLI/web on the same account) has no fresh local user turn — folding would carry
-      // OLD history into the new conversation, so it refetches the transcript instead.
+      // Idle rollover: the server continued this message in a FRESH conversation. Rebind to the id the
+      // event carries so every later call targets the replacement — the OPEN stream needs no reopen (the
+      // server carries both the listener and the session tap onto the new session, so events keep
+      // flowing without a gap; a reconnect then taps the rebound id). The SENDING client's last turn is
+      // the just-typed message, so the shared fold trims correctly; a passively connected client (second
+      // CLI/web on the same account) has no fresh local user turn — folding would carry OLD history into
+      // the new conversation, so it refetches the transcript instead.
       if (e.type === 'session') {
+        client.rebind(e.sessionId);
         notice = color.dim('previous conversation was idle — continuing in a fresh one');
         void refreshMeta().then(render);
         if (view.turns[view.turns.length - 1]?.role !== 'you') {
@@ -1334,7 +1340,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
               .then(async () => {
                 listed = listed.filter((s) => s.id !== target);
                 notice = color.dim('conversation deleted');
-                await switchTo({});
+                // Rebind only when this client's OWN conversation was deleted — see openSessionsModal.
+                if (target === client.boundSession) await switchTo({});
                 render();
               })
               .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
@@ -1355,7 +1362,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
               listed = list.map((s) => ({ id: s.id, title: s.title }));
               if (list.length === 0) { notice = color.dim('no conversations'); render(); return; }
               openPicker({
-                tui, editor, title: 'Delete conversation', items: sessionItems(list),
+                tui, editor, title: 'Delete conversation', items: sessionItems(list, client.boundSession),
                 onPick: (id) => confirmDelete(id, list.find((s) => s.id === id)?.title ?? ''),
               });
             }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });

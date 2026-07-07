@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { realpathSync } from 'node:fs';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { realpathSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { BrainService } from '../../src/brain/brainService.js';
 import { currentSubagentEmitter, currentTurnModel, currentWorkDir } from '../../src/plugins/policyContext.js';
 import { personalityText } from '../../src/brain/personality.js';
@@ -1235,5 +1237,170 @@ describe('abort cascade + turn model exposure', () => {
     d.session.prompt.mockImplementationOnce(async () => { seen = currentTurnModel(); });
     await svc.send(1, 'hi');
     expect(seen).toEqual({ provider: 'relay', model: 'm' });
+  });
+});
+
+describe('per-client session binding (multi-instance CLI)', () => {
+  const userTexts = (d: ReturnType<typeof fakeDeps>, id: string) =>
+    d.store.getMessages(id).filter((m) => m.role === 'user').map((m) => JSON.parse(m.content).content as string);
+  let dirs: string[] = [];
+  const tmpDir = (tag: string): string => { const p = mkdtempSync(join(tmpdir(), `orca-${tag}-`)); dirs.push(p); return p; };
+  afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true }); dirs = []; });
+
+  it('default starts in different cwds resolve to DIFFERENT conversations, each stamped with its work_dir', async () => {
+    const dirA = tmpDir('a');
+    const dirB = tmpDir('b');
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const a = await svc.start(1, { cwd: dirA });
+    const b = await svc.start(1, { cwd: dirB });
+    expect(b.sessionId).not.toBe(a.sessionId);
+    expect(d.store.getSession(a.sessionId)?.work_dir).toBe(realpathSync(dirA));
+    expect(d.store.getSession(b.sessionId)?.work_dir).toBe(realpathSync(dirB));
+    // Relaunching in dirA (nothing attached) resumes THAT directory's conversation.
+    const again = await svc.start(1, { cwd: dirA });
+    expect(again.sessionId).toBe(a.sessionId);
+  });
+
+  it('a second default start in the SAME cwd while the first client is attached opens a FRESH conversation', async () => {
+    const dirA = tmpDir('a');
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const a = await svc.start(1, { cwd: dirA });
+    const off = svc.tapSession(1, a.sessionId, () => {}); // CLI #1's live stream holds the conversation
+    const b = await svc.start(1, { cwd: dirA });
+    expect(b.sessionId).not.toBe(a.sessionId);
+    // Once every stream detached, a later launch resumes a cwd match again instead of piling up sessions.
+    off();
+    const c = await svc.start(1, { cwd: dirA });
+    expect([a.sessionId, b.sessionId]).toContain(c.sessionId);
+  });
+
+  it('a default cwd start falls back to the most recent unattached cwd-less conversation (legacy/web rows)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    d.store.createSession({ id: 'brain-1', userId: 1, model: 'm' }); // pre-work_dir row: work_dir = ''
+    const r = await svc.start(1, { cwd: tmpDir('a') });
+    expect(r.sessionId).toBe('brain-1');
+  });
+
+  it('an explicit session resume is ALWAYS honored — attached elsewhere and cwd notwithstanding', async () => {
+    const dirA = tmpDir('a');
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const a = await svc.start(1, { cwd: dirA });
+    svc.tapSession(1, a.sessionId, () => {});
+    const r = await svc.start(1, { session: a.sessionId, cwd: tmpDir('b') });
+    expect(r.sessionId).toBe(a.sessionId);
+  });
+
+  it('send with an explicit session targets THAT conversation and never moves the active pointer', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const a = await svc.start(1); // brain-1
+    const b = await svc.start(1, { fresh: true }); // the active pointer moves here
+    await svc.send(1, 'to-a', undefined, 'build', undefined, undefined, a.sessionId);
+    expect(userTexts(d, a.sessionId)).toContain('to-a');
+    expect(userTexts(d, b.sessionId)).not.toContain('to-a');
+    expect(svc.listSessions(1).find((s) => s.active)?.id).toBe(b.sessionId); // pointer untouched
+  });
+
+  it('send rejects a channel or foreign session id (mirrors subagent/send validation)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.store.createSession({ id: 'brain-ch-discord-general', userId: 1, model: 'm' });
+    d.store.createSession({ id: 'brain-2', userId: 2, model: 'm' });
+    await expect(svc.send(1, 'x', undefined, 'build', undefined, undefined, 'brain-ch-discord-general')).rejects.toThrow('unknown session');
+    await expect(svc.send(1, 'x', undefined, 'build', undefined, undefined, 'brain-2')).rejects.toThrow('unknown session');
+  });
+
+  it('a bound send respawns its conversation when it is not live (daemon restart between turns)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const a = await svc.start(1);
+    svc.stop(1); // nothing live anymore
+    await svc.send(1, 'hello again', undefined, 'build', undefined, undefined, a.sessionId);
+    expect(userTexts(d, a.sessionId)).toContain('hello again');
+  });
+
+  it('bound sends into two different conversations run concurrently (no cross-conversation lock)', async () => {
+    const d = fakeDeps();
+    let release: (() => void) | undefined;
+    d.session.prompt.mockImplementation((t: string) => {
+      if (t.includes('slow')) return new Promise<void>((res) => { release = res; });
+      return Promise.resolve();
+    });
+    const svc = new BrainService(d as never);
+    const a = await svc.start(1);
+    const b = await svc.start(1, { fresh: true });
+    const pendingA = svc.send(1, 'slow turn', undefined, 'build', undefined, undefined, a.sessionId);
+    // The second conversation's turn completes WHILE the first is still mid-prompt — under the old
+    // per-user lock this await would hang until the slow turn finished (the "second CLI hangs" bug).
+    await svc.send(1, 'quick turn', undefined, 'build', undefined, undefined, b.sessionId);
+    expect(release).toBeDefined(); // the slow turn is genuinely still parked
+    release!();
+    await pendingA;
+    expect(userTexts(d, a.sessionId)).toContain('slow turn');
+    expect(userTexts(d, b.sessionId)).toContain('quick turn');
+  });
+
+  it('switch-away cleanup is SKIPPED while another client stream holds the conversation (goal survives)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const goal = await svc.setGoal(1, 'keep going', { turnBudget: 8 });
+    expect(goal.status).toBe('active');
+    const off = svc.tapSession(1, goal.session_id, () => {}); // CLI #1 still working the goal
+    await svc.start(1, { fresh: true }); // another client moves the pointer away
+    expect(d.store.getGoal(goal.session_id)?.status).toBe('active'); // NOT paused — it still has a driver
+    svc.goalAction(1, 'pause', goal.session_id); // stop the background continuation deterministically
+    off();
+  });
+
+  it('goal commands accept an explicit session and act on THAT goal, not the active conversation', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const goal = await svc.setGoal(1, 'bound goal', { turnBudget: 8 });
+    svc.goalAction(1, 'pause', goal.session_id);
+    await svc.start(1, { fresh: true }); // pointer now on a goal-less conversation
+    expect(svc.goalStatus(1)).toBeNull(); // active conversation has no goal…
+    expect(svc.goalStatus(1, goal.session_id)?.goal).toBe('bound goal'); // …the bound one does
+    const withSub = svc.subgoal(1, 'add', 'step 1', goal.session_id);
+    expect(withSub.subgoals).toContain('step 1');
+  });
+
+  it('listSessions reports how many client streams are attached to each conversation', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const row = () => svc.listSessions(1).find((s) => s.id === 'brain-1');
+    const offTap = svc.tapSession(1, 'brain-1', () => {});
+    const offSub = svc.subscribe(1, () => {});
+    expect(row()?.attached).toBe(2);
+    offTap();
+    expect(row()?.attached).toBe(1);
+    offSub();
+    expect(row()?.attached).toBe(0);
+  });
+
+  it('an idle rollover carries attached streams and session taps onto the replacement conversation', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send(1, 'first', undefined, 'build', undefined, undefined, 'brain-1');
+    d.db.prepare("UPDATE brain_messages SET created_at = datetime('now', '-31 minutes')").run();
+    const got: string[] = [];
+    const off = svc.tapSession(1, 'brain-1', (e) => got.push(e.type));
+    await svc.send(1, 'second', undefined, 'build', undefined, undefined, 'brain-1');
+    const rolled = svc.listSessions(1).find((s) => s.id !== 'brain-1');
+    expect(rolled).toBeDefined();
+    expect(got).toContain('session'); // the tap heard about the replacement id…
+    expect(rolled?.attached).toBe(1); // …and now counts as attached THERE
+    expect(userTexts(d, rolled!.id)).toContain('second');
+    got.length = 0;
+    await svc.send(1, 'third', undefined, 'build', undefined, undefined, rolled!.id); // rebound client
+    expect(got).toContain('idle'); // the moved tap keeps delivering
+    off();
+    expect(svc.listSessions(1).find((s) => s.id === rolled!.id)?.attached).toBe(0);
   });
 });

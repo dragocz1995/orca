@@ -112,8 +112,10 @@ export async function runHeadless(
     } catch (e) { io.stderr(`list failed: ${errMsg(e)}\n`); return 1; }
   }
 
-  // Continuation model (matches the TUI): by default we resume the ACTIVE conversation, so consecutive
-  // `orca run` calls keep talking to the same brain — and slash/goal actions target the right one. `--new`
+  // Continuation model (matches the TUI): by default the server resolves this DIRECTORY's conversation
+  // (most recent unattached cwd match, else the most recent unattached cwd-less one, else fresh), so
+  // consecutive `orca run` calls from one project keep talking to the same brain — and every follow-up
+  // call is BOUND to the resolved session id, so a concurrently open TUI/dock can't hijack it. `--new`
   // starts fresh; `--session <id>` targets a specific conversation. `-c`/`--continue` is the explicit
   // form of the default. The resolved session id is printed so the user knows what they'll continue.
   let sessionId: string;

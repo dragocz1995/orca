@@ -19,13 +19,20 @@ export class ChatEditor extends Editor {
   }
 }
 
-/** Shape the stored conversations for the /resume picker (most recent first, as listed). */
-export function sessionItems(sessions: { id: string; title: string; model: string; updated_at: string; active: boolean }[]): SelectItem[] {
-  return sessions.map((s) => ({
-    value: s.id,
-    label: `${s.active ? '▸ ' : ''}${s.title || '(untitled)'}`,
-    description: `${s.model}${s.updated_at ? ` · ${s.updated_at.slice(0, 16)}` : ''}`,
-  }));
+/** Shape the stored conversations for the /resume picker (most recent first, as listed). `currentId`
+ *  (the CLI's own bound conversation) takes the ▸ marker — falling back to the server's active flag for
+ *  callers without a binding. A conversation some OTHER client stream holds shows `· attached`, so the
+ *  user sees which ones a second terminal / the web dock is working in before resuming one. */
+export function sessionItems(sessions: { id: string; title: string; model: string; updated_at: string; active: boolean; attached?: number }[], currentId?: string): SelectItem[] {
+  return sessions.map((s) => {
+    const current = currentId ? s.id === currentId : s.active;
+    const attached = !current && (s.attached ?? 0) > 0;
+    return {
+      value: s.id,
+      label: `${current ? '▸ ' : ''}${s.title || '(untitled)'}`,
+      description: `${s.model}${s.updated_at ? ` · ${s.updated_at.slice(0, 16)}` : ''}${attached ? ' · attached' : ''}`,
+    };
+  });
 }
 
 /** Shape the configured models for the /model picker: the current model floats to the top. */

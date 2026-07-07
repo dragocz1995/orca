@@ -2,9 +2,11 @@
  *  channel sessions (Map order doubles as LRU order) and the per-key promise locks. Generic over the
  *  live record so it stays a pure container — session composition lives with the callers.
  *
- *  Lock topology (MUST be preserved by callers): `user-<id>` is the outer send() lock guarding the
- *  vision-fallback stop/start decision; the session id is the inner lock guarding prompt()/spawn.
- *  start() locks the session id only — that key difference is what makes send() → start() re-entrant. */
+ *  Lock topology (MUST be preserved by callers): `send-<sessionId>` is the outer send() lock guarding
+ *  that ONE conversation's idle-rollover / vision-hop dispose-and-respawn decision (turns on different
+ *  conversations run concurrently); the bare session id is the inner lock guarding prompt()/spawn.
+ *  start()/ensureLive lock the bare session id only — that key difference is what makes
+ *  send() → ensureLive() re-entrant. */
 export class LiveSessionRegistry<T extends { session: { dispose(): void } }> {
   private live = new Map<string, T>();
   private active = new Map<number, string>();
