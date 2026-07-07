@@ -380,3 +380,27 @@ describe('drag-to-copy selection', () => {
     expect(out).toContain('answer');
   });
 });
+
+describe('per-turn render cache', () => {
+  it('reuses settled turn rows until the epoch changes (typing must not re-render history)', () => {
+    const view = fromHistory([
+      { role: 'user', text: 'question' },
+      { role: 'assistant', text: 'settled answer' },
+    ]);
+    const viewport = new ChatViewport(
+      { view, notice: '', modelName: 'kimi', thinkingSeconds: 0 },
+      getMarkdownTheme(),
+      () => 12,
+      () => 1,
+      () => 60,
+    );
+    const first = viewport.render(60).join('\n');
+    // Sneakily mutate the settled turn IN PLACE — a cached render must not see it...
+    const turn = view.turns[1]!;
+    if (turn.role === 'orca' && turn.segments[0]?.kind === 'text') turn.segments[0].text = 'MUTATED answer';
+    expect(viewport.render(60).join('\n')).toBe(first);
+    // ...until the cache epoch changes (an expand toggle invalidates everything).
+    viewport.toggleThought(-999); // no-op key → no epoch bump
+    expect(viewport.render(60).join('\n')).toBe(first);
+  });
+});

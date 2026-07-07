@@ -190,6 +190,8 @@ export interface TerminalSettings {
   fontFamily: TerminalFontFamily;
   cursorStyle: TerminalCursorStyle;
   cursorBlink: boolean;
+  /** Render the model's Thought rows in the CLI chat (cross-device per-user toggle). */
+  showThoughtsCli?: boolean;
   scrollback: number;
   theme: TerminalThemeMode;
   palette: TerminalPalette;

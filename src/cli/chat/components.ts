@@ -219,11 +219,15 @@ export function toolOutputBlock(output: ToolOutputView, width: number, expanded 
   const body = expanded && output.fullText ? output.fullText : output.text;
   for (const raw of body.split('\n')) {
     if (!raw) { lines.push(''); continue; }
-    const toneColor = /\b(error|failed|warning|needs attention|exit\s+[1-9])\b/i.test(raw)
-      ? theme.warning
-      : /^✓|^(passed|success|ok)\b/i.test(raw)
-        ? theme.success
-        : theme.muted;
+    // Bookkeeping lines ((cwd: …), [exit N], repeated $ command echoes) drop to faint — they are
+    // context, not content, and at full muted they competed with the agent's actual reply.
+    const toneColor = /^\s*(\(cwd: |\[exit \d+\]|\$ )/.test(raw)
+      ? theme.faint
+      : /\b(error|failed|warning|needs attention|exit\s+[1-9])\b/i.test(raw)
+        ? theme.warning
+        : /^✓|^(passed|success|ok)\b/i.test(raw)
+          ? theme.success
+          : theme.muted;
     lines.push(` ${ansi.open(toneColor, raw)}`);
   }
   if (expandable) {

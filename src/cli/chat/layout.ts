@@ -203,6 +203,11 @@ export class ChatViewport implements Component {
   private selHead: number | null = null;
   private lastRows: string[] = [];
   private lastStart = 0;
+  // Per-turn render cache (see renderTranscript): settled turns render once per (width, theme,
+  // expand-state, index) — typing must not pay for Markdown-ing the whole history every keystroke.
+  private turnCache = new WeakMap<object, { key: string; rows: TranscriptRow[] }>();
+  private renderEpoch = 0;
+  private lastTheme: unknown = null;
   private expandedThoughts = new Set<string>();
   private expandedTools = new Set<string>();
 
@@ -287,6 +292,7 @@ export class ChatViewport implements Component {
     const store = key.startsWith('tool:') ? this.expandedTools : this.expandedThoughts;
     if (store.has(key)) store.delete(key);
     else store.add(key);
+    this.renderEpoch++; // expansion changes a SETTLED turn's rows → invalidate the per-turn cache
   }
 
   isScrollbarHit(x: number, y: number): boolean {
@@ -345,14 +351,38 @@ export class ChatViewport implements Component {
   }
 
   private renderTranscript(width: number): TranscriptRow[] {
+    // Per-turn row cache: settled turns are immutable, but re-rendering the WHOLE history through
+    // Markdown on every keystroke made typing visibly lag on long conversations. Streaming turns
+    // (and anything whose cache key drifted — width, theme, expand state, index) render fresh.
+    if (this.lastTheme !== chatTheme()) { this.lastTheme = chatTheme(); this.renderEpoch++; }
+    const baseKey = `${width}|${this.state.showThoughts !== false}|${this.renderEpoch}`;
     const rows: TranscriptRow[] = [{ line: '' }];
+    for (const [turnIndex, turn] of this.state.view.turns.entries()) {
+      const turnKey = `${baseKey}|${turnIndex}`;
+      const cached = this.turnCache.get(turn);
+      if (cached && cached.key === turnKey) { rows.push(...cached.rows); continue; }
+      const turnRows = this.renderTurn(turn, turnIndex, width);
+      if (turn.role === 'you' || !turn.streaming) this.turnCache.set(turn, { key: turnKey, rows: turnRows });
+      rows.push(...turnRows);
+    }
+    if (this.state.notice) for (const line of this.state.notice.split('\n')) rows.push({ line: `  ${line}` });
+    if (this.state.view.notice) rows.push({ line: `  ${color.faint(`· ${this.state.view.notice}`)}` });
+    // No "thinking… Ns" transcript line — the generating state animates in the prompt meta line
+    // under the input instead (a line under the message just pushed the conversation around).
+    return rows;
+  }
+
+  /** All rows of ONE turn, starting from an (assumed) blank boundary and ending with a trailing blank —
+   *  the cacheable unit of the transcript. */
+  private renderTurn(turn: ChatView['turns'][number], turnIndex: number, width: number): TranscriptRow[] {
+    const rows: TranscriptRow[] = [];
     const add = (line: string, kind?: TranscriptRow['kind'], key?: string): void => { rows.push(kind ? { line, kind, key } : { line }); };
     const addBlank = (): void => add('');
-    for (const [turnIndex, turn] of this.state.view.turns.entries()) {
+    {
       if (turn.role === 'you') {
         for (const line of new UserBlock(turn.text).render(width)) add(line);
         addBlank();
-        continue;
+        return rows;
       }
       let hasText = false;
       for (const [segIndex, seg] of turn.segments.entries()) {
@@ -392,8 +422,9 @@ export class ChatViewport implements Component {
           const label = liveTail ? `Thought: ${formatDuration(this.state.thinkingSeconds)}` : 'Thought';
           const key = `${turnIndex}:${segIndex}`;
           const expanded = this.expandedThoughts.has(key);
-          // A blank line above each Thought keeps it from gluing onto the previous tool/output block.
-          if (rows[rows.length - 1]?.line !== '') addBlank();
+          // A blank line above each Thought keeps it from gluing onto the previous tool/output block
+          // (the turn boundary itself is already blank, so only intra-turn rows need one).
+          if (rows.length > 0 && rows[rows.length - 1]!.line !== '') addBlank();
           add(`  ${color.warning(expanded ? '▾' : '▸')} ${color.warning(label)} ${color.faint('click')} ${color.dim(truncateToWidth(first, Math.max(12, width - 32), '…'))}`, 'thought', key);
           if (expanded) {
             for (const line of wrapTextWithAnsi(seg.text, Math.max(1, width - 6))) add(`    ${color.faint(line)}`);
@@ -401,16 +432,15 @@ export class ChatViewport implements Component {
           addBlank();
         } else {
           hasText = true;
+          // A blank line between tool/console blocks and the agent's own words — without it the white
+          // reply text visually merges into the (dim) tool output above it.
+          if (segIndex > 0 && rows.length > 0 && rows[rows.length - 1]!.line !== '') addBlank();
           for (const line of this.renderTextWithPlans(seg.text, width)) add(line);
         }
       }
       if (!hasText && turn.streaming) add(`  ${color.faint('…')}`);
       addBlank();
     }
-    if (this.state.notice) for (const line of this.state.notice.split('\n')) add(`  ${line}`);
-    if (this.state.view.notice) add(`  ${color.faint(`· ${this.state.view.notice}`)}`);
-    // No "thinking… Ns" transcript line — the generating state animates in the prompt meta line
-    // under the input instead (a line under the message just pushed the conversation around).
     return rows;
   }
 

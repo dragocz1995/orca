@@ -33,18 +33,19 @@ export function TerminalSection() {
   const [scrollback, setScrollback] = useState(TERMINAL_DEFAULTS.scrollback);
   const [theme, setTheme] = useState<TerminalThemeMode>(TERMINAL_DEFAULTS.theme);
   const [palette, setPalette] = useState<TerminalPalette>(TERMINAL_DEFAULTS.palette);
+  const [showThoughtsCli, setShowThoughtsCli] = useState(TERMINAL_DEFAULTS.showThoughtsCli ?? true);
 
   const [seeded, setSeeded] = useState(false);
   useEffect(() => {
     if (data) {
       setFontSize(data.fontSize); setFontFamily(data.fontFamily); setCursorStyle(data.cursorStyle);
       setCursorBlink(data.cursorBlink); setScrollback(data.scrollback); setTheme(data.theme);
-      setPalette(data.palette); setSeeded(true);
+      setPalette(data.palette); setShowThoughtsCli(data.showThoughtsCli ?? true); setSeeded(true);
     }
   }, [data]);
 
-  const settings: TerminalSettings = { fontSize, fontFamily, cursorStyle, cursorBlink, scrollback, theme, palette };
-  useAutoSave([fontSize, fontFamily, cursorStyle, cursorBlink, scrollback, theme, palette], () => {
+  const settings: TerminalSettings = { fontSize, fontFamily, cursorStyle, cursorBlink, scrollback, theme, palette, showThoughtsCli };
+  useAutoSave([fontSize, fontFamily, cursorStyle, cursorBlink, scrollback, theme, palette, showThoughtsCli], () => {
     save.mutate(settings, { onError: () => toast(t.terminal.saveError, 'error') });
   }, { ready: seeded });
 
@@ -88,6 +89,13 @@ export function TerminalSection() {
             <span className="text-sm text-text">{t.terminal.cursorBlink}</span>
             <Toggle checked={cursorBlink} onChange={setCursorBlink} label={t.terminal.cursorBlink} />
           </div>
+        </div>
+      </SettingCard>
+
+      <SettingCard title={t.terminal.cliTitle} icon={ScrollText} description={t.terminal.showThoughtsHelp}>
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg px-3 py-2">
+          <span className="text-sm text-text">{t.terminal.showThoughts}</span>
+          <Toggle checked={showThoughtsCli} onChange={setShowThoughtsCli} label={t.terminal.showThoughts} />
         </div>
       </SettingCard>
 

@@ -187,7 +187,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   // silently reverted to the default.
   const prefs0 = loadPrefs();
   if (prefs0.theme && isChatThemeName(prefs0.theme)) setChatTheme(prefs0.theme);
-  // Thought-row visibility, per machine — `/reasoning show` toggles it.
+  // Thought-row visibility — the per-USER server setting wins (Account → Terminal / `/reasoning show`
+  // on any device); the local pref is the offline fallback until termSettings load below.
   let showThoughts = prefs0.showThoughts !== false;
   const mdTheme = getMarkdownTheme();
 
@@ -201,6 +202,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const termSettings = await client.terminalSettings().catch(() => null);
   const localPick = !!(prefs0.theme && isChatThemeName(prefs0.theme));
   if (!localPick && termSettings?.theme === 'custom' && termSettings.palette) setCustomChatTheme(termSettings.palette);
+  if (typeof termSettings?.showThoughtsCli === 'boolean') showThoughts = termSettings.showThoughtsCli;
   let modelName = boot?.model || opts.model || '';
   let conversationTitle = boot?.title ?? '';
   let lineCfg = boot?.statusline ?? null;
@@ -1006,6 +1008,26 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     else closeSubagent();
   };
 
+  /** Plan-mode follow-up: the agent finished a turn containing a <proposed_plan> block — ask whether to
+   *  implement it now. "Implement" flips to build mode and sends the go-ahead through the normal submit
+   *  path; "Cancel" stays in plan mode for further refinement. */
+  const openPlanDecision = (): void => {
+    openPicker({
+      tui, editor, title: 'Plan ready',
+      items: [
+        { value: 'implement', label: 'Implement plan', description: 'switch to build mode and start implementing' },
+        { value: 'cancel', label: 'Cancel', description: 'stay in plan mode and keep refining' },
+      ],
+      footer: 'enter pick · esc close',
+      onPick: (v) => {
+        if (v !== 'implement') return;
+        workMode = 'build';
+        render();
+        editor.onSubmit?.('Implement the plan you proposed above.');
+      },
+    });
+  };
+
   let streamAc = new AbortController();
   // `ac` is captured by the CALLER at switch time: two rapid switches (`/new` + `/model` mid-roundtrip)
   // both pass their own controller, and the superseded one bails here instead of opening a second live
@@ -1021,6 +1043,13 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
         // A finished turn may have just auto-titled a fresh conversation — pull the new title (and usage)
         // so the header stops showing "new conversation". Best-effort; a dropped daemon just leaves it.
         if (!conversationTitle) void refreshMeta().then(render);
+        // Plan mode: the agent just delivered a <proposed_plan> — offer to implement it right away
+        // instead of leaving the user to flip modes and phrase the follow-up themselves.
+        if (workMode === 'plan' && !childView) {
+          const last = view.turns[view.turns.length - 1];
+          const text = last?.role === 'orca' ? last.segments.filter((s) => s.kind === 'text').map((s) => (s as { text: string }).text).join('') : '';
+          if (/<proposed_plan>/i.test(text)) openPlanDecision();
+        }
       }
       if (e.type === 'step' && e.usage) usage = e.usage;
       if (e.type === 'card') cards = upsertCard(cards, e.card); // update the persistent panel (not part of the ChatView)
@@ -1098,10 +1127,12 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           return;
         }
         case 'reasoning': {
-          // "/reasoning show" toggles the Thought rows in the transcript (persisted per machine).
+          // "/reasoning show" toggles the Thought rows — persisted per USER server-side (cross-device,
+          // mirrors the Account → Terminal switch) with the local pref as offline fallback.
           if (command.arg?.trim() === 'show') {
             showThoughts = !showThoughts;
             savePrefs({ showThoughts });
+            void client.saveTerminalSettings({ showThoughtsCli: showThoughts }).catch(() => { /* offline → local pref still applies */ });
             notice = color.dim(showThoughts ? 'Thought rows shown' : 'Thought rows hidden — /reasoning show brings them back');
             render();
             return;
@@ -1399,12 +1430,19 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       if (matchesKey(data, 'escape')) { closeSlash(); return { consume: true }; }
       if (data === '\x1b[A' || matchesKey(data, 'up')) { slashOverlay.moveSelection(-1); tui.requestRender(); return { consume: true }; }
       if (data === '\x1b[B' || matchesKey(data, 'down')) { slashOverlay.moveSelection(1); tui.requestRender(); return { consume: true }; }
-      if (data === '\r' || matchesKey(data, 'enter') || data === '\t') {
+      // Tab COMPLETES the highlighted command into the input (ready for arguments); Enter runs it.
+      if (data === '\t') {
+        const value = slashOverlay.selectedValue();
+        closeSlash();
+        if (value) { editor.setText(`${value} `); tui.requestRender(); }
+        return { consume: true };
+      }
+      if (data === '\r' || matchesKey(data, 'enter')) {
         const value = slashOverlay.selectedValue();
         closeSlash();
         if (value) { editor.setText(''); editor.onSubmit?.(value); return { consume: true }; }
-        // No matching command: swallow Tab, but let Enter fall through and send the text as-is.
-        return data === '\t' ? { consume: true } : undefined;
+        // No matching command: let Enter fall through and send the text as-is.
+        return undefined;
       }
     }
     // Global chat shortcuts only fire while the MAIN editor is focused and the slash suggestions are

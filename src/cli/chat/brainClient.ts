@@ -219,11 +219,22 @@ export class BrainClient {
 
   /** The caller's web Account → Terminal appearance settings — the CLI derives its chat theme from a
    *  CUSTOM palette so colors configured on the web carry across devices. */
-  async terminalSettings(): Promise<{ theme: string; palette?: Record<string, string> }> {
+  async terminalSettings(): Promise<{ theme: string; palette?: Record<string, string>; showThoughtsCli?: boolean }> {
     const res = await this.f(`${this.o.base}/auth/me/terminal-settings`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`orca ${res.status} on /auth/me/terminal-settings`);
-    return (await res.json()) as { theme: string; palette?: Record<string, string> };
+    return (await res.json()) as { theme: string; palette?: Record<string, string>; showThoughtsCli?: boolean };
+  }
+
+  /** Patch the caller's per-user terminal settings (`/reasoning show` persists the Thought toggle
+   *  cross-device through this). */
+  async saveTerminalSettings(patch: Record<string, unknown>): Promise<void> {
+    const res = await this.f(`${this.o.base}/auth/me/terminal-settings`, {
+      method: 'PATCH', headers: { ...this.headers(), 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (res.status === 401) throw new Unauthorized();
+    if (!res.ok) throw new Error(`orca ${res.status} on /auth/me/terminal-settings`);
   }
 
   /** Install a registry language server daemon-side (admin-only; the /lsp modal's ctrl+i). Non-2xx

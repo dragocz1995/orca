@@ -23,6 +23,9 @@ export interface TerminalSettings {
   scrollback: number;
   theme: TerminalThemeMode;
   palette: TerminalPalette;
+  /** Render the model's Thought rows in the CLI chat transcript. Cross-device (per user), toggled from
+   *  Account → Terminal or `/reasoning show` in the CLI. */
+  showThoughtsCli: boolean;
 }
 
 // The font-family id → CSS stack mapping lives only where it's applied (the web, in
@@ -50,6 +53,7 @@ export const TERMINAL_DEFAULTS: TerminalSettings = {
   scrollback: 1000,
   theme: 'auto',
   palette: DARK_PALETTE,
+  showThoughtsCli: true,
 };
 
 const isHex6 = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
@@ -91,6 +95,7 @@ export function sanitizeTerminalSettings(input: unknown, base: TerminalSettings 
     scrollback: src.scrollback !== undefined ? clampScrollback(src.scrollback) : base.scrollback,
     theme: isThemeMode(src.theme) ? src.theme : base.theme,
     palette: sanitizePalette(src.palette, base.palette),
+    showThoughtsCli: typeof src.showThoughtsCli === 'boolean' ? src.showThoughtsCli : base.showThoughtsCli,
   };
 }
 

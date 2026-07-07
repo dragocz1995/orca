@@ -66,4 +66,5 @@ export const TERMINAL_DEFAULTS: TerminalSettings = {
   scrollback: 1000,
   theme: 'auto',
   palette: DARK_PALETTE,
+  showThoughtsCli: true,
 };
