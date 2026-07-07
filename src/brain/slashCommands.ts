@@ -50,6 +50,9 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   // native command surface; the web dock has no picker for it yet (would show a dead menu entry).
   { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli'] },
   { name: 'theme', description: 'Switch the terminal colour theme', kind: 'picker', surfaces: ['cli'] },
+  // CLI-local like /theme: reads THIS machine's clipboard (xclip/wl-paste/pngpaste) and parks the
+  // image as a pending attachment for the next message — never server-dispatched.
+  { name: 'paste', description: 'Attach an image from the system clipboard', kind: 'action', surfaces: ['cli'] },
   // CLI-local like /theme: the TUI suspends itself and round-trips the draft through $VISUAL/$EDITOR.
   { name: 'editor', description: 'Compose the prompt in your $EDITOR', kind: 'picker', surfaces: ['cli'] },
   // adminOnly: the toggle flips a daemon-wide LspManager singleton (spawns/kills servers for everyone),

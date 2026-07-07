@@ -219,6 +219,19 @@ export function runApprovalFlow(o: ApprovalFlowOpts): void {
   o.tui.requestRender(true);
 }
 
+/** Pending image attachments as a chip row above the input ("[img] shot.png · 42 KB · esc to drop").
+ *  Renders nothing while empty, so it costs no rows until an image is attached. */
+export class AttachmentChips implements Component {
+  private images: { name: string; bytes: number }[] = [];
+  invalidate(): void { /* state driven */ }
+  set(images: { name: string; bytes: number }[]): void { this.images = images; }
+  render(width: number): string[] {
+    if (this.images.length === 0) return [];
+    const chips = this.images.map((i) => `${color.accent('[img]')} ${color.text(i.name)} ${color.faint(`· ${Math.max(1, Math.round(i.bytes / 1024))} KB`)}`);
+    return [truncateToWidth(`  ${chips.join('   ')} ${color.faint('· esc to drop')}`, width, '…')];
+  }
+}
+
 /** A bottom status bar: left text and right text justified to the two edges. */
 export class StatusBar implements Component {
   constructor(private left: string, private right: string) {}

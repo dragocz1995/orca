@@ -619,6 +619,63 @@ export interface SlashOverlayItem {
   description?: string;
 }
 
+/** File-mention suggestions rendered above the input — the `@` twin of {@link SlashOverlay}, same
+ *  chrome and focus model (the editor keeps focus; the app feeds it the ranked matches, since fuzzy +
+ *  frecency ordering lives in mentions.ts, and steers the highlight with the arrow keys). */
+export class MentionOverlay implements Component {
+  private items: SlashOverlayItem[] = [];
+  private selectedIndex = 0;
+
+  invalidate(): void { /* state driven */ }
+
+  /** Replace the (already ranked) matches for the current query; the highlight resets to the top. */
+  setItems(items: SlashOverlayItem[]): void {
+    this.items = items;
+    this.selectedIndex = 0;
+  }
+
+  /** Move the highlight up (-1) / down (+1), wrapping around the list. */
+  moveSelection(delta: number): void {
+    if (this.items.length === 0) return;
+    this.selectedIndex = (this.selectedIndex + delta + this.items.length) % this.items.length;
+  }
+
+  /** The highlighted path, or null when nothing matches the current query. */
+  selectedValue(): string | null {
+    return this.items[this.selectedIndex]?.value ?? null;
+  }
+
+  render(width: number): string[] {
+    const innerWidth = Math.max(1, width - 2);
+    const top = `${color.accent('╭')}${color.faint('─'.repeat(innerWidth))}${color.accent('╮')}`;
+    const bottom = `${color.accent('╰')}${color.faint('─'.repeat(innerWidth))}${color.accent('╯')}`;
+    const row = (content: string): string => `${color.accent('│')}${bgFill(content, innerWidth)}${color.accent('│')}`;
+    if (this.selectedIndex >= this.items.length) this.selectedIndex = Math.max(0, this.items.length - 1);
+    const start = Math.max(0, Math.min(this.selectedIndex - 5, Math.max(0, this.items.length - 10)));
+    const shown = this.items.slice(start, start + 10);
+    const itemRows = shown.length
+      ? shown.map((item, i) => {
+          const descWidth = item.description ? Math.min(visibleWidth(item.description), Math.max(0, innerWidth - 4 - visibleWidth(item.label) - 2)) : 0;
+          const path = truncateToWidth(item.label, Math.max(1, innerWidth - 4 - (descWidth ? descWidth + 2 : 0)), '…');
+          const desc = descWidth ? `  ${truncateToWidth(item.description ?? '', descWidth, '…')}` : '';
+          if (start + i === this.selectedIndex) {
+            return `${color.accent('│')}${ansi.sgr(`${chatTheme().selectedBg};30;1`, padAnsi(`  ${path}${desc}`, innerWidth))}${color.accent('│')}`;
+          }
+          return row(`  ${ansi.open(chatTheme().text, path)}${desc ? ansi.open(chatTheme().muted, desc) : ''}`);
+        })
+      : [row(ansi.open(chatTheme().muted, '  No matching files'))];
+    const counter = this.items.length > shown.length ? [row(ansi.open(chatTheme().faint, `  (${Math.min(this.selectedIndex + 1, this.items.length)}/${this.items.length})`))] : [];
+    return [
+      top,
+      row(`  ${ansi.open(chatTheme().faint, 'files · ↑↓ select · tab/enter attach · esc dismiss')}`),
+      row(''),
+      ...itemRows,
+      ...counter,
+      bottom,
+    ];
+  }
+}
+
 /** Slash-command suggestions rendered above the input. It never takes focus: the editor owns the typed
  *  text (including the leading '/'), and the app feeds it in via setFilter / steers it via moveSelection. */
 export class SlashOverlay implements Component {

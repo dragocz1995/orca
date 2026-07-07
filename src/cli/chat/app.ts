@@ -1,13 +1,29 @@
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { TUI, ProcessTerminal, Container, matchesKey, CombinedAutocompleteProvider } from '@earendil-works/pi-tui';
+import { TUI, ProcessTerminal, Container, matchesKey } from '@earendil-works/pi-tui';
+import type { Component } from '@earendil-works/pi-tui';
 import { initTheme, getMarkdownTheme, getSelectListTheme } from '@earendil-works/pi-coding-agent';
 import { chatThemeItems, color, glyph, isChatThemeName, setChatTheme, setCustomChatTheme } from './theme.js';
 import { loadPrefs, savePrefs } from './prefs.js';
 import { appendPromptHistory, loadPromptHistory, PromptStash } from './promptHistory.js';
 import { LocalShellBuffer, localShellTurn, parseBangCommand, runLocalShell } from './localShell.js';
 import { editTextExternally } from './externalEditor.js';
-import { StatusBar, CardPanel, SubagentPanel, spinnerFrame, runApprovalFlow } from './components.js';
+import { StatusBar, CardPanel, SubagentPanel, AttachmentChips, spinnerFrame, runApprovalFlow } from './components.js';
+import {
+  activeMention,
+  bumpMentionFrecency,
+  CLIPBOARD_MENTION,
+  composeWithAttachments,
+  expandMentions,
+  FileIndex,
+  imageMimeFor,
+  loadMentionFrecency,
+  MAX_IMAGES_PER_MESSAGE,
+  mentionInsertText,
+  rankMentionFiles,
+  readClipboardImage,
+  type PendingImage,
+} from './mentions.js';
 import type { SubagentPanelEntry } from './components.js';
 import { ChatEditor, sessionItems, modelItems, parseModelValue, openPicker, openTextInput, openInfoModal } from './picker.js';
 import { runAskFlow } from './askFlow.js';
@@ -26,6 +42,7 @@ import {
   mouseClick,
   mouseEvent,
   mouseWheel,
+  MentionOverlay,
   PANEL_GUTTER_COLUMNS,
   SlashOverlay,
   StartScreen,
@@ -67,7 +84,7 @@ export function viewToPlainText(view: ChatView): string[] {
 
 /** Local slash-command routing: returns the recognized command (with its argument) or null for a
  *  regular chat message. Pure, so the command surface is unit-testable without a TTY. */
-export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'delete' | 'model' | 'reasoning' | 'theme' | 'editor' | 'lsp' | 'mcp' | 'skills' | 'tools' | 'goal' | 'subgoal' | 'compact' | 'plan' | 'build' | 'yolo' | 'help'; arg?: string } | null {
+export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'delete' | 'model' | 'reasoning' | 'theme' | 'editor' | 'lsp' | 'mcp' | 'skills' | 'tools' | 'goal' | 'subgoal' | 'compact' | 'plan' | 'build' | 'yolo' | 'paste' | 'help'; arg?: string } | null {
   const m = /^\/(\w+)(?:\s+(.+))?$/.exec(text.trim());
   if (!m) return null;
   switch (m[1]) {
@@ -93,6 +110,7 @@ export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'st
     case 'plan': return { cmd: 'plan', arg: m[2] };
     case 'build': return { cmd: 'build', arg: m[2] };
     case 'yolo': return { cmd: 'yolo', arg: m[2] };
+    case 'paste': return { cmd: 'paste' };
     case 'help': return { cmd: 'help' };
     default: return null;
   }
@@ -259,9 +277,20 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const promptStash = new PromptStash();
   /** `!cmd` results waiting to ride along with the next prompt sent to the brain. */
   const shellContext = new LocalShellBuffer();
+  /** `@` mentions: the session file index (git ls-files/walk) + the persisted per-project frecency. */
+  const mentionIndex = new FileIndex(process.cwd());
+  let mentionFrecency = loadMentionFrecency(process.cwd());
+  /** Images parked for the next send (`/paste`, `@clipboard`, `@image.png`) — shown as a chip row. */
+  let pendingImages: PendingImage[] = [];
+  const attachmentChips = new AttachmentChips();
   /** Ask-user-question still borrows this slot for its multi-step flow. Other pickers use modals. */
   const editorSlot = new Container();
   editorSlot.addChild(editor);
+  /** The chips ride in a fixed wrapper OUTSIDE editorSlot: the ask/approval flows clear that slot,
+   *  and pending attachments must survive them. This wrapper is what the layout stacks render. */
+  const inputStack = new Container();
+  inputStack.addChild(attachmentChips);
+  inputStack.addChild(editorSlot);
   /** Persistent card panel (ctx.emitCard — the todo checklist is the canonical one), pinned above the
    *  status line — lives in the fixed tree, NOT the rebuilt messages container, so it stays put across turns. */
   const cardPanel = new CardPanel();
@@ -274,12 +303,14 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     label: `/${cmd.name}`,
     description: cmd.description,
   }));
-  // Slash commands use Orca's custom overlay. Keep PI completion for files and @attachments only.
-  editor.setAutocompleteProvider(new CombinedAutocompleteProvider([], process.cwd()));
+  // No PI autocomplete provider: '/' commands and '@' file mentions both use Orca's own overlays
+  // (a second popup fighting over Tab/Enter would be chaos).
 
   let panelHandle: ReturnType<TUI['showOverlay']> | null = null;
   let slashHandle: ReturnType<TUI['showOverlay']> | null = null;
   let slashOverlay: SlashOverlay | null = null;
+  let mentionHandle: ReturnType<TUI['showOverlay']> | null = null;
+  let mentionOverlay: MentionOverlay | null = null;
   let panelWidth = 46;
   let resizingPanel = false;
   let draggingHistoryScroll = false;
@@ -292,7 +323,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const fixedRows = (): number => {
     const cardRows = cardPanel.render(Math.max(24, chatWidth())).length;
     const subRows = subPanel.render(Math.max(24, chatWidth())).length;
-    const inputRows = editorSlot.render(Math.max(24, chatWidth())).length;
+    const inputRows = inputStack.render(Math.max(24, chatWidth())).length;
     return TOP_RULE_ROWS + cardRows + subRows + inputRows + 2;
   };
 
@@ -312,11 +343,11 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     lspEnabled,
   }));
   const startScreen = new StartScreen(
-    editorSlot,
+    inputStack,
     () => Math.max(12, term.rows - TOP_RULE_ROWS),
     () => ({
       modelLine: modelMetaLine(workMode, modelName, thinkingLevel, undefined, yoloOn),
-      hints: color.faint('⏎ send · / commands · ! shell · ↑ history · ctrl+s stash · shift+tab mode'),
+      hints: color.faint('⏎ send · / commands · @ files · ! shell · ↑ history · shift+tab mode'),
       tip: `${color.warning('●')} ${color.bold(color.text('Tip'))} ${color.dim('ask anything — try')} ${color.text('"What is the tech stack of this project?"')}`,
       notice,
       statusLeft: `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`,
@@ -363,7 +394,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       ? color.faint('  ⏎ message the sub-agent   ·   esc back   ·   ctrl+o next session')
       : view.thinking
         ? color.faint(`  esc interrupt   ·   /help commands   ·   ctrl+r reasoning${subagentSessions().length ? '   ·   ctrl+o subagents' : ''}`)
-        : color.faint('  ⏎ send   ·   / slash   ·   ! shell   ·   ctrl+s stash   ·   shift+tab mode   ·   ctrl+r reasoning   ·   ctrl+p telemetry')
+        : color.faint('  ⏎ send   ·   / slash   ·   @ files   ·   ! shell   ·   ctrl+s stash   ·   shift+tab mode   ·   ctrl+r reasoning   ·   ctrl+p telemetry')
           + (shellContext.pending ? `   ${color.warning('· ! output → next message')}` : ''));
     const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
     const line = statusline(lineCfg ? { ...lineCfg, showModel: false } : null, usage, modelName);
@@ -943,6 +974,37 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     tui.requestRender();
   };
 
+  /** Anchor a NON-capturing suggestion popup (slash commands, @ mentions) above the input — under the
+   *  centered box on the start screen, at the bottom-of-screen slot otherwise. Shared geometry so the
+   *  two overlays can never drift apart. */
+  const showSuggestions = (overlay: Component): ReturnType<TUI['showOverlay']> => {
+    // Tallest render: top + hint + blank + 10 items + counter + bottom = 15 rows. One less would clip
+    // the bottom border whenever the counter row shows (which, with 20+ commands, is always).
+    if (!hasMessages()) {
+      // Start screen: the input is vertically centered, so anchor the suggestions right UNDER it
+      // (aligned to the box) — the normal bottom-of-screen slot would float rows below the input.
+      const { boxWidth, leftPad } = startScreenBox(term.columns);
+      const inputRows = inputStack.render(boxWidth).length;
+      const noticeRows = notice ? notice.split('\n').length : 0;
+      const top = TOP_RULE_ROWS + startScreenInputTop(Math.max(12, term.rows - TOP_RULE_ROWS), inputRows, noticeRows) + inputRows;
+      return tui.showOverlay(overlay, {
+        anchor: 'top-left',
+        width: boxWidth,
+        maxHeight: 15,
+        margin: { top, left: leftPad, right: 0, bottom: 0 },
+        nonCapturing: true,
+      });
+    }
+    const reserve = panelReserve();
+    return tui.showOverlay(overlay, {
+      anchor: 'bottom-left',
+      width: Math.max(50, term.columns - reserve - 1),
+      maxHeight: 15,
+      margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom: fixedRows() },
+      nonCapturing: true,
+    });
+  };
+
   /** Open the slash suggestions as a NON-capturing overlay: the editor keeps focus (and the typed text,
    *  including the leading '/'), while the overlay just mirrors it as a filter via editor.onChange. */
   const openSlash = (): void => {
@@ -950,33 +1012,80 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     const overlay = new SlashOverlay(slashItems);
     overlay.setFilter(editor.getText());
     slashOverlay = overlay;
-    // Tallest render: top + hint + blank + 10 items + counter + bottom = 15 rows. One less would clip
-    // the bottom border whenever the counter row shows (which, with 20+ commands, is always).
-    if (!hasMessages()) {
-      // Start screen: the input is vertically centered, so anchor the suggestions right UNDER it
-      // (aligned to the box) — the normal bottom-of-screen slot would float rows below the input.
-      const { boxWidth, leftPad } = startScreenBox(term.columns);
-      const inputRows = editorSlot.render(boxWidth).length;
-      const noticeRows = notice ? notice.split('\n').length : 0;
-      const top = TOP_RULE_ROWS + startScreenInputTop(Math.max(12, term.rows - TOP_RULE_ROWS), inputRows, noticeRows) + inputRows;
-      slashHandle = tui.showOverlay(overlay, {
-        anchor: 'top-left',
-        width: boxWidth,
-        maxHeight: 15,
-        margin: { top, left: leftPad, right: 0, bottom: 0 },
-        nonCapturing: true,
-      });
-    } else {
-      const reserve = panelReserve();
-      slashHandle = tui.showOverlay(overlay, {
-        anchor: 'bottom-left',
-        width: Math.max(50, term.columns - reserve - 1),
-        maxHeight: 15,
-        margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom: fixedRows() },
-        nonCapturing: true,
-      });
-    }
+    slashHandle = showSuggestions(overlay);
     tui.requestRender();
+  };
+
+  const closeMention = (): void => {
+    mentionHandle?.hide();
+    mentionHandle = null;
+    mentionOverlay = null;
+    tui.requestRender();
+  };
+
+  /** The `@` token being typed at the cursor (word-start only — see activeMention), or null. */
+  const mentionAtCursor = (): { query: string; start: number; line: number } | null => {
+    const cur = editor.getCursor();
+    const lineText = editor.getLines()[cur.line] ?? '';
+    const m = activeMention(lineText, cur.col);
+    return m ? { ...m, line: cur.line } : null;
+  };
+
+  /** Ranked suggestions for a mention query: fuzzy + frecency over the project index, with the
+   *  `@clipboard` pseudo-file pinned on top while the query still matches it. */
+  const mentionItems = (query: string): { value: string; label: string; description?: string }[] => {
+    const items = rankMentionFiles(mentionIndex.files(), query, mentionFrecency)
+      .map((path) => ({ value: path, label: path, description: imageMimeFor(path) ? 'image' : undefined }));
+    if (CLIPBOARD_MENTION.startsWith(query.toLowerCase())) {
+      items.unshift({ value: CLIPBOARD_MENTION, label: CLIPBOARD_MENTION, description: 'attach the clipboard image' });
+    }
+    return items;
+  };
+
+  /** Re-rank the mention suggestions from the editor text; closes the overlay when the token ended. */
+  const updateMention = (): void => {
+    if (!mentionHandle || !mentionOverlay) return;
+    const m = mentionAtCursor();
+    if (!m) { closeMention(); return; }
+    mentionOverlay.setItems(mentionItems(m.query));
+    tui.requestRender();
+  };
+
+  /** Open the file-mention suggestions (same non-capturing pattern as the slash overlay). */
+  const openMention = (): void => {
+    closeMention();
+    mentionIndex.refreshIfStale(); // a new mention re-lists a stale index; keystrokes stay cached
+    const overlay = new MentionOverlay();
+    overlay.setItems(mentionItems(''));
+    mentionOverlay = overlay;
+    mentionHandle = showSuggestions(overlay);
+    tui.requestRender();
+  };
+
+  /** Replace the active `@` token with the picked path (quoted when it has spaces) and bump its
+   *  frecency so it ranks first next time. */
+  const insertMention = (path: string): void => {
+    const cur = editor.getCursor();
+    const lines = editor.getLines();
+    const lineText = lines[cur.line] ?? '';
+    const m = activeMention(lineText, cur.col);
+    closeMention();
+    if (!m) return;
+    const nextLine = `${lineText.slice(0, m.start)}${mentionInsertText(path)} ${lineText.slice(cur.col)}`;
+    editor.setText([...lines.slice(0, cur.line), nextLine, ...lines.slice(cur.line + 1)].join('\n'));
+    if (path !== CLIPBOARD_MENTION) mentionFrecency = bumpMentionFrecency(process.cwd(), path);
+    tui.requestRender();
+  };
+
+  /** Park an image for the next send and surface it in the chip row. */
+  const attachImage = (img: PendingImage): void => {
+    if (pendingImages.length >= MAX_IMAGES_PER_MESSAGE) {
+      notice = color.error(`max ${MAX_IMAGES_PER_MESSAGE} images per message — send or esc-drop first`);
+      return;
+    }
+    pendingImages = [...pendingImages, img];
+    attachmentChips.set(pendingImages);
+    notice = color.dim(`${img.name} attached (${Math.max(1, Math.round(img.bytes / 1024))} KB) — sends with your next message`);
   };
 
   /** Latest known state of every delegated sub-agent in the parent transcript, in first-seen order —
@@ -1310,6 +1419,18 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
             .catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           return;
         }
+        case 'paste': {
+          // CLI-local: reads THIS machine's clipboard. The image parks as a pending attachment
+          // (chip row above the input) and rides along with the next message.
+          notice = color.dim('reading the clipboard image…');
+          render();
+          void readClipboardImage().then((r) => {
+            if (r.image) attachImage(r.image);
+            else notice = color.error(r.error ?? 'no image on the clipboard');
+            render();
+          });
+          return;
+        }
         case 'stop': {
           if (!view.thinking) { notice = color.dim('nothing is running'); render(); return; }
           notice = color.dim('stopping…');
@@ -1343,37 +1464,76 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       void client.send(shellContext.take(expanded), workMode).catch((e: Error) => { view = reduce(view, { type: 'error', message: e.message }); render(); });
       return;
     }
-    view = beginAssistant(pushUser(view, trimmed));
-    render();
-    // Any buffered `!` results ride along (prepended as a fenced context block), then the buffer clears.
-    void client.send(shellContext.take(trimmed), workMode).catch((e: Error) => { view = reduce(view, { type: 'error', message: e.message }); render(); });
+    // `@path` mentions expand HERE, not in the visible transcript: text files ride inside the prompt
+    // as fenced blocks, image files (and `@clipboard`) go out as image content blocks. The user block
+    // and the recall history keep the clean text with its @tokens.
+    const mentions = expandMentions(trimmed, process.cwd());
+    const sendWith = (clipboardImages: PendingImage[]): void => {
+      const all = [...pendingImages, ...mentions.images, ...clipboardImages];
+      const images = all.slice(0, MAX_IMAGES_PER_MESSAGE);
+      if (all.length > images.length) notice = color.warning(`only ${MAX_IMAGES_PER_MESSAGE} images per message — ${all.length - images.length} dropped`);
+      pendingImages = [];
+      attachmentChips.set([]);
+      const echo = images.length ? `${trimmed}\n${images.map((i) => `[📎 ${i.name}]`).join(' ')}` : trimmed;
+      view = beginAssistant(pushUser(view, echo));
+      render();
+      // ONE composition path for everything that rides along: buffered `!` shell context first, then
+      // the mention attachments, then the user's own words (see composeWithAttachments).
+      void client.send(
+        shellContext.take(composeWithAttachments(trimmed, mentions.block)),
+        workMode,
+        images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
+      ).catch((e: Error) => { view = reduce(view, { type: 'error', message: e.message }); render(); });
+    };
+    if (mentions.wantsClipboard) {
+      void readClipboardImage().then((r) => {
+        if (!r.image) notice = color.error(r.error ?? 'no image on the clipboard');
+        sendWith(r.image ? [r.image] : []);
+      });
+      return;
+    }
+    sendWith([]);
   };
 
   // The slash overlay is a live suggestion popup driven by the input text: it filters while the text can
   // still be a command name and closes the moment it can't be one anymore (a space for arguments, a
   // second '/' as in /var/www/x, or the leading '/' deleted) — the text itself always stays in the input.
   editor.onChange = (text: string): void => {
-    if (!slashHandle || !slashOverlay) return;
-    if (isSlashCommandDraft(text)) {
-      slashOverlay.setFilter(text);
-      tui.requestRender();
-    } else {
-      closeSlash();
+    if (slashHandle && slashOverlay) {
+      if (isSlashCommandDraft(text)) {
+        slashOverlay.setFilter(text);
+        tui.requestRender();
+      } else {
+        closeSlash();
+      }
     }
+    // The mention overlay mirrors the `@` token at the cursor the same way — re-ranked on every
+    // keystroke, closed the moment the token ends (whitespace, deleted '@', closing quote).
+    if (mentionHandle && mentionOverlay) updateMention();
   };
 
   // Esc closes an open sub-agent view first; while a turn streams it aborts server-side (agent_end →
-  // idle winds the spinner down). When idle it returns false so Esc falls through to the base editor.
+  // idle winds the spinner down). When idle it drops any pending image attachments (the chip row's
+  // advertised "esc to drop"), then falls through to the base editor.
   editor.onEscape = (): boolean => {
     if (childView) { closeSubagent(); return true; }
-    if (!view.thinking) return false;
-    void client.abort().catch(() => { /* already idle */ });
-    return true;
+    if (view.thinking) {
+      void client.abort().catch(() => { /* already idle */ });
+      return true;
+    }
+    if (pendingImages.length > 0) {
+      pendingImages = [];
+      attachmentChips.set([]);
+      notice = color.dim('image attachments dropped');
+      render();
+      return true;
+    }
+    return false;
   };
 
   const root = new Container();
   root.addChild(new TopRule(() => conversationTitle));
-  const chatStack = [viewport, cardPanel, subPanel, editorSlot, promptMeta, bottomBar];
+  const chatStack = [viewport, cardPanel, subPanel, inputStack, promptMeta, bottomBar];
   root.addChild(new MainColumn(panelReserve, () => hasMessages() ? chatStack : [startScreen]));
   tui.addChild(root);
   tui.setFocus(editor);
@@ -1392,6 +1552,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     term.write(DISABLE_MOUSE);
     panelHandle?.hide();
     slashHandle?.hide();
+    mentionHandle?.hide();
     tui.stop();
     done();
   };
@@ -1426,6 +1587,8 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           panelWidth = Math.max(36, Math.min(68, term.columns - ev.x + 1));
           showPanel(false);
           if (slashHandle) openSlash();
+          // Re-anchor an open mention overlay to the new geometry, keeping its items/selection.
+          if (mentionHandle && mentionOverlay) { mentionHandle.hide(); mentionHandle = showSuggestions(mentionOverlay); }
           tui.requestRender(true);
           return { consume: true };
         }
@@ -1439,7 +1602,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     // input, the ask dock — which unfocus the editor — or the inline slash overlay): otherwise a click or
     // scroll inside the overlay would toggle the Todos checklist / scroll the transcript hidden underneath.
     // The start screen has no transcript, so those interactions also need a rendered chat stack.
-    const noModal = editor.focused && !slashHandle && hasMessages();
+    const noModal = editor.focused && !slashHandle && !mentionHandle && hasMessages();
     const click = mouseClick(data);
     // A sub-agent row opens the child transcript (its own registry — these rows don't expand in place).
     if (click && noModal && !childView) {
@@ -1501,6 +1664,21 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       }
     }
     if (matchesKey(data, 'ctrl+c')) { quit(); return { consume: true }; }
+    // Mention suggestions: like the slash overlay, the editor keeps focus — only the navigation keys
+    // are stolen (↑/↓ must steer the list, NOT the prompt-history recall, while it is open).
+    if (editor.focused && mentionHandle && mentionOverlay) {
+      if (matchesKey(data, 'escape')) { closeMention(); return { consume: true }; }
+      if (data === '\x1b[A' || matchesKey(data, 'up')) { mentionOverlay.moveSelection(-1); tui.requestRender(); return { consume: true }; }
+      if (data === '\x1b[B' || matchesKey(data, 'down')) { mentionOverlay.moveSelection(1); tui.requestRender(); return { consume: true }; }
+      // Tab/Enter insert the highlighted path as an `@` token. Enter with NO match falls through —
+      // the "@something" the user typed is deliberate text, send it as-is.
+      if (data === '\t' || data === '\r' || matchesKey(data, 'enter')) {
+        const value = mentionOverlay.selectedValue();
+        if (value) { insertMention(value); return { consume: true }; }
+        closeMention();
+        return data === '\t' ? { consume: true } : undefined;
+      }
+    }
     // Slash suggestions: the editor KEEPS focus while the overlay is open (typing keeps landing in the
     // input line), so only the overlay-navigation keys are stolen here — everything else falls through.
     if (editor.focused && slashHandle && slashOverlay) {
@@ -1526,7 +1704,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     // closed. Input listeners run before the focused component, so without this guard ctrl+r/ctrl+p/'/'/
     // shift+tab would hijack an open modal (a picker, the rename input, the ask-question dock) instead
     // of reaching it.
-    const editing = editor.focused && !slashHandle;
+    const editing = editor.focused && !slashHandle && !mentionHandle;
     // No telemetry panel on the start screen — a toggle there would silently pre-hide it for later.
     if (editing && hasMessages() && matchesKey(data, 'ctrl+p')) {
       const hidden = !panelHandle?.isHidden();
@@ -1571,6 +1749,15 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     // editor, so the typed text (a command or a path like /var/www/x) always lives in the input line.
     if (editing && editor.getText() === '' && data === '/') {
       openSlash();
+      return undefined;
+    }
+    // '@' at a word start (line start or after whitespace) opens the file-mention suggestions — also
+    // not consumed, so the '@' lands in the input. Mid-word '@'s (emails) never trigger.
+    if (editing && data === '@' && !childView) {
+      const cur = editor.getCursor();
+      const lineText = editor.getLines()[cur.line] ?? '';
+      const prev = cur.col > 0 ? lineText[cur.col - 1]! : '';
+      if (!prev || /\s/.test(prev)) openMention();
       return undefined;
     }
     if (noModal && data === '\x1b[5~') {

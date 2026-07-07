@@ -80,10 +80,11 @@ export class BrainClient {
     return (await res.json()) as { id: string; title: string; model: string; updated_at: string; active: boolean }[];
   }
 
-  async send(text: string, mode?: BrainWorkMode): Promise<void> {
+  async send(text: string, mode?: BrainWorkMode, images?: { data: string; mimeType: string }[]): Promise<void> {
     // Report where the user launched the CLI — the daemon binds the turn's tools to this project
-    // directory (validated server-side against the caller's repo access).
-    await this.post('/brain/send', { text, cwd: process.cwd(), ...(mode ? { mode } : {}) });
+    // directory (validated server-side against the caller's repo access). `images` are base64 content
+    // blocks (≤4, per brainSendSchema) — `@image.png` mentions, `@clipboard` and /paste feed them.
+    await this.post('/brain/send', { text, cwd: process.cwd(), ...(mode ? { mode } : {}), ...(images?.length ? { images } : {}) });
   }
 
   /** Answer a parked ask_user_question — settles the paused turn so it resumes with the user's picks. */
