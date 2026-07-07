@@ -52,6 +52,26 @@ export class BrainStore {
     return { sessionCount, topModel: top?.model ?? null };
   }
 
+  /** Daily token/cost totals of the user's OWN brain sessions (CLI/web chat and their channel/cron
+   *  sessions) over the last `days` days, for the dashboard spend tiles — task_usage only covers task
+   *  workers, so without this a paid chat model burned money invisibly. Day = the assistant message's
+   *  own `timestamp` (ms epoch, UTC date); cost = the provider-reported `usage.cost.total`. Cost is
+   *  null when NO message that day carried one (distinguishes "free/unknown" from a real $0.00). */
+  usageByDay(userId: number, days = 7): { day: string; tokens: number; cost: number | null }[] {
+    return this.db.prepare(
+      `SELECT date(json_extract(m.content, '$.timestamp') / 1000, 'unixepoch') AS day,
+              COALESCE(SUM(json_extract(m.content, '$.usage.totalTokens')), 0) AS tokens,
+              CASE WHEN COUNT(json_extract(m.content, '$.usage.cost.total')) = 0 THEN NULL
+                   ELSE SUM(json_extract(m.content, '$.usage.cost.total')) END AS cost
+         FROM brain_messages m JOIN brain_sessions s ON s.id = m.session_id
+        WHERE s.user_id = ?
+          AND json_extract(m.content, '$.role') = 'assistant'
+          AND json_extract(m.content, '$.timestamp') IS NOT NULL
+          AND date(json_extract(m.content, '$.timestamp') / 1000, 'unixepoch') >= date('now', ?)
+        GROUP BY day ORDER BY day`
+    ).all(userId, `-${Math.max(0, Math.floor(days) - 1)} days`) as { day: string; tokens: number; cost: number | null }[];
+  }
+
   /** Cumulative token total per session (summed from each stored assistant message's usage) for the
    *  session-management panel. One grouped query — no N+1. Sessions with no usage-bearing messages
    *  come back 0. Persisted messages only, so a mid-turn session reads slightly stale (acceptable). */

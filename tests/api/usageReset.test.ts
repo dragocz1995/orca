@@ -14,6 +14,7 @@ import { UserStore } from '../../src/store/userStore.js';
 import { ProjectStore } from '../../src/store/projectStore.js';
 import { UserProjectStore } from '../../src/store/userProjectStore.js';
 import { TaskUsageStore } from '../../src/store/taskUsageStore.js';
+import { BrainStore } from '../../src/store/brainStore.js';
 
 const usage = { input: 100, output: 50, cacheRead: 10, cacheWrite: 5, total: 165, reasoning: 0, costUsd: 0.5, currency: 'USD', costSource: 'provider_reported' as const };
 
@@ -25,14 +26,15 @@ function setup() {
   const bob = users.create('bob', 'pw');
   const tmux = new FakeTmuxDriver();
   const taskUsage = new TaskUsageStore(db);
+  const brainStore = new BrainStore(db);
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: { disengage: async () => {} } as never, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
     clock: new FakeClock(0), config: new ConfigStore(db),
-    users, projects: new ProjectStore(db), userProjects: new UserProjectStore(db), taskUsage,
+    users, projects: new ProjectStore(db), userProjects: new UserProjectStore(db), taskUsage, brainStore,
   });
-  return { app, db, taskUsage, adminTok: users.issueToken(admin.id), bobTok: users.issueToken(bob.id) };
+  return { app, db, taskUsage, brainStore, adminId: admin.id, adminTok: users.issueToken(admin.id), bobTok: users.issueToken(bob.id) };
 }
 const auth = (t: string | null) => ({ headers: t ? { authorization: `Bearer ${t}` } : {} });
 const post = (t: string | null) => ({ method: 'POST', headers: { ...(t ? { authorization: `Bearer ${t}` } : {}), 'content-type': 'application/json' }, body: '{}' });
@@ -114,5 +116,42 @@ describe('POST /usage/reset', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, cleared: 2 });
     expect(taskUsage.aggregateByExec()).toEqual([]);
+  });
+});
+
+describe('GET /usage/by-day — brain session merge', () => {
+  const seedBrain = (db: ReturnType<typeof openDb>, userId: number, costTotal: number | null) => {
+    db.prepare("INSERT INTO brain_sessions (id, user_id, title, model) VALUES ('brain-1', ?, 't', 'm')").run(userId);
+    const usage = { totalTokens: 500, ...(costTotal == null ? {} : { cost: { total: costTotal } }) };
+    const content = JSON.stringify({ role: 'assistant', content: [], usage, timestamp: Date.now() });
+    db.prepare("INSERT INTO brain_messages (id, session_id, role, content) VALUES ('m1', 'brain-1', 'assistant', ?)").run(content);
+  };
+
+  it("merges the caller's own brain-session spend into the daily buckets", async () => {
+    const { app, db, taskUsage, adminId, adminTok } = setup();
+    taskUsage.record('t1', 1, 'sonnet', usage);
+    seedBrain(db, adminId, 0.25);
+    const body = await (await app.request('/usage/by-day', auth(adminTok))).json();
+    expect(body).toHaveLength(1);
+    expect(body[0].tokens).toBe(165 + 500);
+    expect(body[0].cost).toBeCloseTo(0.5 + 0.25);
+  });
+
+  it('keeps tasks-only semantics when a project_id filter is set (chat spend has no project)', async () => {
+    const { app, db, taskUsage, adminId, adminTok } = setup();
+    taskUsage.record('t1', 1, 'sonnet', usage);
+    seedBrain(db, adminId, 0.25);
+    const body = await (await app.request('/usage/by-day?project_id=1', auth(adminTok))).json();
+    expect(body[0].tokens).toBe(165);
+    expect(body[0].cost).toBe(0.5);
+  });
+
+  it('brain-only days appear even with no task usage, and cost stays null without reported costs', async () => {
+    const { app, db, adminId, adminTok } = setup();
+    seedBrain(db, adminId, null);
+    const body = await (await app.request('/usage/by-day', auth(adminTok))).json();
+    expect(body).toHaveLength(1);
+    expect(body[0].tokens).toBe(500);
+    expect(body[0].cost).toBeNull();
   });
 });

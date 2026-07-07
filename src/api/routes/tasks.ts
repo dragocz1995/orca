@@ -87,18 +87,33 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
   });
   // Daily spend/token totals over the last N days (default 7) for the dashboard's spend sparkline.
   // Same project scoping as /usage/by-model; only days with settled tasks come back, so the client
-  // pads the missing days with zero. `?days=` is clamped to a sane 1..90 window.
+  // pads the missing days with zero. `?days=` is clamped to a sane 1..90 window. Task-worker usage is
+  // merged with the caller's OWN brain-session usage (CLI/web chat) — chat on a paid model is real
+  // spend and used to be invisible here. Brain usage is per-user, so it only joins the unscoped view
+  // (a `project_id` filter keeps the old tasks-only semantics: chat spend has no project).
   app.get('/usage/by-day', c => {
     const allowed = accessibleProjects(c);
     let projectIds: number[] | undefined = allowed ? [...allowed] : undefined;
     const pidRaw = c.req.query('project_id');
-    if (pidRaw !== undefined && pidRaw !== '') {
+    const projectScoped = pidRaw !== undefined && pidRaw !== '';
+    if (projectScoped) {
       const pid = Number(pidRaw);
       if (Number.isFinite(pid)) projectIds = projectIds ? projectIds.filter((p) => p === pid) : [pid];
     }
     const daysRaw = Number(c.req.query('days'));
     const days = Number.isFinite(daysRaw) ? Math.min(90, Math.max(1, Math.floor(daysRaw))) : 7;
-    return c.json(d.taskUsage?.aggregateByDay(projectIds, days) ?? []);
+    const tasks = d.taskUsage?.aggregateByDay(projectIds, days) ?? [];
+    const userId = c.get('user')?.id;
+    const brain = !projectScoped && userId != null ? d.brainStore?.usageByDay(userId, days) ?? [] : [];
+    if (brain.length === 0) return c.json(tasks);
+    const byDay = new Map(tasks.map((r) => [r.day, { ...r }]));
+    for (const r of brain) {
+      const cur = byDay.get(r.day);
+      if (!cur) { byDay.set(r.day, { ...r }); continue; }
+      cur.tokens += r.tokens;
+      cur.cost = cur.cost == null && r.cost == null ? null : (cur.cost ?? 0) + (r.cost ?? 0);
+    }
+    return c.json([...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)));
   });
   // Reset the usage stats: wipe the `task_usage` snapshots. Admin-only and irreversible, but it only
   // clears Orca's own DB rows — the agents' CLI session transcripts are left untouched.
