@@ -177,7 +177,7 @@ describe('BrainService', () => {
     expect(seen.find((e) => e.type === 'reasoning')?.delta).toBe('hmm');
     expect(seen.find((e) => e.type === 'text')?.delta).toBe('hi');
     const retry = seen.find((e) => e.type === 'notice' && e.kind === 'retry');
-    expect(retry?.message ?? '').toMatch(/attempt 2\/5/);
+    expect(retry?.message ?? '').toMatch(/reconnecting 2\/5 · rate limit/);
     expect(seen.some((e) => e.type === 'notice' && e.kind === 'compaction' && !e.done)).toBe(true);
     expect(seen.some((e) => e.type === 'notice' && e.kind === 'compaction' && e.done)).toBe(true);
   });

@@ -103,6 +103,24 @@ export interface BrainUsage {
   cost: number;
 }
 
+/** A short human reason for a retry notice. Provider errors usually arrive as `429 {json blob}` — the
+ *  raw blob is unreadable in a one-line notice, so dig the inner `error.message`/`message` out of the
+ *  JSON (or drop the blob entirely) and cap the result to one compact clause. */
+function retryReason(raw: unknown): string {
+  if (!raw) return '';
+  let text = String(raw);
+  const brace = text.indexOf('{');
+  if (brace >= 0) {
+    const prefix = text.slice(0, brace).trim();
+    try {
+      const parsed = JSON.parse(text.slice(brace)) as { error?: { message?: string }; message?: string };
+      const inner = typeof parsed.error?.message === 'string' ? parsed.error.message : typeof parsed.message === 'string' ? parsed.message : '';
+      text = inner || prefix;
+    } catch { text = prefix; }
+  }
+  return text.replace(/\s+/g, ' ').trim().slice(0, 70);
+}
+
 /** Translate a PI session event into the stable BrainEvent contract. Defensive: unknown event types
  *  are dropped. */
 export function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
@@ -122,10 +140,10 @@ export function toBrainEvent(e: AgentSessionEvent): BrainEvent | null {
   }
   // Runtime notices so a stalled turn explains itself instead of hanging silently on the spinner.
   if (anyE.type === 'auto_retry_start') {
-    const detail = anyE.errorMessage ? ` (${String(anyE.errorMessage).slice(0, 80)})` : '';
-    return { type: 'notice', kind: 'retry', message: `retrying${detail} — attempt ${anyE.attempt ?? 1}/${anyE.maxAttempts ?? 1}…` };
+    const reason = retryReason(anyE.errorMessage);
+    return { type: 'notice', kind: 'retry', message: `reconnecting ${anyE.attempt ?? 1}/${anyE.maxAttempts ?? 1}${reason ? ` · ${reason}` : ''}…` };
   }
-  if (anyE.type === 'auto_retry_end') return { type: 'notice', kind: 'retry', message: anyE.success ? 'retry succeeded' : 'retry failed', done: true };
+  if (anyE.type === 'auto_retry_end') return { type: 'notice', kind: 'retry', message: anyE.success ? 'reconnected' : 'reconnect failed', done: true };
   if (anyE.type === 'compaction_start') return { type: 'notice', kind: 'compaction', message: 'compacting context…' };
   if (anyE.type === 'compaction_end') return { type: 'notice', kind: 'compaction', message: 'context compacted', done: true };
   // Emit the tool name ONCE, when it starts — never the raw streamed output (_update noise).
