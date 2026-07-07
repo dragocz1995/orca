@@ -10,6 +10,7 @@ import {
   sanitizePermissionSettings,
   APPROVAL_LABELS,
   type PermissionRule,
+  summarizePermissions,
 } from '../../src/brain/toolPermissions.js';
 
 const settings = (over: Partial<{ tools: Record<string, 'allow' | 'ask' | 'deny'>; bash: Record<string, 'allow' | 'ask' | 'deny'>; yolo: boolean }> = {}) =>
@@ -122,5 +123,34 @@ describe('approvalQuestion / approvalDecision', () => {
     expect(approvalDecision([{ header: 'Approval', selected: [APPROVAL_LABELS.deny] }])).toBe('deny');
     expect(approvalDecision([{ header: 'Approval', selected: ['[no answer within the time limit]'] }])).toBe('deny');
     expect(approvalDecision([])).toBe('deny');
+  });
+});
+
+describe('summarizePermissions', () => {
+  const rules = (user: Partial<PermissionSettings> = {}) =>
+    buildPermissionRuleset(sanitizePermissionSettings({ tools: {}, bash: {}, yolo: false, ...user }));
+
+  it('renders scope defaults and groups patterns by action', () => {
+    const text = summarizePermissions({ ruleset: rules(), yolo: false });
+    expect(text).toContain('<permissions>');
+    expect(text).toContain('shell (run_command, matched against the command): default ask');
+    expect(text).toContain('allow: git status*, git diff*');
+    expect(text).toContain('tools (matched by name): default allow; ask: write_file, edit_file');
+    expect(text).not.toContain('YOLO');
+  });
+
+  it('later same-pattern user rules override defaults in the summary', () => {
+    const text = summarizePermissions({ ruleset: rules({ bash: { 'git status*': 'deny' } }), yolo: false });
+    expect(text).toContain('deny: git status*');
+    expect(text).not.toMatch(/allow: [^\n]*git status\*/);
+  });
+
+  it('caps long pattern lists and notes the YOLO override', () => {
+    const bash: Record<string, 'allow'> = {};
+    for (let i = 0; i < 20; i++) bash[`cmd${i} *`] = 'allow';
+    const text = summarizePermissions({ ruleset: rules({ bash }), yolo: true });
+    expect(text).toContain('+'); // "+N more"
+    expect(text).toContain('YOLO active');
+    expect(text.split('\n').length).toBeLessThan(10);
   });
 });

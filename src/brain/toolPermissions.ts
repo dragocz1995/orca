@@ -163,6 +163,43 @@ export interface TurnPermissions {
   persistAllow?: (scope: PermissionScope, pattern: string) => void;
 }
 
+/** Model-facing summary of the turn's effective permission rules, injected into the live prompt of
+ *  owner-chat turns (Alex-style `<runtime_permissions>` idea): when the model can SEE which commands
+ *  are pre-approved, it plans around the rules instead of tripping approval prompts it could avoid.
+ *  Compact by construction — patterns capped per action, later same-pattern rules override earlier
+ *  ones (mirroring last-match-wins), catch-alls rendered as the scope default. */
+export function summarizePermissions(perms: Pick<TurnPermissions, 'ruleset' | 'yolo'>): string {
+  const effective = (scope: PermissionScope): Map<string, PermissionAction> => {
+    const m = new Map<string, PermissionAction>();
+    for (const r of perms.ruleset) if (r.scope === scope) m.set(r.pattern, r.action);
+    return m;
+  };
+  const list = (m: Map<string, PermissionAction>, action: PermissionAction): string => {
+    const patterns = [...m].filter(([p, a]) => a === action && p !== '*').map(([p]) => p);
+    if (patterns.length === 0) return '';
+    const shown = patterns.slice(0, 12);
+    if (patterns.length > shown.length) shown.push(`+${patterns.length - shown.length} more`);
+    return shown.join(', ');
+  };
+  const scopeLine = (label: string, m: Map<string, PermissionAction>): string => {
+    const parts = [`default ${m.get('*') ?? 'ask'}`];
+    for (const action of ['deny', 'allow', 'ask'] as const) {
+      const s = list(m, action);
+      if (s) parts.push(`${action}: ${s}`);
+    }
+    return `- ${label}: ${parts.join('; ')}`;
+  };
+  const lines = [
+    '<permissions>',
+    "Tool-permission rules this session ('ask' pauses for the user's approval — prefer pre-allowed commands where equivalent, and batch work so approvals come early, not scattered):",
+    scopeLine('shell (run_command, matched against the command)', effective('bash')),
+    scopeLine('tools (matched by name)', effective('tools')),
+  ];
+  if (perms.yolo) lines.push('- YOLO active: asks auto-approve this session; deny rules still apply.');
+  lines.push('</permissions>');
+  return lines.join('\n');
+}
+
 /** Option labels of the approval prompt. English on purpose: core wire texts are English (the model
  *  and every surface see them verbatim), mirroring ask_user_question. Stable — the decision mapping
  *  below and both frontends key on them. */

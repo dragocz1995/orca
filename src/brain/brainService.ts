@@ -43,7 +43,7 @@ import { shapeBrainMessages } from './messageView.js';
 import type { BrainMessageView } from './messageView.js';
 import { toBrainEvent, usageOf, runCompaction } from './events.js';
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult, SubagentUpdate } from './events.js';
-import { buildPermissionRuleset, approvalQuestion, approvalDecision } from './toolPermissions.js';
+import { buildPermissionRuleset, approvalQuestion, approvalDecision, summarizePermissions } from './toolPermissions.js';
 import type { PermissionScope, PermissionSettings, TurnPermissions } from './toolPermissions.js';
 import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from './sessionId.js';
 import { allSubgoalsDone, applySubgoalDone, goalContinuePrompt, goalDraft, goalPrompt, judgeGoalBlocked, judgeGoalCompletion, lastAssistantText, parseProgress, parseSubgoalDone, parseSubgoals } from './goal.js';
@@ -1127,10 +1127,14 @@ export class BrainService {
       // autonomous turns run where the model believes it runs, not in the daemon's primary project.
       const workDir = this.turnWorkDir(live.policy, clientCwd ?? live.workDir);
       // Granular tool permissions for this turn. Owner chat is where a human is attached (web dock /
-      // CLI), so `ask` rules block on a real approval prompt riding the elicitation pipeline.
+      // CLI), so `ask` rules block on a real approval prompt riding the elicitation pipeline. The model
+      // also SEES a summary of the effective rules (ephemeral, per-turn like turnContext — never the
+      // cached system prompt, never persisted) so it plans around them instead of tripping avoidable
+      // approval prompts; it also stays fresh across mid-session "Always allow" grants and /yolo flips.
       const permissions = this.turnPermissions(userId, live, true);
+      const permissionsBlock = permissions ? `${summarizePermissions(permissions)}\n\n` : '';
       await runWithPolicy(live.policy, () => {
-        const prompted = memoryBlock + hookBlock + live.turnContext() + modeInstruction + text;
+        const prompted = memoryBlock + hookBlock + permissionsBlock + live.turnContext() + modeInstruction + text;
         return options ? live.session.prompt(prompted, options) : live.session.prompt(prompted);
       }, { identity, elicit, emitCard, emitSubagent, toolPolicy, permissions, workDir, model: { provider: live.providerId, model: live.model } });
       // Post-turn curator: extract durable facts from this exchange in the background. Fire-and-forget
