@@ -67,6 +67,8 @@ interface LiveWorker {
   sessionId: string;
   taskId: string;
   projectId: number;
+  /** The task's checkout — the bound workDir every run of this worker starts in. */
+  cwd: string;
   model: string;
   lastEventAt: number;
   nudged: boolean;
@@ -184,7 +186,7 @@ export class BrainWorkerService {
     });
 
     const worker: LiveWorker = {
-      session, sessionName, sessionId, taskId: input.taskId, projectId: input.projectId,
+      session, sessionName, sessionId, taskId: input.taskId, projectId: input.projectId, cwd,
       model: model.id, lastEventAt: this.now(), nudged: false, closed: false, meter: newCostMeter(),
     };
     this.live.set(sessionName, worker);
@@ -198,7 +200,9 @@ export class BrainWorkerService {
     projectUserTurn(this.d.store, sessionId, kickoff);
     // Fire-and-forget: launch() returns like a tmux spawn; the run settles through the close tool.
     // runWithMeter wraps the whole run so every OpenRouter completion's reported cost folds into worker.meter.
-    void runWithMeter(worker.meter, () => runWithPolicy(policy, () => session.prompt(kickoff)))
+    // workDir binds the run's tool default-cwd to the task's checkout; re-passed on every run so any
+    // directory the agent moved to mid-run resets back at the next one.
+    void runWithMeter(worker.meter, () => runWithPolicy(policy, () => session.prompt(kickoff), { workDir: cwd }))
       .then(() => this.onAgentEnd(worker, policy))
       .catch((e: unknown) => {
         log.error(`brain worker ${sessionName} failed: ${String(e)}`);
@@ -220,7 +224,7 @@ export class BrainWorkerService {
       const nudge = 'You ended your turn without closing the task. If the work is complete, call orca_close_task now with a summary; otherwise finish the remaining work first, then close.';
       projectUserTurn(this.d.store, worker.sessionId, nudge);
       try {
-        await runWithMeter(worker.meter, () => runWithPolicy(policy, () => worker.session.prompt(nudge)));
+        await runWithMeter(worker.meter, () => runWithPolicy(policy, () => worker.session.prompt(nudge), { workDir: worker.cwd }));
         return this.onAgentEnd(worker, policy);
       } catch (e) {
         log.error(`brain worker ${worker.sessionName} nudge failed: ${String(e)}`);

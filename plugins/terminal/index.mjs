@@ -63,7 +63,9 @@ function runForeground(command, cwd) {
 export function register(ctx) {
   const processes = new Map(); // id → BgProcess
 
-  const guardCwd = (cwd) => ctx.assertPathAllowed(cwd ?? ctx.allowedRoots()[0] ?? process.cwd());
+  // Default cwd is host-resolved (ctx.defaultCwd): the session's bound project path when there is one,
+  // re-established every run — an explicit `cwd` from one call never carries into the next.
+  const guardCwd = (cwd) => ctx.assertPathAllowed(cwd ?? ctx.defaultCwd());
 
   // Owner-only gate. The shell runs with process.env and can read ANY absolute path — cwd guarding
   // doesn't contain that (e.g. `cat /var/www/.config/orca/orca.db`). So these tools are reserved for

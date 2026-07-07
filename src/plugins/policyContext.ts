@@ -47,7 +47,7 @@ export function toolPermitted(name: string, tp: ToolPolicy | undefined): boolean
   return true;
 }
 
-interface TurnScope { policy: Policy; identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; toolPolicy?: ToolPolicy }
+interface TurnScope { policy: Policy; workDir?: string; identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; toolPolicy?: ToolPolicy }
 
 /** pi tools have no per-call session context, so a plugin tool can't be told which user's policy applies
  *  through its arguments. We carry the resolved Policy (+ the sender's identity + their effective tool
@@ -59,13 +59,20 @@ const store = new AsyncLocalStorage<TurnScope>();
 /** Run `fn` (a brain prompt turn) with `policy` established for any plugin tool it invokes. `opts`
  *  carries the sender's identity, a turn-bound elicitor/card-emitter, and the effective tool policy —
  *  all read at tool-execute time via the `current*()` accessors. */
-export function runWithPolicy<T>(policy: Policy, fn: () => T, opts?: { identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; toolPolicy?: ToolPolicy }): T {
-  return store.run({ policy, identity: opts?.identity, elicit: opts?.elicit, emitCard: opts?.emitCard, toolPolicy: opts?.toolPolicy }, fn);
+export function runWithPolicy<T>(policy: Policy, fn: () => T, opts?: { workDir?: string; identity?: TurnIdentity; elicit?: Elicitor; emitCard?: CardEmitter; toolPolicy?: ToolPolicy }): T {
+  return store.run({ policy, workDir: opts?.workDir, identity: opts?.identity, elicit: opts?.elicit, emitCard: opts?.emitCard, toolPolicy: opts?.toolPolicy }, fn);
 }
 
 /** The Policy in effect for the current prompt turn, or undefined outside a `runWithPolicy` scope. */
 export function currentPolicy(): Policy | undefined {
   return store.getStore()?.policy;
+}
+
+/** The project path the current turn's session is bound to (a task worker's checkout), or undefined for
+ *  an unbound session. Established fresh by each `runWithPolicy` scope, so a directory the agent moved
+ *  to during one run can never carry into the next — every run starts back at the bound project path. */
+export function currentWorkDir(): string | undefined {
+  return store.getStore()?.workDir;
 }
 
 /** The sender identity of the current prompt turn, or null when none was established. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertPathAllowed, allowedRoots, isAllAccess } from '../../src/plugins/pathGuard.js';
+import { assertPathAllowed, allowedRoots, defaultCwd, isAllAccess } from '../../src/plugins/pathGuard.js';
 import { runWithPolicy } from '../../src/plugins/policyContext.js';
 import type { Policy } from '../../src/plugins/policy.js';
 
@@ -37,6 +37,39 @@ describe('assertPathAllowed', () => {
   it('throws with no active policy (defensive)', () => {
     expect(() => assertPathAllowed('/repo/a/x')).toThrow(/not allowed/);
     expect(allowedRoots()).toEqual([]);
+  });
+});
+
+describe('defaultCwd', () => {
+  it('is the bound project path (workDir) when the turn carries one', () => {
+    runWithPolicy(userPolicy(['/repo/a']), () => {
+      expect(defaultCwd()).toBe('/repo/a/checkout');
+    }, { workDir: '/repo/a/checkout' });
+  });
+
+  it('falls back to the first allowed root without a bound workDir', () => {
+    runWithPolicy(userPolicy(['/repo/a', '/repo/b']), () => {
+      expect(defaultCwd()).toBe('/repo/a');
+    });
+  });
+
+  it('falls back to the daemon cwd for an admin (no roots, no binding)', () => {
+    runWithPolicy(adminPolicy, () => {
+      expect(defaultCwd()).toBe(process.cwd());
+    });
+  });
+
+  it('falls back to the daemon cwd outside any turn scope', () => {
+    expect(defaultCwd()).toBe(process.cwd());
+  });
+
+  it('resets per run: one run\'s workDir never leaks into the next scope', () => {
+    runWithPolicy(userPolicy(['/repo/a']), () => {
+      expect(defaultCwd()).toBe('/elsewhere');
+    }, { workDir: '/elsewhere' });
+    runWithPolicy(userPolicy(['/repo/a']), () => {
+      expect(defaultCwd()).toBe('/repo/a');
+    });
   });
 });
 

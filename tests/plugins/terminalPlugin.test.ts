@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,14 @@ describe('terminal plugin', () => {
   it('runs a command in an allowed repo (default cwd = first root)', async () => {
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'echo terminaltest' }), { identity: owner });
     expect(res.content[0].text).toContain('terminaltest');
+    expect(res.content[0].text).toContain('[exit 0]');
+  });
+
+  it('a turn bound to a project defaults the cwd to that project path, not the first root', async () => {
+    const bound = join(dir, 'bound');
+    mkdirSync(bound, { recursive: true });
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'pwd' }), { identity: owner, workDir: bound });
+    expect(res.content[0].text).toContain(join(realpathSync(dir), 'bound'));
     expect(res.content[0].text).toContain('[exit 0]');
   });
 

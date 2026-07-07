@@ -1,11 +1,19 @@
 import { realpathSync } from 'node:fs';
 import { resolve, sep, dirname, basename, join } from 'node:path';
-import { currentPolicy } from './policyContext.js';
+import { currentPolicy, currentWorkDir } from './policyContext.js';
 
 /** The repo roots the current session may operate in. Empty for an admin (all-access) or outside a
  *  prompt turn. A tool uses this to default a working directory. */
 export function allowedRoots(): string[] {
   return currentPolicy()?.allowedPaths() ?? [];
+}
+
+/** Where exec/file tools run when the caller names no directory — the ONE default-cwd resolution:
+ *  the project path the turn's session is bound to, else the first allowed repo root, else the
+ *  daemon's own cwd (admin all-access carries no roots). The bound path lives on the per-run turn
+ *  scope, so it re-asserts itself at the start of every run regardless of where the agent moved. */
+export function defaultCwd(): string {
+  return currentWorkDir() ?? allowedRoots()[0] ?? process.cwd();
 }
 
 /** Whether the current session has unrestricted (admin) access to the filesystem. */

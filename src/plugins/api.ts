@@ -168,6 +168,11 @@ export interface PluginContext {
   /** The repo roots the current session may operate in (empty for an admin's all-access). Used to default
    *  a tool's working directory. */
   allowedRoots(): string[];
+  /** The working directory an exec/file tool uses when the caller names none: the project path the
+   *  current turn's session is bound to (a task worker's checkout), else the first allowed root, else
+   *  the daemon's own cwd. Evaluated per tool call against the per-run turn scope, so a directory the
+   *  agent moved to in an earlier run never leaks into the next one. */
+  defaultCwd(): string;
   /** Per-plugin writable data directory (created on first call) — cron job files, generated images… */
   dataDir(): string;
   /** Whether the CURRENT turn runs with the owner's all-access policy (admin chat session). Tools that

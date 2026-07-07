@@ -4,20 +4,23 @@ import { openDb } from '../../../src/store/db.js';
 import { BrainStore } from '../../../src/store/brainStore.js';
 import { TaskStore } from '../../../src/store/taskStore.js';
 import { EventBus } from '../../../src/api/sse.js';
+import { currentWorkDir } from '../../../src/plugins/policyContext.js';
 
 /** A controllable fake PI session: prompt() blocks until the test releases it, so we can order
- *  tool calls / agent settlement deterministically. */
+ *  tool calls / agent settlement deterministically. Each prompt records the turn's bound workDir so
+ *  tests can assert every run starts back at the task's checkout. */
 function fakeSession() {
   const releases: (() => void)[] = [];
+  const workDirs: (string | undefined)[] = [];
   const session = {
     sessionId: 'pi-1',
     messages: [{ usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.02 } } }],
-    prompt: vi.fn(() => new Promise<void>((res) => releases.push(res))),
+    prompt: vi.fn(() => { workDirs.push(currentWorkDir()); return new Promise<void>((res) => releases.push(res)); }),
     subscribe: vi.fn(() => () => {}),
     dispose: vi.fn(),
     abort: vi.fn(async () => {}),
   };
-  return { session, release: () => releases.shift()?.() };
+  return { session, workDirs, release: () => releases.shift()?.() };
 }
 
 function setup(opts: { idleMs?: number } = {}) {
@@ -29,7 +32,7 @@ function setup(opts: { idleMs?: number } = {}) {
   const bus = new EventBus();
   const published: unknown[] = [];
   bus.subscribe((e) => { published.push(e); });
-  const { session, release } = fakeSession();
+  const { session, workDirs, release } = fakeSession();
   const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
   const recorded: unknown[] = [];
   let now = 1_000_000;
@@ -46,7 +49,7 @@ function setup(opts: { idleMs?: number } = {}) {
     resourceLoaderFactory: () => undefined,
   });
   const launchInput = { projectId: 1, projectPath: '/repo', taskId: 'T-1', agentName: 'a1', spec: { program: 'orca', model: 'relay/kimi' } };
-  return { svc, tasks, session, release, fetchImpl, recorded, published, launchInput, advance: (ms: number) => { now += ms; }, db };
+  return { svc, tasks, session, workDirs, release, fetchImpl, recorded, published, launchInput, advance: (ms: number) => { now += ms; }, db };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -84,6 +87,14 @@ describe('BrainWorkerService', () => {
     // No OpenRouter fetch ran in this test, so the meter reports nothing — pi-ai's price-sheet cost
     // (0.02) is kept but flagged as a calculated estimate, not provider-reported.
     expect(recorded[0]).toEqual(['T-1', 1, 'orca:kimi', { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, reasoning: 0, costUsd: 0.02, currency: 'USD', costSource: 'calculated' }]);
+  });
+
+  it('every run is bound to the task checkout: kickoff and nudge both carry workDir = projectPath', async () => {
+    const { svc, launchInput, workDirs, release } = setup();
+    await svc.launch(launchInput);
+    expect(workDirs).toEqual(['/repo']);
+    release(); await settle(); // kickoff settles unclosed → nudge runs as a fresh scope
+    expect(workDirs).toEqual(['/repo', '/repo']);
   });
 
   it('an unclosed agent_end gets one nudge, then the task reverts to open with a resume note', async () => {

@@ -5,7 +5,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { PluginCapabilities, PluginCommand, PluginContext, PluginControl, PluginHook, PluginLogger, PluginSkill, PlatformAdapter, ProviderCredentials } from './api.js';
 import { isBuiltinCommand } from '../brain/slashCommands.js';
 import type { PluginManifest } from './manifest.js';
-import { assertPathAllowed, allowedRoots, isAllAccess, currentAccess } from './pathGuard.js';
+import { assertPathAllowed, allowedRoots, defaultCwd, isAllAccess, currentAccess } from './pathGuard.js';
 import { currentIdentity, currentElicitor, currentCardEmitter } from './policyContext.js';
 import type { AskAnswer } from '../brain/events.js';
 
@@ -159,6 +159,7 @@ export class PluginRegistry {
       },
       assertPathAllowed,
       allowedRoots,
+      defaultCwd,
       isAdminSession: isAllAccess,
       currentAccess,
       currentIdentity,
