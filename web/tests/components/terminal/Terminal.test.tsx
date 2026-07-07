@@ -9,6 +9,7 @@ vi.mock('@xterm/xterm', () => ({
 }));
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = fitSpy; } }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
+vi.mock('../../../lib/useTerminalPrefs', () => ({ useTerminalPrefs: () => ({ fontSize: 12, fontFamily: 'system', cursorStyle: 'block', cursorBlink: true, scrollback: 1000, theme: 'auto', palette: {} }) }));
 const sessionInputSpy = vi.fn((..._a: unknown[]) => Promise.resolve({ ok: true }));
 vi.mock('../../../lib/orcaClient', () => ({ BASE: '/api', orcaClient: { resizeSession: vi.fn(() => Promise.resolve({ ok: true })), sessionInput: (name: string, data: string) => sessionInputSpy(name, data) } }));
 

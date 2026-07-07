@@ -6,8 +6,10 @@ import '@xterm/xterm/css/xterm.css';
 import { useSessionStream } from '../../lib/useSessionStream';
 import { orcaClient } from '../../lib/orcaClient';
 import { useTheme } from '../../lib/useTheme';
+import { useTerminalPrefs } from '../../lib/useTerminalPrefs';
 import { composeFrame } from './frame';
 import { xtermTheme } from './xtermTheme';
+import { FONT_STACKS } from './palettes';
 
 export function Terminal({ name, interactive = false }: { name: string; interactive?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -18,15 +20,28 @@ export function Terminal({ name, interactive = false }: { name: string; interact
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pane = useSessionStream(name);
   const { resolvedTheme } = useTheme();
-  // Latest theme, read once when the terminal is created. Held in a ref so the mount effect isn't
-  // theme-reactive (re-running it would drop scrollback + reset PTY size); the repaint effect below
-  // applies live theme toggles in place.
+  const prefs = useTerminalPrefs();
+  // Latest theme + user prefs, read once when the terminal is created. Held in refs so the mount effect
+  // isn't reactive to them (re-running it would drop scrollback + reset PTY size); the repaint effect
+  // below applies live theme/prefs changes in place.
   const themeRef = useRef(resolvedTheme);
   themeRef.current = resolvedTheme;
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
 
   useEffect(() => {
     if (!ref.current) return;
-    const term = new XTerm({ convertEol: true, cursorBlink: interactive, fontSize: 12, theme: xtermTheme(themeRef.current) });
+    const p = prefsRef.current;
+    const term = new XTerm({
+      convertEol: true,
+      // A read-only mirror never blinks; an interactive dock respects the user's cursor-blink pref.
+      cursorBlink: interactive && p.cursorBlink,
+      cursorStyle: p.cursorStyle,
+      fontSize: p.fontSize,
+      fontFamily: FONT_STACKS[p.fontFamily],
+      scrollback: p.scrollback,
+      theme: xtermTheme(themeRef.current, p),
+    });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(ref.current);
@@ -77,11 +92,19 @@ export function Terminal({ name, interactive = false }: { name: string; interact
     };
   }, [name, interactive]);
 
-  // Repaint the palette in place on theme toggle — no need to tear down and recreate the terminal
-  // (which would drop scrollback and the current pane frame).
+  // Apply theme toggles + user pref changes in place — no tear-down (which would drop scrollback and the
+  // current pane frame). Font-size/family changes alter cell metrics, so refit afterwards.
   useEffect(() => {
-    if (termRef.current) termRef.current.options.theme = xtermTheme(resolvedTheme);
-  }, [resolvedTheme]);
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = xtermTheme(resolvedTheme, prefs);
+    term.options.fontSize = prefs.fontSize;
+    term.options.fontFamily = FONT_STACKS[prefs.fontFamily];
+    term.options.cursorStyle = prefs.cursorStyle;
+    term.options.cursorBlink = interactive && prefs.cursorBlink;
+    term.options.scrollback = prefs.scrollback;
+    fitRef.current?.fit();
+  }, [resolvedTheme, prefs, interactive]);
 
   useEffect(() => {
     const term = termRef.current;

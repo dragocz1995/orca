@@ -8,6 +8,7 @@ vi.mock('@xterm/xterm', () => ({
 }));
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = vi.fn(); } }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
+vi.mock('../../../lib/useTerminalPrefs', () => ({ useTerminalPrefs: () => ({ fontSize: 12, fontFamily: 'system', cursorStyle: 'block', cursorBlink: true, scrollback: 1000, theme: 'auto', palette: {} }) }));
 
 const sendSpy = vi.fn();
 const resizeSpy = vi.fn();

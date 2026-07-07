@@ -234,6 +234,11 @@ export const useMyPrompts = () =>
 export const useMyCliSettings = () =>
   useQuery({ queryKey: ['my-cli-settings'], queryFn: orcaClient.myCliSettings });
 
+/** The current user's web-terminal appearance settings (palette/font/cursor). Edited in Account →
+ *  Terminal; consumed by every xterm instance via useTerminalPrefs. */
+export const useMyTerminalSettings = () =>
+  useQuery({ queryKey: ['my-terminal-settings'], queryFn: orcaClient.myTerminalSettings, staleTime: 5 * 60 * 1000 });
+
 /** The caller's personality profiles for one platform. Edited in Account → Personality; mutations
  *  invalidate the ['personalities'] prefix (all platforms). */
 export const usePersonalities = (platform: string) =>

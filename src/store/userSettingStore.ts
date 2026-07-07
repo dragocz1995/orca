@@ -1,5 +1,6 @@
 import type { Db } from './db.js';
 import { DEFAULT_ADVISOR_STYLE, isAdvisorStyle } from '../brain/personality.js';
+import { sanitizeTerminalSettings, mergeTerminalSettings, type TerminalSettings } from './terminalSettings.js';
 
 /** Typed per-user CLI/brain settings. `model`/`modelProvider` empty → use the configured brain default.
  *  `autoCompactAt` is the context-window fill percentage at which the conversation is auto-summarized.
@@ -145,6 +146,27 @@ export class UserSettingStore {
           }
         }
       }
+    })();
+  }
+
+  /** The user's web-terminal appearance settings, defaults filled in. The stored value is an untrusted
+   *  JSON blob, so a corrupt/partial/absent row degrades cleanly to the full defaults. */
+  terminalSettings(userId: number): TerminalSettings {
+    const raw = this.get(userId, 'terminal');
+    if (!raw) return sanitizeTerminalSettings({});
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); }
+    catch { return sanitizeTerminalSettings({}); }
+    return sanitizeTerminalSettings(parsed);
+  }
+
+  /** Apply a partial terminal-settings patch: read current, merge (palette key-by-key), re-validate, and
+   *  persist the whole blob. Runs in a transaction so the read-modify-write can't interleave. */
+  setTerminalSettings(userId: number, patch: Partial<TerminalSettings>): TerminalSettings {
+    return this.db.transaction(() => {
+      const next = mergeTerminalSettings(this.terminalSettings(userId), patch);
+      this.set(userId, 'terminal', JSON.stringify(next));
+      return next;
     })();
   }
 

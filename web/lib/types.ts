@@ -183,6 +183,29 @@ export type PersonalityPatch = Partial<Omit<PersonalityCreate, 'platform'>> & { 
  *  (`serverDefault`, response-only). */
 export interface CliSettings { model: string; modelProvider: string; visionModel: string; visionModelProvider: string; thinkingLevel: string; autoCompact: boolean; autoCompactAt: number; advisorStyle: string; discordUserId: string; whatsappNumber: string; autoRecall: boolean; autoSave: boolean; serverDefault?: string }
 
+/** Full xterm ANSI palette exposed for per-user customization (mirrors `@xterm/xterm`'s ITheme colour
+ *  fields). Each value is an `#rrggbb` string; applied only when the terminal theme is `custom`. */
+export interface TerminalPalette {
+  background: string; foreground: string; cursor: string; cursorAccent: string; selectionBackground: string;
+  black: string; red: string; green: string; yellow: string; blue: string; magenta: string; cyan: string; white: string;
+  brightBlack: string; brightRed: string; brightGreen: string; brightYellow: string; brightBlue: string; brightMagenta: string; brightCyan: string; brightWhite: string;
+}
+export type TerminalFontFamily = 'system' | 'menlo' | 'ibm' | 'courier';
+export type TerminalCursorStyle = 'block' | 'bar' | 'underline';
+export type TerminalThemeMode = 'auto' | 'custom';
+
+/** Per-user web-terminal appearance settings (Account → Terminal). `theme:'auto'` follows the app
+ *  light/dark theme (the pre-feature default); `custom` uses `palette`. Persisted server-side. */
+export interface TerminalSettings {
+  fontSize: number;
+  fontFamily: TerminalFontFamily;
+  cursorStyle: TerminalCursorStyle;
+  cursorBlink: boolean;
+  scrollback: number;
+  theme: TerminalThemeMode;
+  palette: TerminalPalette;
+}
+
 /** One installed daemon plugin as listed by GET /plugins (admin). */
 export interface PluginInfo {
   name: string;

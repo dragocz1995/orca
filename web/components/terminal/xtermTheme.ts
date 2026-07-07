@@ -1,5 +1,7 @@
 import type { ITheme } from '@xterm/xterm';
 import type { ResolvedTheme } from '../../lib/useTheme';
+import type { TerminalSettings, TerminalPalette } from '../../lib/types';
+import { PALETTE_KEYS } from './palettes';
 
 /** xterm's own light/dark palettes — mirrors the app's `data-theme` since xterm can't read CSS
  *  custom properties (its renderer wants literal color strings). The ANSI colors are re-tuned for
@@ -36,6 +38,19 @@ const LIGHT: ITheme = {
   brightWhite: '#111827',
 };
 
-export function xtermTheme(resolvedTheme: ResolvedTheme): ITheme {
+const isHex6 = (v: string): boolean => /^#[0-9a-f]{6}$/i.test(v);
+
+/** Turn a user palette into an xterm ITheme, dropping any non-`#rrggbb` value (defensive — the server
+ *  already validates, but an old/corrupt cached blob shouldn't poison the renderer). */
+function paletteTheme(p: TerminalPalette): ITheme {
+  const out: Record<string, string> = {};
+  for (const k of PALETTE_KEYS) { const v = p[k]; if (isHex6(v)) out[k] = v; }
+  return out as ITheme;
+}
+
+/** The xterm theme for a terminal: the user's custom palette when `prefs.theme==='custom'`, otherwise
+ *  the app-theme-following light/dark default (unchanged pre-feature behaviour). */
+export function xtermTheme(resolvedTheme: ResolvedTheme, prefs?: TerminalSettings): ITheme {
+  if (prefs?.theme === 'custom') return paletteTheme(prefs.palette);
   return resolvedTheme === 'light' ? LIGHT : DARK;
 }

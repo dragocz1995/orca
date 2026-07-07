@@ -57,6 +57,25 @@ describe('UserSettingStore', () => {
     expect(s.cliSettings(1)).toEqual({ model: '', modelProvider: '', visionModel: '', visionModelProvider: '', thinkingLevel: '', autoCompact: false, autoCompactAt: 80, advisorStyle: 'professional', discordUserId: '', whatsappNumber: '', autoRecall: true, autoSave: true });
   });
 
+  it('terminal settings default, round-trip, merge, and survive a corrupt blob', () => {
+    const s = new UserSettingStore(openDb(':memory:'));
+    expect(s.terminalSettings(1).theme).toBe('auto');
+    expect(s.terminalSettings(1).fontSize).toBe(12);
+    // Round-trip + validation happens in the store.
+    const saved = s.setTerminalSettings(1, { theme: 'custom', fontSize: 16, palette: { background: '#123456' } });
+    expect(saved.theme).toBe('custom');
+    expect(s.terminalSettings(1).fontSize).toBe(16);
+    expect(s.terminalSettings(1).palette.background).toBe('#123456');
+    // Partial patch merges (fontSize preserved), and per-user isolation holds.
+    s.setTerminalSettings(1, { cursorStyle: 'bar' });
+    expect(s.terminalSettings(1).fontSize).toBe(16);
+    expect(s.terminalSettings(1).cursorStyle).toBe('bar');
+    expect(s.terminalSettings(2).theme).toBe('auto');
+    // A corrupt stored blob degrades to defaults instead of throwing.
+    s.set(1, 'terminal', '{not json');
+    expect(s.terminalSettings(1)).toEqual(s.terminalSettings(99));
+  });
+
   it('links and reverse-looks-up a Discord id (invalid values clear it)', () => {
     const s = new UserSettingStore(openDb(':memory:'));
     s.setCliSettings(1, { discordUserId: '123456789012345678' });

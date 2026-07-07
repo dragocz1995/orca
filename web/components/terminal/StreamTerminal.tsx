@@ -5,8 +5,10 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminalStream } from '../../lib/useTerminalStream';
 import { useTheme } from '../../lib/useTheme';
+import { useTerminalPrefs } from '../../lib/useTerminalPrefs';
 import { Terminal } from './Terminal';
 import { xtermTheme } from './xtermTheme';
+import { FONT_STACKS } from './palettes';
 
 /** A real-PTY terminal: raw bytes stream over a WebSocket straight from a `tmux attach`, so the cursor,
  *  scrollback and redraws are native — no snapshot mirror. Fully interactive (keystrokes reach the
@@ -26,6 +28,9 @@ export function StreamTerminal({ name }: { name: string }) {
   // live theme toggles are handled by the dedicated repaint effect instead.
   const themeRef = useRef(resolvedTheme);
   themeRef.current = resolvedTheme;
+  const prefs = useTerminalPrefs();
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
 
   // Push every inbound PTY byte straight into xterm. `termRef` is stable, so the callback identity
   // doesn't matter — the hook holds it in a ref and never reconnects on its account.
@@ -37,7 +42,16 @@ export function StreamTerminal({ name }: { name: string }) {
 
   useEffect(() => {
     if (!ref.current || fallback) return;
-    const term = new XTerm({ convertEol: false, cursorBlink: true, fontSize: 12, theme: xtermTheme(themeRef.current) });
+    const p = prefsRef.current;
+    const term = new XTerm({
+      convertEol: false,
+      cursorBlink: p.cursorBlink,
+      cursorStyle: p.cursorStyle,
+      fontSize: p.fontSize,
+      fontFamily: FONT_STACKS[p.fontFamily],
+      scrollback: p.scrollback,
+      theme: xtermTheme(themeRef.current, p),
+    });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(ref.current);
@@ -72,11 +86,19 @@ export function StreamTerminal({ name }: { name: string }) {
     };
   }, [name, fallback]);
 
-  // Repaint the palette in place on theme toggle — avoids tearing down and recreating the terminal
-  // (which would drop scrollback and reset the PTY size negotiation).
+  // Apply theme toggles + user pref changes in place — avoids tearing down the terminal (which would
+  // drop scrollback and reset the PTY size negotiation). Font metric changes → refit + re-push size.
   useEffect(() => {
-    if (termRef.current) termRef.current.options.theme = xtermTheme(resolvedTheme);
-  }, [resolvedTheme]);
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = xtermTheme(resolvedTheme, prefs);
+    term.options.fontSize = prefs.fontSize;
+    term.options.fontFamily = FONT_STACKS[prefs.fontFamily];
+    term.options.cursorStyle = prefs.cursorStyle;
+    term.options.cursorBlink = prefs.cursorBlink;
+    term.options.scrollback = prefs.scrollback;
+    syncSizeRef.current();
+  }, [resolvedTheme, prefs]);
 
   // Re-push the size the moment the socket opens: the initial fit almost always runs before the WS is
   // ready, so without this the PTY never learns the real terminal size and the content can't fill the panel.

@@ -10,6 +10,7 @@ import { makeToolIconResolver } from '../../brain/toolIcons.js';
 import { ADVISOR_STYLES, DEFAULT_ADVISOR_STYLE } from '../../brain/personality.js';
 import { rawTemplate } from '../../prompts/index.js';
 import { DiscordIdConflictError, WhatsAppNumberConflictError } from '../../store/userSettingStore.js';
+import { sanitizeTerminalSettings, type TerminalSettings } from '../../store/terminalSettings.js';
 import type { User } from '../../store/userStore.js';
 import type { OrcaApp, RouteContext } from '../context.js';
 import { logger } from '../../shared/logger.js';
@@ -168,6 +169,19 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     // so a model change takes effect immediately instead of on the next daemon/chat restart.
     await d.brain?.restart(u.id);
     return c.json({ ...d.userSettings.cliSettings(u.id), serverDefault: serverDefaultModel() });
+  });
+  // Per-user web-terminal appearance (xterm palette/font/cursor) — self-service, kept separate from
+  // cli-settings so it neither trips the model allow-list nor restarts the brain. The store validates
+  // and clamps every field, so the route just forwards the (untrusted) body.
+  app.get('/auth/me/terminal-settings', (c) => {
+    const u = c.get('user');
+    return c.json(d.userSettings ? d.userSettings.terminalSettings(u.id) : sanitizeTerminalSettings({}));
+  });
+  app.patch('/auth/me/terminal-settings', async (c) => {
+    if (!d.userSettings) return c.json({ error: 'settings unavailable' }, 400);
+    const u = c.get('user');
+    const body = (await c.req.json().catch(() => ({}))) as Partial<TerminalSettings>;
+    return c.json(d.userSettings.setTerminalSettings(u.id, body));
   });
   // Avatar upload (multipart). Validated by type + size; stored as <userId>.<ext> under avatarsDir.
   const AVATAR_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
