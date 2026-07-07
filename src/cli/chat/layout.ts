@@ -528,10 +528,7 @@ export class ChatViewport implements Component {
 }
 
 export interface TelemetryState {
-  workMode: 'build' | 'plan';
   usage: BrainUsageView | null;
-  running: boolean;
-  runSeconds: number;
   cwd: string;
   branch: string;
   /** MCP servers from the daemon; null when unavailable (plugin off, non-admin) → section hidden. */
@@ -563,9 +560,6 @@ export class TelemetryPanel implements Component {
       `  ${color.bold(color.text('Project'))}`,
       `  ${color.text(truncateToWidth(st.cwd, Math.max(1, width - 4), '…'))}`,
       `  ${color.faint('branch')} ${color.accent(st.branch || 'unknown')}`,
-      '',
-      `  ${color.bold(color.text('Run'))}`,
-      `  ${st.running ? color.success('●') : color.faint('○')} ${color.text(st.workMode === 'plan' ? 'Plan' : 'Build')} ${color.faint(st.running ? formatDuration(st.runSeconds) : 'idle')}`,
       ...this.mcpRows(st.mcp, width),
       ...this.lspRows(st.lspEnabled),
     ];
@@ -582,15 +576,13 @@ export class TelemetryPanel implements Component {
     return `${color.accent(full.repeat(filled))}${color.faint(empty.repeat(cells - filled))}`;
   }
 
-  /** Active (connected) MCP servers by name plus a connected/total count; hidden when unavailable. */
+  /** Active (connected) MCP servers by name plus a connected/total count; hidden when unavailable
+   *  AND when nothing is connected — an all-idle section is just panel noise. */
   private mcpRows(mcp: TelemetryState['mcp'], width: number): string[] {
     if (!mcp) return [];
     const connected = mcp.filter((s) => s.status === 'connected');
+    if (connected.length === 0) return [];
     const rows = ['', `  ${color.bold(color.text('MCP'))} ${color.faint(`${connected.length}/${mcp.length} active`)}`];
-    if (connected.length === 0) {
-      rows.push(`  ${color.faint('○ none active')}`);
-      return rows;
-    }
     for (const server of connected.slice(0, MCP_NAMES_SHOWN)) {
       rows.push(`  ${color.success('●')} ${color.text(truncateToWidth(server.name, Math.max(1, width - 6), '…'))}`);
     }

@@ -209,10 +209,7 @@ describe('chat layout components', () => {
   });
 
   const telemetryState = (over: Partial<TelemetryState> = {}): TelemetryState => ({
-    workMode: 'build',
     usage: { tokens: 10, contextWindow: 100, percent: 10, totalTokens: 20, cost: 0 },
-    running: true,
-    runSeconds: 12,
     cwd: '~/orca',
     branch: 'main',
     mcp: null,
@@ -226,8 +223,9 @@ describe('chat layout components', () => {
     expect(rows.every((line) => visibleWidth(line) === 36)).toBe(true);
     expect(rows.join('\n')).not.toContain('kimi');
     expect(rows.join('\n')).toContain('Context');
-    expect(rows.join('\n')).toContain('Build');
     expect(rows.join('\n')).toContain('Project');
+    // The Run section is gone — the elapsed time lives in the prompt meta line instead.
+    expect(rows.join('\n')).not.toContain('Run');
     expect(rows.join('\n')).not.toContain('reasoning');
     expect(rows.join('\n')).not.toContain('theme');
     expect(rows.join('\n')).not.toContain('Dev');
@@ -275,7 +273,8 @@ describe('chat layout components', () => {
   it('shows LSP as inactive and hides MCP/LSP sections when unreported', () => {
     const off = new TelemetryPanel(() => telemetryState({ mcp: [], lspEnabled: false }));
     const offRendered = off.render(46).join('\n');
-    expect(offRendered).toContain('none active');
+    // With nothing connected the MCP section hides entirely (idle noise), LSP still reports.
+    expect(offRendered).not.toContain('MCP');
     expect(offRendered).toContain('Inactive');
     const hidden = new TelemetryPanel(() => telemetryState());
     const hiddenRendered = hidden.render(46).join('\n');

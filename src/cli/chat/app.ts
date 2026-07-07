@@ -287,9 +287,6 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   let currentRunSeconds = 0;
   const telemetry = new TelemetryPanel(() => ({
     usage,
-    running: view.thinking,
-    runSeconds: currentRunSeconds,
-    workMode,
     cwd: cwdLabel,
     branch: branchLabel,
     mcp: mcpList,
