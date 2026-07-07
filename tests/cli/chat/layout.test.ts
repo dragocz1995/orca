@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { getMarkdownTheme, initTheme } from '@earendil-works/pi-coding-agent';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { beginAssistant, emptyView, pushUser, reduce } from '../../../src/brain/transcript.js';
@@ -143,33 +143,50 @@ describe('chat layout components', () => {
   });
 
   it('renders slash overlay rows to the full requested width', () => {
-    const tui = { requestRender: vi.fn() };
-    const overlay = new SlashOverlay(
-      tui as never,
-      [{ value: '/theme', label: '/theme', description: 'Switch theme' }],
-      vi.fn(),
-      vi.fn(),
-    );
+    const overlay = new SlashOverlay([{ value: '/theme', label: '/theme', description: 'Switch theme' }]);
     const rows = overlay.render(48);
     expect(rows.length).toBeGreaterThan(3);
     expect(rows.every((line) => visibleWidth(line) === 48)).toBe(true);
   });
 
-  it('filters slash commands by description as well as the command name', () => {
-    const tui = { requestRender: vi.fn() };
-    const overlay = new SlashOverlay(
-      tui as never,
-      [
-        { value: '/theme', label: '/theme', description: 'Switch theme' },
-        { value: '/compact', label: '/compact', description: 'Summarize conversation context' },
-      ],
-      vi.fn(),
-      vi.fn(),
-    );
-    for (const ch of 'sum') overlay.handleInput(ch);
+  it('filters slash commands from the editor text by description as well as the command name', () => {
+    const overlay = new SlashOverlay([
+      { value: '/theme', label: '/theme', description: 'Switch theme' },
+      { value: '/compact', label: '/compact', description: 'Summarize conversation context' },
+    ]);
+    overlay.setFilter('/sum');
     const rendered = overlay.render(56).join('\n');
     expect(rendered).toContain('/compact');
     expect(rendered).not.toContain('/theme');
+  });
+
+  it('moves the highlight with wrap-around and reports the selected command', () => {
+    const overlay = new SlashOverlay([
+      { value: '/build', label: '/build' },
+      { value: '/compact', label: '/compact' },
+      { value: '/theme', label: '/theme' },
+    ]);
+    overlay.setFilter('/');
+    expect(overlay.selectedValue()).toBe('/build');
+    overlay.moveSelection(1);
+    expect(overlay.selectedValue()).toBe('/compact');
+    overlay.moveSelection(-1);
+    overlay.moveSelection(-1); // wraps to the end
+    expect(overlay.selectedValue()).toBe('/theme');
+  });
+
+  it('resets the highlight when the filter narrows and reports null with no matches', () => {
+    const overlay = new SlashOverlay([
+      { value: '/build', label: '/build' },
+      { value: '/compact', label: '/compact' },
+    ]);
+    overlay.setFilter('/');
+    overlay.moveSelection(1);
+    overlay.setFilter('/c');
+    expect(overlay.selectedValue()).toBe('/compact');
+    overlay.setFilter('/xyzq');
+    expect(overlay.selectedValue()).toBeNull();
+    expect(overlay.render(48).join('\n')).toContain('No matching commands');
   });
 
   it('renders telemetry panel without duplicating the model name', () => {

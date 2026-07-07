@@ -86,6 +86,13 @@ export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'st
   }
 }
 
+/** True while the input text can still be a slash-command name being typed ("/", "/mo", "/model").
+ *  A space (arguments), a second '/' (a path like /var/www/x) or a wiped leading '/' means it's ordinary
+ *  input text, so the suggestion overlay should close. Pure — unit-testable without a TTY. */
+export function isSlashCommandDraft(text: string): boolean {
+  return /^\/[^\s/]*$/.test(text);
+}
+
 function modelMetaLine(mode: BrainWorkMode, modelName: string, thinkingLevel: string): string {
   const raw = modelName || '—';
   const slash = raw.indexOf('/');
@@ -215,6 +222,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   let panelHandle: ReturnType<TUI['showOverlay']> | null = null;
   let slashHandle: ReturnType<TUI['showOverlay']> | null = null;
+  let slashOverlay: SlashOverlay | null = null;
   let panelWidth = 46;
   let resizingPanel = false;
   let draggingHistoryScroll = false;
@@ -598,31 +606,37 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const closeSlash = (): void => {
     slashHandle?.hide();
     slashHandle = null;
-    tui.setFocus(editor);
+    slashOverlay = null;
     tui.requestRender();
   };
 
+  /** Open the slash suggestions as a NON-capturing overlay: the editor keeps focus (and the typed text,
+   *  including the leading '/'), while the overlay just mirrors it as a filter via editor.onChange. */
   const openSlash = (): void => {
     closeSlash();
     const reserve = panelReserve();
     const width = Math.max(50, term.columns - reserve - 1);
-    const overlay = new SlashOverlay(tui, slashItems, (value) => {
-      closeSlash();
-      editor.setText('');
-      editor.onSubmit?.(value);
-    }, closeSlash);
+    const overlay = new SlashOverlay(slashItems);
+    overlay.setFilter(editor.getText());
+    slashOverlay = overlay;
     slashHandle = tui.showOverlay(overlay, {
       anchor: 'bottom-left',
       width,
-      maxHeight: 14,
+      // Tallest render: top + hint + blank + 10 items + counter + bottom = 15 rows. One less would clip
+      // the bottom border whenever the counter row shows (which, with 20+ commands, is always).
+      maxHeight: 15,
       margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom: fixedRows() },
+      nonCapturing: true,
     });
-    slashHandle.focus();
     tui.requestRender();
   };
 
   let streamAc = new AbortController();
-  const openStream = (): void => {
+  // `ac` is captured by the CALLER at switch time: two rapid switches (`/new` + `/model` mid-roundtrip)
+  // both pass their own controller, and the superseded one bails here instead of opening a second live
+  // stream on the current signal — which would reduce every event twice (doubled text/cards).
+  const openStream = (ac: AbortController): void => {
+    if (ac !== streamAc || ac.signal.aborted) return; // a newer switch owns the stream now
     void client.stream((e) => {
       // ask_user_question parked the turn: drive the picker flow and skip the ChatView reducer (the
       // questions aren't a conversation segment).
@@ -637,24 +651,26 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       if (e.type === 'card') cards = upsertCard(cards, e.card); // update the persistent panel (not part of the ChatView)
       view = reduce(view, e);
       render();
-    }, streamAc.signal).catch(() => { /* aborted/gone */ });
+    }, ac.signal).catch(() => { /* aborted/gone */ });
   };
 
   /** Switch conversations: retarget the server session, then swap history + the event stream. */
   const switchTo = async (target: { session?: string; fresh?: boolean }): Promise<void> => {
     streamAc.abort();
-    streamAc = new AbortController();
+    const ac = new AbortController();
+    streamAc = ac;
     await client.start(target);
     const hist = await client.history().catch(() => []);
     view = fromHistory(hist);
     await refreshMeta(); // also refreshes the card panel from the new conversation's status
-    openStream();
+    openStream(ac);
     render();
   };
 
   editor.onSubmit = (text: string): void => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    editor.addToHistory(trimmed); // Up-arrow recall of sent inputs (session-local, capped by the editor)
     editor.setText('');
     notice = '';
     const command = parseCommand(trimmed);
@@ -689,8 +705,9 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
                   modelName = r.model;
                   // The server rebuilt the session — the old event stream is dead, reopen it.
                   streamAc.abort();
-                  streamAc = new AbortController();
-                  openStream();
+                  const ac = new AbortController();
+                  streamAc = ac;
+                  openStream(ac);
                   await refreshMeta();
                   notice = '';
                   render();
@@ -838,6 +855,19 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     void client.send(trimmed, workMode).catch((e: Error) => { view = reduce(view, { type: 'error', message: e.message }); render(); });
   };
 
+  // The slash overlay is a live suggestion popup driven by the input text: it filters while the text can
+  // still be a command name and closes the moment it can't be one anymore (a space for arguments, a
+  // second '/' as in /var/www/x, or the leading '/' deleted) — the text itself always stays in the input.
+  editor.onChange = (text: string): void => {
+    if (!slashHandle || !slashOverlay) return;
+    if (isSlashCommandDraft(text)) {
+      slashOverlay.setFilter(text);
+      tui.requestRender();
+    } else {
+      closeSlash();
+    }
+  };
+
   // Esc while a turn streams aborts it server-side (agent_end → idle winds the spinner down). When idle
   // it returns false so Esc falls through to the base editor instead of being swallowed.
   editor.onEscape = (): boolean => {
@@ -941,10 +971,25 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       return { consume: true };
     }
     if (matchesKey(data, 'ctrl+c')) { quit(); return { consume: true }; }
-    // Global chat shortcuts only fire while the MAIN editor is focused. Input listeners run before the
-    // focused component, so without this guard ctrl+r/ctrl+p/'/'/shift+tab would hijack an open modal
-    // (a picker, the rename input, the ask-question dock) instead of reaching it.
-    const editing = editor.focused;
+    // Slash suggestions: the editor KEEPS focus while the overlay is open (typing keeps landing in the
+    // input line), so only the overlay-navigation keys are stolen here — everything else falls through.
+    if (editor.focused && slashHandle && slashOverlay) {
+      if (matchesKey(data, 'escape')) { closeSlash(); return { consume: true }; }
+      if (data === '\x1b[A' || matchesKey(data, 'up')) { slashOverlay.moveSelection(-1); tui.requestRender(); return { consume: true }; }
+      if (data === '\x1b[B' || matchesKey(data, 'down')) { slashOverlay.moveSelection(1); tui.requestRender(); return { consume: true }; }
+      if (data === '\r' || matchesKey(data, 'enter') || data === '\t') {
+        const value = slashOverlay.selectedValue();
+        closeSlash();
+        if (value) { editor.setText(''); editor.onSubmit?.(value); return { consume: true }; }
+        // No matching command: swallow Tab, but let Enter fall through and send the text as-is.
+        return data === '\t' ? { consume: true } : undefined;
+      }
+    }
+    // Global chat shortcuts only fire while the MAIN editor is focused and the slash suggestions are
+    // closed. Input listeners run before the focused component, so without this guard ctrl+r/ctrl+p/'/'/
+    // shift+tab would hijack an open modal (a picker, the rename input, the ask-question dock) instead
+    // of reaching it.
+    const editing = editor.focused && !slashHandle;
     if (editing && matchesKey(data, 'ctrl+p')) {
       const hidden = !panelHandle?.isHidden();
       panelHandle?.setHidden(hidden);
@@ -964,9 +1009,11 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       render();
       return { consume: true };
     }
-    if (editing && !slashHandle && editor.getText() === '' && data === '/') {
+    // '/' at an empty prompt opens the command suggestions but is NOT consumed — it falls through to the
+    // editor, so the typed text (a command or a path like /var/www/x) always lives in the input line.
+    if (editing && editor.getText() === '' && data === '/') {
       openSlash();
-      return { consume: true };
+      return undefined;
     }
     if (noModal && data === '\x1b[5~') {
       viewport.scroll(4);
@@ -983,8 +1030,13 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   tui.start();
   term.write(ENABLE_MOUSE);
+  // Mouse-reporting hygiene: quit() disables it on the normal path, but an uncaught throw or a
+  // SIGTERM/SIGHUP would otherwise leave the user's shell spewing `[<35;…M` on every mouse move.
+  const disableMouse = (): void => { try { process.stdout.write(DISABLE_MOUSE); } catch { /* tty gone */ } };
+  process.once('exit', disableMouse);
+  for (const sig of ['SIGTERM', 'SIGHUP'] as const) process.once(sig, () => { disableMouse(); process.exit(sig === 'SIGTERM' ? 143 : 129); });
   render();
-  openStream();
+  openStream(streamAc);
   // Reconnect restore: if a question was already parked when this client attached (daemon restart, second
   // client), re-render its picker instead of leaving the turn silently hanging until the timeout.
   if (boot?.pendingAsk) launchAsk(boot.pendingAsk.id, boot.pendingAsk.questions);

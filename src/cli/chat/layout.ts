@@ -1,11 +1,10 @@
-import { Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
-import type { Component, MarkdownTheme, TUI } from '@earendil-works/pi-tui';
+import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
+import type { Component, MarkdownTheme } from '@earendil-works/pi-tui';
 import { framedDiffBlock, toolOutputBlock, UserBlock } from './components.js';
 import { ansi, chatTheme, color, glyph } from './theme.js';
 import type { BrainUsageView } from './brainClient.js';
 import type { ChatView } from '../../brain/transcript.js';
 import { formatK, padAnsi } from '../ui/text.js';
-import { printableInput } from '../ui/prompts.js';
 
 export const TOP_RULE_ROWS = 1;
 export const PANEL_GUTTER_COLUMNS = 3;
@@ -71,7 +70,9 @@ export class TopRule implements Component {
     const title = this.getTitle().trim();
     const label = title
       ? ` ${color.accent(glyph.whale)} ${color.text(truncateToWidth(title, Math.max(8, width - 12), '…'))} `
-      : ` ${color.accent('Orca Chat')} ${color.faint('new conversation')} `;
+      // The brand fallback is 28 visible chars — on a narrower terminal it MUST clip too, or pi-tui's
+      // width assert throws and takes the whole TUI down (leaving mouse reporting on).
+      : truncateToWidth(` ${color.accent('Orca Chat')} ${color.faint('new conversation')} `, width, '…');
     return [`${label}${color.accent('─'.repeat(Math.max(0, width - visibleWidth(label))))}`];
   }
 }
@@ -372,18 +373,35 @@ export interface SlashOverlayItem {
   description?: string;
 }
 
+/** Slash-command suggestions rendered above the input. It never takes focus: the editor owns the typed
+ *  text (including the leading '/'), and the app feeds it in via setFilter / steers it via moveSelection. */
 export class SlashOverlay implements Component {
   private filter = '';
   private selectedIndex = 0;
 
-  constructor(
-    private readonly tui: TUI,
-    private readonly items: SlashOverlayItem[],
-    private readonly onPick: (value: string) => void,
-    private readonly onCancel: () => void,
-  ) {}
+  constructor(private readonly items: SlashOverlayItem[]) {}
 
   invalidate(): void { /* state driven */ }
+
+  /** Follow the editor's text — the leading '/' is stripped, a changed filter resets the highlight. */
+  setFilter(text: string): void {
+    const filter = text.startsWith('/') ? text.slice(1) : text;
+    if (filter === this.filter) return;
+    this.filter = filter;
+    this.selectedIndex = 0;
+  }
+
+  /** Move the highlight up (-1) / down (+1), wrapping around the filtered list. */
+  moveSelection(delta: number): void {
+    const count = this.filteredItems().length;
+    if (count === 0) return;
+    this.selectedIndex = (this.selectedIndex + delta + count) % count;
+  }
+
+  /** The highlighted command, or null when nothing matches the current filter. */
+  selectedValue(): string | null {
+    return this.filteredItems()[this.selectedIndex]?.value ?? null;
+  }
 
   filteredItems(): SlashOverlayItem[] {
     const raw = this.filter.trim().toLowerCase();
@@ -411,39 +429,6 @@ export class SlashOverlay implements Component {
       .map((entry) => entry.item);
   }
 
-  handleInput(data: string): void {
-    if (matchesKey(data, 'escape')) { this.onCancel(); return; }
-    const items = this.filteredItems();
-    if (data === '\x1b[A' || matchesKey(data, 'up')) {
-      this.selectedIndex = items.length ? (this.selectedIndex === 0 ? items.length - 1 : this.selectedIndex - 1) : 0;
-      this.tui.requestRender();
-      return;
-    }
-    if (data === '\x1b[B' || matchesKey(data, 'down')) {
-      this.selectedIndex = items.length ? (this.selectedIndex === items.length - 1 ? 0 : this.selectedIndex + 1) : 0;
-      this.tui.requestRender();
-      return;
-    }
-    if (data === '\r' || matchesKey(data, 'enter') || data === '\t') {
-      const selected = items[this.selectedIndex];
-      if (selected) this.onPick(selected.value);
-      return;
-    }
-    if (matchesKey(data, 'backspace')) {
-      this.filter = this.filter.slice(0, -1);
-      this.selectedIndex = 0;
-      this.tui.requestRender();
-      return;
-    }
-    const printable = printableInput(data);
-    if (printable) {
-      // Command names never contain '/', so a leading (or pasted) slash is dropped rather than filtering.
-      this.filter += printable.replace(/\//g, '');
-      this.selectedIndex = 0;
-      this.tui.requestRender();
-    }
-  }
-
   render(width: number): string[] {
     const innerWidth = Math.max(1, width - 2);
     const top = `${color.accent('╭')}${color.faint('─'.repeat(innerWidth))}${color.accent('╮')}`;
@@ -467,7 +452,7 @@ export class SlashOverlay implements Component {
     const counter = items.length > shown.length ? [row(ansi.open(chatTheme().faint, `  (${Math.min(this.selectedIndex + 1, items.length)}/${items.length})`))] : [];
     return [
       top,
-      row(`  ${ansi.open(chatTheme().accent, `/${this.filter}`)}${ansi.open(chatTheme().faint, '  commands')}`),
+      row(`  ${ansi.open(chatTheme().faint, 'commands · ↑↓ select · tab/enter run · esc dismiss')}`),
       row(''),
       ...itemRows,
       ...counter,

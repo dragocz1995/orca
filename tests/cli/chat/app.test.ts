@@ -80,6 +80,19 @@ describe('parseCommand', () => {
   });
 });
 
+describe('isSlashCommandDraft', () => {
+  it('is true while the input can still be a command name and false for ordinary text', async () => {
+    const { isSlashCommandDraft } = await import('../../../src/cli/chat/app.js');
+    expect(isSlashCommandDraft('/')).toBe(true);
+    expect(isSlashCommandDraft('/mo')).toBe(true);
+    expect(isSlashCommandDraft('/model')).toBe(true);
+    expect(isSlashCommandDraft('')).toBe(false); // leading '/' deleted → overlay closes
+    expect(isSlashCommandDraft('/model high')).toBe(false); // arguments → the command name is committed
+    expect(isSlashCommandDraft('/var/www/x')).toBe(false); // a path, not a command
+    expect(isSlashCommandDraft('běžná zpráva')).toBe(false);
+  });
+});
+
 describe('mode toggle key', () => {
   it('recognizes Shift+Tab and the Ctrl+Tab sequence some terminals emit', async () => {
     const { isModeToggleKey } = await import('../../../src/cli/chat/app.js');

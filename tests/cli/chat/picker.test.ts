@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { sessionItems, modelItems, parseModelValue } from '../../../src/cli/chat/picker.js';
+import { beforeAll, describe, it, expect } from 'vitest';
+import type { TUI } from '@earendil-works/pi-tui';
+import { getSelectListTheme, initTheme } from '@earendil-works/pi-coding-agent';
+import { ChatEditor, sessionItems, modelItems, parseModelValue } from '../../../src/cli/chat/picker.js';
 
 describe('picker item builders', () => {
   it('sessionItems marks the active conversation and falls back to (untitled)', () => {
@@ -24,5 +26,55 @@ describe('picker item builders', () => {
 
   it('parseModelValue splits the picker value back into a selection', () => {
     expect(parseModelValue('relay kimi')).toEqual({ provider: 'relay', model: 'kimi' });
+  });
+});
+
+describe('ChatEditor input history recall', () => {
+  beforeAll(() => { initTheme(); }); // getSelectListTheme needs the pi theme
+
+  const UP = '\x1b[A';
+  const DOWN = '\x1b[B';
+  const makeEditor = (): ChatEditor => {
+    const tui = { requestRender: () => { /* not rendering */ }, terminal: { rows: 24, columns: 80 } } as unknown as TUI;
+    return new ChatEditor(tui, { borderColor: (s) => s, selectList: getSelectListTheme() }, {});
+  };
+  // The editor lays out against its last render width; keep it current like the TUI render loop does.
+  const press = (editor: ChatEditor, data: string): void => { editor.render(60); editor.handleInput(data); };
+
+  it('recalls sent messages with Up from an empty editor and walks back down to the empty draft', () => {
+    const editor = makeEditor();
+    editor.addToHistory('first message');
+    editor.addToHistory('second message');
+    press(editor, UP);
+    expect(editor.getText()).toBe('second message');
+    press(editor, UP);
+    expect(editor.getText()).toBe('first message');
+    press(editor, UP); // already at the oldest entry — stays put
+    expect(editor.getText()).toBe('first message');
+    press(editor, DOWN);
+    expect(editor.getText()).toBe('second message');
+    press(editor, DOWN); // past the newest — restores the empty draft
+    expect(editor.getText()).toBe('');
+  });
+
+  it('keeps Up/Down as line navigation inside a multi-line draft', () => {
+    const editor = makeEditor();
+    editor.addToHistory('older entry');
+    editor.setText('line one\nline two');
+    press(editor, UP); // cursor moves up a line instead of recalling history
+    expect(editor.getText()).toBe('line one\nline two');
+    press(editor, DOWN);
+    expect(editor.getText()).toBe('line one\nline two');
+  });
+
+  it('drops out of history mode once a recalled entry is edited', () => {
+    const editor = makeEditor();
+    editor.addToHistory('recalled');
+    press(editor, UP);
+    expect(editor.getText()).toBe('recalled');
+    press(editor, 'x'); // editing exits history browsing (cursor sits at the start after recall)
+    expect(editor.getText()).toBe('xrecalled');
+    press(editor, DOWN); // no longer recalling → the edit is an ordinary draft and is kept
+    expect(editor.getText()).toBe('xrecalled');
   });
 });
