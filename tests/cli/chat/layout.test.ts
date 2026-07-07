@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { getMarkdownTheme, initTheme } from '@earendil-works/pi-coding-agent';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import { beginAssistant, emptyView, pushUser, reduce } from '../../../src/brain/transcript.js';
+import { beginAssistant, emptyView, fromHistory, pushUser, reduce } from '../../../src/brain/transcript.js';
 import { ChatViewport, mouseWheel, SlashOverlay, StartScreen, TelemetryPanel, type TelemetryState } from '../../../src/cli/chat/layout.js';
 
 describe('chat layout components', () => {
@@ -321,5 +321,62 @@ describe('chat layout components', () => {
       version: '1.8.7',
     }));
     expect(screen.render(80).join('\n')).toContain('error: daemon unreachable');
+  });
+});
+
+describe('drag-to-copy selection', () => {
+  const mkViewport = () => {
+    const view = fromHistory([
+      { role: 'user', text: 'hello there' },
+      { role: 'assistant', text: 'line one answer\nline two answer' },
+    ]);
+    const viewport = new ChatViewport(
+      { view, notice: '', modelName: 'kimi', thinkingSeconds: 0 },
+      getMarkdownTheme(),
+      () => 12,
+      () => 1,
+      () => 60,
+    );
+    viewport.render(60); // populate the row cache + geometry
+    return viewport;
+  };
+
+  it('drag selects lines and takeSelection returns plain right-trimmed text', () => {
+    const viewport = mkViewport();
+    expect(viewport.beginSelect(5, 2)).toBe(true);
+    viewport.dragSelect(6);
+    expect(viewport.hasSelection()).toBe(true);
+    const text = viewport.takeSelection();
+    expect(text).toBeTruthy();
+    expect(text).not.toMatch(/\x1b\[/); // ANSI stripped
+    expect(text).toContain('hello there');
+    expect(viewport.hasSelection()).toBe(false);
+  });
+
+  it('a click without movement yields no text (and clears)', () => {
+    const viewport = mkViewport();
+    expect(viewport.beginSelect(5, 3)).toBe(true);
+    expect(viewport.takeSelection()).toBeNull();
+    expect(viewport.hasSelection()).toBe(false);
+  });
+
+  it('a press on the scrollbar column does not start a selection', () => {
+    const viewport = mkViewport();
+    expect(viewport.beginSelect(60, 3)).toBe(false);
+  });
+
+  it('reasoning segments disappear when showThoughts is false', () => {
+    const view = fromHistory([{ role: 'assistant', text: 'answer' }]);
+    view.turns = [{ role: 'orca', segments: [{ kind: 'reasoning', text: 'secret chain' }, { kind: 'text', text: 'answer' }], streaming: false }];
+    const viewport = new ChatViewport(
+      { view, notice: '', modelName: 'kimi', thinkingSeconds: 0, showThoughts: false },
+      getMarkdownTheme(),
+      () => 12,
+      () => 1,
+      () => 60,
+    );
+    const out = viewport.render(60).join('\n');
+    expect(out).not.toContain('Thought');
+    expect(out).toContain('answer');
   });
 });

@@ -64,7 +64,7 @@ export function viewToPlainText(view: ChatView): string[] {
 
 /** Local slash-command routing: returns the recognized command (with its argument) or null for a
  *  regular chat message. Pure, so the command surface is unit-testable without a TTY. */
-export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'delete' | 'model' | 'think' | 'theme' | 'lsp' | 'mcp' | 'skills' | 'tools' | 'goal' | 'subgoal' | 'compact' | 'plan' | 'build' | 'help'; arg?: string } | null {
+export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'delete' | 'model' | 'reasoning' | 'theme' | 'lsp' | 'mcp' | 'skills' | 'tools' | 'goal' | 'subgoal' | 'compact' | 'plan' | 'build' | 'help'; arg?: string } | null {
   const m = /^\/(\w+)(?:\s+(.+))?$/.exec(text.trim());
   if (!m) return null;
   switch (m[1]) {
@@ -77,7 +77,7 @@ export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'st
     case 'resume': return { cmd: 'resume', arg: m[2] };
     case 'delete': return { cmd: 'delete', arg: m[2] };
     case 'model': return { cmd: 'model', arg: m[2] };
-    case 'think': return { cmd: 'think', arg: m[2] };
+    case 'reasoning': return { cmd: 'reasoning', arg: m[2] };
     case 'theme': return { cmd: 'theme', arg: m[2] };
     case 'lsp': return { cmd: 'lsp' };
     case 'mcp': return { cmd: 'mcp' };
@@ -185,8 +185,10 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   initTheme();
   // Restore the last-used chat theme before any component reads chatTheme() — otherwise every launch
   // silently reverted to the default.
-  const savedTheme = loadPrefs().theme;
-  if (savedTheme && isChatThemeName(savedTheme)) setChatTheme(savedTheme);
+  const prefs0 = loadPrefs();
+  if (prefs0.theme && isChatThemeName(prefs0.theme)) setChatTheme(prefs0.theme);
+  // Thought-row visibility, per machine — `/reasoning show` toggles it.
+  let showThoughts = prefs0.showThoughts !== false;
   const mdTheme = getMarkdownTheme();
 
   const client = opts.client ?? new BrainClient({ base: opts.base, token: opts.token });
@@ -333,6 +335,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       notice: childView ? color.dim('· sub-agent session — your messages go to this agent') : notice,
       modelName,
       thinkingSeconds: currentRunSeconds,
+      showThoughts,
     });
     // Contextual footer: while streaming, Esc interrupts; inside a sub-agent view, input steers the child.
     bottomBar.setLeft(childView
@@ -1077,7 +1080,15 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
           openModelPicker();
           return;
         }
-        case 'think': {
+        case 'reasoning': {
+          // "/reasoning show" toggles the Thought rows in the transcript (persisted per machine).
+          if (command.arg?.trim() === 'show') {
+            showThoughts = !showThoughts;
+            savePrefs({ showThoughts });
+            notice = color.dim(showThoughts ? 'Thought rows shown' : 'Thought rows hidden — /reasoning show brings them back');
+            render();
+            return;
+          }
           if (thinkingLevels.length === 0) { notice = color.dim('this model has no reasoning-effort levels'); render(); return; }
           const apply = (level: string): void => {
             void client.setThinkingLevel(level).then((r) => {
@@ -1086,7 +1097,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
               render();
             }).catch((e: Error) => { notice = color.error(`error: ${e.message}`); render(); });
           };
-          // A bare "/think high" applies directly; "/think" opens the picker over the model's levels.
+          // A bare "/reasoning high" applies directly; "/reasoning" opens the picker over the model's levels.
           if (command.arg && thinkingLevels.includes(command.arg.trim())) { apply(command.arg.trim()); return; }
           openThinkingPicker();
           return;
@@ -1340,6 +1351,29 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       viewport.scroll(wheel);
       tui.requestRender();
       return { consume: true };
+    }
+    // Drag-to-copy: a press on plain transcript text anchors a line selection (interactive rows above
+    // consumed their presses already), dragging extends + highlights it, and release copies the lines
+    // to the system clipboard via OSC 52 (works over SSH too). A no-drag click just clears quietly.
+    if (ev && noModal) {
+      if (ev.down && ev.code === 0 && viewport.beginSelect(ev.x, ev.y)) return { consume: true };
+      if (ev.down && ev.code === 32 && viewport.hasSelection()) {
+        viewport.dragSelect(ev.y);
+        tui.requestRender();
+        return { consume: true };
+      }
+      if ((!ev.down || ev.code === 3) && viewport.hasSelection()) {
+        const text = viewport.takeSelection();
+        tui.requestRender();
+        if (text) {
+          term.write(`\x1b]52;c;${Buffer.from(text.slice(0, 100_000)).toString('base64')}\x07`);
+          const n = text.split('\n').length;
+          notice = color.success(`✓ Copied ${n} line${n === 1 ? '' : 's'}`);
+          render();
+          setTimeout(() => { if (notice.includes('Copied')) { notice = ''; render(); } }, 1800);
+        }
+        return { consume: true };
+      }
     }
     if (matchesKey(data, 'ctrl+c')) { quit(); return { consume: true }; }
     // Slash suggestions: the editor KEEPS focus while the overlay is open (typing keeps landing in the

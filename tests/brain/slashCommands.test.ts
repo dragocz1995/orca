@@ -3,7 +3,7 @@ import { SLASH_COMMANDS, commandsFor, commandsWithPlugins, expandPromptCommand, 
 
 describe('slash command registry', () => {
   it('exposes the core commands', () => {
-    for (const n of ['new', 'stop', 'status', 'compact', 'plan', 'build', 'model', 'think', 'restart', 'help']) {
+    for (const n of ['new', 'stop', 'status', 'compact', 'plan', 'build', 'model', 'reasoning', 'restart', 'help']) {
       expect(findCommand(n), n).toBeDefined();
     }
   });
@@ -31,10 +31,10 @@ describe('slash command registry', () => {
     }
   });
 
-  it('scopes /think to the CLI (the only surface that wires the reasoning picker)', () => {
-    expect(commandsFor('cli', true).some((c) => c.name === 'think')).toBe(true);
-    expect(commandsFor('web', true).some((c) => c.name === 'think')).toBe(false);
-    expect(commandsFor('discord', true).some((c) => c.name === 'think')).toBe(false);
+  it('scopes /reasoning to the CLI (the only surface that wires the reasoning picker)', () => {
+    expect(commandsFor('cli', true).some((c) => c.name === 'reasoning')).toBe(true);
+    expect(commandsFor('web', true).some((c) => c.name === 'reasoning')).toBe(false);
+    expect(commandsFor('discord', true).some((c) => c.name === 'reasoning')).toBe(false);
   });
 
   it('scopes local work modes to the CLI surface', () => {

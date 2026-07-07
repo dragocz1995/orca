@@ -60,8 +60,8 @@ describe('parseCommand', () => {
     expect(parseCommand('/sessions')).toEqual({ cmd: 'sessions' });
     expect(parseCommand('/resume 2')).toEqual({ cmd: 'resume', arg: '2' });
     expect(parseCommand('/model')).toEqual({ cmd: 'model' });
-    expect(parseCommand('/think')).toEqual({ cmd: 'think', arg: undefined });
-    expect(parseCommand('/think high')).toEqual({ cmd: 'think', arg: 'high' });
+    expect(parseCommand('/reasoning')).toEqual({ cmd: 'reasoning', arg: undefined });
+    expect(parseCommand('/reasoning high')).toEqual({ cmd: 'reasoning', arg: 'high' });
     expect(parseCommand('/theme')).toEqual({ cmd: 'theme', arg: undefined });
     expect(parseCommand('/theme mono')).toEqual({ cmd: 'theme', arg: 'mono' });
     expect(parseCommand('/mcp')).toEqual({ cmd: 'mcp' });

@@ -45,7 +45,7 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   { name: 'model', description: 'Switch the AI model', kind: 'picker' },
   // CLI-only: the reasoning-effort picker is wired in the TUI. Discord tunes reasoning through its own
   // native command surface; the web dock has no picker for it yet (would show a dead menu entry).
-  { name: 'think', description: 'Set the reasoning effort', kind: 'picker', surfaces: ['cli'] },
+  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli'] },
   { name: 'theme', description: 'Switch the terminal colour theme', kind: 'picker', surfaces: ['cli'] },
   // adminOnly: the toggle flips a daemon-wide LspManager singleton (spawns/kills servers for everyone),
   // so it must be gated to operators — a non-admin must not disable diagnostics for other users.

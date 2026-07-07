@@ -243,8 +243,8 @@ export async function runHeadless(
         const r = await c.setModel(parts.length >= 2 ? { provider: parts[0], model: parts.slice(1).join(' ') } : { model: parts[0] });
         outResult(`model: ${r.model}`, { model: r.model }); finish(0); break;
       }
-      case 'think': {
-        if (!arg) { io.stderr('/think needs a level (minimal|low|medium|high|xhigh).\n'); finish(2); break; }
+      case 'reasoning': {
+        if (!arg) { io.stderr('/reasoning needs a level (minimal|low|medium|high|xhigh).\n'); finish(2); break; }
         const r = await c.setThinkingLevel(arg); outResult(`thinking: ${r.thinkingLevel}`, { thinkingLevel: r.thinkingLevel }); finish(0); break;
       }
       case 'help': io.stdout(`${USAGE}\n`); finish(0); break;

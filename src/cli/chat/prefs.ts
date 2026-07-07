@@ -5,7 +5,11 @@ import { dataDir } from '../paths.js';
 /** Local (per-machine) chat-TUI preferences. The terminal theme is a property of THIS terminal — dark
  *  themes on a light terminal differ per machine — so it persists beside the token cache instead of in
  *  the per-user server settings. Corrupt or missing file degrades to defaults, never crashes the TUI. */
-export interface CliPrefs { theme?: string }
+export interface CliPrefs {
+  theme?: string;
+  /** Render the model's Thought rows in the transcript (default true) — toggled by `/reasoning show`. */
+  showThoughts?: boolean;
+}
 
 function prefsFile(env: NodeJS.ProcessEnv = process.env): string {
   return join(dataDir(env), 'cli-prefs.json');

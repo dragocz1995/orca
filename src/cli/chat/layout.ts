@@ -184,6 +184,8 @@ export interface ChatViewportState {
   notice: string;
   modelName: string;
   thinkingSeconds: number;
+  /** Render the model's Thought rows (default true) — `/reasoning show` toggles it. */
+  showThoughts?: boolean;
 }
 
 export class ChatViewport implements Component {
@@ -195,6 +197,12 @@ export class ChatViewport implements Component {
   private scrollbarColumn = 0;
   private expandableRows = new Map<number, string>();
   private subagentRows = new Map<number, string>();
+  // Drag-to-copy selection: transcript row indices (into the FULL rendered transcript, not the visible
+  // window) so a selection survives scrolling while the button is held.
+  private selAnchor: number | null = null;
+  private selHead: number | null = null;
+  private lastRows: string[] = [];
+  private lastStart = 0;
   private expandedThoughts = new Set<string>();
   private expandedTools = new Set<string>();
 
@@ -221,6 +229,48 @@ export class ChatViewport implements Component {
   isThoughtRow(x: number, absRow: number): boolean {
     const localRow = absRow - this.getTopRow() + 1;
     return x >= 1 && x <= this.scrollbarColumn - 2 && this.expandableRows.has(localRow);
+  }
+
+  /** Map a screen row to its index in the full rendered transcript, or null outside the viewport. */
+  private transcriptIndexAt(absRow: number): number | null {
+    const local = absRow - this.getTopRow() + 1;
+    if (local < 1 || local > this.viewportHeight) return null;
+    const idx = this.lastStart + local - 1;
+    return idx >= 0 && idx < this.lastRows.length ? idx : null;
+  }
+
+  /** Start a drag-to-copy selection at a screen position. False when the press lands outside the
+   *  transcript text area (scrollbar column, panel) — the caller then leaves the press alone. */
+  beginSelect(x: number, absRow: number): boolean {
+    if (x < 1 || x > this.scrollbarColumn - 2) return false;
+    const idx = this.transcriptIndexAt(absRow);
+    if (idx == null) return false;
+    this.selAnchor = idx;
+    this.selHead = idx;
+    return true;
+  }
+
+  dragSelect(absRow: number): void {
+    if (this.selAnchor == null) return;
+    const idx = this.transcriptIndexAt(absRow);
+    if (idx != null) this.selHead = idx;
+  }
+
+  hasSelection(): boolean { return this.selAnchor != null; }
+
+  /** Finish the selection: the covered lines as plain text (ANSI stripped, right-trimmed), or null for
+   *  a no-drag click / whitespace-only span. Always clears the highlight. */
+  takeSelection(): string | null {
+    const a = this.selAnchor;
+    const h = this.selHead;
+    this.selAnchor = null;
+    this.selHead = null;
+    if (a == null || h == null || a === h) return null;
+    const [lo, hi] = a <= h ? [a, h] : [h, a];
+    const text = this.lastRows.slice(lo, hi + 1)
+      .map((line) => line.replace(/\x1b\[[0-9;]*m/g, '').replace(/\s+$/, ''))
+      .join('\n');
+    return text.trim() ? text : null;
   }
 
   /** The sub-agent session id under a click, or null — subagent rows open the child transcript
@@ -274,6 +324,10 @@ export class ChatViewport implements Component {
     this.subagentRows = new Map();
 
     const start = Math.max(0, rows.length - height - this.scrollOffset);
+    this.lastRows = rows.map((r) => r.line);
+    this.lastStart = start;
+    const selLo = this.selAnchor != null && this.selHead != null ? Math.min(this.selAnchor, this.selHead) : -1;
+    const selHi = this.selAnchor != null && this.selHead != null ? Math.max(this.selAnchor, this.selHead) : -1;
     const visible = rows.slice(start, start + height);
     while (visible.length < height) visible.push({ line: '' });
     return visible.map((entry, i) => {
@@ -282,7 +336,11 @@ export class ChatViewport implements Component {
       const content = i === 0 && this.scrollOffset > 0
         ? this.historyChip(entry.line, chatWidth - 2)
         : entry.line;
-      return padAnsi(`${padAnsi(content, chatWidth - 2)} ${this.scrollbar(i, height, rows.length)}`, width);
+      let cell = padAnsi(content, chatWidth - 2);
+      // Drag-to-copy highlight: reverse-video the selected rows; re-arm after every SGR reset inside
+      // the line, otherwise the first themed span would cancel the inversion mid-row.
+      if (start + i >= selLo && start + i <= selHi) cell = `\x1b[7m${cell.split('\x1b[0m').join('\x1b[0m\x1b[7m')}\x1b[27m`;
+      return padAnsi(`${cell} ${this.scrollbar(i, height, rows.length)}`, width);
     });
   }
 
@@ -328,6 +386,7 @@ export class ChatViewport implements Component {
             }
           }
         } else if (seg.kind === 'reasoning') {
+          if (this.state.showThoughts === false) continue; // `/reasoning show` hid Thought rows
           const liveTail = turn.streaming && seg === turn.segments[turn.segments.length - 1];
           const first = seg.text.replace(/\s+/g, ' ').trim() || 'thinking';
           const label = liveTail ? `Thought: ${this.state.thinkingSeconds}s` : 'Thought';
