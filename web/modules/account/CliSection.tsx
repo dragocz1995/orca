@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useAutoSave } from '../../lib/useAutoSave';
 import { Eye, Gauge, MoonStar, SlidersHorizontal, Zap } from 'lucide-react';
-import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
+import { BrainModelField } from '../../components/ui/BrainModelField';
 import { Segmented } from '../../components/ui/Segmented';
 import { SettingCard } from '../../components/ui/SettingCard';
 import { Toggle } from '../../components/ui/Toggle';
@@ -82,10 +82,6 @@ export function CliSection() {
 
   if (isLoading || !data) return <LoadingState />;
 
-  const options = models.data ?? [];
-  // The picker speaks exec strings; this section stores provider::model — translate at the edges.
-  const selectedVisionExec = options.find((o) => `${o.provider}::${o.model}` === visionSelection)?.exec ?? '';
-
   return (
     <div className="flex flex-col gap-4">
       <SettingCard title={t.cli.thinkingLabel} icon={Gauge} description={t.help.cliThinking}>
@@ -99,15 +95,14 @@ export function CliSection() {
       </SettingCard>
 
       <SettingCard title={t.cli.visionModelLabel} icon={Eye} description={t.help.cliVisionModel}>
-        <ExecutorPicker
-          value={selectedVisionExec}
-          onChange={(exec) => {
-            const o = options.find((x) => x.exec === exec);
-            setVisionSelection(o ? `${o.provider}::${o.model}` : '');
-          }}
-          models={[]}
-          kind="brain"
+        <BrainModelField
+          value={visionSelection}
+          onChange={setVisionSelection}
+          models={models.data ?? []}
+          title={t.cli.visionModelLabel}
+          subtitle={t.help.cliVisionModel}
           defaultLabel={t.cli.visionModelDefault}
+          keyOf={(m) => `${m.provider}::${m.model}`}
         />
       </SettingCard>
 

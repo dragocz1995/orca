@@ -93,8 +93,8 @@ describe('PluginDetail per-role tool allowlist', () => {
   beforeEach(() => {
     usePlugins.mockReturnValue({
       data: [
-        plugin({ name: 'discord', provides: { tools: ['discord_send'] } }),
-        plugin({ name: 'web', provides: { tools: ['web_search'] } }),
+        plugin({ name: 'discord', hasIcon: true, provides: { tools: ['discord_send'] } }), // ships a brand icon
+        plugin({ name: 'web', provides: { tools: ['web_search'] } }), // no icon → lucide fallback glyph
         plugin({ name: 'off', enabled: false, provides: { tools: ['off_tool'] } }), // disabled → not in the vocabulary
       ],
     });
@@ -118,9 +118,16 @@ describe('PluginDetail per-role tool allowlist', () => {
     renderDetail();
     expandRole();
     fireEvent.click(screen.getByRole('button', { name: en.managePicker.manage }));
-    expect(screen.getByRole('heading', { name: 'discord' })).toBeInTheDocument();
+    const discordHeading = screen.getByRole('heading', { name: 'discord' });
+    expect(discordHeading).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'web' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'discord_send' }));
+    // Group headers carry the owning plugin's icon: discord ships a brand icon (<img>), web falls back
+    // to a lucide glyph (<svg>). Each tool row carries its owning plugin's icon too.
+    expect(discordHeading.querySelector('img')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'web' }).querySelector('svg')).toBeTruthy();
+    const toolRow = screen.getByRole('button', { name: 'discord_send' });
+    expect(toolRow.querySelector('img')).toBeTruthy();
+    fireEvent.click(toolRow);
     fireEvent.click(screen.getByRole('button', { name: en.managePicker.saveChanges }));
     await waitFor(() => expect(screen.queryByRole('button', { name: en.managePicker.saveChanges })).toBeNull());
     expect(screen.getByText('1 tools selected')).toBeInTheDocument();

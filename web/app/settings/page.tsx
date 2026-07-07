@@ -6,7 +6,7 @@ import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { ProviderPicker } from '../../components/ui/ProviderPicker';
-import { ModelPillsPicker } from '../../components/ui/ModelPillsPicker';
+import { ModelCatalogField } from '../../components/ui/ModelCatalogField';
 import { ModelModal } from '../../modules/settings/ModelModal';
 import { ModelNoteModal } from '../../modules/settings/ModelNoteModal';
 import { ContextWindowModal } from '../../modules/settings/ContextWindowModal';
@@ -544,12 +544,12 @@ export default function SettingsPage() {
                   </SettingCard>
                   <SettingCard title={t.settings.plannerModel} description={t.help.plannerModel} icon={Bot}>
                     {apProviderId && apCatalog.length > 0
-                      ? <ModelPillsPicker mode="single" catalog={apCatalog} value={model || null} onChange={(m) => setModel(m ?? '')} />
+                      ? <ModelCatalogField value={model} onChange={setModel} catalog={apCatalog} title={t.settings.plannerModel} subtitle={t.help.plannerModel} />
                       : <ModelInput value={model} onChange={setModel} placeholder={t.settings.plannerPlaceholder} />}
                   </SettingCard>
                   <SettingCard title={t.settings.overseerModel} description={t.help.overseerModel} icon={Eye}>
                     {apProviderId && apCatalog.length > 0
-                      ? <ModelPillsPicker mode="single" catalog={apCatalog} value={overseerModel || null} onChange={(m) => setOverseerModel(m ?? '')} />
+                      ? <ModelCatalogField value={overseerModel} onChange={setOverseerModel} catalog={apCatalog} title={t.settings.overseerModel} subtitle={t.help.overseerModel} />
                       : <ModelInput value={overseerModel} onChange={setOverseerModel} placeholder={t.settings.overseerPlaceholder} />}
                   </SettingCard>
                   {/* No provider picked → enter an endpoint + key directly. A chosen provider supplies both,

@@ -852,6 +852,7 @@ export const cs = {
     manage: 'Spravovat',
     searchPlaceholder: 'Hledat…',
     all: 'Vše',
+    none: 'Žádný',
     selectedCount: '{n} vybráno',
     saveChanges: 'Uložit změny',
     noResults: 'Žádné výsledky',
@@ -887,8 +888,10 @@ export const cs = {
     noModelLimit: 'Bez omezení — můžete spouštět všechny globálně povolené modely.',
     defaultWorker: 'Výchozí worker',
     defaultWorkerHint: 'Spouští vaše úlohy — předvyplní se jako executor u nových tasků.',
+    defaultWorkerNone: 'Bez výchozího',
     defaultOrcaAi: 'Výchozí Orca AI model',
     defaultOrcaAiHint: 'Používá se pro web chat i orca chat v terminálu.',
+    defaultOrcaAiNone: 'Výchozí ze serveru',
     save: 'Uložit',
     saved: 'Účet uložen',
     avatarSaved: 'Avatar nahrán',
@@ -1150,12 +1153,6 @@ export const cs = {
   pills: {
     showMore: "+{n} dalších",
     showLess: "Zobrazit méně",
-  },
-  modelPicker: {
-    searchPlaceholder: "Hledat modely…",
-    noMatch: "Žádný model neodpovídá.",
-    pickAll: "Žádný výběr - nabízí se celý katalog.",
-    pickCount: "Vybráno modelů: {n}",
   },
   categorization: {
     title: "Paměťový model (auto-ukládání + kategorizace)",

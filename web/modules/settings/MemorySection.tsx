@@ -7,7 +7,7 @@ import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
 import { HelpTip } from '../../components/ui/HelpTip';
 import { ProviderPicker } from '../../components/ui/ProviderPicker';
-import { ModelPillsPicker } from '../../components/ui/ModelPillsPicker';
+import { ModelCatalogField } from '../../components/ui/ModelCatalogField';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
@@ -146,9 +146,12 @@ export function MemorySection() {
           <ProviderPicker providers={embeddingProviders} value={embProvider} onChange={setEmbProvider} label={t.memory.embeddingProvider} emptyText={t.memory.embeddingProviderPlaceholder} />
         </Field>
 
-        <Field label={t.memory.embeddingModel}>
-          <ModelPillsPicker mode="single" catalog={embCatalog} value={embModel || null} onChange={(v) => setEmbModel(v ?? '')} />
-        </Field>
+        {/* A div-based label (not Field's <label>): the SelectionSummary's Manage button would otherwise
+            become the label's first labelable descendant and inherit the field text as its name. */}
+        <div className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">{t.memory.embeddingModel}</span>
+          <ModelCatalogField value={embModel} onChange={setEmbModel} catalog={embCatalog} title={t.memory.embeddingModel} subtitle={t.help.embeddingIntro} />
+        </div>
 
         <Field label={t.memory.embeddingModelCustom} hint={t.help.embeddingModelCustom}>
           <Input value={embModel} onChange={(e) => setEmbModel(e.target.value)} placeholder={t.memory.embeddingModelPlaceholder} className="font-mono" />
@@ -200,9 +203,11 @@ export function MemorySection() {
           <ProviderPicker providers={providers} value={catProvider} onChange={setCatProvider} label={t.categorization.providerLabel} emptyText={t.memory.embeddingProviderPlaceholder} />
         </Field>
 
-        <Field label={t.categorization.modelLabel}>
-          <ModelPillsPicker mode="single" catalog={catCatalog} value={catModel} onChange={setCatModel} />
-        </Field>
+        {/* Div-based label (see the embedding-model field for why Field's <label> is avoided here). */}
+        <div className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">{t.categorization.modelLabel}</span>
+          <ModelCatalogField value={catModel ?? ''} onChange={(v) => setCatModel(v || null)} catalog={catCatalog} title={t.categorization.modelLabel} subtitle={t.help.categorizationIntro} />
+        </div>
 
         {/* Reclassify: runs the categorization model over the caller's uncategorized memories. Needs a
             configured model first. */}

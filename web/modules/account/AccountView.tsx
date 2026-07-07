@@ -1,18 +1,21 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { UserCog, Mail, Cpu, Upload, ShieldCheck, Check, User as UserIcon, KeyRound, ZoomIn, Bell, Sparkles, AtSign, Brain, MessageCircle, SquareTerminal } from 'lucide-react';
+import { UserCog, Mail, Cpu, Upload, ShieldCheck, User as UserIcon, KeyRound, ZoomIn, Bell, Sparkles, AtSign, Brain, MessageCircle, SquareTerminal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { OrcaApiError } from '../../lib/orcaClient';
 import { useMe, useConfig, useMyCliSettings, useBrainModels } from '../../lib/queries';
 import { useUpdateMe, useUploadAvatar, useChangePassword, useSaveMyCliSettings } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
-import { execProvider } from '../../lib/modelProvider';
-import { PROVIDERS, ProviderLogo } from '../settings/providers';
+import { execProvider, type ProviderId } from '../../lib/modelProvider';
+import { providerMeta } from '../settings/providers';
 import { Avatar } from '../../components/ui/Avatar';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { ManageSelectionModal, type ManageSelectionItem } from '../../components/ui/ManageSelectionModal';
+import { SelectionSummary } from '../../components/ui/SelectionSummary';
+import { BrainModelField } from '../../components/ui/BrainModelField';
 import { SettingCard } from '../../components/ui/SettingCard';
 import { Toggle } from '../../components/ui/Toggle';
 import { Slider } from '../../components/ui/Slider';
@@ -31,28 +34,59 @@ import { CliSection } from './CliSection';
 import { TerminalSection } from './TerminalSection';
 import { AccountMemorySection } from './AccountMemorySection';
 
-/** One selectable model card in the default-model rail: brand icon + label + a monospace sub-line,
- *  accent-outlined + checked when it's the active default. Shared by the worker and Orca AI groups. */
-function ModelCard({ on, icon, label, sub, onClick }: { on: boolean; icon: string; label: string; sub: string; onClick: () => void }) {
+/** Small provider engine logo for the worker modal's group headers/chips. */
+function ProviderGroupIcon({ provider }: { provider: ProviderId }) {
+  const meta = providerMeta(provider);
+  if (!meta) return null;
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={on}
-      aria-label={label}
-      onClick={onClick}
-      className={`group flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${on ? 'border-accent bg-accent/10' : 'border-border bg-surface hover:bg-elevated'}`}
-      style={{ transitionDuration: 'var(--motion-fast)' }}
-    >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
-        <ModelIcon name={icon} size={28} />
-      </span>
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-medium text-text">{label}</span>
-        <span className="truncate font-mono text-tiny text-text-muted">{sub}</span>
-      </span>
-      {on ? <Check size={16} className="ml-auto shrink-0 text-accent" aria-hidden /> : null}
-    </button>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={meta.icon} alt="" width={14} height={14} style={{ objectFit: 'contain' }} className={meta.embedded ? 'logo-adaptive' : undefined} aria-hidden />
+  );
+}
+
+/** Single-select default worker exec: a compact summary chip + a manage modal grouping the pickable
+ *  worker engines by provider (engine logo on each header, model brand icon on each row). A pinned row
+ *  (id '') clears the personal default so new tasks fall back to the global default. */
+function WorkerField({ value, onChange, execs, labelOf, defaultLabel, title }: {
+  value: string;
+  onChange: (v: string) => void;
+  execs: string[];
+  labelOf: (exec: string) => string;
+  defaultLabel: string;
+  title: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const items: ManageSelectionItem[] = [
+    { id: '', label: defaultLabel, group: '' },
+    ...execs.map((exec) => {
+      const prov = execProvider(exec);
+      return { id: exec, label: labelOf(exec), group: prov, groupLabel: providerMeta(prov)?.label ?? prov, icon: <ModelIcon name={exec} size={14} /> };
+    }),
+  ];
+  const groupIcons = Object.fromEntries(
+    [...new Set(execs.map(execProvider))].map((prov) => [prov, <ProviderGroupIcon key={prov} provider={prov} />]),
+  );
+  return (
+    <>
+      <SelectionSummary
+        countText=""
+        samples={[value ? { label: labelOf(value), icon: <ModelIcon name={value} size={13} /> } : { label: defaultLabel }]}
+        moreCount={0}
+        onManage={() => setOpen(true)}
+        manageLabel={t.managePicker.manage}
+      />
+      <ManageSelectionModal
+        title={title}
+        open={open}
+        onClose={() => setOpen(false)}
+        items={items}
+        selected={new Set([value])}
+        single
+        groupIcons={groupIcons}
+        onSave={(next) => onChange([...next][0] ?? '')}
+      />
+    </>
   );
 }
 
@@ -123,13 +157,15 @@ export function AccountView() {
 
   // Picking an Orca AI model writes ONLY model+modelProvider (the cli-settings PATCH merges, so
   // CliSection's other fields are untouched) and the daemon restarts a running brain on the new model.
-  const pickOrca = (provider: string, model: string) => {
-    const key = `${provider}::${model}`;
+  // The picker hands back a `provider::model` key ('' = clear to the server default).
+  const applyOrca = (key: string) => {
     const prev = orcaSel;
-    const next = orcaSel === key ? '' : key;
-    setOrcaSel(next);
+    setOrcaSel(key);
+    const sep = key.indexOf('::');
+    const provider = sep > -1 ? key.slice(0, sep) : '';
+    const model = sep > -1 ? key.slice(sep + 2) : '';
     saveCli.mutate(
-      { model: next ? model : '', modelProvider: next ? provider : '' },
+      { model: key ? model : '', modelProvider: key ? provider : '' },
       // Revert the optimistic highlight if the server rejects the pick, so it can't drift from state.
       { onError: () => { setOrcaSel(prev); toast(t.account.saveError, 'error'); } },
     );
@@ -178,20 +214,11 @@ export function AccountView() {
   const labelOf = (exec: string) => allModels(custom).find((m) => m.exec === exec)?.label ?? exec;
 
   // Split the pickable execs into worker engines (set default_exec) vs the embedded Orca AI brain (set
-  // the cli-settings chat model) — the two defaults live apart, shown side by side and grouped by
-  // provider. Worker groups come off the exec prefix; Orca groups off the brain catalog's real upstream.
-  const workerGroups = PROVIDERS.filter((p) => p.id !== 'orca')
-    .map((p) => ({ meta: p, execs: pickable.filter((e) => execProvider(e) === p.id) }))
-    .filter((g) => g.execs.length > 0);
+  // the cli-settings chat model) — the two defaults live apart, each its own single-select picker.
+  const workerExecs = pickable.filter((e) => execProvider(e) !== 'orca');
   // Orca AI chat models: honour a user's personal allow-list even as admin (mirrors the worker rail +
   // the Discord /model fix) — brainModels is already per-user-scoped server-side for non-admins.
   const orcaModels = (brainModels.data ?? []).filter((m) => !restricted || u.allowed_execs.includes(m.exec));
-  const orcaGroups = Object.values(
-    orcaModels.reduce<Record<string, { label: string; provider: string; models: typeof orcaModels }>>((acc, m) => {
-      (acc[m.provider] ??= { label: m.providerLabel, provider: m.provider, models: [] }).models.push(m);
-      return acc;
-    }, {}),
-  );
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -253,52 +280,43 @@ export function AccountView() {
           <HelpTip align="right">{restricted ? t.account.restrictedHint : t.account.defaultModelHint}</HelpTip>
         </span>
 
-        {workerGroups.length === 0 && orcaGroups.length === 0 ? (
+        {workerExecs.length === 0 && orcaModels.length === 0 ? (
           <p className="text-xs italic text-text-muted">{t.account.noModelLimit}</p>
         ) : null}
 
         {/* Default worker (default_exec) */}
-        {workerGroups.length > 0 ? (
+        {workerExecs.length > 0 ? (
           <div className="flex flex-col gap-2.5">
             <span className="flex items-center gap-1.5 text-tiny font-semibold uppercase tracking-wide text-text-muted">
               {t.account.defaultWorker}<HelpTip align="right">{t.account.defaultWorkerHint}</HelpTip>
             </span>
-            {workerGroups.map((g) => (
-              <div key={g.meta.id} className="flex flex-col gap-1.5">
-                <span className="flex items-center gap-1.5 text-xs text-text-muted"><ProviderLogo meta={g.meta} size={18} />{g.meta.label}</span>
-                <div role="radiogroup" className="flex flex-col gap-2">
-                  {g.execs.map((exec) => (
-                    <ModelCard
-                      key={exec} on={defaultExec === exec} icon={exec} label={labelOf(exec)} sub={exec}
-                      onClick={() => setDefaultExec(defaultExec === exec ? '' : exec)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
+            <WorkerField
+              value={defaultExec}
+              onChange={setDefaultExec}
+              execs={workerExecs}
+              labelOf={labelOf}
+              defaultLabel={t.account.defaultWorkerNone}
+              title={t.account.defaultWorker}
+            />
           </div>
         ) : null}
 
         {/* Default Orca AI model — the embedded brain used by BOTH the web chat and the orca chat
             CLI (cliSettings.model), not just chat. */}
-        {orcaGroups.length > 0 ? (
+        {orcaModels.length > 0 ? (
           <div className="flex flex-col gap-2.5">
             <span className="flex items-center gap-1.5 text-tiny font-semibold uppercase tracking-wide text-text-muted">
               {t.account.defaultOrcaAi}<HelpTip align="right">{t.account.defaultOrcaAiHint}</HelpTip>
             </span>
-            {orcaGroups.map((g) => (
-              <div key={g.provider} className="flex flex-col gap-1.5">
-                <span className="text-xs text-text-muted">{g.label}</span>
-                <div role="radiogroup" className="flex flex-col gap-2">
-                  {g.models.map((m) => (
-                    <ModelCard
-                      key={m.exec} on={orcaSel === `${m.provider}::${m.model}`} icon={m.model} label={m.model} sub={g.label}
-                      onClick={() => pickOrca(m.provider, m.model)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
+            <BrainModelField
+              value={orcaSel}
+              onChange={applyOrca}
+              models={orcaModels}
+              title={t.account.defaultOrcaAi}
+              subtitle={t.account.defaultOrcaAiHint}
+              defaultLabel={t.account.defaultOrcaAiNone}
+              keyOf={(m) => `${m.provider}::${m.model}`}
+            />
           </div>
         ) : null}
       </div>

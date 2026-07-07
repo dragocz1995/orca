@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Plus, Trash2, ChevronDown, ChevronRight, Clock, Users, SlidersHorizontal, Link2, GraduationCap, Info, type LucideIcon } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight, Clock, Users, SlidersHorizontal, Link2, GraduationCap, Info, Wrench, type LucideIcon } from 'lucide-react';
 import { useAutoSave } from '../../lib/useAutoSave';
 import { useTheme } from '../../lib/useTheme';
 import { CronJobsEditor } from './CronJobsEditor';
@@ -16,6 +16,7 @@ import { Field } from '../../components/ui/Field';
 import { HelpTip } from '../../components/ui/HelpTip';
 import { ManageSelectionModal, type ManageSelectionItem } from '../../components/ui/ManageSelectionModal';
 import { SelectionSummary } from '../../components/ui/SelectionSummary';
+import { PluginIcon } from './PluginIcon';
 import { Toggle } from '../../components/ui/Toggle';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
@@ -33,14 +34,19 @@ const textareaClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 fo
 /** Per-role tool allowlist: a compact summary (n selected / all) + a manage modal grouped by the
  *  owning plugin. Empty selection keeps the "no restriction — all tools allowed" semantics. A saved
  *  tool no longer contributed by any enabled plugin stays visible as a pinned row. */
-function RoleToolsField({ tools, selected, onChange }: { tools: { name: string; plugin: string }[]; selected: string[]; onChange: (v: string[]) => void }) {
+function RoleToolsField({ tools, selected, onChange }: { tools: { name: string; plugin: string; pluginHasIcon: boolean }[]; selected: string[]; onChange: (v: string[]) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const known = new Set(tools.map((x) => x.name));
   const items: ManageSelectionItem[] = [
-    ...selected.filter((x) => !known.has(x)).map((x) => ({ id: x, label: x, group: '' })),
-    ...tools.map((x) => ({ id: x.name, label: x.name, group: x.plugin })),
+    ...selected.filter((x) => !known.has(x)).map((x) => ({ id: x, label: x, group: '', icon: <Wrench size={12} aria-hidden /> })),
+    ...tools.map((x) => ({ id: x.name, label: x.name, group: x.plugin, icon: <PluginIcon name={x.plugin} hasIcon={x.pluginHasIcon} size={14} /> })),
   ];
+  // The owning plugin's brand logo on each group header/chip (matching the users-admin look).
+  const groupIcons = Object.fromEntries(
+    [...new Map(tools.map((x) => [x.plugin, x.pluginHasIcon])).entries()]
+      .map(([plugin, hasIcon]) => [plugin, <PluginIcon key={plugin} name={plugin} hasIcon={hasIcon} size={14} />]),
+  );
   const countLabel = (n: number) => t.managePicker.toolsSelected.replace('{n}', String(n));
   return (
     <>
@@ -60,6 +66,7 @@ function RoleToolsField({ tools, selected, onChange }: { tools: { name: string; 
         onSave={(next) => onChange([...next])}
         emptySelectionHint={t.pluginCfg.roleToolsAll}
         countLabel={countLabel}
+        groupIcons={groupIcons}
       />
     </>
   );
@@ -108,11 +115,14 @@ function RolePoliciesEditor({ value, onChange }: { value: RolePolicy[]; onChange
   // Every tool an enabled plugin contributes, tagged with its owner — the vocabulary (and the
   // modal grouping) for per-role tool allowlists. First owner wins on a name clash.
   const owners = new Map<string, string>();
+  const pluginHasIcon = new Map<string, boolean>();
   for (const p of plugins ?? []) {
     if (!p.enabled) continue;
+    pluginHasIcon.set(p.name, p.hasIcon ?? false);
     for (const tool of p.provides.tools ?? []) if (!owners.has(tool)) owners.set(tool, p.name);
   }
-  const allTools = [...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, plugin]) => ({ name, plugin }));
+  const allTools = [...owners.entries()].sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, plugin]) => ({ name, plugin, pluginHasIcon: pluginHasIcon.get(plugin) ?? false }));
   const patch = (i: number, p: Partial<RolePolicy>) => onChange(value.map((r, j) => (j === i ? { ...r, ...p } : r)));
   // Which rows are expanded (by index). Removing a row shifts the indices above it down by one.
   const [expanded, setExpanded] = useState<Set<number>>(new Set());

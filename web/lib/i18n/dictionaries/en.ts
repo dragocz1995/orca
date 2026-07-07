@@ -852,6 +852,7 @@ export const en = {
     manage: 'Manage',
     searchPlaceholder: 'Search…',
     all: 'All',
+    none: 'None',
     selectedCount: '{n} selected',
     saveChanges: 'Save changes',
     noResults: 'No results',
@@ -887,8 +888,10 @@ export const en = {
     noModelLimit: 'No limit — you can run any globally-allowed model.',
     defaultWorker: 'Default worker',
     defaultWorkerHint: 'Runs your tasks — pre-filled as the executor for new ones.',
+    defaultWorkerNone: 'No default',
     defaultOrcaAi: 'Default Orca AI model',
     defaultOrcaAiHint: 'Used by the web chat and the orca chat CLI.',
+    defaultOrcaAiNone: 'Server default',
     save: 'Save',
     saved: 'Account saved',
     avatarSaved: 'Avatar uploaded',
@@ -1150,12 +1153,6 @@ export const en = {
   pills: {
     showMore: "+{n} more",
     showLess: "Show less",
-  },
-  modelPicker: {
-    searchPlaceholder: "Search models…",
-    noMatch: "No model matches.",
-    pickAll: "No selection - the full catalog is offered.",
-    pickCount: "{n} models selected",
   },
   categorization: {
     title: "Memory model (auto-save + categorization)",

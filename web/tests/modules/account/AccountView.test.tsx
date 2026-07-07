@@ -14,11 +14,12 @@ beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.r
 const meUser = (over: Record<string, unknown> = {}) => ({ id: 2, username: 'bob', name: '', email: '', avatar: '', default_exec: '', is_admin: false, allowed_execs: ['sonnet'], created_at: '2026-01-01', ...over });
 
 describe('AccountView', () => {
-  it('shows the user identity, and saves a default picked on the Orca AI tab', async () => {
+  it('shows the user identity, and saves a default worker picked in the manage modal', async () => {
     let patched: Record<string, unknown> | null = null;
     server.use(
       http.get('*/api/auth/me', () => HttpResponse.json({ user: meUser() })),
       http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet', 'codex:gpt-5.4'], customModels: [], hiddenPresets: [], autopilot: {}, providers: {}, defaults: {} })),
+      http.get('*/api/brain/models', () => HttpResponse.json([])),
       http.patch('*/api/auth/me', async ({ request }) => { patched = await request.json() as Record<string, unknown>; return HttpResponse.json(meUser({ default_exec: 'sonnet' })); }),
     );
     const { wrapper: Wrapper } = createWrapper();
@@ -27,9 +28,15 @@ describe('AccountView', () => {
     expect(await screen.findByText('@bob')).toBeTruthy();
     // The default-model rail lives on the Orca AI tab (with the other per-user AI settings).
     fireEvent.click(screen.getByRole('radio', { name: 'Orca AI' }));
-    // Restricted to 'sonnet' (admin allow-list) → only that model is pickable (a radio chip).
-    const chip = screen.getByRole('radio', { name: /Claude Sonnet/ });
-    fireEvent.click(chip); // auto-persists shortly after — no Save button
+    // The worker default is now a summary + manage modal — open it and pick the single allowed model.
+    fireEvent.click(screen.getByRole('button', { name: 'Manage' }));
+    // The modal groups by engine: a "Claude Code" header carrying the provider logo, and a model row.
+    const heading = await screen.findByRole('heading', { name: 'Claude Code' });
+    expect(heading.querySelector('img')).toBeTruthy(); // group logo renders
+    const row = screen.getByRole('button', { name: /Claude Sonnet/ });
+    expect(row.querySelector('img')).toBeTruthy(); // per-row model icon renders
+    fireEvent.click(row); // single-select: replaces the pick
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(patched?.default_exec).toBe('sonnet'));
   });
@@ -39,6 +46,7 @@ describe('AccountView', () => {
     server.use(
       http.get('*/api/auth/me', () => HttpResponse.json({ user: meUser() })),
       http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet'], customModels: [], hiddenPresets: [], autopilot: {}, providers: {}, defaults: {} })),
+      http.get('*/api/brain/models', () => HttpResponse.json([])),
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><UiScaleProvider><ToastProvider><AccountView /></ToastProvider></UiScaleProvider></Wrapper>);

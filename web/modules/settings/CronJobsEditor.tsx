@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { CalendarClock, Check, ChevronDown, ChevronRight, Clock, Cpu, Hash, MessageSquare, Plus, Trash2, X } from 'lucide-react';
+import { CalendarClock, Check, ChevronDown, ChevronRight, Clock, Hash, MessageSquare, Plus, Trash2, X } from 'lucide-react';
 import { useAutoSave } from '../../lib/useAutoSave';
 import { compactElapsed, parseTs } from '../../lib/format';
 import { Badge } from '../../components/ui/Badge';
@@ -13,10 +13,11 @@ import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { ManageSelectionModal, type ManageSelectionItem } from '../../components/ui/ManageSelectionModal';
 import { SelectionSummary } from '../../components/ui/SelectionSummary';
+import { BrainModelField } from '../../components/ui/BrainModelField';
 import { useTranslation } from '../../lib/i18n';
 import { useCronJobs, useDiscordChannels, useBrainModels } from '../../lib/queries';
 import { useSaveCronJobs } from '../../lib/mutations';
-import type { CronJob, DiscordChannelOption, BrainModelOption } from '../../lib/types';
+import type { CronJob, DiscordChannelOption } from '../../lib/types';
 
 const textareaClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent';
 
@@ -72,42 +73,6 @@ function ChannelField({ value, onChange, channels }: { value: string; onChange: 
       <ManageSelectionModal
         title={t.cron.channel}
         subtitle={t.help.cronChannel}
-        open={open}
-        onClose={() => setOpen(false)}
-        items={items}
-        selected={new Set([value])}
-        single
-        onSave={(next) => onChange([...next][0] ?? '')}
-      />
-    </>
-  );
-}
-
-/** Single-select model override for a job: the current pick as a compact chip next to Manage; the
- *  modal groups the catalog by provider with a pinned "Default" row (id '' = the brain's default). */
-function ModelField({ value, onChange, models }: { value: string; onChange: (v: string) => void; models: BrainModelOption[] }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const keyOf = (m: BrainModelOption) => `${m.provider}/${m.model}`;
-  const selected = models.find((m) => keyOf(m) === value);
-  const items: ManageSelectionItem[] = [
-    // Pinned rows: the brain-default model, plus a saved model the catalog no longer lists.
-    { id: '', label: t.cron.modelDefault, group: '' },
-    ...(value && !selected ? [{ id: value, label: value, group: '', icon: <Cpu size={12} aria-hidden /> }] : []),
-    ...models.map((m) => ({ id: keyOf(m), label: m.model, group: m.provider, groupLabel: m.providerLabel, icon: <Cpu size={12} aria-hidden /> })),
-  ];
-  return (
-    <>
-      <SelectionSummary
-        countText=""
-        samples={[value ? { label: selected?.model ?? value, icon: <Cpu size={12} aria-hidden /> } : { label: t.cron.modelDefault }]}
-        moreCount={0}
-        onManage={() => setOpen(true)}
-        manageLabel={t.managePicker.manage}
-      />
-      <ManageSelectionModal
-        title={t.cron.model}
-        subtitle={t.help.cronModel}
         open={open}
         onClose={() => setOpen(false)}
         items={items}
@@ -253,13 +218,17 @@ export function CronJobsEditor() {
                   />
                 </Field>
                 <Field label={t.cron.model} hint={t.help.cronModel}>
-                  <ModelField
+                  <BrainModelField
                     value={job.model ? `${job.model.provider}/${job.model.model}` : ''}
                     onChange={(v) => {
                       const slash = v.indexOf('/');
                       patch(job.id, { model: slash > 0 ? { provider: v.slice(0, slash), model: v.slice(slash + 1) } : undefined });
                     }}
                     models={models.data ?? []}
+                    title={t.cron.model}
+                    subtitle={t.help.cronModel}
+                    defaultLabel={t.cron.modelDefault}
+                    keyOf={(m) => `${m.provider}/${m.model}`}
                   />
                 </Field>
                 {job.lastResult ? (

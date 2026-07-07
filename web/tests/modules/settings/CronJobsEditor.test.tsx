@@ -79,10 +79,14 @@ describe('CronJobsEditor model', () => {
   it('groups the catalog by provider with a pinned Default and picking a model updates the chip', async () => {
     await mountWith([job({})]);
     fireEvent.click(manageButtons()[1]);
-    expect(await screen.findByRole('heading', { name: 'Anthropic' })).toBeInTheDocument();
+    const heading = await screen.findByRole('heading', { name: 'Anthropic' });
+    // The provider group header carries its brand logo, and each model row its own model icon.
+    expect(heading.querySelector('img')).toBeTruthy();
+    const modelRow = screen.getByRole('button', { name: 'claude-sonnet-4-5' });
+    expect(modelRow.querySelector('img')).toBeTruthy();
     // No model saved → the pinned Default row is the current pick.
     expect(screen.getByRole('button', { name: 'default' })).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'claude-sonnet-4-5' }));
+    fireEvent.click(modelRow);
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull());
     expect(screen.getByText('claude-sonnet-4-5')).toBeInTheDocument();

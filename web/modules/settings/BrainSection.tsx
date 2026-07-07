@@ -7,7 +7,9 @@ import { Input } from '../../components/ui/Input';
 import { Field } from '../../components/ui/Field';
 import { Segmented } from '../../components/ui/Segmented';
 import { ModelIcon } from '../../components/ui/ModelIcon';
-import { ModelPillsPicker } from '../../components/ui/ModelPillsPicker';
+import { ManageSelectionModal, type ManageSelectionItem } from '../../components/ui/ManageSelectionModal';
+import { SelectionSummary } from '../../components/ui/SelectionSummary';
+import { Modal, ModalBody } from '../../components/ui/Modal';
 import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -79,39 +81,37 @@ function OAuthConnectDialog({ flow: initial, onDone }: { flow: OAuthFlowState; o
   );
 }
 
-/** The OAuth account's built-in catalog, loaded once, rendered as clickable pills. */
-function OauthCatalogPicker({ type, selected, onChange }: {
-  type: BrainProviderType; selected: string[]; onChange: (models: string[]) => void;
+/** Model picker for a connected OAuth account: loads the account's built-in catalog and hands it to the
+ *  shared manage-selection modal (multi-select, each row carrying the model's brand icon). The selection
+ *  is stored as an explicit provider entry's manual `models` list — empty selection = the whole catalog
+ *  (today's behavior). This keeps the Models section from drowning in the account's entire catalog. */
+function OAuthModelsModal({ type, initial, onSave, onClose }: {
+  type: BrainProviderType; initial: string[]; onSave: (models: string[]) => void; onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [catalog, setCatalog] = useState<string[] | null>(null);
   useEffect(() => {
     setCatalog(null);
     void orcaClient.brainOauthCatalog(type).then((r) => setCatalog(r.models)).catch(() => setCatalog([]));
   }, [type]);
-  if (catalog === null) return <LoadingState />;
-  return <ModelPillsPicker mode="multi" catalog={catalog} value={selected} onChange={onChange} />;
-}
 
-/** Model picker for a connected OAuth account. The selection is stored as an explicit provider
- *  entry's manual `models` list — empty selection = the whole catalog (today's behavior). This keeps
- *  the Models section from drowning in the account's entire catalog when only a couple are wanted. */
-function OAuthModelsModal({ type, initial, onSave, onClose }: {
-  type: BrainProviderType; initial: string[]; onSave: (models: string[]) => void; onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  const [picked, setPicked] = useState<string[]>(initial);
+  const title = t.brain.pickModelsTitle.replace('{provider}', t.brain.types[type]);
+  if (catalog === null) {
+    return <Modal title={title} onClose={onClose} size="md"><ModalBody><LoadingState /></ModalBody></Modal>;
+  }
+  const items: ManageSelectionItem[] = catalog.map((m) => ({ id: m, label: m, group: '', icon: <ModelIcon name={m} size={14} /> }));
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-      <div className="flex w-full max-w-lg flex-col gap-4 rounded-lg border border-border bg-surface p-5">
-        <span className="text-sm font-semibold text-text">{t.brain.pickModelsTitle.replace('{provider}', t.brain.types[type])}</span>
-        <p className="text-xs text-text-muted">{t.brain.pickModelsHint}</p>
-        <OauthCatalogPicker type={type} selected={picked} onChange={setPicked} />
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="accent" icon={Check} onClick={() => onSave(picked)}>{t.common.save}</Button>
-        </div>
-      </div>
-    </div>
+    <ManageSelectionModal
+      title={title}
+      subtitle={t.brain.pickModelsHint}
+      open
+      onClose={onClose}
+      items={items}
+      selected={new Set(initial)}
+      onSave={(next) => onSave([...next])}
+      emptySelectionHint={t.brain.pickModelsHint}
+      countLabel={(n) => t.managePicker.modelsSelected.replace('{n}', String(n))}
+    />
   );
 }
 
@@ -144,6 +144,8 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
     return () => clearTimeout(timer);
   }, [d.type, d.baseUrl, d.apiKey, d.id, isNew]);
   const selectedModels = d.models.split('\n').map((m) => m.trim()).filter(Boolean);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const probedSelected = Array.isArray(probed) ? selectedModels.filter((m) => probed.includes(m)) : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
@@ -187,7 +189,25 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
           {probed === 'loading' ? (
             <LoadingState />
           ) : Array.isArray(probed) ? (
-            <ModelPillsPicker mode="multi" catalog={probed} value={selectedModels.filter((m) => probed.includes(m))} onChange={(models) => setD({ ...d, models: models.join('\n') })} />
+            <>
+              <SelectionSummary
+                countText={probedSelected.length === 0 ? t.brain.modelsAuto : t.managePicker.modelsSelected.replace('{n}', String(probedSelected.length))}
+                samples={probedSelected.slice(0, 3).map((m) => ({ label: m, icon: <ModelIcon name={m} size={13} /> }))}
+                moreCount={Math.max(0, probedSelected.length - 3)}
+                onManage={() => setModelsOpen(true)}
+                manageLabel={t.managePicker.manage}
+              />
+              <ManageSelectionModal
+                title={t.brain.models}
+                open={modelsOpen}
+                onClose={() => setModelsOpen(false)}
+                items={probed.map((m) => ({ id: m, label: m, group: '', icon: <ModelIcon name={m} size={14} /> }))}
+                selected={new Set(probedSelected)}
+                onSave={(next) => setD({ ...d, models: [...next].join('\n') })}
+                emptySelectionHint={t.brain.modelsAuto}
+                countLabel={(n) => t.managePicker.modelsSelected.replace('{n}', String(n))}
+              />
+            </>
           ) : (
             <textarea
               value={d.models}
