@@ -12,7 +12,7 @@ describe('dev-commands plugin', () => {
   it('registers the full curated set when no selection is configured', () => {
     const { commands, ctx } = fakeCtx();
     register(ctx);
-    expect(commands.map((c) => c.name).sort()).toEqual(['commit', 'docs', 'explain', 'pr', 'refactor', 'review', 'test']);
+    expect(commands.map((c) => c.name).sort()).toEqual(['commit', 'docs', 'explain', 'pr', 'review', 'test']);
     for (const c of commands) {
       expect(c.description.trim().length).toBeGreaterThan(0);
       expect(c.prompt).toContain('$ARGS'); // every macro takes an argument
@@ -28,7 +28,7 @@ describe('dev-commands plugin', () => {
   it('an empty selection falls back to all commands', () => {
     const { commands, ctx } = fakeCtx({ enabled: [] });
     register(ctx);
-    expect(commands.length).toBe(7);
+    expect(commands.length).toBe(6);
   });
 
   it('its prompts expand with the user argument', () => {

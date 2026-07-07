@@ -35,11 +35,6 @@ const COMMANDS = [
     description: 'Write or update documentation to match the code',
     prompt: 'Write or update the documentation for the following so it matches the current implementation. Keep it concise and accurate; update examples that have drifted. Target: $ARGS',
   },
-  {
-    name: 'refactor',
-    description: 'Refactor for clarity without changing behavior',
-    prompt: 'Refactor the following for clarity and maintainability WITHOUT changing behavior. Keep the diff minimal and focused, preserve the public interface, and explain each improvement. Run the tests afterwards to prove behavior is unchanged. Target: $ARGS',
-  },
 ];
 
 export function register(ctx) {
