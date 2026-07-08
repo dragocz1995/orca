@@ -43,7 +43,7 @@ describe('activeMention (typing detection)', () => {
   });
 
   it('never triggers mid-word (emails)', () => {
-    expect(activeMention('mail me at filip@coresynth.io', 29)).toBeNull();
+    expect(activeMention('mail me at user@example.com', 27)).toBeNull();
     expect(activeMention('a@b', 3)).toBeNull();
   });
 
