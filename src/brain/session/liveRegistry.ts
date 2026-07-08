@@ -61,11 +61,17 @@ export class LiveSessionRegistry<T extends { session: { dispose(): void } }> {
     this.channels.delete(channelId);
     this.channels.set(channelId, ch);
   }
-  /** When at capacity, dispose the least-recently-used channel to make room for a new one. */
+  /** Dispose least-recently-used channels until there is room for one more. A loop (not a single evict)
+   *  so that LOWERING the cap at runtime actually shrinks an over-capacity pool on the next message,
+   *  rather than staying stuck one-in-one-out at the old size. Disposed histories stay in SQLite and
+   *  rehydrate on the channel's next message. */
   channelEvictOldestIfFull(max: number): void {
-    if (this.channels.size < max) return;
-    const oldest = this.channels.entries().next().value;
-    if (oldest) { oldest[1].session.dispose(); this.channels.delete(oldest[0]); }
+    while (this.channels.size >= max) {
+      const oldest = this.channels.entries().next().value;
+      if (!oldest) break;
+      oldest[1].session.dispose();
+      this.channels.delete(oldest[0]);
+    }
   }
   channelDisposeAll(): void {
     for (const [id] of [...this.channels]) this.channelDispose(id);

@@ -124,7 +124,7 @@ export class BrainService {
       send: (userId, text, images, mode, internal, clientCwd, session) => this.send(userId, text, images, mode, internal, clientCwd, session),
       defaultTurnBudget: () => this.limits().goalTurnBudget,
       goalMaxTurns: () => this.limits().goalMaxTurns,
-      isYolo: (userId) => d.permissions?.(userId)?.yolo ?? false,
+      isYolo: (userId, sessionId) => this.permissionSvc.effectiveYolo(userId, this.sessions.get(sessionId)),
     });
     this.spawner = new LiveSessionSpawner({
       get config() { return d.config; },

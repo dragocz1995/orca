@@ -20,10 +20,11 @@ interface GoalLoopDeps {
   /** Absolute safety ceiling on autonomous turns: even in YOLO the loop pauses here so a runaway goal
    *  can't burn tokens forever (Orca AI → Limits). */
   goalMaxTurns(): number;
-  /** Whether this user runs in YOLO — the persisted permission YOLO. In YOLO the loop keeps going past a
-   *  spent per-window budget (up to {@link goalMaxTurns}); otherwise it pauses at budget for the operator
-   *  to confirm via `/goal resume`. */
-  isYolo(userId: number): boolean;
+  /** Whether this conversation runs in YOLO — the EFFECTIVE yolo (a session `/yolo` override over the
+   *  persisted permission default), matching how tool approvals resolve it, so `/yolo off` supervises the
+   *  goal too. In YOLO the loop keeps going past a spent per-window budget (up to {@link goalMaxTurns});
+   *  otherwise it pauses at budget for the operator to confirm via `/goal resume`. */
+  isYolo(userId: number, sessionId: string): boolean;
 }
 
 /** The autonomous goal loop: the /goal command surface (set/pause/resume/clear/subgoals/status), the
@@ -218,14 +219,17 @@ export class GoalLoopService {
       // YOLO keeps the autonomous loop going past a spent per-window budget — but never past the absolute
       // safety ceiling, so even an unattended goal can't burn tokens forever. Outside YOLO the goal pauses
       // at budget and the operator confirms continuation with `/goal resume` (a fresh budget window).
-      const ceiling = this.d.goalMaxTurns();
-      if (this.d.isYolo(userId) && turns < ceiling) {
+      // The ceiling is floored at the budget: a config where goalMaxTurns < the per-goal budget would
+      // otherwise let YOLO run the whole budget before "pausing" with a nonsensical ceiling message.
+      const yolo = this.d.isYolo(userId, sessionId);
+      const ceiling = Math.max(this.d.goalMaxTurns(), row.turn_budget);
+      if (yolo && turns < ceiling) {
         this.d.store.updateGoal(sessionId, { turns_used: turns, subgoals: subgoalsJson, last_verdict: 'continue', last_evidence: progress });
         if (!this.goalDriven(userId, sessionId)) return;
         this.scheduleGoalContinuation(userId, sessionId, mode, internal?.goalContinue ? 250 : 100);
         return;
       }
-      const reason = this.d.isYolo(userId) ? `safety ceiling reached (${turns}/${ceiling})` : `turn budget reached (${turns}/${row.turn_budget})`;
+      const reason = yolo ? `safety ceiling reached (${turns}/${ceiling})` : `turn budget reached (${turns}/${row.turn_budget})`;
       this.d.store.updateGoal(sessionId, { status: 'paused', turns_used: turns, subgoals: subgoalsJson, last_verdict: 'budget_reached', last_evidence: progress, paused_reason: reason });
       return;
     }

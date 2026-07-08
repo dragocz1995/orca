@@ -26,14 +26,14 @@
     },
     {
       "key": "retryAttempts",
-      "label": "Retry attempts",
+      "label": "Turn attempts",
       "type": "number",
       "min": 1,
       "max": 5,
       "step": 1,
       "placeholder": "2",
       "default": 2,
-      "hint": "Attempts for a recurring job's turn on a transient request-time failure."
+      "hint": "Total attempts for a recurring job's turn on a transient request-time failure — 1 means no retry, 2 (the default) means one retry."
     },
     {
       "key": "retryBackoffMs",

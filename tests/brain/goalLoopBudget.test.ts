@@ -57,6 +57,17 @@ describe('GoalLoopService — budget + YOLO', () => {
     expect(g.paused_reason).toContain('safety ceiling');
   });
 
+  it('floors the ceiling at the budget: a ceiling below the budget still pauses at the budget edge, honestly', () => {
+    // Misconfig: per-goal budget (5) above the absolute ceiling (3). YOLO must NOT run the whole budget
+    // before "pausing" — the effective ceiling is max(ceiling, budget) = 5, so it pauses at turn 5 with a
+    // truthful reason, not `safety ceiling reached (5/3)`.
+    const { store, loop } = harness({ yolo: true, turnBudget: 5, turnsUsed: 4, goalMaxTurns: 3 });
+    loop.afterTurnGoalJudge(1, 'brain-1', 'build');
+    const g = store.getGoal('brain-1')!;
+    expect(g.status).toBe('paused');
+    expect(g.paused_reason).toBe('safety ceiling reached (5/5)');
+  });
+
   it('a new goal without an explicit budget takes the operator default', () => {
     const { store, loop } = harness({ yolo: false, turnBudget: 2, turnsUsed: 0, goalMaxTurns: 64 });
     // defaultTurnBudget() is 8 in the harness — an unbudgeted setGoal should adopt it.

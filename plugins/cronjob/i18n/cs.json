@@ -10,8 +10,8 @@
       "hint": "Jak často se kontrolují splatné úlohy."
     },
     "retryAttempts": {
-      "label": "Počet pokusů",
-      "hint": "Kolikrát se zopakuje tah opakující se úlohy při dočasné chybě požadavku."
+      "label": "Počet pokusů o tah",
+      "hint": "Celkový počet pokusů o tah opakující se úlohy při dočasné chybě požadavku — 1 znamená žádný retry, 2 (výchozí) znamená jeden retry."
     },
     "retryBackoffMs": {
       "label": "Prodleva před opakováním (ms)",

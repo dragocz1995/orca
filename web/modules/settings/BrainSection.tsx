@@ -355,7 +355,10 @@ export function BrainSection() {
                   <Input
                     type="number" min={f.min} max={f.max} step={f.step}
                     value={String(limits[f.key])}
-                    onChange={(e) => setLimits((cur) => (cur ? { ...cur, [f.key]: Number(e.target.value) } : cur))}
+                    // Clearing the field would autosave 0 → the daemon clamps to the min, but the local
+                    // input would keep showing 0 until a reload. Snap an empty field to the min so the UI
+                    // matches what gets stored.
+                    onChange={(e) => setLimits((cur) => (cur ? { ...cur, [f.key]: e.target.value === '' ? f.min : Number(e.target.value) } : cur))}
                     aria-label={t.brain.limits[f.key]}
                   />
                 </div>
