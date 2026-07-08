@@ -31,7 +31,9 @@ export class ElicitationRegistry {
    *  for the same conversation settles (see {@link ask}). Never rejects. */
   private readonly approvalChain = new Map<string, Promise<void>>();
 
-  constructor(private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS) {}
+  /** `timeoutMs` may be a fixed number or a resolver read per park, so an operator's config change to the
+   *  elicitation limit takes effect on the next question without rebuilding the registry. */
+  constructor(private readonly timeoutMs: number | (() => number) = DEFAULT_TIMEOUT_MS) {}
 
   /** Emit the question(s) to the conversation's clients and park until answered, timed out, or cancelled.
    *  `emit` fans the event into that conversation's listener set (SSE clients + Discord's in-process handler).
@@ -63,10 +65,11 @@ export class ElicitationRegistry {
   private park(sessionId: string, questions: AskQuestion[], emit: (e: BrainEvent) => void, kind?: 'approval'): Promise<AskAnswer[]> {
     const id = randomUUID();
     return new Promise<AskAnswer[]>((resolve, reject) => {
+      const ms = typeof this.timeoutMs === 'function' ? this.timeoutMs() : this.timeoutMs;
       const timer = setTimeout(() => {
         this.pending.delete(id);
         resolve(questions.map((q) => ({ header: q.header, selected: NO_ANSWER })));
-      }, this.timeoutMs);
+      }, ms);
       // Node keeps the event loop alive for pending timers; a parked question must not block process exit.
       if (typeof timer.unref === 'function') timer.unref();
       this.pending.set(id, { sessionId, questions, kind, resolve, reject, timer });

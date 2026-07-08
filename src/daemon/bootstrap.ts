@@ -74,6 +74,7 @@ import { MemoryService } from '../brain/memoryService.js';
 import { toEmbeddingConfig } from '../store/configStore.js';
 import { brainConfigFromOrca } from '../brain/config.js';
 import { listBrainModels } from '../brain/models.js';
+import { setToolOutputCaps } from '../brain/messageView.js';
 import { discoverPlugins, loadPlugins } from '../plugins/loader.js';
 import { MarketplaceService } from '../plugins/marketplace.js';
 import { PluginRegistryProvider } from '../plugins/pluginsProvider.js';
@@ -393,9 +394,15 @@ export function buildApp(opts: BuildOpts) {
   // ONE embedding-config mapper shared by the retrieval service AND the background embed queue, so both
   // read the same live config each call (a Settings change applies without a restart). Empty
   // providerId/model → the service degrades to keyword search and the queue no-ops.
+  // Tool-output preview caps (Orca AI → Limits) feed the shared messageView renderer; read live.
+  setToolOutputCaps(() => ({ lines: config.get().brain.limits.toolOutputMaxLines, chars: config.get().brain.limits.toolOutputMaxChars }));
   const embeddingConfig = () => toEmbeddingConfig(config.embeddingConfig());
   // Vector retrieval + anti-duplication over the memory store (owner chat only — the caller gates it).
-  const memoryService = new MemoryService({ store: memoryStore, embeddings, embeddingConfig });
+  const memoryService = new MemoryService({
+    store: memoryStore, embeddings, embeddingConfig,
+    // Per-turn recall size is operator-tuned (Orca AI → Limits); read live so a change applies without a restart.
+    recallDefaults: () => ({ count: config.get().brain.limits.memoryRecallCount, chars: config.get().brain.limits.memoryRecallChars }),
+  });
   // Background embedder: fills in missing/stale memory vectors so writes never block on the provider.
   // Driven off a startLoops tick below; no-ops until an embedding provider/model is configured.
   const embedQueue = new EmbeddingQueue({
@@ -463,6 +470,7 @@ export function buildApp(opts: BuildOpts) {
         activePersonality: (userId, platform) => personalityService.activeAppend(userId, platform),
         agentName: () => config.get().brain.agentName,
         maxSteps: () => config.get().brain.maxSteps,
+        brainLimits: () => config.get().brain.limits,
         resolvePlatformUser: (platform, platformUserId) => {
           if (!platformUserId) return null;
           // Discord ids are bare snowflakes; WhatsApp userIds are JIDs (e.g. "420778433908@s.whatsapp.net"

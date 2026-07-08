@@ -65,7 +65,7 @@ export interface OrcaConfig {
    *  identity ("Orca" by default) — it feeds the persona prompts everywhere the brain speaks.
    *  `maxSteps` caps the agent's per-run model round-trips; `modelContextWindows` lets the operator pin a
    *  max context window per Orca AI model (`providerId/model`) for endpoints that don't report one. */
-  brain: { providers: BrainProviderPublic[]; agentName: string; maxSteps: number; modelContextWindows: Record<string, number> };
+  brain: { providers: BrainProviderPublic[]; agentName: string; maxSteps: number; modelContextWindows: Record<string, number>; limits: BrainLimits };
   /** Memory embedding provider config (no secret — the API key comes from the referenced brain provider). */
   embedding: EmbeddingBlock;
   /** Memory categorization model (workspace-level; no secret — key reused from the brain provider). */
@@ -161,6 +161,56 @@ const DEFAULT_MAX_STEPS = 20;
 const clampMaxSteps = (next: number | undefined, fallback: number): number =>
   typeof next === 'number' && Number.isFinite(next) ? Math.min(200, Math.max(1, Math.floor(next))) : fallback;
 
+/** Operator-tunable brain limits — the constants that used to be hardcoded across the brain runtime,
+ *  surfaced so the instance owner can trade cost/verbosity/latency to taste. Each is a whole number,
+ *  clamped to a sane range; an unset/invalid field falls back to the current value (so a partial patch
+ *  never wipes a sibling). Consumed at: messageView (tool-output preview), ElicitationRegistry
+ *  (ask_user_question wait), MemoryService.retrieve (recall size), the goal loop (turn budget + YOLO
+ *  safety ceiling), and Channels (live-session LRU cap). */
+export interface BrainLimits {
+  toolOutputMaxLines: number;
+  toolOutputMaxChars: number;
+  elicitationTimeoutMs: number;
+  memoryRecallCount: number;
+  memoryRecallChars: number;
+  goalTurnBudget: number;
+  goalMaxTurns: number;
+  channelSessionCap: number;
+}
+export const DEFAULT_BRAIN_LIMITS: BrainLimits = {
+  toolOutputMaxLines: 80,
+  toolOutputMaxChars: 12000,
+  elicitationTimeoutMs: 300_000,
+  memoryRecallCount: 6,
+  memoryRecallChars: 1500,
+  goalTurnBudget: 8,
+  goalMaxTurns: 64,
+  channelSessionCap: 32,
+};
+const BRAIN_LIMIT_BOUNDS: Record<keyof BrainLimits, [min: number, max: number]> = {
+  toolOutputMaxLines: [20, 400],
+  toolOutputMaxChars: [2000, 50_000],
+  elicitationTimeoutMs: [30_000, 1_800_000],
+  memoryRecallCount: [1, 20],
+  memoryRecallChars: [300, 8000],
+  goalTurnBudget: [1, 50],
+  goalMaxTurns: [8, 500],
+  channelSessionCap: [4, 256],
+};
+/** Merge a (possibly partial, possibly malformed) limits patch onto `fallback`, clamping each field to
+ *  its bound and rounding to a whole number; a missing/invalid field keeps the fallback value. */
+function clampBrainLimits(next: Partial<BrainLimits> | undefined, fallback: BrainLimits): BrainLimits {
+  const out = { ...fallback };
+  for (const key of Object.keys(BRAIN_LIMIT_BOUNDS) as (keyof BrainLimits)[]) {
+    const v = next?.[key];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      const [min, max] = BRAIN_LIMIT_BOUNDS[key];
+      out[key] = Math.min(max, Math.max(min, Math.round(v)));
+    }
+  }
+  return out;
+}
+
 /** Per-model context-window overrides, keyed `providerId/model`. Some endpoints don't report a reliable
  *  max token count, so the operator can pin one. Keep only positive whole numbers; drop anything else. */
 function sanitizeContextWindows(input: unknown): Record<string, number> {
@@ -185,7 +235,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   lspEnabled: true,
   webPush: { publicKey: '', publicKeySet: false },
   plugins: { enabled: ['files', 'terminal', 'askuser', 'runtime-context', 'skills', 'subagent'], removed: [] },
-  brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {} },
+  brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {}, limits: { ...DEFAULT_BRAIN_LIMITS } },
   embedding: { providerId: '', model: '', baseUrl: '', dimensions: null },
   categorization: { providerId: '', model: '', baseUrl: '' },
 };
@@ -209,7 +259,7 @@ interface Stored {
    *  (secrets included, never serialized to API). */
   plugins: { enabled: string[]; removed: string[]; config: Record<string, Record<string, unknown>> };
   /** Brain provider entries with plaintext API keys — stripped to `apiKeySet` in the public view. */
-  brain: { providers: BrainProviderStored[]; agentName: string; maxSteps: number; modelContextWindows: Record<string, number> };
+  brain: { providers: BrainProviderStored[]; agentName: string; maxSteps: number; modelContextWindows: Record<string, number>; limits: BrainLimits };
   /** Embedding provider config. Holds no secret (the key is reused from the brain provider), so this
    *  block is safe to surface verbatim in the public view. */
   embedding: EmbeddingBlock;
@@ -239,7 +289,7 @@ const defaultStored = (): Stored => ({
   lspEnabled: true,
   webPush: null,
   plugins: { enabled: [...DEFAULT_CONFIG.plugins.enabled], removed: [], config: {} },
-  brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {} },
+  brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {}, limits: { ...DEFAULT_BRAIN_LIMITS } },
   embedding: { providerId: '', model: '', baseUrl: '', dimensions: null },
   categorization: { providerId: '', model: '', baseUrl: '' },
 });
@@ -258,7 +308,7 @@ export interface ConfigPatch {
   plugins?: { enabled?: string[]; removed?: string[]; config?: Record<string, Record<string, unknown>> };
   /** Brain providers replace wholesale (the UI edits the full list). A patched entry with an empty/absent
    *  apiKey KEEPS the currently stored key for that id — the UI never sees (or resends) secrets. */
-  brain?: { providers?: unknown; agentName?: unknown; maxSteps?: number; modelContextWindows?: Record<string, number> };
+  brain?: { providers?: unknown; agentName?: unknown; maxSteps?: number; modelContextWindows?: Record<string, number>; limits?: Partial<BrainLimits> };
   /** Embedding config is merged per-field (like autopilot); `dimensions: null` clears the width hint. */
   embedding?: { providerId?: string; model?: string; baseUrl?: string; dimensions?: number | null };
   /** Categorization config merged per-field (like embedding). */
@@ -311,6 +361,7 @@ export class ConfigStore {
           agentName: typeof p.brain?.agentName === 'string' && p.brain.agentName.trim() ? p.brain.agentName.trim().slice(0, 40) : 'Orca',
           maxSteps: clampMaxSteps(p.brain?.maxSteps, d.brain.maxSteps),
           modelContextWindows: sanitizeContextWindows(p.brain?.modelContextWindows),
+          limits: clampBrainLimits(p.brain?.limits, d.brain.limits),
         },
         embedding: {
           providerId: typeof p.embedding?.providerId === 'string' ? p.embedding.providerId : d.embedding.providerId,
@@ -349,7 +400,7 @@ export class ConfigStore {
       webPush: { publicKey: s.webPush?.publicKey ?? '', publicKeySet: !!s.webPush },
       // Only the enabled + removed lists surface; per-plugin config (possible secrets) stays daemon-side.
       plugins: { enabled: s.plugins.enabled, removed: s.plugins.removed },
-      brain: { providers: s.brain.providers.map(({ apiKey, ...pub }) => ({ ...pub, apiKeySet: !!apiKey })), agentName: s.brain.agentName, maxSteps: s.brain.maxSteps, modelContextWindows: s.brain.modelContextWindows },
+      brain: { providers: s.brain.providers.map(({ apiKey, ...pub }) => ({ ...pub, apiKeySet: !!apiKey })), agentName: s.brain.agentName, maxSteps: s.brain.maxSteps, modelContextWindows: s.brain.modelContextWindows, limits: s.brain.limits },
       // No secret in the embedding block (the key is reused from the brain provider) → expose verbatim.
       embedding: s.embedding,
       // Likewise no secret in the categorization block → expose verbatim.
@@ -441,6 +492,9 @@ export class ConfigStore {
         modelContextWindows: patch.brain?.modelContextWindows !== undefined
           ? sanitizeContextWindows(patch.brain.modelContextWindows)
           : cur.brain.modelContextWindows,
+        // Limits merge per-field onto the current values (a partial patch tunes one knob without
+        // resetting the rest) and each field is clamped to its bound.
+        limits: clampBrainLimits(patch.brain?.limits, cur.brain.limits),
       },
       embedding: {
         providerId: patch.embedding?.providerId ?? cur.embedding.providerId,

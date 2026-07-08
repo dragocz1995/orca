@@ -10,6 +10,7 @@ import type { MemoryStore } from '../store/memoryStore.js';
 import type { MemoryService } from './memoryService.js';
 import type { InferenceClient } from '../inference/types.js';
 import type { PermissionScope, PermissionSettings } from './toolPermissions.js';
+import type { BrainLimits } from '../store/configStore.js';
 
 // The daemon-wiring seam of the brain, in its own module so the service/* units can depend on it
 // without importing the BrainService facade back (keeps the dependency graph acyclic — depcruise
@@ -56,6 +57,10 @@ export interface BrainDeps {
   /** Max agent steps (model round-trips) per run before the turn is aborted (Settings → Orca AI). Read
    *  fresh each turn so a config change applies without a session restart. Absent or ≤0 → unlimited. */
   maxSteps?: () => number;
+  /** Operator-tunable brain limits (Settings → Orca AI → Limits): tool-output caps, elicitation timeout,
+   *  memory recall size, goal turn budget + safety ceiling, live-channel cap. Read fresh so a config
+   *  change applies without a restart. Absent (minimal/test wiring) → the built-in defaults. */
+  brainLimits?: () => BrainLimits;
   /** Resolve a platform sender (e.g. a Discord id) to the Orca user who claimed it in their account
    *  settings. Lets channel turns carry a verified identity line for registered users. */
   resolvePlatformUser?: (platform: string, platformUserId: string) => { id: number; name: string; username?: string; admin: boolean } | null;

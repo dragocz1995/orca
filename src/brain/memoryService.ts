@@ -118,15 +118,20 @@ export class MemoryService {
   /** Returns the active embedding config, or null when embeddings are disabled. A config missing a
    *  model or both providerId and baseUrl is also treated as disabled (→ keyword fallback). */
   private readonly embeddingConfig: () => EmbeddingConfig | null;
+  /** Operator-tuned recall size (count + char budget) used when a caller doesn't pass its own opts —
+   *  the per-turn recall path. Absent → the built-in defaults. */
+  private readonly recallDefaults?: () => { count: number; chars: number };
 
   constructor(deps: {
     store: MemoryStore;
     embeddings: EmbeddingService;
     embeddingConfig: () => EmbeddingConfig | null;
+    recallDefaults?: () => { count: number; chars: number };
   }) {
     this.store = deps.store;
     this.embeddings = deps.embeddings;
     this.embeddingConfig = deps.embeddingConfig;
+    this.recallDefaults = deps.recallDefaults;
   }
 
   /** Retrieve the most relevant memories for `queryText`. Vector path: embed the query, cosine-score
@@ -136,8 +141,9 @@ export class MemoryService {
    *  recency. Either way the returned set is markUsed'd and a full debug breakdown is returned. */
   async retrieve(userId: number, queryText: string, opts: RetrieveOpts = {}): Promise<RetrieveResult> {
     const query = queryText.trim();
-    const maxCount = opts.maxCount ?? DEFAULT_MAX_COUNT;
-    const charBudget = opts.charBudget ?? DEFAULT_CHAR_BUDGET;
+    const tuned = this.recallDefaults?.();
+    const maxCount = opts.maxCount ?? tuned?.count ?? DEFAULT_MAX_COUNT;
+    const charBudget = opts.charBudget ?? tuned?.chars ?? DEFAULT_CHAR_BUDGET;
     const cfg = this.activeConfig();
     const provider = cfg ? (cfg.providerId ?? cfg.baseUrl ?? null) : null;
     const model = cfg?.model ?? null;

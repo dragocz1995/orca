@@ -59,7 +59,7 @@ export interface ChannelServiceDeps {
   spawn: (opts: SpawnOpts) => Promise<LiveBrain>;
   /** Live channel sessions cap: past this the least-recently-used one is disposed (its history stays
    *  in SQLite and rehydrates on the next message), so a busy server can't leak sessions. */
-  maxChannels?: number;
+  maxChannels?: number | (() => number);
   /** Memory for verified channel senders: recall the writer's durable memories under their message
    *  and (via the curator) persist post-turn facts. Both no-op without a writerUserId. Shared with
    *  BrainService so channel + owner-chat memory run through one implementation. */
@@ -83,10 +83,13 @@ export interface ChannelServiceDeps {
  *  role prompt fragments. Persisted like any brain conversation (`brain-ch-<id>`), owned by
  *  `ownerUserId` (whose token drives the tools). */
 export class ChannelSessionService {
-  private readonly maxChannels: number;
+  /** Resolved per eviction so an operator's config change to the live-session cap applies without a
+   *  restart (a fixed number or a resolver both accepted). */
+  private readonly maxChannels: () => number;
 
   constructor(private d: ChannelServiceDeps) {
-    this.maxChannels = d.maxChannels ?? 32;
+    const m = d.maxChannels;
+    this.maxChannels = typeof m === 'function' ? m : () => m ?? 32;
   }
 
   /** Send one channel message into that channel's own conversation; resolves with the final
@@ -127,7 +130,7 @@ export class ChannelSessionService {
       const thinkingChanged = !!ch && (ch.thinkingLevel ?? '') !== (opts.thinkingLevel ?? '');
       if (ch && (modelChanged || thinkingChanged)) { this.d.registry.channelDispose(opts.channelId); ch = undefined; }
       if (!ch) {
-        this.d.registry.channelEvictOldestIfFull(this.maxChannels);
+        this.d.registry.channelEvictOldestIfFull(this.maxChannels());
         ch = await this.d.spawn({
           sessionId,
           ownerUserId: opts.ownerUserId,

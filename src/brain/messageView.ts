@@ -102,15 +102,23 @@ function compactOutput(text: string): string {
   return clipped.length > 800 ? `${clipped.slice(0, 799)}…` : clipped;
 }
 
+/** Caps for the expandable ("full") tool-output view. Operator-tunable (Orca AI → Limits): injected once
+ *  at bootstrap via {@link setToolOutputCaps} and read live per render, so a Settings change applies
+ *  without a restart. `mapEvent` is a pure transform shared by the live and history paths (and mirrored
+ *  in the web transcript), so a module-level resolver is the single seam rather than threading config
+ *  through every call site. Defaults match the historical constants. */
+let toolOutputCaps: () => { lines: number; chars: number } = () => ({ lines: 80, chars: 12000 });
+export function setToolOutputCaps(resolve: () => { lines: number; chars: number }): void { toolOutputCaps = resolve; }
+
 function expandedOutput(text: string): string {
   const lines = stripControl(text.replace(/\r\n/g, '\n')).split('\n').map((line) => line.replace(/\s+$/g, ''));
   const meaningful = lines.filter((line, index) => line.trim() || (lines[index - 1]?.trim() && lines[index + 1]?.trim()));
-  const maxLines = 80;
+  const { lines: maxLines, chars: maxChars } = toolOutputCaps();
   const omitted = Math.max(0, meaningful.length - maxLines);
   const shown = meaningful.slice(-maxLines);
   if (omitted) shown.unshift(`… ${omitted} earlier lines hidden`);
   const clipped = shown.join('\n').trim();
-  return clipped.length > 12000 ? `${clipped.slice(0, 11999)}…` : clipped;
+  return clipped.length > maxChars ? `${clipped.slice(0, maxChars - 1)}…` : clipped;
 }
 
 /** Hook-appended annotations riding a tool result (`details.notes` — the `tools.call.after` contract),

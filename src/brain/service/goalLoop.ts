@@ -15,6 +15,15 @@ interface GoalLoopDeps {
   start(userId: number): Promise<{ sessionId: string }>;
   /** BrainService.send — goal kickoff and continuation turns run through the normal turn pipeline. */
   send(userId: number, text: string, images: undefined, mode: 'build' | 'plan', internal: { goalKickoff?: boolean; goalContinue?: boolean }, clientCwd: undefined, session?: string): Promise<void>;
+  /** Operator default for a new goal's per-window turn budget (Orca AI → Limits). */
+  defaultTurnBudget(): number;
+  /** Absolute safety ceiling on autonomous turns: even in YOLO the loop pauses here so a runaway goal
+   *  can't burn tokens forever (Orca AI → Limits). */
+  goalMaxTurns(): number;
+  /** Whether this user runs in YOLO — the persisted permission YOLO. In YOLO the loop keeps going past a
+   *  spent per-window budget (up to {@link goalMaxTurns}); otherwise it pauses at budget for the operator
+   *  to confirm via `/goal resume`. */
+  isYolo(userId: number): boolean;
 }
 
 /** The autonomous goal loop: the /goal command surface (set/pause/resume/clear/subgoals/status), the
@@ -124,7 +133,7 @@ export class GoalLoopService {
     const row = this.d.store.upsertGoal({
       sessionId, userId, goal, draft,
       status: opts?.draft ? 'draft' : 'active',
-      turnBudget: opts?.turnBudget,
+      turnBudget: opts?.turnBudget ?? this.d.defaultTurnBudget(),
     });
     if (!opts?.draft) {
       try {
@@ -206,7 +215,18 @@ export class GoalLoopService {
     }
 
     if (turns >= row.turn_budget) {
-      this.d.store.updateGoal(sessionId, { status: 'paused', turns_used: turns, subgoals: subgoalsJson, last_verdict: 'budget_reached', last_evidence: progress, paused_reason: `turn budget reached (${turns}/${row.turn_budget})` });
+      // YOLO keeps the autonomous loop going past a spent per-window budget — but never past the absolute
+      // safety ceiling, so even an unattended goal can't burn tokens forever. Outside YOLO the goal pauses
+      // at budget and the operator confirms continuation with `/goal resume` (a fresh budget window).
+      const ceiling = this.d.goalMaxTurns();
+      if (this.d.isYolo(userId) && turns < ceiling) {
+        this.d.store.updateGoal(sessionId, { turns_used: turns, subgoals: subgoalsJson, last_verdict: 'continue', last_evidence: progress });
+        if (!this.goalDriven(userId, sessionId)) return;
+        this.scheduleGoalContinuation(userId, sessionId, mode, internal?.goalContinue ? 250 : 100);
+        return;
+      }
+      const reason = this.d.isYolo(userId) ? `safety ceiling reached (${turns}/${ceiling})` : `turn budget reached (${turns}/${row.turn_budget})`;
+      this.d.store.updateGoal(sessionId, { status: 'paused', turns_used: turns, subgoals: subgoalsJson, last_verdict: 'budget_reached', last_evidence: progress, paused_reason: reason });
       return;
     }
 

@@ -41,7 +41,20 @@ export interface OrcaConfig {
   security: { tokenTtlDays: number };
   autoUpdate: boolean;
   plugins?: { enabled: string[]; removed?: string[] };
-  brain?: { providers: BrainProvider[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number> };
+  brain?: { providers: BrainProvider[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number>; limits?: BrainLimits };
+}
+
+/** Operator-tunable brain limits (Settings → Orca AI → Limits) — mirrors `BrainLimits` in
+ *  `src/store/configStore.ts`. Every field is a whole number the daemon clamps to a sane range. */
+export interface BrainLimits {
+  toolOutputMaxLines: number;
+  toolOutputMaxChars: number;
+  elicitationTimeoutMs: number;
+  memoryRecallCount: number;
+  memoryRecallChars: number;
+  goalTurnBudget: number;
+  goalMaxTurns: number;
+  channelSessionCap: number;
 }
 
 /** How a brain provider talks upstream: a custom endpoint (API key) or a connected OAuth account. */
@@ -118,7 +131,7 @@ export interface ConfigPatch {
   security?: { tokenTtlDays?: number };
   autoUpdate?: boolean;
   /** Wholesale brain provider list; an entry may carry `apiKey` to (re)set that provider's secret. */
-  brain?: { providers?: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number> };
+  brain?: { providers?: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number>; limits?: Partial<BrainLimits> };
 }
 interface MissionTask { id: string; title: string; status: TaskStatus; type: string; parent_id: string | null; labels?: string[]; outcome?: TaskOutcome | null }
 interface MissionProgress { total: number; open: number; inProgress: number; blocked: number; closed: number; cancelled: number }

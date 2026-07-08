@@ -26,6 +26,7 @@ import { ConversationLifecycle } from './service/lifecycle.js';
 import { BrainTurnRunner } from './service/turnRunner.js';
 import { BrainStatusService } from './service/statusService.js';
 import type { BrainDeps } from './brainDeps.js';
+import { DEFAULT_BRAIN_LIMITS } from '../store/configStore.js';
 
 export type { BrainDeps } from './brainDeps.js';
 
@@ -68,7 +69,10 @@ export class BrainService {
   private titler: ConversationTitler;
   /** Parked `ask_user_question` calls, shared by owner chat and channel sessions so `/brain/answer`
    *  (web/CLI) and Discord interactions resolve through one registry. */
-  private elicitation = new ElicitationRegistry();
+  /** Operator-tuned brain limits, read live (Settings → Orca AI → Limits); the built-in defaults when a
+   *  minimal/test wiring omits the accessor. */
+  private limits(): typeof DEFAULT_BRAIN_LIMITS { return this.d.brainLimits?.() ?? DEFAULT_BRAIN_LIMITS; }
+  private elicitation = new ElicitationRegistry(() => this.limits().elicitationTimeoutMs);
   /** Live display cards (ctx.emitCard) per conversation — seeded to clients via status, kept current via
    *  the `card` event. Shared by owner chat and channel sessions. */
   private cards = new CardRegistry();
@@ -118,6 +122,9 @@ export class BrainService {
       ensureLive: (userId, sessionId, o) => this.lifecycle.ensureLive(userId, sessionId, o),
       start: (userId) => this.start(userId),
       send: (userId, text, images, mode, internal, clientCwd, session) => this.send(userId, text, images, mode, internal, clientCwd, session),
+      defaultTurnBudget: () => this.limits().goalTurnBudget,
+      goalMaxTurns: () => this.limits().goalMaxTurns,
+      isYolo: (userId) => d.permissions?.(userId)?.yolo ?? false,
     });
     this.spawner = new LiveSessionSpawner({
       get config() { return d.config; },
@@ -171,6 +178,7 @@ export class BrainService {
     });
     this.channelService = new ChannelSessionService({
       registry: this.sessions, store: d.store, users: d.users,
+      maxChannels: () => this.limits().channelSessionCap,
       spawn: (o) => this.spawner.spawn(o), // composition stays in the spawner — single source
       // Verified channel senders get memory too, keyed on their linked account and their own toggles.
       memoryService: d.memoryService, curator: this.curator, userSettings: d.userSettings,

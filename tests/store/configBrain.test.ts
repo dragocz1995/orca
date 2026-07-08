@@ -42,6 +42,35 @@ describe('ConfigStore brain providers', () => {
   });
 });
 
+describe('ConfigStore brain limits', () => {
+  it('defaults to the built-in limits', () => {
+    const cs = new ConfigStore(openDb(':memory:'));
+    expect(cs.get().brain.limits).toEqual({
+      toolOutputMaxLines: 80, toolOutputMaxChars: 12000, elicitationTimeoutMs: 300000,
+      memoryRecallCount: 6, memoryRecallChars: 1500, goalTurnBudget: 8, goalMaxTurns: 64, channelSessionCap: 32,
+    });
+  });
+
+  it('merges a partial patch per-field without resetting siblings, and clamps out-of-range values', () => {
+    const cs = new ConfigStore(openDb(':memory:'));
+    cs.update({ brain: { limits: { goalTurnBudget: 12 } } });
+    expect(cs.get().brain.limits.goalTurnBudget).toBe(12);
+    expect(cs.get().brain.limits.memoryRecallCount).toBe(6); // sibling untouched
+    // Clamp both ends + round a fractional value to a whole number.
+    cs.update({ brain: { limits: { goalTurnBudget: 999, memoryRecallCount: 0, channelSessionCap: 40.7 } } });
+    expect(cs.get().brain.limits.goalTurnBudget).toBe(50);   // max 50
+    expect(cs.get().brain.limits.memoryRecallCount).toBe(1); // min 1
+    expect(cs.get().brain.limits.channelSessionCap).toBe(41); // rounded, in range
+  });
+
+  it('ignores a non-finite value, keeping the current one', () => {
+    const cs = new ConfigStore(openDb(':memory:'));
+    cs.update({ brain: { limits: { goalMaxTurns: 100 } } });
+    cs.update({ brain: { limits: { goalMaxTurns: Number.NaN } } });
+    expect(cs.get().brain.limits.goalMaxTurns).toBe(100);
+  });
+});
+
 describe('brain provider wire-API (api) round-trip', () => {
   const oa = { id: 'oa', label: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', models: ['gpt-x'] };
 
