@@ -106,18 +106,26 @@ export class AskChoiceDock implements Component, Focusable {
     const selectedText = plainSelected.length
       ? plainSelected.map((item) => `✓ ${item}`).join('  ')
       : 'No answers selected';
-    const choiceRows = this.rows().map((item, i) => {
+    // Labels and descriptions WRAP across as many rows as they need — a fixed label column truncated
+    // long options (the actual answer text) into an unreadable "…", the same trap the question itself
+    // avoids. Continuation lines align under the label, past the "  ☐ " marker gutter.
+    const gutter = 4; // '  ' indent + marker + ' '
+    const cont = ' '.repeat(gutter);
+    const wrapInner = Math.max(1, innerWidth - gutter);
+    const choiceRows = this.rows().flatMap((item, i) => {
       const picked = this.selected.has(item.value);
       const marker = item.other ? '✎' : selectedGlyph(picked);
-      const labelWidth = Math.min(30, Math.max(18, Math.floor(innerWidth * 0.36)));
-      const label = padAnsi(`${marker} ${item.label}`, labelWidth);
-      const desc = truncateToWidth(item.description ?? '', Math.max(1, innerWidth - labelWidth - 5), '');
-      const content = `  ${label} ${desc}`;
-      if (i === this.selectedIndex) {
-        return `${border('│')}${color.selected(padAnsi(content, innerWidth))}${border('│')}`;
-      }
+      const labelLines = wrapTextWithAnsi(item.label, wrapInner);
+      const descLines = item.description ? wrapTextWithAnsi(item.description, wrapInner) : [];
+      const visual = [
+        ...labelLines.map((ln, idx) => ({ text: `${idx === 0 ? `  ${marker} ` : cont}${ln}`, muted: false })),
+        ...descLines.map((ln) => ({ text: `${cont}${ln}`, muted: true })),
+      ];
+      const selectedRow = i === this.selectedIndex;
       const labelColor = picked ? theme.accentSoft : theme.text;
-      return row(`  ${open(labelColor, label)} ${open(theme.muted, desc)}`);
+      return visual.map((v) => selectedRow
+        ? `${border('│')}${color.selected(padAnsi(v.text, innerWidth))}${border('│')}`
+        : row(open(v.muted ? theme.muted : labelColor, v.text)));
     });
     const progress = `${this.opts.index + 1}/${this.opts.total}`;
     return [

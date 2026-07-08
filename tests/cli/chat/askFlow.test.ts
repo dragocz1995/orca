@@ -54,6 +54,21 @@ describe('AskChoiceDock', () => {
     expect(text).toContain('merge their branches first?'); // the tail survives wrapping
   });
 
+  it('wraps a long option label across rows instead of truncating it', () => {
+    const longLabel = 'Ano, smazat vše v /tmp kromě /tmp/opencode a systémových adresářů';
+    const dock = new AskChoiceDock({
+      tui: fakeTui(),
+      question: { ...question(), options: [{ label: longLabel }] },
+      index: 0,
+      total: 1,
+      onSubmit: vi.fn(),
+      onOther: vi.fn(),
+      onCancel: vi.fn(),
+    });
+    const text = stripAnsi(dock.render(50).join('\n')).replace(/│/g, '').replace(/\s+/g, ' ');
+    expect(text).toContain('systémových adresářů'); // the tail survives wrapping, not truncated to "…"
+  });
+
   it('uses space to toggle multiple answers and enter to submit them', () => {
     const onSubmit = vi.fn();
     const dock = new AskChoiceDock({
