@@ -3,7 +3,7 @@ import { SquareTerminal } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { useAdvisorStatus } from '../../lib/queries';
 
-/** The floating 🐋 button shown when the dock is closed — opens the docked advisor panel. A green dot
+/** The floating terminal button shown when the dock is closed — opens the docked advisor panel. A green dot
  *  marks a live advisor session so you can tell at a glance it's running. */
 export function AdvisorLauncher({ onOpen }: { onOpen: () => void }) {
   const { t } = useTranslation();

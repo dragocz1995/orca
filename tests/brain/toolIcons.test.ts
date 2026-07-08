@@ -12,7 +12,7 @@ function resolver(pluginIcons: Record<string, string> = {}) {
 describe('makeToolIconResolver — the single tool→icon source', () => {
   it('resolves built-in tools by prefix (elowen_*, memory_*)', () => {
     const r = resolver();
-    expect(r('elowen_list_tasks')).toBe('🐋');
+    expect(r('elowen_list_tasks')).toBe('🔥');
     expect(r('memory_search')).toBe('🧠');
   });
 

@@ -10,7 +10,7 @@ export { buildMemoryTools } from './memoryTools.js';
  *  declaration (the equivalent of a plugin's manifest `icons`). The daemon merges it with the plugin
  *  manifest icons to resolve a `tool` event's icon. Keys are exact names or `prefix*` patterns. */
 export const BUILTIN_TOOL_ICONS: Record<string, string> = {
-  'elowen_*': '🐋',
+  'elowen_*': '🔥',
   'memory_*': '🧠',
   'lsp_*': '🔎',
 };

@@ -1,6 +1,11 @@
 <div align="center">
 
-# 🐋 Elowen
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/elowen-logo-white.png">
+  <img alt="Elowen" src="docs/brand/elowen-logo-black.png" width="380">
+</picture>
+
+# Elowen
 
 **A personal AI agent you talk to — self-hosted, and yours.**
 
