@@ -140,7 +140,14 @@ class CronAdapter {
     const now = Date.now();
     for (const job of this.store.all()) {
       if (!isDue(job, now)) continue;
-      this.store.patch(job.id, { lastRun: new Date(now).toISOString() }); // stamp BEFORE running — a slow job must not re-fire next tick
+      // One-shot (runAt) jobs are consumed at fire time: remove BEFORE the (long) turn so a daemon crash
+      // mid-run can't strand a zombie — a job left with lastRun set but never deleted would neither re-fire
+      // (isDue for runAt needs `!lastRun`) nor ever get cleaned up. Deletion IS the dedup, so at-most-once
+      // holds even if the turn crashes (a wake-up that starts running is spent — acceptable). Recurring
+      // jobs still stamp lastRun before running so a slow turn doesn't re-fire them next tick; they must
+      // fire again on their next natural slot.
+      if (job.runAt) this.store.save(this.store.all().filter((j) => j.id !== job.id));
+      else this.store.patch(job.id, { lastRun: new Date(now).toISOString() });
       // Cheap guard gate: if the job has a `check` command, run it FIRST (no LLM). Only spend a brain
       // turn when the guard surfaces fresh work — an "every 5m" poll that finds nothing costs a shell
       // exec, not a model call. The guard's output is fed into the turn so the brain acts on real data.
@@ -184,14 +191,18 @@ class CronAdapter {
         if (e?.type === 'idle') idle = e;
         if (e?.type === 'session') deliveredTo = e.sessionId;
       }).catch((e) => `Error: ${e?.message ?? e}`);
-      if (job.runAt) this.store.save(this.store.all().filter((j) => j.id !== job.id)); // one-shot: done → gone
-      else this.store.patch(job.id, { lastResult: String(reply ?? '').slice(0, 500) });
-      // Origin-bound delivery: the reply already landed (and streamed) in the originating conversation —
-      // the conversation IS the delivery, so skip the proactive Discord echo entirely.
-      if (job.originSessionId && deliveredTo === job.originSessionId) continue;
+      // One-shots were already removed before running; recurring jobs record their last result.
+      if (!job.runAt) this.store.patch(job.id, { lastResult: String(reply ?? '').slice(0, 500) });
+      const trimmed = String(reply ?? '').trim();
+      // Origin-bound delivery: a successful reply already landed (and streamed) in the originating
+      // conversation — the conversation IS the delivery, so skip the proactive Discord echo. But a FAILED
+      // wake-up (reply starts with "Error:") may have reached no one: the handler can throw AFTER emitting
+      // its `session` event, so deliveredTo already matches the origin while nothing actually landed — and
+      // if no bound-stream client is attached the user never learns it failed. Echo those to the
+      // notification channel so a failed scheduled wake-up is never silently lost.
+      if (job.originSessionId && deliveredTo === job.originSessionId && !trimmed.startsWith('Error:')) continue;
       // Echo the outcome to the notification channel (Discord) so it reaches the user proactively.
       // A job with nothing to say answers with a quiet marker (isQuietReply) and stays silent.
-      const trimmed = String(reply ?? '').trim();
       if (trimmed && !isQuietReply(trimmed)) {
         const footer = cronFooter(idle);
         // `plain` jobs deliver the reply as-is (persona messages in a dedicated channel don't want

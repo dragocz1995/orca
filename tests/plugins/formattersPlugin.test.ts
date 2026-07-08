@@ -160,6 +160,33 @@ describe('formatters plugin — tools.call.after hook flow', () => {
     expect((payload.result.details as { notes?: string[] }).notes).toEqual(['formatted a.ts with prettier']);
   });
 
+  it('invalidates the files-plugin details.diff after a successful format (never a diff that contradicts disk)', async () => {
+    const { hook } = await loadHook();
+    const dir = projectWithPrettier();
+    const file = join(dir, 'a.ts');
+    writeFileSync(file, 'const x=1');
+    const payload = writeResult(file);
+    // The files plugin computed this diff at write time; the reformat below rewrites the file on disk.
+    (payload.result.details as { diff?: string }).diff = '-    1 const x=1\n+    1 const x = 1;';
+    await fire(hook, dir, payload);
+    // The stale pre-format diff is dropped; only the note survives (messageView falls back to notes-only).
+    expect((payload.result.details as { diff?: string }).diff).toBeUndefined();
+    expect((payload.result.details as { notes?: string[] }).notes).toEqual(['formatted a.ts with prettier']);
+  });
+
+  it('keeps details.diff when the formatter fails — the file on disk is unchanged, so the diff still matches', async () => {
+    const { hook } = await loadHook();
+    const dir = mkdtempSync(join(tmpdir(), 'orca-fmt-difffail-'));
+    fakeBin(join(dir, 'node_modules/.bin/prettier'), '#!/bin/sh\nexit 3\n');
+    const file = join(dir, 'a.ts');
+    writeFileSync(file, 'const x=1');
+    const payload = writeResult(file);
+    (payload.result.details as { diff?: string }).diff = 'DIFF';
+    await fire(hook, dir, payload);
+    expect((payload.result.details as { diff?: string }).diff).toBe('DIFF');
+    expect((payload.result.details as { notes?: string[] }).notes).toBeUndefined();
+  });
+
   it('appends its note to an EXISTING details.notes array instead of clobbering it', async () => {
     const { hook } = await loadHook();
     const dir = projectWithPrettier();

@@ -126,4 +126,63 @@ describe('cron tick — origin-bound wake-up routing', () => {
     expect(delivered).toHaveLength(1);
     expect(delivered[0]).toContain('plain reply');
   });
+
+  it('still echoes a FAILED origin-bound wake-up (reply "Error: …") so a crash after the session event is never lost', async () => {
+    const dataRoot = freshDataRoot();
+    const delivered: string[] = [];
+    writeJobs(dataRoot, [dueWakeup({ originSessionId: 'brain-1-abc', originUserId: 1 })]);
+    const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
+    adapter.listen(async (_src, _text, onEvent) => {
+      onEvent?.({ type: 'session', sessionId: 'brain-1-abc' }); // bound-send route confirmed…
+      throw new Error('turn blew up after the session event'); // …but the turn then failed, maybe with no client attached
+    });
+    await adapter.tick();
+    // deliveredTo matched the origin, yet the reply is an error → the notify echo is NOT skipped.
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toContain('Error: turn blew up after the session event');
+    expect(JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8'))).toEqual([]); // one-shot still consumed
+  });
+});
+
+describe('cron tick — one-shot lifecycle (consume before run)', () => {
+  const dueWakeup = (extra: Record<string, unknown>) => ({
+    id: 'j1', name: 'ping', schedule: 'in 30s', prompt: 'say hi',
+    runAt: new Date(Date.now() - 1_000).toISOString(), createdAt: new Date().toISOString(), ...extra,
+  });
+  function writeJobs(dataRoot: string, jobs: Record<string, unknown>[]): void {
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    writeFileSync(jobsFile(dataRoot), JSON.stringify(jobs));
+  }
+
+  it('consumes a one-shot BEFORE running: a crash mid-turn leaves no zombie (not re-fired, not lingering)', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [dueWakeup({})]);
+    const { adapter } = await loadCron(dataRoot, async () => {});
+    let jobsWhileRunning: unknown[] = [{ marker: true }];
+    adapter.listen(async () => {
+      jobsWhileRunning = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')); // read at "mid-turn"
+      throw new Error('daemon crashed mid-turn');
+    });
+    await adapter.tick();
+    // The job was already deleted before the (crashing) turn — deletion IS the dedup.
+    expect(jobsWhileRunning).toEqual([]);
+    // After the crash the job is gone: it can't re-fire and doesn't linger in jobs.json.
+    expect(JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8'))).toEqual([]);
+    let fired = false;
+    adapter.listen(async () => { fired = true; return 'x'; });
+    await adapter.tick();
+    expect(fired).toBe(false);
+  });
+
+  it('a recurring (interval) job is NOT consumed: it stamps lastRun, records lastResult, and survives', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [{ id: 'r1', name: 'poll', schedule: 'every 15m', prompt: 'check', createdAt: new Date().toISOString() }]);
+    const { adapter } = await loadCron(dataRoot, async () => {});
+    adapter.listen(async () => 'ran');
+    await adapter.tick();
+    const jobs = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as Record<string, unknown>[];
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].lastRun).toBeTruthy();
+    expect(jobs[0].lastResult).toBe('ran');
+  });
 });

@@ -171,6 +171,12 @@ export async function formatToolResult(ctx, payload) {
       // (the supported annotation channel — see the hook contract in src/plugins/api.js).
       const notes = Array.isArray(details.notes) ? details.notes : (details.notes = []);
       notes.push(`formatted ${basename(file)} with ${formatter.name}`);
+      // The files plugin computed details.diff at WRITE time, against the content it wrote. This reformat
+      // just rewrote the file on disk, so that diff no longer matches disk — rendering it would show the
+      // transcript the PRE-format file. A true before→formatted diff can't be recomputed here: the hook
+      // payload carries no pre-write content. So invalidate the stale diff; messageView then falls back to
+      // the notes-only view ("formatted <file> with <name>") — never a diff that contradicts disk.
+      if ('diff' in details) delete details.diff;
     } catch (e) {
       ctx.logger.warn(`formatter ${formatter.name} failed for ${file}: ${e instanceof Error ? e.message : String(e)}`);
     }
