@@ -87,10 +87,19 @@ export function PermissionRulesCard() {
     allow: t.cli.permAllow, ask: t.cli.permAsk, deny: t.cli.permDeny,
   };
 
+  const setRules = (scope: Scope, rules: Rule[]) => (scope === 'bash' ? setBashRules : setToolsRules)(rules);
   const persist = (scope: Scope, next: Rule[]) => {
-    (scope === 'bash' ? setBashRules : setToolsRules)(next);
+    setRules(scope, next);
     const patch: Partial<PermissionSettings> = { [scope]: toMap(next) };
-    save.mutate(patch, { onError: () => toast(t.cli.saveError, 'error') });
+    // On error, revert the optimistic list to the server truth held in the query cache (never
+    // optimistically mutated) — otherwise a non-persisted rule lingers as a phantom until the next
+    // successful save.
+    save.mutate(patch, {
+      onError: () => {
+        toast(t.cli.saveError, 'error');
+        if (permissions.data) setRules(scope, toRules(permissions.data[scope]));
+      },
+    });
   };
 
   const addRule = (e: FormEvent) => {

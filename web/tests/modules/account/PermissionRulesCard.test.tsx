@@ -112,4 +112,24 @@ describe('PermissionRulesCard', () => {
     await waitFor(() => expect(patches.length).toBe(1));
     expect(patches[0]).toEqual({ tools: { write_file: 'ask' } });
   });
+
+  it('reconciles a phantom rule away when the save fails (refetch on error)', async () => {
+    const settings: PermissionSettings = { yolo: false, unattendedAsks: 'allow', tools: {}, bash: { 'git status*': 'allow' } };
+    server.use(
+      http.get('*/api/auth/me/permissions', () => HttpResponse.json(settings)),
+      http.patch('*/api/auth/me/permissions', () => new HttpResponse(null, { status: 500 })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><PermissionRulesCard /></ToastProvider></Wrapper>);
+    await screen.findByText('git status*');
+
+    fireEvent.change(screen.getByLabelText(en.cli.permPatternPlaceholder), { target: { value: 'npm run build*' } });
+    fireEvent.click(screen.getByRole('button', { name: en.cli.permAdd }));
+    // The optimistic row appears immediately...
+    expect(await screen.findByText('npm run build*')).toBeTruthy();
+    // ...then the failed save triggers a refetch that reseeds the list back to the server truth,
+    // so the non-persisted rule vanishes — no phantom left behind. The real server rule stays.
+    await waitFor(() => expect(screen.queryByText('npm run build*')).toBeNull());
+    expect(screen.getByText('git status*')).toBeTruthy();
+  });
 });

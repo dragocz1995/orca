@@ -34,15 +34,18 @@ export function CliSection() {
   const [autoCompactAt, setAutoCompactAt] = useState(80);
 
   const [seeded, setSeeded] = useState(false);
+  // Seed once, on first arrival. A sibling save (AccountView's Orca-model pick, or this section's own
+  // autosave) invalidates ['my-cli-settings'] → refetch; re-seeding from that refetch would clobber an
+  // edit still inside the autosave debounce, so only seed while not yet seeded.
   useEffect(() => {
-    if (data) {
+    if (data && !seeded) {
       setVisionSelection(data.visionModel ? `${data.visionModelProvider ?? ''}::${data.visionModel}` : '');
       setThinkingLevel(data.thinkingLevel ?? '');
       setAutoCompact(data.autoCompact);
       setAutoCompactAt(data.autoCompactAt);
       setSeeded(true);
     }
-  }, [data]);
+  }, [data, seeded]);
 
   // YOLO default + unattended-ask mode live in the separate permissions blob (GET/PATCH
   // /auth/me/permissions) — their own query + seed + autosave so flipping them never touches (or
@@ -52,18 +55,28 @@ export function CliSection() {
   const [yolo, setYolo] = useState(false);
   const [unattendedAsks, setUnattendedAsks] = useState<'allow' | 'deny'>('allow');
   const [yoloSeeded, setYoloSeeded] = useState(false);
+  // Seed once — PermissionRulesCard, AccountView and this section's own autosave all write
+  // ['my-permissions']; re-seeding from any of those refetches would clobber an in-progress flip still
+  // inside the autosave debounce.
   useEffect(() => {
-    if (permissions.data) {
+    if (permissions.data && !yoloSeeded) {
       setYolo(permissions.data.yolo);
       setUnattendedAsks(permissions.data.unattendedAsks);
       setYoloSeeded(true);
     }
-  }, [permissions.data]);
+  }, [permissions.data, yoloSeeded]);
+  // On save error, revert the optimistic value to the server truth. The query cache is never
+  // optimistically mutated, so permissions.data still holds the pre-edit value; without this the
+  // toggle would stay stuck on a value the server rejected (the seed guard won't re-seed it).
   useAutoSave([yolo], () => {
-    savePermissions.mutate({ yolo }, { onError: () => toast(t.cli.saveError, 'error') });
+    savePermissions.mutate({ yolo }, {
+      onError: () => { toast(t.cli.saveError, 'error'); if (permissions.data) setYolo(permissions.data.yolo); },
+    });
   }, { ready: yoloSeeded });
   useAutoSave([unattendedAsks], () => {
-    savePermissions.mutate({ unattendedAsks }, { onError: () => toast(t.cli.saveError, 'error') });
+    savePermissions.mutate({ unattendedAsks }, {
+      onError: () => { toast(t.cli.saveError, 'error'); if (permissions.data) setUnattendedAsks(permissions.data.unattendedAsks); },
+    });
   }, { ready: yoloSeeded });
 
   // Auto-persist shortly after any change. Sends only the fields this section owns — the PATCH merges,
