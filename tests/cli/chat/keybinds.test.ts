@@ -78,6 +78,27 @@ describe('createKeymap — defaults and overrides', () => {
     expect(keymap.matches('stash', CTRL('s'))).toBe(true);
   });
 
+  it('warns when two actions resolve to the same direct chord (later one unreachable)', () => {
+    // subagent_cycle (earlier in KEYBIND_ACTIONS) grabs ctrl+p, the default telemetry_toggle chord.
+    const keymap = createKeymap({ subagent_cycle: 'ctrl+p' });
+    expect(keymap.warnings.some((w) =>
+      w.includes('telemetry_toggle') && w.includes('subagent_cycle') && w.includes('ctrl+p') && w.includes('unreachable'))).toBe(true);
+    // Resolution order is untouched — the earlier action still wins, the collision is only surfaced.
+    expect(keymap.directAction(CTRL('p'))).toBe('subagent_cycle');
+  });
+
+  it('warns when two actions resolve to the same leader sequence', () => {
+    // help (earlier) owns "leader h"; model_picker rebound onto it becomes unreachable.
+    const keymap = createKeymap({ model_picker: 'leader h' });
+    expect(keymap.warnings.some((w) =>
+      w.includes('model_picker') && w.includes('help') && w.includes('leader h') && w.includes('unreachable'))).toBe(true);
+    expect(keymap.leaderAction('h')).toBe('help');
+  });
+
+  it('does not warn when an action lists the same chord twice (self, not a collision)', () => {
+    expect(createKeymap({ reasoning_cycle: 'ctrl+t,ctrl+t' }).warnings).toEqual([]);
+  });
+
   it('"none" unbinds an action', () => {
     const keymap = createKeymap({ stash: 'none' });
     expect(keymap.matches('stash', CTRL('s'))).toBe(false);

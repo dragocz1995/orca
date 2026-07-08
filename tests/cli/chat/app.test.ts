@@ -1,6 +1,37 @@
-import { describe, it, expect } from 'vitest';
-import { viewToPlainText } from '../../../src/cli/chat/app.js';
+import { describe, it, expect, vi } from 'vitest';
+import { viewToPlainText, installExitGuards } from '../../../src/cli/chat/app.js';
 import { beginAssistant, pushUser, reduce, emptyView } from '../../../src/brain/transcript.js';
+
+describe('installExitGuards — process listener lifecycle', () => {
+  it('registers exit/SIGTERM/SIGHUP guards and the disposer removes exactly those', () => {
+    const before = {
+      exit: process.listenerCount('exit'),
+      term: process.listenerCount('SIGTERM'),
+      hup: process.listenerCount('SIGHUP'),
+    };
+    const dispose = installExitGuards(() => {}, () => {});
+    expect(process.listenerCount('exit')).toBe(before.exit + 1);
+    expect(process.listenerCount('SIGTERM')).toBe(before.term + 1);
+    expect(process.listenerCount('SIGHUP')).toBe(before.hup + 1);
+    // Menu return: quit() calls the disposer, which must drop the count back so a relaunch doesn't stack.
+    dispose();
+    expect(process.listenerCount('exit')).toBe(before.exit);
+    expect(process.listenerCount('SIGTERM')).toBe(before.term);
+    expect(process.listenerCount('SIGHUP')).toBe(before.hup);
+  });
+
+  it('a signal restores the terminal (teardown) and the mouse before exiting', () => {
+    const calls: string[] = [];
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => { calls.push(`exit:${code}`); return undefined as never; });
+    const dispose = installExitGuards(() => calls.push('teardown'), () => calls.push('mouse'));
+    // Call our just-added SIGTERM handler directly (not process.emit) so no other listeners fire.
+    const sigterm = process.listeners('SIGTERM').at(-1) as () => void;
+    sigterm();
+    expect(calls).toEqual(['teardown', 'mouse', 'exit:143']);
+    exitSpy.mockRestore();
+    dispose();
+  });
+});
 
 describe('viewToPlainText', () => {
   it('renders user and orca turns with labels, tools and text', () => {

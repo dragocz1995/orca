@@ -65,6 +65,24 @@ function gitBranch(cwd = process.cwd()): string {
   }
 }
 
+/** Install the process-level terminal guards for ONE chat run and return a disposer. On a SIGTERM/SIGHUP
+ *  the terminal is restored (`teardown` — raw-mode/alt-screen) and the mouse disabled before exiting;
+ *  the `exit` guard only needs the mouse (teardown already ran on the normal path). The disposer detaches
+ *  all three so a menu → chat → menu loop never stacks listeners (`MaxListenersExceededWarning`). */
+export function installExitGuards(teardown: () => void, disableMouse: () => void): () => void {
+  const onSignal = (code: number) => (): void => { teardown(); disableMouse(); process.exit(code); };
+  const onSigTerm = onSignal(143);
+  const onSigHup = onSignal(129);
+  process.once('exit', disableMouse);
+  process.once('SIGTERM', onSigTerm);
+  process.once('SIGHUP', onSigHup);
+  return (): void => {
+    process.off('exit', disableMouse);
+    process.off('SIGTERM', onSigTerm);
+    process.off('SIGHUP', onSigHup);
+  };
+}
+
 export interface RunChatOpts {
   base: string;
   token: string;
@@ -152,7 +170,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     childAc: null,
     streamAc: new AbortController(),
     // Warn ONCE about broken keybind overrides — the binds themselves fell back to their defaults.
-    notice: keymap.warnings.length ? color.warning(`keybinds: ${keymap.warnings.join(' · ')} — defaults kept (see /keybinds)`) : '',
+    notice: keymap.warnings.length ? color.warning(`keybinds: ${keymap.warnings.join(' · ')} (see /keybinds)`) : '',
     modelName: boot?.model || opts.model || '',
     conversationTitle: boot?.title ?? '',
     lineCfg: boot?.statusline ?? null,
@@ -195,12 +213,28 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const thinkingTimer = setInterval(() => {
     if (rt.view.thinking) rt.render();
   }, 250);
-  rt.quit = (): void => {
+  // Terminal teardown shared by the normal quit path and the signal handlers, guarded so a SIGTERM
+  // that races quit() (or vice-versa) never double-stops the TUI or leaves raw-mode/alt-screen up.
+  let tornDown = false;
+  const teardown = (): void => {
+    if (tornDown) return;
+    tornDown = true;
     rt.streamAc.abort();
     clearInterval(thinkingTimer);
     term.write(DISABLE_MOUSE);
     shell.hideOverlays();
     tui.stop();
+  };
+  // Mouse-reporting hygiene: quit() disables it on the normal path, but an uncaught throw or a
+  // SIGTERM/SIGHUP would otherwise leave the user's shell spewing `[<35;…M` on every mouse move.
+  const disableMouse = (): void => { try { process.stdout.write(DISABLE_MOUSE); } catch { /* tty gone */ } };
+  // Registered per-run and detached in quit(): menu.ts relaunches runChat in a loop, so leaving these
+  // on `process` would stack listeners (MaxListenersExceededWarning bleeding into the menu, plus each
+  // dead handler pinning the previous session's closure) on every chat open/close.
+  const removeExitGuards = installExitGuards(teardown, disableMouse);
+  rt.quit = (): void => {
+    teardown();
+    removeExitGuards();
     done();
   };
   shell.attachInput({
@@ -213,11 +247,6 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   tui.start();
   term.write(ENABLE_MOUSE);
-  // Mouse-reporting hygiene: quit() disables it on the normal path, but an uncaught throw or a
-  // SIGTERM/SIGHUP would otherwise leave the user's shell spewing `[<35;…M` on every mouse move.
-  const disableMouse = (): void => { try { process.stdout.write(DISABLE_MOUSE); } catch { /* tty gone */ } };
-  process.once('exit', disableMouse);
-  for (const sig of ['SIGTERM', 'SIGHUP'] as const) process.once(sig, () => { disableMouse(); process.exit(sig === 'SIGTERM' ? 143 : 129); });
   rt.render();
   stream.openStream(rt.streamAc);
   // Reconnect restore: if a question was already parked when this client attached (daemon restart, second

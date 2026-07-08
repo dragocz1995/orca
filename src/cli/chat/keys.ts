@@ -178,12 +178,30 @@ export function createKeymap(overrides?: Record<string, unknown>): Keymap {
     bindings.set(action, parsed.ok ? parsed.bindings : []);
   }
   for (const [name, value] of Object.entries(overrides ?? {})) {
-    if (!isKeybindAction(name)) { warnings.push(`unknown action "${name}"`); continue; }
-    if (typeof value !== 'string') { warnings.push(`${name}: chord must be a string`); continue; }
+    if (!isKeybindAction(name)) { warnings.push(`unknown action "${name}" — ignored`); continue; }
+    if (typeof value !== 'string') { warnings.push(`${name}: chord must be a string — default kept`); continue; }
     const parsed = parseKeybind(value, { forLeader: name === 'leader' });
-    if (!parsed.ok) { warnings.push(`${name}: ${parsed.error}`); continue; }
+    if (!parsed.ok) { warnings.push(`${name}: ${parsed.error} — default kept`); continue; }
     bindings.set(name, parsed.bindings);
     custom.add(name);
+  }
+
+  // Collision detection: two actions resolving to the SAME chord means the later one (in
+  // KEYBIND_ACTIONS order — exactly how directAction/leaderAction pick a winner) is unreachable. We
+  // don't touch resolution order; we only warn so the startup notice and /keybinds can flag it. Direct
+  // and leader chords live in separate namespaces (a leader sequence only fires after the leader), so
+  // they never collide with each other.
+  const directOwner = new Map<string, KeybindAction>();
+  const leaderOwner = new Map<string, KeybindAction>();
+  for (const action of KEYBIND_ACTIONS) {
+    for (const b of bindings.get(action) ?? []) {
+      const owners = b.leader ? leaderOwner : directOwner;
+      const owner = owners.get(b.chord.id);
+      if (owner === undefined) { owners.set(b.chord.id, action); continue; }
+      if (owner === action) continue; // an action listing the same chord twice is not a collision
+      const label = b.leader ? `leader ${b.chord.id}` : b.chord.id;
+      warnings.push(`${action}: "${label}" already bound to ${owner} — unreachable`);
+    }
   }
 
   const matchChord = (data: string, chord: ParsedChord): boolean => matchesKey(data, chord.id as KeyId);

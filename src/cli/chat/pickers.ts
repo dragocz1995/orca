@@ -550,7 +550,7 @@ export function createPickers(
       `${color.text(r.action.padEnd(pad))}${r.chord ? color.accent(r.chord) : color.faint('unbound')}  ${r.custom ? color.warning('custom') : color.faint('default')}`);
     if (keymap.warnings.length) {
       lines.push('');
-      for (const w of keymap.warnings) lines.push(color.error(`! ${w} — default kept`));
+      for (const w of keymap.warnings) lines.push(color.error(`! ${w}`));
     }
     lines.push(
       '',

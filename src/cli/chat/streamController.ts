@@ -1,5 +1,6 @@
 import { color } from './theme.js';
 import { fromHistory, reduce, upsertCard } from '../../brain/transcript.js';
+import type { BrainEvent } from '../../brain/events.js';
 import type { SubagentPanelEntry } from './components.js';
 import type { ChatRuntime } from './runtime.js';
 import type { Flows } from './flows.js';
@@ -80,10 +81,16 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
   // stream on the current signal — which would reduce every event twice (doubled text/cards).
   const openStream = (ac: AbortController): void => {
     if (ac !== rt.streamAc || ac.signal.aborted) return; // a newer switch owns the stream now
-    void client.stream((e) => {
+    // Passive-client idle rollover: while we refetch the fresh transcript, live events that arrive in
+    // the same SSE batch after the `session` frame (or during the in-flight fetch) must NOT fold into
+    // the stale pre-rollover view — they'd be silently discarded when fromHistory lands. Buffer them
+    // and replay onto the refetched view once history resolves.
+    let buffer: BrainEvent[] | null = null;
+    const onEvent = (e: BrainEvent): void => {
       // ask_user_question parked the turn: drive the picker flow and skip the ChatView reducer (the
-      // questions aren't a conversation segment).
+      // questions aren't a conversation segment). Handled even mid-rollover — it's view-independent.
       if (e.type === 'ask') { flows.launchAsk(e.id, e.questions, e.kind); return; }
+      if (buffer) { buffer.push(e); return; } // rollover refetch in flight — replay after it resolves
       if (e.type === 'idle') {
         if (e.usage) rt.usage = e.usage;
         // A finished turn may have just auto-titled a fresh conversation — pull the new title (and usage)
@@ -107,19 +114,29 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
       // flowing without a gap; a reconnect then taps the rebound id). The SENDING client's last turn is
       // the just-typed message, so the shared fold trims correctly; a passively connected client (second
       // CLI/web on the same account) has no fresh local user turn — folding would carry OLD history into
-      // the new conversation, so it refetches the transcript instead.
+      // the new conversation, so it refetches the transcript and buffers live events until it lands.
       if (e.type === 'session') {
         client.rebind(e.sessionId);
         rt.notice = color.dim('previous conversation was idle — continuing in a fresh one');
         void rt.refreshMeta().then(rt.render);
         if (rt.view.turns[rt.view.turns.length - 1]?.role !== 'you') {
-          void client.history().then((h) => { rt.view = fromHistory(h); rt.render(); }).catch(() => { /* best-effort */ });
+          buffer = [];
+          void client.history()
+            .then((h) => { rt.view = fromHistory(h); })
+            .catch(() => { /* best-effort: keep the stale view */ })
+            .finally(() => {
+              const queued = buffer ?? [];
+              buffer = null;
+              rt.render();
+              for (const ev of queued) onEvent(ev); // replay onto the refetched view (buffer now null)
+            });
           return;
         }
       }
       rt.view = reduce(rt.view, e);
       rt.render();
-    }, ac.signal).catch(() => { /* aborted/gone */ });
+    };
+    void client.stream(onEvent, ac.signal).catch(() => { /* aborted/gone */ });
   };
 
   /** Switch conversations: retarget the server session, then swap history + the event stream. */
