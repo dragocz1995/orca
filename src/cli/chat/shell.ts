@@ -116,6 +116,9 @@ export interface Shell {
   reshowPanel(): void;
   /** Register the global key/mouse listener. Called once in runChat, after the pickers exist. */
   attachInput(deps: ShellInputDeps): void;
+  /** Swap the running session onto the freshly-built active keymap (after a /keybinds rebind) — no
+   *  restart: dispatch resolution and every hint line pick up the new bindings on the next keypress. */
+  reloadKeymap(): void;
   /** Hide every owned overlay (telemetry panel + suggestion popups) — the quit path. */
   hideOverlays(): void;
 }
@@ -125,10 +128,13 @@ export interface Shell {
 export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: MarkdownTheme): Shell {
   const { client, tui, term, editor, inputStack, attachmentChips, cwdLabel, branchLabel } = rt;
 
-  const keymap = activeKeymap();
+  // `let`, not `const`: the /keybinds editor swaps the live keymap (and its leader window) in place via
+  // reloadKeymap below. Every closure here — the input dispatcher, the hint lines, the leader chip —
+  // reads these bindings, so reassigning them applies a rebind everywhere without restarting the chat.
+  let keymap = activeKeymap();
   // The leader window: after the leader chord, the next keypress resolves leader-bound actions. The
   // expiry re-render clears the "waiting" chip from the meta line.
-  const leader = createLeaderState(keymap, { onExpire: () => render() });
+  let leader = createLeaderState(keymap, { onExpire: () => render() });
   /** The subtle "leader pressed, waiting for the second key" chip appended to the meta line. */
   const leaderChip = (): string =>
     leader.pending() ? ` ${color.accent('⌘')} ${color.faint(`${keymap.chordLabel('leader') ?? 'leader'} —`)}` : '';
@@ -237,6 +243,19 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
     cardPanel.set(rt.cards);
     subPanel.set(stream.subagentStates());
     tui.requestRender();
+  };
+
+  // Live-apply a rebind from the /keybinds editor: point `keymap` at the freshly-built active map and
+  // rebuild the leader window around it (the old one may hold a stale keymap + pending timer). The
+  // bottom-bar quit label is the one hint rendered once at construction rather than per-render, so
+  // refresh it here too; every other hint recomputes from `keymap` on the next render().
+  const reloadKeymap = (): void => {
+    keymap = activeKeymap();
+    leader.cancel();
+    leader = createLeaderState(keymap, { onExpire: () => render() });
+    const q = quitHint(keymap);
+    bottomBar.setRight(q ? color.faint(`${q}  `) : '');
+    render();
   };
 
   const closeSlash = (): void => {
@@ -646,5 +665,5 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
     mentionHandle?.hide();
   };
 
-  return { render, showPanel, reshowPanel, attachInput, hideOverlays };
+  return { render, showPanel, reshowPanel, attachInput, hideOverlays, reloadKeymap };
 }

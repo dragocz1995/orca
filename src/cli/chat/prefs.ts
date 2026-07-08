@@ -14,8 +14,9 @@ export interface CliPrefs {
   keybinds?: Record<string, string>;
 }
 
-/** Where the prefs live — exported so /keybinds can tell the user which file to edit. */
-export function prefsFilePath(env: NodeJS.ProcessEnv = process.env): string {
+/** Where the prefs live. Hand-editing this file's `keybinds` map still works alongside the interactive
+ *  /keybinds editor — both write the same shape. */
+function prefsFilePath(env: NodeJS.ProcessEnv = process.env): string {
   return join(dataDir(env), 'cli-prefs.json');
 }
 

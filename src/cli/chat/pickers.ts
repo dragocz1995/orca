@@ -1,8 +1,8 @@
-import { homedir } from 'node:os';
 import { chatThemeItems, color, isChatThemeName, setChatTheme, setCustomChatTheme } from './theme.js';
-import { prefsFilePath, savePrefs } from './prefs.js';
+import { savePrefs } from './prefs.js';
 import { sessionItems, modelItems, parseModelValue, openPicker, openTextInput, openInfoModal } from './picker.js';
-import { activeKeymap, isCtrlD, isCtrlL, isCtrlP, isCtrlR, isCtrlU, isTabKey, keybindRows } from './keys.js';
+import { isCtrlD, isCtrlL, isCtrlP, isCtrlR, isCtrlU, isTabKey } from './keys.js';
+import { openKeybindsEditor } from './keybindsEditor.js';
 import { API_KEY_PROVIDERS } from '../setup/constants.js';
 import { formatK } from '../ui/text.js';
 import type { BrainProviderView } from './brainClient.js';
@@ -33,6 +33,8 @@ export function createPickers(
   shell: {
     /** Re-open the telemetry panel so a theme switch recolors it, keeping its hidden state. */
     reshowPanel(): void;
+    /** Live-apply a /keybinds rebind to the running session (no restart). */
+    reloadKeymap(): void;
   },
 ): Pickers {
   const { client, tui, editor, termSettings, cwdLabel, branchLabel } = rt;
@@ -539,25 +541,12 @@ export function createPickers(
     }).catch((e: Error) => { rt.notice = color.error(`error: ${e.message}`); rt.render(); });
   };
 
-  // /keybinds as a read-only overlay: action → effective chord, marking custom binds and any invalid
-  // overrides. Editing happens by hand in cli-prefs.json — an interactive editor is deliberately out
-  // of scope, so the modal says exactly where to type instead.
+  // /keybinds as an interactive, live-applied editor: arrow-key list of every action, Enter captures the
+  // next keypress as its new chord (press the leader first to compose a leader sequence), x unbinds, r
+  // resets. Each change persists to cli-prefs.json AND swaps the running keymap via shell.reloadKeymap —
+  // no restart. Hand-editing "keybinds" in cli-prefs.json still works (both write the same map).
   const openKeybindsModal = (): void => {
-    const keymap = activeKeymap();
-    const rows = keybindRows(keymap);
-    const pad = Math.max(...rows.map((r) => r.action.length)) + 2;
-    const lines = rows.map((r) =>
-      `${color.text(r.action.padEnd(pad))}${r.chord ? color.accent(r.chord) : color.faint('unbound')}  ${r.custom ? color.warning('custom') : color.faint('default')}`);
-    if (keymap.warnings.length) {
-      lines.push('');
-      for (const w of keymap.warnings) lines.push(color.error(`! ${w}`));
-    }
-    lines.push(
-      '',
-      color.faint(`bind in ${prefsFilePath().replace(homedir(), '~')} → "keybinds": { "<action>": "<chord>" }`),
-      color.faint('chords: "ctrl+t" · "shift+tab" · "f2" · "leader t" · "none" — restart orca chat to apply'),
-    );
-    openInfoModal({ tui, editor, title: 'Keybinds', lines });
+    openKeybindsEditor({ tui, editor, reload: shell.reloadKeymap });
   };
 
   return {

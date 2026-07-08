@@ -203,7 +203,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const stream = createStreamController(rt, flows);
   const shell = createShell(rt, stream, mdTheme);
   rt.render = shell.render;
-  const pickers = createPickers(rt, stream, { reshowPanel: shell.reshowPanel });
+  const pickers = createPickers(rt, stream, { reshowPanel: shell.reshowPanel, reloadKeymap: shell.reloadKeymap });
   wireSubmit(rt, { stream, pickers });
 
   let done!: () => void;

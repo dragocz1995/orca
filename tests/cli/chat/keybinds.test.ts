@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  createKeymap, createLeaderState, keybindRows, parseKeybind, KEYBIND_ACTIONS,
+  chordFromInput, createKeymap, createLeaderState, keybindDefault, keybindRows, parseKeybind, KEYBIND_ACTIONS,
 } from '../../../src/cli/chat/keys.js';
 import { bottomHints, startScreenHints, quitHint } from '../../../src/cli/chat/shell.js';
 
@@ -46,6 +46,40 @@ describe('parseKeybind — chord syntax', () => {
   it('rejects leader-of-leader and esc after the leader', () => {
     expect(parseKeybind('leader x', { forLeader: true }).ok).toBe(false);
     expect(parseKeybind('leader escape').ok).toBe(false);
+  });
+});
+
+describe('chordFromInput — raw keypress → chord spec', () => {
+  const CTRL = (letter: string): string => String.fromCharCode(letter.charCodeAt(0) - 96);
+
+  it('decodes ctrl chords, shift+tab and f-keys into their spec strings', () => {
+    expect(chordFromInput(CTRL('t'))).toBe('ctrl+t');
+    expect(chordFromInput('\x1b[Z')).toBe('shift+tab');
+    expect(chordFromInput('\x1bOQ')).toBe('f2');
+  });
+
+  it('returns the plain key for a bare letter (only bindable behind the leader — parseKeybind gates it)', () => {
+    expect(chordFromInput('t')).toBe('t');
+    expect(parseKeybind('t').ok).toBe(false); // still rejected as a direct binding
+  });
+
+  it('returns null for input that can never be a binding (mouse / unrecognized)', () => {
+    expect(chordFromInput('\x1b[<0;10;10M')).toBeNull(); // mouse report
+    expect(chordFromInput('')).toBeNull();
+  });
+
+  it('round-trips through parseKeybind for the capturable chords', () => {
+    for (const raw of [CTRL('t'), '\x1b[Z', '\x1bOQ']) {
+      const spec = chordFromInput(raw)!;
+      expect(parseKeybind(spec).ok).toBe(true);
+    }
+  });
+});
+
+describe('keybindDefault', () => {
+  it('returns the stock spec per action', () => {
+    expect(keybindDefault('reasoning_cycle')).toBe('ctrl+r');
+    expect(keybindDefault('theme_picker')).toBe('leader t');
   });
 });
 

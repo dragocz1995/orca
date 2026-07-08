@@ -1,4 +1,4 @@
-import { matchesKey } from '@earendil-works/pi-tui';
+import { isKeyRelease, matchesKey, parseKey } from '@earendil-works/pi-tui';
 import type { KeyId } from '@earendil-works/pi-tui';
 
 /** The single seam for every key-string comparison in the chat TUI. Two layers live here:
@@ -74,6 +74,10 @@ const DEFAULT_KEYBINDS: Readonly<Record<KeybindAction, string>> = {
   sessions_picker: 'leader l',
 };
 
+/** The stock chord spec for an action — used by the interactive editor to prune overrides that were
+ *  rebound back to their default (so the persisted map only ever holds genuine customizations). */
+export function keybindDefault(action: KeybindAction): string { return DEFAULT_KEYBINDS[action]; }
+
 const MODIFIER_NAMES = ['ctrl', 'shift', 'alt', 'super'] as const;
 const SPECIAL_BASES = new Set([
   'escape', 'esc', 'enter', 'return', 'tab', 'space', 'backspace', 'delete', 'insert', 'clear',
@@ -145,6 +149,19 @@ export function parseKeybind(spec: string, opts: { forLeader?: boolean } = {}): 
     bindings.push({ leader: false, chord });
   }
   return { ok: true, bindings };
+}
+
+/** Turn a raw terminal keypress into a chord spec string (via pi-tui's decoder) that `parseKeybind`
+ *  can consume — the capture primitive behind the interactive /keybinds editor. Returns null for input
+ *  that can never be a binding: mouse traffic and unrecognized sequences (parseKey → undefined), key
+ *  RELEASE events (kitty flag 2 reports both edges — we bind on the press), and bare modifier keys. */
+export function chordFromInput(data: string): string | null {
+  if (isKeyRelease(data)) return null;
+  const id = parseKey(data);
+  if (!id) return null;
+  const base = id.split('+').pop();
+  if (!base || (MODIFIER_NAMES as readonly string[]).includes(base)) return null;
+  return id;
 }
 
 export interface Keymap {
