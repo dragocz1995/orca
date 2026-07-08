@@ -1,4 +1,5 @@
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
+import { MASCOT_ART } from './mascot.js';
 import type { Component, MarkdownTheme } from '@earendil-works/pi-tui';
 import { framedDiffBlock, spinnerFrame, toolOutputBlock, UserBlock } from './components.js';
 import { ansi, chatTheme, color, glyph } from './theme.js';
@@ -48,6 +49,10 @@ const ELOWEN_ART = [
 /** Column where the wordmark's two-tone split falls (faint left half → bright right half). Half of the
  *  art's fixed 35-column width, kept in one place so both render paths stay aligned to the new glyph run. */
 const ELOWEN_ART_SPLIT = 17;
+
+/** Full welcome banner height: the flame mascot, a blank spacer, then the ELOWEN wordmark. The start
+ *  screen's vertical-centering math keys off this so the whole logo block stays centered. */
+const BANNER_ROWS = MASCOT_ART.length + 1 + ELOWEN_ART.length;
 
 /** opencode-style per-tool row spec: a fixed glyph + Title-case verb, keyed on the tool NAME so live
  *  and resumed-history rows render identically (`item.icon` exists only on live events). The glyph set
@@ -133,9 +138,9 @@ export function startScreenBox(width: number): { boxWidth: number; leftPad: numb
 /** Row (0-based, within the start screen's rows) where the input box starts — mirror of the vertical
  *  centering in {@link StartScreen.render}, kept here so overlay anchoring can never drift from it. */
 export function startScreenInputTop(rows: number, inputRows: number, noticeRows: number): number {
-  const bodyLength = ELOWEN_ART.length + 1 + inputRows + 2 + 2 + 1 + (noticeRows ? 1 + noticeRows : 0);
+  const bodyLength = BANNER_ROWS + 1 + inputRows + 2 + 2 + 1 + (noticeRows ? 1 + noticeRows : 0);
   const topPad = Math.max(0, Math.floor((rows - 1 - bodyLength) / 2) - 1);
-  return topPad + ELOWEN_ART.length + 1;
+  return topPad + BANNER_ROWS + 1;
 }
 
 /** The empty-conversation start screen (opencode-style): a centered two-tone ELOWEN wordmark, the input
@@ -157,6 +162,8 @@ export class StartScreen implements Component {
     const inputLines = this.input.render(boxWidth);
     const noticeLines = st.notice ? st.notice.split('\n') : [];
     const body = [
+      ...MASCOT_ART.map((line) => center(line)),
+      '',
       ...ELOWEN_ART.map((line) => center(`${color.faint(line.slice(0, ELOWEN_ART_SPLIT))}${color.text(line.slice(ELOWEN_ART_SPLIT))}`)),
       '',
       ...inputLines.map((line) => `${indent}${line}`),
@@ -173,7 +180,7 @@ export class StartScreen implements Component {
     const rows = this.getRows();
     // Center the block vertically, biased slightly upward (startScreenInputTop mirrors this math);
     // the status row is pinned to the last line.
-    const topPad = Math.max(0, startScreenInputTop(rows, inputLines.length, noticeLines.length) - ELOWEN_ART.length - 1);
+    const topPad = Math.max(0, startScreenInputTop(rows, inputLines.length, noticeLines.length) - BANNER_ROWS - 1);
     const lines: string[] = Array.from({ length: topPad }, () => '');
     lines.push(...body);
     while (lines.length < rows - 1) lines.push('');
