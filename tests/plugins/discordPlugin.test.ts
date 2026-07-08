@@ -334,7 +334,7 @@ describe('discord onMessage context pipeline', () => {
       guild_id: 'G', channel_id: '100', id: 'MSG',
       author: { id: 'U1', username: 'anna', global_name: 'Anna G' },
       member: { nick: 'Anička', roles: ['R1'] },
-      mentions: [{ id: 'BOT', username: 'orca' }, { id: 'U2', username: 'bob', global_name: 'Bobby' }],
+      mentions: [{ id: 'BOT', username: 'elowen' }, { id: 'U2', username: 'bob', global_name: 'Bobby' }],
       content: '<@BOT> ahoj <@!U2> mrkni na <#100>',
       referenced_message: { author: { id: 'U2', username: 'bob', global_name: 'Bobby' }, content: 'původní zpráva' },
       attachments: [{ filename: 'spec.pdf', content_type: 'application/pdf', size: 1000, url: 'http://cdn/spec.pdf' }],

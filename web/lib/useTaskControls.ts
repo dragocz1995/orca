@@ -1,6 +1,6 @@
 'use client';
 import type { Task } from './types';
-import { apiErrorMessage } from './orcaClient';
+import { apiErrorMessage } from './elowenClient';
 import { taskExec } from './agentUtils';
 import { taskSessionName, agentDisplayName } from './agentUtils';
 import { useSpawn, useKillSession, useSetTaskStatus, useSendInput } from './mutations';
@@ -9,7 +9,7 @@ import { useToast } from '../components/ui/Toast';
 import { useTranslation } from './i18n';
 
 export interface TaskControls {
-  /** The task's tmux session name (orca-<agent>), or null when it has no agent label. */
+  /** The task's tmux session name (elowen-<agent>), or null when it has no agent label. */
   session: string | null;
   /** True when the task is in_progress and its tmux session is actually live. */
   running: boolean;

@@ -192,7 +192,7 @@ export class PluginRegistry {
         return baseResolveProvider(id);
       },
       dataDir: () => {
-        const dir = join(dataRoot ?? join(tmpdir(), 'orca-plugins-data'), name);
+        const dir = join(dataRoot ?? join(tmpdir(), 'elowen-plugins-data'), name);
         mkdirSync(dir, { recursive: true });
         return dir;
       },

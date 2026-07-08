@@ -29,7 +29,7 @@ export interface CliDetectionResult {
   freshInstall: FreshInstallInfo;
 }
 
-// `optional` tools are extra agent CLIs ORCA can drive but doesn't require — they're detected and
+// `optional` tools are extra agent CLIs ELOWEN can drive but doesn't require — they're detected and
 // displayed, yet excluded from the allInstalled/allFunctional summary so a box without them isn't
 // flagged "missing tools". (omp runs on the Bun runtime, so it needs `bun` on the daemon's PATH.)
 const TOOLS = [

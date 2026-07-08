@@ -94,7 +94,7 @@ export function Sidebar({ mode = 'full', drawerOpen = false, onDrawerClose, side
     >
       <div className="flex h-14 items-center justify-center border-b border-border px-3 overflow-hidden">
         {expanded
-          ? <img src="/orca-logo.png" alt={t.common.appName} className="logo-adaptive h-9 w-auto" />
+          ? <img src="/elowen-logo.png" alt={t.common.appName} className="logo-adaptive h-9 w-auto" />
           : <img src="/icon.png" alt={t.common.appName} className="h-7 w-7 rounded-md" />}
       </div>
 
@@ -178,7 +178,7 @@ export function Sidebar({ mode = 'full', drawerOpen = false, onDrawerClose, side
       {/* Version + authorship credit — its own line-separated footer at the very bottom. */}
       {expanded && (
         <div className="flex flex-col items-center gap-0.5 border-t border-border px-3 py-2 text-center">
-          <span className="font-mono text-tiny text-text-muted">orca v{data?.version ?? '—'}</span>
+          <span className="font-mono text-tiny text-text-muted">elowen v{data?.version ?? '—'}</span>
           <a
             href="https://dragocz.dev"
             target="_blank"

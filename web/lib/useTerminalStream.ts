@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { orcaClient, terminalWsUrl } from './orcaClient';
+import { elowenClient, terminalWsUrl } from './elowenClient';
 
 type StreamStatus = 'connecting' | 'open' | 'unsupported' | 'closed';
 
@@ -12,7 +12,7 @@ const UNSUPPORTED_CLOSE = 4001;
  *  every terminal. A failed fetch degrades to same-origin (directPort null) — the proxy/localhost path. */
 let wsConfigPromise: Promise<{ directPort: number | null }> | null = null;
 function getWsConfig(): Promise<{ directPort: number | null }> {
-  if (!wsConfigPromise) wsConfigPromise = orcaClient.wsConfig().catch(() => ({ directPort: null }));
+  if (!wsConfigPromise) wsConfigPromise = elowenClient.wsConfig().catch(() => ({ directPort: null }));
   return wsConfigPromise;
 }
 
@@ -37,7 +37,7 @@ export function useTerminalStream(name: string, enabled: boolean, onData: (bytes
     let cancelled = false;
     let ws: WebSocket | null = null;
     setStatus('connecting');
-    Promise.all([orcaClient.wsTicket(name), getWsConfig()])
+    Promise.all([elowenClient.wsTicket(name), getWsConfig()])
       .then(([{ ticket }, { directPort }]) => {
         if (cancelled) return;
         ws = new WebSocket(terminalWsUrl(ticket, directPort));

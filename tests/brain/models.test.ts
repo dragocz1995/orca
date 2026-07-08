@@ -34,7 +34,7 @@ describe('listBrainModels', () => {
     const models = await listBrainModels(cfg, f);
     expect(models.map((m) => m.model)).toEqual(['a', 'z']); // sorted
     expect(f).toHaveBeenCalledWith('https://ai.example/v1/models', expect.objectContaining({
-      headers: expect.objectContaining({ authorization: 'Bearer k', 'x-title': 'Orca' }),
+      headers: expect.objectContaining({ authorization: 'Bearer k', 'x-title': 'Elowen' }),
     }));
   });
 

@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, key)
 );
--- A linked Discord snowflake is an identity key: at most ONE Orca user may claim a given id, else a
+-- A linked Discord snowflake is an identity key: at most ONE Elowen user may claim a given id, else a
 -- squatter could point the victim's Discord identity (and its memory namespace / admin routing) at their
 -- own account. This partial UNIQUE index enforces one-owner-per-id atomically — only the discordUserId
 -- rows are constrained, so every other generic key/value pair stays unconstrained.
@@ -174,10 +174,10 @@ CREATE TABLE IF NOT EXISTS brain_goals (
 );
 CREATE INDEX IF NOT EXISTS idx_brain_goals_user ON brain_goals(user_id, status);
 
--- Per-user, per-platform personality profiles: named prompt bodies that shape how Orca behaves on a
+-- Per-user, per-platform personality profiles: named prompt bodies that shape how Elowen behaves on a
 -- given surface ('web'/'discord'/'cli', future keys allowed). A user may keep several named profiles
 -- per platform; the single active one per platform is pinned in personality_active_profiles. user_id
--- is INTEGER (joins users.id) — the spec's TEXT predates Orca's integer user ids.
+-- is INTEGER (joins users.id) — the spec's TEXT predates Elowen's integer user ids.
 CREATE TABLE IF NOT EXISTS personality_profiles (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS personality_active_profiles (
   PRIMARY KEY (user_id, platform)
 );
 
--- Orca RAW memory (v1: user-scoped only). Durable facts/preferences/instructions/corrections about a
+-- Elowen RAW memory (v1: user-scoped only). Durable facts/preferences/instructions/corrections about a
 -- user. Vectors live inline as packed Float32 BLOBs in memory_embeddings (no external vector DB).
 -- Deletes are SOFT (status='deleted') so the UI can restore; every mutation is audited in memory_events.
 CREATE TABLE IF NOT EXISTS memories (

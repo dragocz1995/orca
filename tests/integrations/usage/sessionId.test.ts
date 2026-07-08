@@ -7,7 +7,7 @@ import type { AgentSpec } from '../../../src/spawn/commandBuilder.js';
 
 const fallback: AgentSpec = { program: 'claude-code', model: 'sonnet' };
 let home: string;
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'orca-sessid-')); });
+beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'elowen-sessid-')); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 const at = (ms: number) => new Date(ms).toISOString();

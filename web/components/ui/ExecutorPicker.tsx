@@ -10,7 +10,7 @@ import type { BrainModelOption } from '../../lib/types';
 
 interface Model { label: string; exec: string }
 
-/** A brain provider group: one tab per CONFIGURED provider (not one lumped "Orca AI" tab), so the
+/** A brain provider group: one tab per CONFIGURED provider (not one lumped "Elowen AI" tab), so the
  *  user sees which account/endpoint actually serves the model. `oauth` drives the provenance badge. */
 interface BrainGroup { id: string; label: string; oauth: boolean; models: Model[] }
 
@@ -21,11 +21,11 @@ const tabClass = (open: boolean) =>
   `inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${open ? 'border-border-strong bg-elevated text-text' : 'border-border text-text-muted hover:bg-elevated hover:text-text'}`;
 
 /**
- * Two-level executor picker, split into two labelled sections so workers and Orca AI never blur:
+ * Two-level executor picker, split into two labelled sections so workers and Elowen AI never blur:
  *  - "Workers" — the CLI engines (Claude Code / OpenCode / Codex / Kilo) fed by the `models` prop.
- *  - "Orca AI" — one tab per configured brain provider (OAuth accounts carry a badge), models live
+ *  - "Elowen AI" — one tab per configured brain provider (OAuth accounts carry a badge), models live
  *    from the brain catalog.
- * `kind="brain"` renders the Orca AI section alone with the FULL catalog (no allow-list filter —
+ * `kind="brain"` renders the Elowen AI section alone with the FULL catalog (no allow-list filter —
  * the server already scopes non-admins); use it wherever only a brain model makes sense (plugin
  * config, chat model). The default `kind="all"` keeps the allow-list gate on brain models, because
  * there it decides what ordinary users may launch as task executors.
@@ -41,14 +41,14 @@ export function ExecutorPicker({ value, onChange, models, defaultLabel, allowDef
   limit?: number;
   /** Whether to offer the empty "default" pill. Off for fields that must resolve to a concrete model. */
   allowDefault?: boolean;
-  /** 'all' = workers + Orca AI (task executors); 'brain' = Orca AI only, full catalog. */
+  /** 'all' = workers + Elowen AI (task executors); 'brain' = Elowen AI only, full catalog. */
   kind?: 'all' | 'brain';
 }) {
   const { t } = useTranslation();
   const config = useConfig();
   const brain = useBrainModels();
 
-  // Orca AI models grouped by their real provider. In 'all' mode the global allow-list gates them
+  // Elowen AI models grouped by their real provider. In 'all' mode the global allow-list gates them
   // (what users may run as executors); in 'brain' mode the full catalog shows (the server already
   // filters non-admins per-user, so OAuth models are pickable without an allow-list detour).
   const allowed = config.data?.allowedExecs;
@@ -66,16 +66,16 @@ export function ExecutorPicker({ value, onChange, models, defaultLabel, allowDef
   if (kind === 'all') {
     for (const m of [...models].sort((a, b) => a.label.localeCompare(b.label))) {
       const p = execProvider(m.exec);
-      if (p === 'orca') continue; // orca execs render in the Orca AI section, never as a worker
+      if (p === 'elowen') continue; // elowen execs render in the Elowen AI section, never as a worker
       byWorker.set(p, [...(byWorker.get(p) ?? []), m]);
     }
   }
-  const workerGroups = PROVIDERS.filter((p) => p.id !== 'orca' && (byWorker.get(p.id as ProviderId) ?? []).length > 0);
+  const workerGroups = PROVIDERS.filter((p) => p.id !== 'elowen' && (byWorker.get(p.id as ProviderId) ?? []).length > 0);
 
   // Which tab is open: a worker engine ('w:<id>') or a brain provider ('b:<id>'). The current
   // selection's home tab opens by default so the picked model is visible on mount.
   const valueTab = value
-    ? (value.startsWith('orca:') ? `b:${brainList.find((m) => m.exec === value)?.provider ?? ''}` : `w:${execProvider(value)}`)
+    ? (value.startsWith('elowen:') ? `b:${brainList.find((m) => m.exec === value)?.provider ?? ''}` : `w:${execProvider(value)}`)
     : null;
   const [openTab, setOpenTab] = useState<string | null>(null);
   const firstTab = workerGroups[0] ? `w:${workerGroups[0].id}` : brainGroups[0] ? `b:${brainGroups[0].id}` : null;
@@ -129,18 +129,18 @@ export function ExecutorPicker({ value, onChange, models, defaultLabel, allowDef
         </div>
       ) : null}
 
-      {/* Orca AI: the embedded brain's providers — one tab per provider, OAuth accounts badged. */}
+      {/* Elowen AI: the embedded brain's providers — one tab per provider, OAuth accounts badged. */}
       {brainGroups.length > 0 ? (
         <div className="flex flex-col gap-1.5">
-          {kind === 'all' ? sectionLabel(t.tasks.sectionOrcaAi) : null}
-          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={t.tasks.sectionOrcaAi}>
+          {kind === 'all' ? sectionLabel(t.tasks.sectionElowenAi) : null}
+          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={t.tasks.sectionElowenAi}>
             {brainGroups.map((g) => {
               const tab = `b:${g.id}`;
               const holdsSelection = valueTab === tab && value !== '';
               return (
                 <button key={tab} type="button" role="tab" aria-selected={active === tab} onClick={() => setOpenTab(tab)} className={tabClass(active === tab)} style={{ transitionDuration: 'var(--motion-fast)' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={providerMeta('orca')!.icon} alt="" width={14} height={14} style={{ objectFit: 'contain' }} className="logo-adaptive" aria-hidden />
+                  <img src={providerMeta('elowen')!.icon} alt="" width={14} height={14} style={{ objectFit: 'contain' }} className="logo-adaptive" aria-hidden />
                   {g.label}
                   {g.oauth ? <span className="rounded-sm border border-border px-1 text-[9px] font-semibold uppercase text-text-muted">OAuth</span> : null}
                   {holdsSelection ? <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /> : null}

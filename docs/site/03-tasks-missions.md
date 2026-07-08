@@ -7,7 +7,7 @@ eyebrow: Core concepts
 
 # Tasks & Missions
 
-Orca is a personal AI agent you talk to, and this page explains how it
+Elowen is a personal AI agent you talk to, and this page explains how it
 organizes and executes the work you hand it. When you ask the agent to build,
 fix, or investigate something, it doesn't just reply — it turns your request
 into structured, trackable work. **Tasks** are the atomic unit of that work.
@@ -15,7 +15,7 @@ into structured, trackable work. **Tasks** are the atomic unit of that work.
 completion. Each mission runs on an **epic** — the container task that holds its
 phases.
 
-You never have to think in these terms to use Orca — plain chat is enough. But
+You never have to think in these terms to use Elowen — plain chat is enough. But
 the moment work gets bigger than a single step, this model is what lets you
 *see* exactly what the agent is doing and *steer* it. That visibility is the
 whole point: you always have a clear phase tree and a live view of progress in
@@ -84,26 +84,26 @@ pipeline without touching any config.
 You can hand the agent work to do later. Set a `scheduled_at` timestamp
 (ISO-8601) and `autostart: 1`, and the task fires on its own. The scheduler
 checks every 30 seconds and runs each schedule exactly once. A `scheduled_at`
-without `autostart` is just a due-date marker — Orca never launches it for you.
+without `autostart` is just a due-date marker — Elowen never launches it for you.
 
 To keep agents from clobbering each other, a shared working copy is
 **single-writer**: at most one agent edits a given repo at a time. So if several
 scheduled tasks share the same project, they fire **one per tick**, each waiting
 for the checkout to free up — no config, no flag, just a safe default in keeping
-with Orca's low-friction design. (Missions in PR-native mode sidestep this by
+with Elowen's low-friction design. (Missions in PR-native mode sidestep this by
 running each phase in its own isolated worktree — see below.)
 
 ## Missions (autopilot)
 
 A mission is how the agent tackles something too large for a single task. It
 decomposes a goal into ordered phases and drives their execution end to end.
-Missions are the heart of Orca's **autopilot**.
+Missions are the heart of Elowen's **autopilot**.
 
 The flow has five stages:
 
 1. **Plan** — you provide a goal; a planner decomposes it into ordered phases,
    persisted as an epic with one chained child task per phase.
-2. **Engage** — Orca spins up the mission that drives the epic (default autonomy
+2. **Engage** — Elowen spins up the mission that drives the epic (default autonomy
    L3, one session at a time).
 3. **Execute** — the engine spawns an agent for each ready phase, in dependency
    order, respecting the mission's session budget.
@@ -149,7 +149,7 @@ any time from the Web UI or CLI.
 
 ## Planning backends
 
-When you engage a mission, Orca needs to turn your goal into phases. It supports
+When you engage a mission, Elowen needs to turn your goal into phases. It supports
 three planning backends, so you can pick the trade-off that fits:
 
 | Backend | When | How |
@@ -179,7 +179,7 @@ re-engaging an epic applies a new level. The full depth —
 how escalations reach you, what each level clears, and how it interacts with
 per-user permissions — lives in [Agents & Autonomy](agents-autonomy).
 
-This ties directly into Orca's RBAC model: an admin controls, per user, which
+This ties directly into Elowen's RBAC model: an admin controls, per user, which
 executors that user may run and which tools are enabled for them. So even at L3,
 a mission can only ever act within the rights of the user who launched it —
 each user can have a different set of tools and permissions.

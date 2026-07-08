@@ -8,8 +8,8 @@ describe('mission lifecycle routes', () => {
   it('POST /missions engages an epic and it shows up active; DELETE disengages it', async () => {
     const { app, token, deps } = await makeTestApp({});
     // An epic with a single open phase, but no mission yet — the route must create one.
-    const epic = deps.tasks.create({ id: 'orca-E', project_id: 1, title: 'Epic', type: 'epic', description: 'do the thing' });
-    deps.tasks.create({ id: 'orca-E1', project_id: 1, title: 'Phase 1', type: 'task', parent_id: epic.id, description: 'p1' });
+    const epic = deps.tasks.create({ id: 'elowen-E', project_id: 1, title: 'Epic', type: 'epic', description: 'do the thing' });
+    deps.tasks.create({ id: 'elowen-E1', project_id: 1, title: 'Phase 1', type: 'task', parent_id: epic.id, description: 'p1' });
 
     const engaged = await app.request('/missions', post(token, { epicId: epic.id, autonomy: 'L3', maxSessions: 1 }));
     expect(engaged.status).toBe(201);

@@ -6,7 +6,7 @@ import { SERVICES, systemctl } from '../systemd.js';
 import { clearMarker, isOnboarded, readMarker } from './marker.js';
 import { runOnboarding } from './wizard.js';
 
-/** `orca setup [--reset] [--debug]` — run the onboarding wizard on demand. In a non-interactive shell it
+/** `elowen setup [--reset] [--debug]` — run the onboarding wizard on demand. In a non-interactive shell it
  *  NEVER blocks: it prints the next step and exits 0 (so CI / Docker / pipes are unaffected). Otherwise
  *  it makes sure the daemon is up (the wizard talks to it over the API), then runs. */
 export async function runSetup(args: string[], env: NodeJS.ProcessEnv, base: string, version: string): Promise<void> {
@@ -18,7 +18,7 @@ export async function runSetup(args: string[], env: NodeJS.ProcessEnv, base: str
   if (nonInteractive) {
     if (reset) clearMarker(env);
     try { await bringUp(base, env, version); }
-    catch (e) { console.error(`Couldn't start the Orca daemon: ${(e as Error).message}`); process.exit(1); }
+    catch (e) { console.error(`Couldn't start the Elowen daemon: ${(e as Error).message}`); process.exit(1); }
     try {
       const { runHeadlessSetup } = await import('./headless.js');
       await runHeadlessSetup(base, env, args);
@@ -32,18 +32,18 @@ export async function runSetup(args: string[], env: NodeJS.ProcessEnv, base: str
   if (!process.stdout.isTTY) {
     if (reset) clearMarker(env);
     console.log(isOnboarded(env)
-      ? 'Orca is set up. Run `orca setup` in an interactive terminal to reconfigure.'
-      : 'Orca is not set up yet. Run `orca setup` in an interactive terminal to get started.');
+      ? 'Elowen is set up. Run `elowen setup` in an interactive terminal to reconfigure.'
+      : 'Elowen is not set up yet. Run `elowen setup` in an interactive terminal to get started.');
     return;
   }
 
   if (reset) clearMarker(env);
-  else if (isOnboarded(env)) p.log.info('Orca is already set up — re-running the wizard (use `orca setup --reset` to start clean).');
+  else if (isOnboarded(env)) p.log.info('Elowen is already set up — re-running the wizard (use `elowen setup --reset` to start clean).');
 
   warnMissingPrereqs();
 
   try { await bringUp(base, env, version); }
-  catch (e) { console.error(`Couldn't start the Orca daemon: ${(e as Error).message}`); process.exit(1); }
+  catch (e) { console.error(`Couldn't start the Elowen daemon: ${(e as Error).message}`); process.exit(1); }
 
   try {
     await runOnboarding(base, env, { reset });
@@ -59,21 +59,21 @@ export async function runSetup(args: string[], env: NodeJS.ProcessEnv, base: str
 export async function maybeOfferSetup(base: string, env: NodeJS.ProcessEnv, version: string): Promise<void> {
   if (!process.stdout.isTTY || isOnboarded(env)) return;
   const resume = readMarker(env)?.resume;
-  const go = await p.confirm({ message: resume ? 'Resume your Orca setup?' : 'Set up Orca now? (about 2 minutes)', initialValue: true });
+  const go = await p.confirm({ message: resume ? 'Resume your Elowen setup?' : 'Set up Elowen now? (about 2 minutes)', initialValue: true });
   if (p.isCancel(go) || !go) return;
   try { await bringUp(base, env, version); }
-  catch (e) { p.log.error(`Couldn't start the Orca daemon: ${(e as Error).message}`); return; }
+  catch (e) { p.log.error(`Couldn't start the Elowen daemon: ${(e as Error).message}`); return; }
   // The wizard is a guest inside the launcher menu here — a mid-step failure (daemon died, fetch failed)
-  // must return to the menu like every other menu action, not crash the whole `orca` process.
+  // must return to the menu like every other menu action, not crash the whole `elowen` process.
   try { await runOnboarding(base, env, {}); }
   catch (e) { p.log.error((e as Error).message); }
 }
 
 /** Warn (never block) about missing prerequisites before the wizard runs. tmux is the real one — agents
- *  run inside tmux, so tasks can't launch without it (mirrors the `orca install` preflight copy). Node is
+ *  run inside tmux, so tasks can't launch without it (mirrors the `elowen install` preflight copy). Node is
  *  already >=22 by the time this JS runs, so it needs no check here. We only inform + print the platform's
  *  install hint and continue — setup usually runs as an unprivileged local user, so we don't offer to
- *  apt-install like `orca install` does. */
+ *  apt-install like `elowen install` does. */
 function warnMissingPrereqs(): void {
   if (hasCommand('tmux')) return;
   p.log.warn('tmux is required to run agents and is not installed — tasks will not run until it is.');
@@ -97,7 +97,7 @@ function tmuxInstallHint(): string {
 }
 
 /** Bring the daemon up the right way for this box: nothing if it's already healthy, else systemctl on an
- *  `orca install` box (never a second, port-conflicting detached daemon), otherwise the local lifecycle. */
+ *  `elowen install` box (never a second, port-conflicting detached daemon), otherwise the local lifecycle. */
 async function bringUp(base: string, env: NodeJS.ProcessEnv, version: string): Promise<void> {
   try { await fetch(`${base}/health`); return; } catch { /* down — start it below */ }
   if (readInstallInfo()) {

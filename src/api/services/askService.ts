@@ -61,7 +61,7 @@ export interface AskService {
   pending(): PendingAsk[];
 }
 
-/** The free-text worker↔autopilot exchange behind `orca ask`. Bridges the worker's long-poll to the
+/** The free-text worker↔autopilot exchange behind `elowen ask`. Bridges the worker's long-poll to the
  *  parked overseer's decision queue (kind 'message'); on escalate/timeout/no-overseer it parks the
  *  question on a HUMAN and waits — no auto-answer, no sentinel fallback (the worker holds until a person
  *  replies on the Escalations page, or its own tool timeout gives up). Each turn (question + reply) is
@@ -95,7 +95,7 @@ export function createAskService({ d, decisionQueue }: AskServiceDeps): AskServi
 
   /** Hand the question to a human and WAIT — no auto-proceed. Used when the overseer escalates/times out,
    *  or there is no overseer at all. The ask now stands as a pending escalation in the inbox until a human
-   *  answers it (or the worker's own tool timeout kills its blocking call). This mirrors every other Orca
+   *  answers it (or the worker's own tool timeout kills its blocking call). This mirrors every other Elowen
    *  escalation: the autopilot stops and waits for a person rather than guessing on the agent's behalf. */
   function escalateToHuman(askId: string): void {
     const ex = exchanges.get(askId);

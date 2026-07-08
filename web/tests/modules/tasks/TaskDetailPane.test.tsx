@@ -10,7 +10,7 @@ import { createWrapper } from '../../test-utils';
 const server = setupServer(
   http.get('*/api/tasks/deps', () => HttpResponse.json([])),
   http.get('*/api/activity', () => HttpResponse.json([])),
-  http.get('*/api/sessions/orca-nova/pane', () => HttpResponse.json({ pane: 'npm test\nall good' })),
+  http.get('*/api/sessions/elowen-nova/pane', () => HttpResponse.json({ pane: 'npm test\nall good' })),
 );
 beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
 
@@ -34,7 +34,7 @@ describe('TaskDetailPane', () => {
   it('renders the live tail for a running task', async () => {
     const { wrapper: Wrapper, client } = createWrapper();
     client.setQueryData(['tasks'], [{ id: 'tr', title: 'Running one', status: 'in_progress', labels: ['agent:nova'] }]);
-    client.setQueryData(['sessions'], [{ name: 'orca-nova', role: 'agent', agent: 'nova' }]);
+    client.setQueryData(['sessions'], [{ name: 'elowen-nova', role: 'agent', agent: 'nova' }]);
     render(<Wrapper><ToastProvider><TaskDetailPane taskId="tr" /></ToastProvider></Wrapper>);
     expect(await screen.findByText('Live output')).toBeTruthy();
     expect(await screen.findByText(/all good/)).toBeTruthy();

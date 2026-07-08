@@ -43,13 +43,13 @@ describe('permission gate — the single tool-call choke point (composeSessionTo
     expect(res.content[0]!.text).toContain('ran write_file');
   });
 
-  it('gates built-in (non-plugin) tools too — the orca_*/memory_* set passes the same choke point', async () => {
-    const { tool, ran } = fakeTool('orca_create_task');
-    const [gated] = composeSessionTools({ kind: 'owner-chat', orcaTools: () => [tool], pluginTools: [] });
-    const p = perms({ user: { tools: { orca_create_task: 'deny' } } });
+  it('gates built-in (non-plugin) tools too — the elowen_*/memory_* set passes the same choke point', async () => {
+    const { tool, ran } = fakeTool('elowen_create_task');
+    const [gated] = composeSessionTools({ kind: 'owner-chat', elowenTools: () => [tool], pluginTools: [] });
+    const p = perms({ user: { tools: { elowen_create_task: 'deny' } } });
     const res = await callTool(gated!, {}, p);
     expect(ran()).toBe(0);
-    expect(res.content[0]!.text).toContain('Denied by permission rule "orca_create_task"');
+    expect(res.content[0]!.text).toContain('Denied by permission rule "elowen_create_task"');
   });
 
   it('deny → immediate error result naming the rule, tool never runs (even under YOLO)', async () => {

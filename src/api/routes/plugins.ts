@@ -7,7 +7,7 @@ import { OAUTH_BUILTIN } from '../../brain/providers.js';
 import { oauthBuiltinCatalog } from '../../brain/models.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Context } from 'hono';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Map a marketplace service error to its HTTP status; unknown errors become a 500. */
 function marketplaceFail(c: Context, e: unknown) {
@@ -37,7 +37,7 @@ type McpControl = {
 /** Admin management of daemon plugins: list what's installed on disk (bundled + user dir) and flip a
  *  plugin on/off. Enabling updates `config.plugins.enabled` and hot-reloads the brain's registry, so the
  *  change applies to chat sessions immediately — no daemon restart. */
-export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerPluginRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   const notAdmin = (c: { get: (k: 'user') => { id: number } | undefined }): boolean => {
     if (!d.users || d.users.count() === 0) return false; // open/single-user mode → no gating

@@ -1,6 +1,6 @@
 import type { Runner } from './runner.js';
 
-/** The agent CLIs ORCA can drive, with the npm package that installs each. `orca install` detects
+/** The agent CLIs ELOWEN can drive, with the npm package that installs each. `elowen install` detects
  *  which are present for the service user and offers to install the rest. */
 export interface AgentCli { id: string; bin: string; pkg: string }
 

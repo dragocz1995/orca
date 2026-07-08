@@ -4,7 +4,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { parseBody } from '../validation.js';
 import { loginSchema, profilePatchSchema, passwordChangeSchema, userPermissionsSchema, projectAssignSchema, promptSaveSchema } from '../schemas/auth.js';
 import { EDITABLE_PROMPTS, isEditablePrompt, isAppendOnlyPrompt } from '../../prompts/catalog.js';
-import { orcaExec, isExecAllowedForUser } from '../../shared/execs.js';
+import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
 import { BUILTIN_TOOL_ICONS, builtinToolMetas } from '../../brain/tools/index.js';
 import { makeToolIconResolver } from '../../brain/toolIcons.js';
 import { ADVISOR_STYLES, DEFAULT_ADVISOR_STYLE } from '../../brain/personality.js';
@@ -13,14 +13,14 @@ import { DiscordIdConflictError, WhatsAppNumberConflictError } from '../../store
 import { sanitizeTerminalSettings, type TerminalSettings } from '../../store/terminalSettings.js';
 import { sanitizePermissionSettings } from '../../brain/toolPermissions.js';
 import type { User } from '../../store/userStore.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 import { logger } from '../../shared/logger.js';
 
 const log = logger('auth');
 
 /** Auth + user-management routes: login (rate-limited), session lifecycle, self-service profile /
  *  password / avatar, admin user CRUD and user↔project assignments. No-op without a user store. */
-export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerAuthRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   if (!d.users) return;
   const users = d.users;
@@ -111,7 +111,7 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     d.userPrompts.remove(c.get('user').id, name);
     return c.json({ ok: true });
   });
-  // Per-user CLI/brain settings (model override + auto-compact) — self-service, consumed by `orca chat`.
+  // Per-user CLI/brain settings (model override + auto-compact) — self-service, consumed by `elowen chat`.
   // `serverDefault` tells the UI what "empty model" resolves to: the first dedicated brain provider's
   // first model, else the autopilot relay model (the brain's legacy fallback).
   const serverDefaultModel = () => {
@@ -144,17 +144,17 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (typeof b.advisorStyle === 'string' && ADVISOR_STYLES.includes(b.advisorStyle as never)) patch.advisorStyle = b.advisorStyle;
     // A complete provider+model pick must be on the caller's allow-list (clearing is always fine).
     if (patch.model && patch.modelProvider
-      && !isExecAllowedForUser(u, d.config.get().allowedExecs, orcaExec(patch.modelProvider, patch.model))) {
+      && !isExecAllowedForUser(u, d.config.get().allowedExecs, elowenExec(patch.modelProvider, patch.model))) {
       return c.json({ error: 'model not allowed' }, 400);
     }
     if (patch.visionModel && patch.visionModelProvider
-      && !isExecAllowedForUser(u, d.config.get().allowedExecs, orcaExec(patch.visionModelProvider, patch.visionModel))) {
+      && !isExecAllowedForUser(u, d.config.get().allowedExecs, elowenExec(patch.visionModelProvider, patch.visionModel))) {
       return c.json({ error: 'model not allowed' }, 400);
     }
     try {
       d.userSettings.setCliSettings(u.id, patch);
     } catch (e) {
-      // A Discord snowflake may belong to only one Orca account — reject a squatter cleanly instead of
+      // A Discord snowflake may belong to only one Elowen account — reject a squatter cleanly instead of
       // redirecting the first owner's identity/memory namespace.
       if (e instanceof DiscordIdConflictError) {
         console.warn(`cli-settings: user ${u.id} tried to link Discord id already claimed by another user`);
@@ -308,9 +308,9 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     }
     if (Array.isArray(b.allowed_execs)) {
       // Can't grant beyond what the daemon globally allows; keep only known execs (dedup). Brain execs
-      // (orca:…) are bounded by the configured providers, not KNOWN_EXECS, so they're granted directly.
+      // (elowen:…) are bounded by the configured providers, not KNOWN_EXECS, so they're granted directly.
       const globalAllowed = new Set(d.config.get().allowedExecs);
-      users.setAllowedExecs(id, [...new Set(b.allowed_execs.filter((e) => typeof e === 'string' && (e.startsWith('orca:') || globalAllowed.has(e))))]);
+      users.setAllowedExecs(id, [...new Set(b.allowed_execs.filter((e) => typeof e === 'string' && (e.startsWith('elowen:') || globalAllowed.has(e))))]);
     }
     if (Array.isArray(b.disabled_tools)) {
       users.setDisabledTools(id, b.disabled_tools.filter((t) => typeof t === 'string'));
@@ -320,7 +320,7 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
 
   // Admin: the tools a user can actually reach, for the users-panel pills. One pass over the live plugin
   // registry + the built-in tool catalog — no N+1. State is DERIVED (there's no stored per-user tool
-  // grant): orca_* control-plane is operator/admin-only; memory_* is inherited by every interactive
+  // grant): elowen_* control-plane is operator/admin-only; memory_* is inherited by every interactive
   // session (per-user scoped); plugin tools ride along for the user's sessions (path-level access is
   // still enforced at execute). `icon` is the manifest/built-in emoji, or null → the client's fallback.
   app.get('/users/:id/tools', async (c) => {
@@ -337,9 +337,9 @@ export function registerAuthRoutes(app: OrcaApp, ctx: RouteContext): void {
     // Per-user deny-list: a plugin tool the admin switched off for this user's own brain sessions.
     const disabled = new Set(users.get(id)?.disabled_tools ?? []);
     type ToolState = 'allowed' | 'inherited' | 'unavailable' | 'disabled';
-    const pills: { name: string; label: string; icon: string | null; plugin: string | null; group: 'orca' | 'memory' | 'plugin'; state: ToolState; toggleable: boolean }[] = [];
+    const pills: { name: string; label: string; icon: string | null; plugin: string | null; group: 'elowen' | 'memory' | 'plugin'; state: ToolState; toggleable: boolean }[] = [];
     for (const m of builtinToolMetas()) {
-      const state: ToolState = m.group === 'orca' ? (targetIsAdmin ? 'allowed' : 'unavailable') : 'inherited';
+      const state: ToolState = m.group === 'elowen' ? (targetIsAdmin ? 'allowed' : 'unavailable') : 'inherited';
       pills.push({ name: m.name, label: m.label, icon: iconOf(m.name) ?? null, plugin: null, group: m.group, state, toggleable: false });
     }
     for (const t of registry?.tools ?? []) {

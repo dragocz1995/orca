@@ -37,11 +37,11 @@ vi.mock('next/dynamic', () => ({
 let killed = false;
 const server = setupServer(
   http.get('*/api/tasks', () => HttpResponse.json([])),
-  http.get('*/api/projects', () => HttpResponse.json([{ id: 1, slug: 'orca', path: '/var/www/orca', notes: '', icon: '', pr_enabled: null }])),
+  http.get('*/api/projects', () => HttpResponse.json([{ id: 1, slug: 'elowen', path: '/var/www/elowen', notes: '', icon: '', pr_enabled: null }])),
   http.get('*/api/projects/1/git', () => HttpResponse.json({ isRepo: false, status: null, branches: [], commits: [] })),
-  http.get('*/api/sessions', () => HttpResponse.json([{ name: 'orca-SwiftLake', role: 'agent', agent: 'SwiftLake' }])),
-  http.get('*/api/sessions/orca-SwiftLake/pane', () => HttpResponse.json({ pane: 'line a\nline b' })),
-  http.delete('*/api/sessions/orca-SwiftLake', () => { killed = true; return HttpResponse.json({ ok: true }); }),
+  http.get('*/api/sessions', () => HttpResponse.json([{ name: 'elowen-SwiftLake', role: 'agent', agent: 'SwiftLake' }])),
+  http.get('*/api/sessions/elowen-SwiftLake/pane', () => HttpResponse.json({ pane: 'line a\nline b' })),
+  http.delete('*/api/sessions/elowen-SwiftLake', () => { killed = true; return HttpResponse.json({ ok: true }); }),
 );
 beforeAll(() => server.listen()); afterAll(() => server.close());
 
@@ -64,7 +64,7 @@ describe('SessionsPage', () => {
     expect(screen.queryByTestId('term')).not.toBeInTheDocument();
     // Click Terminal button → modal opens with terminal inside
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
-    expect(screen.getByTestId('term')).toHaveTextContent('orca-SwiftLake');
+    expect(screen.getByTestId('term')).toHaveTextContent('elowen-SwiftLake');
     // Close via modal's Close button
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByTestId('term')).not.toBeInTheDocument();

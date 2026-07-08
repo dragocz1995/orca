@@ -69,8 +69,8 @@ export class MissionGit {
     const project = this.projectFor(missionId);
     if (!project) { log.warn(`PR mode: no project for mission ${missionId} — skipping worktree`); return; }
     const slug = sanitize(project.slug);
-    const branch = `orca/${slug}-${sanitize(epicId)}`;
-    const dir = join(dirname(project.path), '.orca-worktrees', `${slug}-${missionId}`);
+    const branch = `elowen/${slug}-${sanitize(epicId)}`;
+    const dir = join(dirname(project.path), '.elowen-worktrees', `${slug}-${missionId}`);
     try {
       const base = await detectBaseBranch(project.path, this.d.config.get().autopilot.prBaseBranch);
       await createMissionWorktree(project.path, branch, base, dir);
@@ -192,7 +192,7 @@ export class MissionGit {
     const base = await detectBaseBranch(repoPath, configuredBase);
     const epic = this.d.tasks.get(missionId.replace(/^m-/, ''));
     const title = epic?.title ?? branch;
-    const body = epic?.result_summary?.trim() || 'Opened by Orca autopilot.';
+    const body = epic?.result_summary?.trim() || 'Opened by Elowen autopilot.';
     const pr = await createPR({ dir: worktree, base, head: branch, title, body, token });
     if (!pr) return { state: 'pr-failed' };
     this.d.prs.setPr(missionId, { number: pr.number, url: pr.url, state: 'open' });
@@ -271,7 +271,7 @@ export class MissionGit {
     if (this.d.tasks.get(fixId)) return false; // already appended for this round
     this.d.tasks.create({
       id: fixId, project_id: project.id, title: 'Address PR review feedback', parent_id: epicId,
-      description: `A reviewer left feedback on the open pull request. Apply the requested fixes in the working tree (do not touch git/branches — Orca commits and pushes for you):\n\n${feedback}`,
+      description: `A reviewer left feedback on the open pull request. Apply the requested fixes in the working tree (do not touch git/branches — Elowen commits and pushes for you):\n\n${feedback}`,
     });
     const lastPhase = children[children.length - 1] ?? null;
     if (lastPhase) this.d.tasks.addDep(fixId, lastPhase.id);

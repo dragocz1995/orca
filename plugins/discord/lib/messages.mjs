@@ -4,7 +4,7 @@
 export const MESSAGES = {
   en: {
     newConversation: '🆕 Fresh conversation started in this channel.',
-    noModels: '❌ No models configured yet (Settings → Orca AI).',
+    noModels: '❌ No models configured yet (Settings → Elowen AI).',
     pickModel: '🧠 Pick the model for this channel:',
     modelSet: (m) => `✅ Model set to **${m}**.`,
     modelForbidden: '🔒 Only the operator can change the model here.',
@@ -21,7 +21,7 @@ export const MESSAGES = {
     compacted: (pct) => `🗜️ Context compacted — now at ${pct}%.`,
     nothingToCompact: '✅ Nothing to compact yet — the context is still small.',
     compactFailed: '⚠️ Compaction failed — check the logs.',
-    restarting: '🔄 Restarting the Orca daemon…',
+    restarting: '🔄 Restarting the Elowen daemon…',
     restartForbidden: '🔒 Only an admin can restart the daemon.',
     restartUnavailable: '⚠️ Restart isn’t available on this deployment.',
     help: (name) => [
@@ -35,13 +35,13 @@ export const MESSAGES = {
       '`/stop` — stop the running agent',
       '`/status` — model, context and usage',
       '`/compact` — summarize to free up context',
-      '`/restart` — restart the Orca daemon (admin)',
+      '`/restart` — restart the Elowen daemon (admin)',
       '`/help` — this message',
     ].join('\n'),
   },
   cs: {
     newConversation: '🆕 V tomto kanálu začíná nová konverzace.',
-    noModels: '❌ Zatím nejsou nastavené žádné modely (Nastavení → Orca AI).',
+    noModels: '❌ Zatím nejsou nastavené žádné modely (Nastavení → Elowen AI).',
     pickModel: '🧠 Vyberte model pro tento kanál:',
     modelSet: (m) => `✅ Model nastaven na **${m}**.`,
     modelForbidden: '🔒 Model tady může měnit jen provozovatel.',
@@ -58,7 +58,7 @@ export const MESSAGES = {
     compacted: (pct) => `🗜️ Kontext sesumarizován — nyní na ${pct}%.`,
     nothingToCompact: '✅ Zatím není co sumarizovat — kontext je ještě malý.',
     compactFailed: '⚠️ Sumarizace selhala — zkontroluj logy.',
-    restarting: '🔄 Restartuji Orca daemon…',
+    restarting: '🔄 Restartuji Elowen daemon…',
     restartForbidden: '🔒 Restartovat daemon může jen admin.',
     restartUnavailable: '⚠️ Restart není na tomto nasazení dostupný.',
     help: (name) => [
@@ -72,7 +72,7 @@ export const MESSAGES = {
       '`/stop` — zastavit běžícího agenta',
       '`/status` — model, kontext a využití',
       '`/compact` — sesumarizovat a uvolnit kontext',
-      '`/restart` — restart Orca daemonu (admin)',
+      '`/restart` — restart Elowen daemonu (admin)',
       '`/help` — tato zpráva',
     ].join('\n'),
   },

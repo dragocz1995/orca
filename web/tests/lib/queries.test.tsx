@@ -7,7 +7,7 @@ import { createWrapper } from '../test-utils';
 
 const server = setupServer(
   http.get('*/api/tasks', () =>
-    HttpResponse.json([{ id: 'orca-1', title: 'A', status: 'open' }]),
+    HttpResponse.json([{ id: 'elowen-1', title: 'A', status: 'open' }]),
   ),
 );
 
@@ -15,9 +15,9 @@ beforeAll(() => server.listen());
 afterAll(() => server.close());
 
 describe('useTasks', () => {
-  it('fetches tasks via orcaClient', async () => {
+  it('fetches tasks via elowenClient', async () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useTasks(), { wrapper });
-    await waitFor(() => expect(result.current.data?.[0].id).toBe('orca-1'));
+    await waitFor(() => expect(result.current.data?.[0].id).toBe('elowen-1'));
   });
 });

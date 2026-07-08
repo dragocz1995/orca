@@ -11,10 +11,10 @@ import { MissionEngine } from '../../src/overseer/missionEngine.js';
 import type { MissionEngineDeps } from '../../src/overseer/missionEngine.js';
 import { EventBus } from '../../src/api/sse.js';
 import { SystemClock } from '../../src/shared/clock.js';
-import type { OrcaEvent } from '../../src/api/sse.js';
+import type { ElowenEvent } from '../../src/api/sse.js';
 
 function setup(opts?: { summarize?: MissionEngineDeps['summarize'] }) {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
   tasks.create({ id: 't1', project_id: 1, title: 'one', parent_id: 'epic', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
@@ -34,12 +34,12 @@ function setup(opts?: { summarize?: MissionEngineDeps['summarize'] }) {
 
 describe('MissionEngine', () => {
   it('reverts a task to open (and publishes it) when spawn.launch throws', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
     tasks.create({ id: 't1', project_id: 1, title: 'one', parent_id: 'epic' });
     const bus = new EventBus();
-    const events: OrcaEvent[] = []; bus.subscribe((e) => events.push(e));
+    const events: ElowenEvent[] = []; bus.subscribe((e) => events.push(e));
     const engine = new MissionEngine({
       tasks, readiness: new Readiness(db), missions: new MissionStore(db),
       spawn: { launch: vi.fn().mockRejectedValue(new Error('tmux down')) } as unknown as SpawnService,
@@ -60,7 +60,7 @@ describe('MissionEngine', () => {
 
   it('publishes an in_progress task event after a successful spawn so the UI sees it running', async () => {
     const { tasks, engine, bus } = setup();
-    const events: OrcaEvent[] = []; bus.subscribe((e) => events.push(e));
+    const events: ElowenEvent[] = []; bus.subscribe((e) => events.push(e));
     await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     expect(tasks.get('t1')!.status).toBe('in_progress'); // t1 (no deps) was dispatched
     // Without the publish the DB flips to in_progress but the web cache never invalidates, so the task
@@ -69,7 +69,7 @@ describe('MissionEngine', () => {
   });
 
   it('serializes ready phases that share a non-PR checkout, even with max_sessions > 1 (C1)', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
     // Two independent (no dep) phases → both dependency-cleared and ready at once.
@@ -88,7 +88,7 @@ describe('MissionEngine', () => {
   });
 
   it('coalesces a tick requested while one is already in flight into exactly one extra pass (M1)', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
     tasks.create({ id: 't1', project_id: 1, title: 'one', parent_id: 'epic' });
@@ -109,7 +109,7 @@ describe('MissionEngine', () => {
   });
 
   it('keeps review self-heal budgets on a PR-feedback re-engage but resets them on a fresh engage (M3)', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
     tasks.create({ id: 'a', project_id: 1, title: 'A', parent_id: 'epic', status: 'closed' }); // a finished phase…
@@ -130,10 +130,10 @@ describe('MissionEngine', () => {
   it('stopTask kills the worker session of a single task so a re-open re-spawns cleanly', async () => {
     const { tasks, tmux, engine } = setup();
     tasks.setAgent('t1', 'Worker1');
-    await tmux.spawn('orca-Worker1', { command: 'sleep', cwd: '/o' });
-    expect(await tmux.list()).toContain('orca-Worker1');
+    await tmux.spawn('elowen-Worker1', { command: 'sleep', cwd: '/o' });
+    expect(await tmux.list()).toContain('elowen-Worker1');
     await engine.stopTask('t1'); // a worker that outlived its task close must be reaped before re-spawn
-    expect(await tmux.list()).not.toContain('orca-Worker1');
+    expect(await tmux.list()).not.toContain('elowen-Worker1');
   });
 
   it('stopTask is a no-op for a task with no agent label or no live session', async () => {
@@ -154,13 +154,13 @@ describe('MissionEngine', () => {
 
   it('resumeStalled un-freezes a stalled mission and ticks so the freed head spawns', async () => {
     const { engine, tmux, missions, bus } = setup();
-    const events: OrcaEvent[] = []; bus.subscribe((e) => events.push(e));
+    const events: ElowenEvent[] = []; bus.subscribe((e) => events.push(e));
     missions.create({ id: 'm-epic', epic_id: 'epic', autonomy: 'L3', max_sessions: 1 });
     missions.setState('m-epic', 'stalled');
     await engine.resumeStalled('m-epic');
     expect(missions.get('m-epic')!.state).toBe('active');                                  // un-frozen
     expect(events.some((e) => e.type === 'mission' && e.state === 'active')).toBe(true);   // announced
-    expect(await tmux.list()).toContain('orca-AgentX');                                    // ready head spawned
+    expect(await tmux.list()).toContain('elowen-AgentX');                                    // ready head spawned
   });
 
   it('resumeStalled never resurrects a disengaged mission', async () => {
@@ -175,36 +175,36 @@ describe('MissionEngine', () => {
   it('L1 (Assist) auto-spawns the ready head', async () => {
     const { tmux, engine } = setup();
     await engine.engage({ epicId: 'epic', autonomy: 'L1', maxSessions: 1 });
-    expect(await tmux.list()).toContain('orca-AgentX'); // L1 dispatches work; the overseer gates its prompts later
+    expect(await tmux.list()).toContain('elowen-AgentX'); // L1 dispatches work; the overseer gates its prompts later
   });
 
   it('picks a worker name clear of a lingering session (no duplicate-session crash)', async () => {
     const { tmux, engine } = setup();
-    await tmux.spawn('orca-AgentX', { cwd: '/o', command: 'zombie' }); // a stale worker session lingers
+    await tmux.spawn('elowen-AgentX', { cwd: '/o', command: 'zombie' }); // a stale worker session lingers
     await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     const live = await tmux.list();
     // The new worker avoids the live name entirely — its session is a distinct, non-colliding handle…
-    const fresh = live.filter((s) => s !== 'orca-AgentX' && s.startsWith('orca-AgentX'));
+    const fresh = live.filter((s) => s !== 'elowen-AgentX' && s.startsWith('elowen-AgentX'));
     expect(fresh).toHaveLength(1);
-    expect(fresh[0]).not.toBe('orca-AgentX'); // …so `tmux new-session` can never see a duplicate
+    expect(fresh[0]).not.toBe('elowen-AgentX'); // …so `tmux new-session` can never see a duplicate
   });
 
   it('L0 (Recommend) spawns nothing — the plan only gets proposed', async () => {
     const { tasks, tmux, engine } = setup();
     await engine.engage({ epicId: 'epic', autonomy: 'L0', maxSessions: 1 });
-    expect(await tmux.list()).not.toContain('orca-AgentX');
+    expect(await tmux.list()).not.toContain('elowen-AgentX');
     expect(tasks.get('t1')!.status).toBe('open'); // untouched
   });
 
   it('engages, spawns the ready head, advances on completion, auto-disengages', async () => {
     const { tasks, tmux, engine } = setup();
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
-    expect(await tmux.list()).toContain('orca-AgentX'); // t1 spawned
+    expect(await tmux.list()).toContain('elowen-AgentX'); // t1 spawned
     // simulate t1 done
-    tasks.setStatus('t1', 'closed'); await tmux.kill('orca-AgentX');
+    tasks.setStatus('t1', 'closed'); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id);
-    expect(await tmux.list()).toContain('orca-AgentX'); // t2 spawned
-    tasks.setStatus('t2', 'closed'); await tmux.kill('orca-AgentX');
+    expect(await tmux.list()).toContain('elowen-AgentX'); // t2 spawned
+    tasks.setStatus('t2', 'closed'); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id);
     expect(engine.isActive(m.id)).toBe(false); // auto-disengaged
   });
@@ -213,9 +213,9 @@ describe('MissionEngine', () => {
     const summarize = vi.fn().mockResolvedValue('Mise proběhla hladce, obě fáze hotové.');
     const { tasks, tmux, engine } = setup({ summarize });
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
-    tasks.close('t1', { summary: 'first done', outcome: 'ok' }); await tmux.kill('orca-AgentX');
+    tasks.close('t1', { summary: 'first done', outcome: 'ok' }); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id); // spawns t2
-    tasks.close('t2', { summary: 'second done', outcome: 'ok' }); await tmux.kill('orca-AgentX');
+    tasks.close('t2', { summary: 'second done', outcome: 'ok' }); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id); // completion → summarize + close epic + disengage
     // The overseer model is handed the goal + each phase's outcome/summary, and its prose is stamped on the epic.
     expect(summarize).toHaveBeenCalledTimes(1);
@@ -232,9 +232,9 @@ describe('MissionEngine', () => {
   it('falls back to a deterministic phase digest on completion when no summarizer is wired', async () => {
     const { tasks, tmux, engine } = setup(); // no summarize dep → engine synthesises the digest itself
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
-    tasks.close('t1', { summary: 'wrote the parser', outcome: 'ok' }); await tmux.kill('orca-AgentX');
+    tasks.close('t1', { summary: 'wrote the parser', outcome: 'ok' }); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id);
-    tasks.close('t2', { summary: 'added tests', outcome: 'ok' }); await tmux.kill('orca-AgentX');
+    tasks.close('t2', { summary: 'added tests', outcome: 'ok' }); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id);
     const epic = tasks.get('epic')!;
     expect(epic.status).toBe('closed');
@@ -242,17 +242,17 @@ describe('MissionEngine', () => {
     expect(epic.result_summary).toContain('two');
   });
 
-  it('does not count unrelated global orca- sessions against max_sessions', async () => {
+  it('does not count unrelated global elowen- sessions against max_sessions', async () => {
     const { tmux, engine } = setup();
-    await tmux.spawn('orca-OtherProject', { cwd: '/x', command: 'sleep 1' }); // foreign session
+    await tmux.spawn('elowen-OtherProject', { cwd: '/x', command: 'sleep 1' }); // foreign session
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     expect(engine.isActive(m.id)).toBe(true);
-    expect(await tmux.list()).toContain('orca-AgentX'); // head still spawned despite the foreign session
+    expect(await tmux.list()).toContain('elowen-AgentX'); // head still spawned despite the foreign session
   });
 
   it('engage() publishes mission active event', async () => {
     const { engine, bus } = setup();
-    const events: OrcaEvent[] = [];
+    const events: ElowenEvent[] = [];
     bus.subscribe(e => events.push(e));
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     const missionEvents = events.filter(e => e.type === 'mission');
@@ -261,13 +261,13 @@ describe('MissionEngine', () => {
 
   it('auto-disengage publishes mission disengaged event', async () => {
     const { tasks, tmux, engine, bus } = setup();
-    const events: OrcaEvent[] = [];
+    const events: ElowenEvent[] = [];
     bus.subscribe(e => events.push(e));
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     // close all tasks and tick to trigger auto-disengage
-    tasks.setStatus('t1', 'closed'); await tmux.kill('orca-AgentX');
+    tasks.setStatus('t1', 'closed'); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id);
-    tasks.setStatus('t2', 'closed'); await tmux.kill('orca-AgentX');
+    tasks.setStatus('t2', 'closed'); await tmux.kill('elowen-AgentX');
     await engine.tick(m.id);
     const disengaged = events.filter(e => e.type === 'mission' && e.state === 'disengaged');
     expect(disengaged.length).toBeGreaterThanOrEqual(1);
@@ -277,10 +277,10 @@ describe('MissionEngine', () => {
   it('disengage kills the running agent and reverts its task to open', async () => {
     const { tasks, tmux, engine } = setup();
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
-    expect(await tmux.list()).toContain('orca-AgentX');
+    expect(await tmux.list()).toContain('elowen-AgentX');
     expect(tasks.get('t1')!.status).toBe('in_progress');
     await engine.disengage(m.id);
-    expect(await tmux.list()).not.toContain('orca-AgentX'); // session killed, not left running
+    expect(await tmux.list()).not.toContain('elowen-AgentX'); // session killed, not left running
     expect(tasks.get('t1')!.status).toBe('open');           // reverted so the UI no longer reads "running"
     expect(engine.isActive(m.id)).toBe(false);
   });
@@ -289,13 +289,13 @@ describe('MissionEngine', () => {
     const { tasks, tmux, engine } = setup();
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     await engine.pause(m.id);
-    expect(await tmux.list()).not.toContain('orca-AgentX');
+    expect(await tmux.list()).not.toContain('elowen-AgentX');
     expect(tasks.get('t1')!.status).toBe('open');
     expect(engine.isActive(m.id)).toBe(false); // paused, not active
   });
 
   it('stopRunning reverts every in_progress child even if a tmux.kill throws (O3)', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
     tasks.create({ id: 'a', project_id: 1, title: 'a', parent_id: 'epic' });
@@ -303,10 +303,10 @@ describe('MissionEngine', () => {
     // Two parallel in_progress children; the first session's kill rejects (it exited already).
     for (const id of ['a', 'b']) { tasks.setAgent(id, id); tasks.setStatus(id, 'in_progress'); }
     const base = new FakeTmuxDriver();
-    await base.spawn('orca-a', { cwd: '/o', command: 'x' });
-    await base.spawn('orca-b', { cwd: '/o', command: 'x' });
+    await base.spawn('elowen-a', { cwd: '/o', command: 'x' });
+    await base.spawn('elowen-b', { cwd: '/o', command: 'x' });
     // Minimal driver: the first kill rejects (session exited between list() and kill); the rest delegate.
-    const tmux = { list: () => base.list(), kill: (s: string) => { if (s === 'orca-a') throw new Error('already gone'); return base.kill(s); } } as never;
+    const tmux = { list: () => base.list(), kill: (s: string) => { if (s === 'elowen-a') throw new Error('already gone'); return base.kill(s); } } as never;
     const engine = new MissionEngine({
       tasks, readiness: new Readiness(db), missions: new MissionStore(db),
       spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux, bus: new EventBus(),
@@ -321,7 +321,7 @@ describe('MissionEngine', () => {
 
   it('disengage and pause are idempotent — a repeat call emits no second event (O6)', async () => {
     const { engine, bus } = setup();
-    const events: OrcaEvent[] = [];
+    const events: ElowenEvent[] = [];
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     bus.subscribe((e) => events.push(e));
     await engine.disengage(m.id);
@@ -331,7 +331,7 @@ describe('MissionEngine', () => {
 
   it('pause is idempotent — a repeat call emits no second paused event (O6)', async () => {
     const { engine, bus } = setup();
-    const events: OrcaEvent[] = [];
+    const events: ElowenEvent[] = [];
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     bus.subscribe((e) => events.push(e));
     await engine.pause(m.id);
@@ -342,7 +342,7 @@ describe('MissionEngine', () => {
 
 describe('MissionEngine overseer lifecycle', () => {
   function setup(overseer?: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; ensure?: ReturnType<typeof vi.fn> }) {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
     tasks.create({ id: 'g1', project_id: 1, title: 'Add auth login flow', parent_id: 'epic' });
@@ -410,7 +410,7 @@ describe('MissionEngine overseer lifecycle', () => {
 describe('MissionEngine multi-project', () => {
   it('drives a mission in a non-home project and spawns in that project\'s path', async () => {
     const db = openDb(':memory:');
-    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic2', project_id: 2, title: 'E2', type: 'epic' });
@@ -423,8 +423,8 @@ describe('MissionEngine multi-project', () => {
       nameAgent: () => 'AgentX', clock: new SystemClock(),
     });
     await engine.engage({ epicId: 'epic2', autonomy: 'L3', maxSessions: 1 });
-    expect(await tmux.list()).toContain('orca-AgentX');
-    expect(tmux.commandFor('orca-AgentX')).toContain('/p2'); // launched in project 2, not the home '/o'
+    expect(await tmux.list()).toContain('elowen-AgentX');
+    expect(tmux.commandFor('elowen-AgentX')).toContain('/p2'); // launched in project 2, not the home '/o'
     expect(tasks.get('x1')!.status).toBe('in_progress');
   });
 });

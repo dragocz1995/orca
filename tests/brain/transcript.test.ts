@@ -8,7 +8,7 @@ describe('transcript fold: session (idle rollover)', () => {
     let view: ChatView = {
       turns: [
         { role: 'you', text: 'yesterday' },
-        { role: 'orca', segments: [{ kind: 'text', text: 'old answer' }], streaming: false },
+        { role: 'elowen', segments: [{ kind: 'text', text: 'old answer' }], streaming: false },
       ],
       thinking: false,
     };
@@ -16,7 +16,7 @@ describe('transcript fold: session (idle rollover)', () => {
     view = reduce(view, { type: 'session', sessionId: 'brain-1-x' });
     expect(view.turns).toEqual([
       { role: 'you', text: 'today' },
-      { role: 'orca', segments: [], streaming: true },
+      { role: 'elowen', segments: [], streaming: true },
     ]);
     expect(view.thinking).toBe(true); // the turn keeps streaming in the fresh session
     // The reply then folds into the kept streaming turn as usual.
@@ -25,7 +25,7 @@ describe('transcript fold: session (idle rollover)', () => {
   });
 
   it('clears everything when no user turn is present (defensive)', () => {
-    const view = reduce({ turns: [{ role: 'orca', segments: [{ kind: 'text', text: 'x' }], streaming: false }], thinking: false }, { type: 'session', sessionId: 's' });
+    const view = reduce({ turns: [{ role: 'elowen', segments: [{ kind: 'text', text: 'x' }], streaming: false }], thinking: false }, { type: 'session', sessionId: 's' });
     expect(view.turns).toEqual([]);
   });
 
@@ -41,7 +41,7 @@ describe('transcript fold: diff with a notes-only output view', () => {
     const output = { title: 'tool result', kind: 'result' as const, text: '', tone: 'normal' as const, notes: ['formatted a.ts with prettier'] };
     v = reduce(v, { type: 'diff', diff: '+    1 x', id: 'c1', output });
     const turn = v.turns[v.turns.length - 1]!;
-    if (turn.role !== 'orca') throw new Error('expected orca turn');
+    if (turn.role !== 'elowen') throw new Error('expected elowen turn');
     const seg = turn.segments.find((s) => s.kind === 'tools');
     if (seg?.kind !== 'tools') throw new Error('expected tools segment');
     expect(seg.items[0]).toMatchObject({ diff: '+    1 x', output });
@@ -61,7 +61,7 @@ describe('transcript fold: subagent progress', () => {
       task: 'research the config', detail: 'read_file src/a.ts', tools: 2, tokens: 1500, seconds: 7,
     });
     const turn = v.turns[v.turns.length - 1]!;
-    if (turn.role !== 'orca') throw new Error('expected orca turn');
+    if (turn.role !== 'elowen') throw new Error('expected elowen turn');
     const seg = turn.segments.find((s) => s.kind === 'tools');
     if (seg?.kind !== 'tools') throw new Error('expected tools segment');
     expect(seg.items[0]!.sub).toMatchObject({
@@ -73,7 +73,7 @@ describe('transcript fold: subagent progress', () => {
     let v = reduce(delegateCall(), { type: 'subagent', id: 'call-1', sessionId: 's', status: 'running', task: 't', tools: 1, seconds: 2 });
     v = reduce(v, { type: 'subagent', id: 'call-1', sessionId: 's', status: 'done', task: 't', tools: 5, tokens: 9000, seconds: 31 });
     const turn = v.turns[v.turns.length - 1]!;
-    if (turn.role !== 'orca') throw new Error('expected orca turn');
+    if (turn.role !== 'elowen') throw new Error('expected elowen turn');
     const seg = turn.segments.find((s) => s.kind === 'tools');
     if (seg?.kind !== 'tools') throw new Error('expected tools segment');
     expect(seg.items[0]!.sub).toMatchObject({ status: 'done', tools: 5, tokens: 9000, seconds: 31 });
@@ -83,7 +83,7 @@ describe('transcript fold: subagent progress', () => {
     const before = delegateCall();
     const after = reduce(before, { type: 'subagent', id: 'other', sessionId: 's', status: 'running', task: 't', tools: 0, seconds: 0 });
     const turn = after.turns[after.turns.length - 1]!;
-    if (turn.role !== 'orca') throw new Error('expected orca turn');
+    if (turn.role !== 'elowen') throw new Error('expected elowen turn');
     const seg = turn.segments.find((s) => s.kind === 'tools');
     if (seg?.kind !== 'tools') throw new Error('expected tools segment');
     expect(seg.items[0]!.sub).toBeUndefined();

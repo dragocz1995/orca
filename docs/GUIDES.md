@@ -13,9 +13,9 @@ inferred from task labels via the `agent:<name>` convention.
 ### How it works
 
 1. Task gets an `agent:<name>` label when spawned (e.g. `agent:SwiftLake0`)
-2. The tmux session is named `orca-<name>` (e.g. `orca-SwiftLake0`)
-3. To find a task's session: extract `agent:<name>` from labels → prepend `orca-`
-4. To find a session's task: strip `orca-` prefix → agent name → associated task
+2. The tmux session is named `elowen-<name>` (e.g. `elowen-SwiftLake0`)
+3. To find a task's session: extract `agent:<name>` from labels → prepend `elowen-`
+4. To find a session's task: strip `elowen-` prefix → agent name → associated task
 
 ### Session lifecycle
 
@@ -30,7 +30,7 @@ spawn → create agent row (name, program, model, project_id) → create tmux se
 The web UI checks if a session is actually alive (not just `in_progress`):
 
 ```typescript
-const isLive = liveSessions.includes(`orca-${agentName}`);
+const isLive = liveSessions.includes(`elowen-${agentName}`);
 ```
 
 ---
@@ -54,7 +54,7 @@ Requires an API key. Returns `autopilot_key_missing` (400) without one.
 When `config.autopilot.pilotExec` is set, a **Pilot agent** spawns in the
 project repo. The Pilot reads the codebase, decomposes the goal using the
 prompt from `prompts/pilot.md`, and submits structured phases via
-`orca plan submit --phases '<json>'`.
+`elowen plan submit --phases '<json>'`.
 
 Returns `202 Accepted` with a `jobId`. The web UI polls `GET /plan/:jobId`.
 
@@ -96,9 +96,9 @@ default to blanket reject.
 `overseerExec` is set → one Overseer agent is parked per active mission. It
 runs a long-poll loop:
 
-1. `orca overseer poll` — absorb heartbeats, surface decisions
+1. `elowen overseer poll` — absorb heartbeats, surface decisions
 2. Judge the request using `prompts/overseer.md`
-3. `orca overseer decide --id <id> --approve --confidence 0.85` — submit verdict
+3. `elowen overseer decide --id <id> --approve --confidence 0.85` — submit verdict
 
 The agent path is fully async. A 120-second timeout escalates if the overseer
 doesn't respond.
@@ -126,7 +126,7 @@ destructive heuristic (`isDestructive()`) is always authoritative.
 
 ## Deriver: prompt detection & resolution
 
-The deriver polls every live `orca-*` tmux pane every 5 seconds.
+The deriver polls every live `elowen-*` tmux pane every 5 seconds.
 
 ### Prompt detection
 
@@ -272,8 +272,8 @@ Consumed by: Planner (decompose), Overseer (decidePrompt, decideTask).
 Agents working on the same mission leave notes for later phases:
 
 ```bash
-orca note add <missionId> "Key findings from this phase..."
-orca note ls <missionId>    # read all, oldest first
+elowen note add <missionId> "Key findings from this phase..."
+elowen note ls <missionId>    # read all, oldest first
 ```
 
 Limits: 8 000 chars per note, 200 notes per target.
@@ -282,7 +282,7 @@ Limits: 8 000 chars per note, 200 notes per target.
 
 ## Brain plugins
 
-Brain plugins extend Orca with tools, platforms, skills, and context
+Brain plugins extend Elowen with tools, platforms, skills, and context
 providers. See [PLUGIN_DEV.md](PLUGIN_DEV.md) for how to write them.
 
 ### Plugin lifecycle

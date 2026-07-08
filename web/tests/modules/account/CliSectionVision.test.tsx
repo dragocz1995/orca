@@ -19,7 +19,7 @@ const CLI: CliSettings = {
 };
 const PERMISSIONS: PermissionSettings = { tools: {}, bash: {}, yolo: false, unattendedAsks: 'allow' };
 const MODELS: BrainModelOption[] = [
-  { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-opus', exec: 'orca:anthropic/claude-opus', source: 'oauth', contextWindow: 200000, contextWindowSet: false },
+  { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-opus', exec: 'elowen:anthropic/claude-opus', source: 'oauth', contextWindow: 200000, contextWindowSet: false },
 ];
 vi.mock('../../../lib/queries', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),

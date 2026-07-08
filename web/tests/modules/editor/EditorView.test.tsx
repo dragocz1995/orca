@@ -21,7 +21,7 @@ let mobileFlag = false;
 vi.mock('../../../lib/useMobile', () => ({ useMobile: () => mobileFlag }));
 
 const PROJECTS = [
-  { id: 7, slug: 'orca', path: '/p/orca', notes: '', icon: '', pr_enabled: null },
+  { id: 7, slug: 'elowen', path: '/p/elowen', notes: '', icon: '', pr_enabled: null },
   { id: 9, slug: 'other', path: '/p/other', notes: '', icon: '', pr_enabled: null },
 ];
 let projectList: typeof PROJECTS = PROJECTS;
@@ -59,7 +59,7 @@ describe('EditorView', () => {
     const { wrapper } = createWrapper();
     render(<EditorView />, { wrapper });
     // Both projects are selectable…
-    expect(screen.getByText('orca')).toBeTruthy();
+    expect(screen.getByText('elowen')).toBeTruthy();
     expect(screen.getByText('other')).toBeTruthy();
     // …but the editor edits exactly one, so the "All projects" pill must not be there.
     expect(screen.queryByText('All projects')).toBeNull();

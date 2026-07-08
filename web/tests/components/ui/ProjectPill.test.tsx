@@ -7,7 +7,7 @@ import { createWrapper } from '../../test-utils';
 import type { Project } from '../../../lib/types';
 
 const TWO: Project[] = [
-  { id: 1, slug: 'orca', path: '/var/www/orca', notes: '', icon: '', pr_enabled: null },
+  { id: 1, slug: 'elowen', path: '/var/www/elowen', notes: '', icon: '', pr_enabled: null },
   { id: 2, slug: 'api', path: '/srv/api', notes: '', icon: '', pr_enabled: null },
 ];
 
@@ -31,7 +31,7 @@ describe('ProjectPill', () => {
     const { wrapper: W } = createWrapper();
     const { container } = render(<W><ProjectPill projectId={99} /></W>);
     // Give the query time to settle; an unknown id resolves to no pill.
-    await waitFor(() => expect(container.textContent).not.toContain('orca'));
+    await waitFor(() => expect(container.textContent).not.toContain('elowen'));
     expect(container.querySelector('span')).toBeNull();
   });
 
@@ -48,7 +48,7 @@ describe('ProjectPill', () => {
     server.use(projectsHandler([TWO[0]]));
     const { wrapper: W } = createWrapper();
     const { container } = render(<W><ProjectPill projectId={1} always /></W>);
-    await waitFor(() => expect(container.textContent).toContain('orca'));
+    await waitFor(() => expect(container.textContent).toContain('elowen'));
   });
 
   it('renders nothing when no project id is given', () => {

@@ -6,7 +6,7 @@ describe('chat render reducer', () => {
     const v = fromHistory([{ role: 'user', text: 'hi' }, { role: 'assistant', text: '' }, { role: 'assistant', text: 'yo' }]);
     expect(v.turns).toEqual([
       { role: 'you', text: 'hi' },
-      { role: 'orca', segments: [{ kind: 'text', text: 'yo' }], streaming: false },
+      { role: 'elowen', segments: [{ kind: 'text', text: 'yo' }], streaming: false },
     ]);
   });
 
@@ -15,8 +15,8 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'text', delta: 'a' });
     v = reduce(v, { type: 'text', delta: 'hoj' });
     const turn = v.turns.at(-1)!;
-    expect(turn).toMatchObject({ role: 'orca', streaming: true });
-    expect(turn.role === 'orca' && turn.segments).toEqual([{ kind: 'text', text: 'ahoj' }]);
+    expect(turn).toMatchObject({ role: 'elowen', streaming: true });
+    expect(turn.role === 'elowen' && turn.segments).toEqual([{ kind: 'text', text: 'ahoj' }]);
     expect(v.thinking).toBe(true);
   });
 
@@ -25,7 +25,7 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'tool', name: 'grep' });
     v = reduce(v, { type: 'tool', name: 'read_file' });
     const turn = v.turns.at(-1)!;
-    expect(turn.role === 'orca' && turn.segments).toEqual([{ kind: 'tools', items: [{ name: 'grep', detail: undefined }, { name: 'read_file', detail: undefined }] }]);
+    expect(turn.role === 'elowen' && turn.segments).toEqual([{ kind: 'tools', items: [{ name: 'grep', detail: undefined }, { name: 'read_file', detail: undefined }] }]);
   });
 
   it('interleaves text and tools in order (text → tools → text = three segments)', () => {
@@ -34,7 +34,7 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'tool', name: 'grep' });
     v = reduce(v, { type: 'text', delta: 'found it' });
     const turn = v.turns.at(-1)!;
-    expect(turn.role === 'orca' && turn.segments).toEqual([
+    expect(turn.role === 'elowen' && turn.segments).toEqual([
       { kind: 'text', text: 'looking' },
       { kind: 'tools', items: [{ name: 'grep', detail: undefined }] },
       { kind: 'text', text: 'found it' },
@@ -46,7 +46,7 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'tool', name: 'edit', detail: 'src/a.ts' });
     v = reduce(v, { type: 'diff', diff: '-old\n+new' });
     const turn = v.turns.at(-1)!;
-    expect(turn.role === 'orca' && turn.segments).toEqual([
+    expect(turn.role === 'elowen' && turn.segments).toEqual([
       { kind: 'tools', items: [{ name: 'edit', detail: 'src/a.ts', diff: '-old\n+new' }] },
     ]);
   });
@@ -56,7 +56,7 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'tool', name: 'run_command', detail: 'npm test' });
     v = reduce(v, { type: 'tool_output', output: { title: 'console output', kind: 'console', text: 'Tests 4 passed', command: 'npm test', status: 'exit 0', tone: 'success' } });
     const turn = v.turns.at(-1)!;
-    expect(turn.role === 'orca' && turn.segments).toEqual([
+    expect(turn.role === 'elowen' && turn.segments).toEqual([
       { kind: 'tools', items: [{ name: 'run_command', detail: 'npm test', output: { title: 'console output', kind: 'console', text: 'Tests 4 passed', command: 'npm test', status: 'exit 0', tone: 'success' } }] },
     ]);
   });
@@ -67,7 +67,7 @@ describe('chat render reducer', () => {
     // The end event's output has no command — the reducer fills it from the matching start event.
     v = reduce(v, { type: 'tool_output', id: 'x', output: { title: 'console output', kind: 'console', text: '', status: 'done' } });
     const turn = v.turns.at(-1)!;
-    const item = turn.role === 'orca' && turn.segments[0]?.kind === 'tools' ? turn.segments[0].items[0] : null;
+    const item = turn.role === 'elowen' && turn.segments[0]?.kind === 'tools' ? turn.segments[0].items[0] : null;
     expect(item?.command).toBe('mkdir -p build');
     expect(item?.output?.command).toBe('mkdir -p build');
   });
@@ -77,7 +77,7 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'tool', name: 'run_command', command: 'a', id: 'y' });
     v = reduce(v, { type: 'tool_output', id: 'y', output: { title: 'console output', kind: 'console', text: 'x', command: 'b' } });
     const turn = v.turns.at(-1)!;
-    const item = turn.role === 'orca' && turn.segments[0]?.kind === 'tools' ? turn.segments[0].items[0] : null;
+    const item = turn.role === 'elowen' && turn.segments[0]?.kind === 'tools' ? turn.segments[0].items[0] : null;
     expect(item?.output?.command).toBe('b');
   });
 
@@ -88,7 +88,7 @@ describe('chat render reducer', () => {
     v = reduce(v, { type: 'tool_output', id: 'a', output: { title: 'console output', kind: 'console', text: 'A done' } });
     v = reduce(v, { type: 'diff', id: 'b', diff: '-old\n+new' });
     const turn = v.turns.at(-1)!;
-    expect(turn.role === 'orca' && turn.segments).toEqual([
+    expect(turn.role === 'elowen' && turn.segments).toEqual([
       { kind: 'tools', items: [
         { name: 'first', detail: undefined, icon: undefined, id: 'a', output: { title: 'console output', kind: 'console', text: 'A done' } },
         { name: 'second', detail: undefined, icon: undefined, id: 'b', diff: '-old\n+new' },
@@ -108,13 +108,13 @@ describe('chat render reducer', () => {
     const v = reduce(emptyView(), { type: 'text', delta: 'hi' });
     expect(v.turns).toHaveLength(1);
     const turn = v.turns[0]!;
-    expect(turn.role === 'orca' && turn.segments).toEqual([{ kind: 'text', text: 'hi' }]);
+    expect(turn.role === 'elowen' && turn.segments).toEqual([{ kind: 'text', text: 'hi' }]);
   });
 
   it('error appends a note and stops', () => {
     const v = reduce(beginAssistant(emptyView()), { type: 'error', message: 'boom' });
     const turn = v.turns.at(-1)!;
-    const text = turn.role === 'orca' ? turn.segments.map((s) => (s.kind === 'text' ? s.text : '')).join('') : '';
+    const text = turn.role === 'elowen' ? turn.segments.map((s) => (s.kind === 'text' ? s.text : '')).join('') : '';
     expect(text).toContain('boom');
     expect(v.thinking).toBe(false);
   });

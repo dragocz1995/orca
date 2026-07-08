@@ -18,7 +18,7 @@ import { HelpTip } from '../../components/ui/HelpTip';
 import { useUpdateConfig } from '../../lib/mutations';
 import { useAutoSave } from '../../lib/useAutoSave';
 import { useSaveBrainProviders, useBrainOauthDisconnect } from '../../lib/mutations';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import type { BrainProvider, BrainProviderType, OAuthFlowState, BrainLimits } from '../../lib/types';
 
 /** Fallback for seeding the Limits form before the daemon's config arrives (it always sends real values). */
@@ -59,7 +59,7 @@ function OAuthConnectDialog({ flow: initial, onDone }: { flow: OAuthFlowState; o
 
   useEffect(() => {
     const timer = setInterval(() => {
-      void orcaClient.brainOauthFlow(flow.id).then((f) => {
+      void elowenClient.brainOauthFlow(flow.id).then((f) => {
         setFlow(f);
         if ((f.status === 'success' || f.status === 'error') && !done.current) {
           done.current = true;
@@ -85,7 +85,7 @@ function OAuthConnectDialog({ flow: initial, onDone }: { flow: OAuthFlowState; o
         ) : null}
         {flow.instructions ? <p className="text-xs text-text-muted">{flow.instructions}</p> : null}
         {flow.needsInput ? (
-          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) { void orcaClient.brainOauthInput(flow.id, code.trim()); setCode(''); } }}>
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) { void elowenClient.brainOauthInput(flow.id, code.trim()); setCode(''); } }}>
             <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder={t.brain.connectCodePlaceholder} className="font-mono" />
             <Button type="submit" variant="accent" disabled={!code.trim()}>{t.brain.connectSubmitCode}</Button>
           </form>
@@ -109,7 +109,7 @@ function OAuthModelsModal({ type, initial, onSave, onClose }: {
   const [catalog, setCatalog] = useState<string[] | null>(null);
   useEffect(() => {
     setCatalog(null);
-    void orcaClient.brainOauthCatalog(type).then((r) => setCatalog(r.models)).catch(() => setCatalog([]));
+    void elowenClient.brainOauthCatalog(type).then((r) => setCatalog(r.models)).catch(() => setCatalog([]));
   }, [type]);
 
   const title = t.brain.pickModelsTitle.replace('{provider}', t.brain.types[type]);
@@ -154,7 +154,7 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
     if (d.type !== 'openai' || !d.baseUrl.trim()) { setProbed(null); return; }
     setProbed('loading');
     const timer = setTimeout(() => {
-      void orcaClient.brainProviderProbe({ baseUrl: d.baseUrl.trim(), ...(d.apiKey.trim() ? { apiKey: d.apiKey.trim() } : {}), ...(isNew ? {} : { id: d.id }) })
+      void elowenClient.brainProviderProbe({ baseUrl: d.baseUrl.trim(), ...(d.apiKey.trim() ? { apiKey: d.apiKey.trim() } : {}), ...(isNew ? {} : { id: d.id }) })
         .then((r) => setProbed(r.models.length > 0 ? r.models : null))
         .catch(() => setProbed(null));
     }, 600);
@@ -244,7 +244,7 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
   );
 }
 
-/** Settings → Brain: the model providers behind `orca chat` (custom endpoints + OAuth accounts). */
+/** Settings → Brain: the model providers behind `elowen chat` (custom endpoints + OAuth accounts). */
 export function BrainSection() {
   const { data: config } = useConfig();
   const oauth = useBrainOauthStatus();
@@ -256,12 +256,12 @@ export function BrainSection() {
   const [flow, setFlow] = useState<OAuthFlowState | null>(null);
   const [modelsFor, setModelsFor] = useState<BrainProviderType | null>(null);
 
-  // The assistant's display identity ("Orca" by default) — feeds the persona everywhere it speaks.
+  // The assistant's display identity ("Elowen" by default) — feeds the persona everywhere it speaks.
   const updateConfig = useUpdateConfig();
   const [agentName, setAgentName] = useState('');
   const [nameSeeded, setNameSeeded] = useState(false);
   useEffect(() => {
-    if (config && !nameSeeded) { setAgentName(config.brain?.agentName ?? 'Orca'); setNameSeeded(true); }
+    if (config && !nameSeeded) { setAgentName(config.brain?.agentName ?? 'Elowen'); setNameSeeded(true); }
   }, [config, nameSeeded]);
   useAutoSave([agentName], () => {
     if (agentName.trim()) updateConfig.mutate({ brain: { agentName: agentName.trim() } }, { onError: () => toast(t.brain.saveError, 'error') });
@@ -296,7 +296,7 @@ export function BrainSection() {
   const apiProviders = providers.filter((p) => !p.type.startsWith('oauth-'));
 
   // A connected account's model selection lives on its explicit provider entry (id = the builtin
-  // provider name, so `orca:<id>/<model>` execs stay stable whether the entry is synthetic or saved).
+  // provider name, so `elowen:<id>/<model>` execs stay stable whether the entry is synthetic or saved).
   const OAUTH_ENTRY_ID: Record<string, string> = { 'oauth-anthropic': 'anthropic', 'oauth-openai-codex': 'openai-codex', 'oauth-github-copilot': 'github-copilot' };
   const oauthEntryOf = (type: BrainProviderType) => providers.find((p) => p.type === type);
 
@@ -321,7 +321,7 @@ export function BrainSection() {
   const remove = (id: string) => persist(providers.filter((p) => p.id !== id).map(({ apiKeySet, ...p }) => p));
 
   const startConnect = (type: string) =>
-    void orcaClient.brainOauthStart(type)
+    void elowenClient.brainOauthStart(type)
       .then((f) => setFlow(f))
       .catch(() => toast(t.brain.connectError, 'error'));
 
@@ -332,7 +332,7 @@ export function BrainSection() {
       <div className="flex max-w-md flex-wrap items-end gap-3">
         <div className="flex min-w-[12rem] max-w-xs flex-1 flex-col gap-2">
           <span className="text-sm font-medium text-text">{t.brain.agentName}</span>
-          <Input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Orca" aria-label={t.brain.agentName} />
+          <Input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Elowen" aria-label={t.brain.agentName} />
         </div>
         <div className="flex w-32 flex-col gap-2">
           <span className="flex items-center gap-1 whitespace-nowrap text-sm font-medium text-text">{t.brain.maxSteps}<HelpTip>{t.brain.maxStepsHint}</HelpTip></span>

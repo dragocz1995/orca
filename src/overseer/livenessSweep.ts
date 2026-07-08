@@ -98,7 +98,7 @@ export interface AgentLivenessDeps {
  * Replaces the old fixed wall-clock decision timeout; one sweep, no parallel liveness system.
  */
 export async function sweepAgentLiveness(d: AgentLivenessDeps): Promise<{ escalated: string[]; checked: string[] }> {
-  const sessions = (await d.tmux.list()).filter((s) => s.startsWith('orca-'));
+  const sessions = (await d.tmux.list()).filter((s) => s.startsWith('elowen-'));
   const escalated: string[] = [];
   const checked: string[] = [];
   // Idle ms of each LIVE overseer session, keyed by mission — consumed by the pending-decision pass below.

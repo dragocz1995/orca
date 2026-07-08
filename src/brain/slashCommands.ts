@@ -43,7 +43,7 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   { name: 'plan', description: 'Plan mode — think through the approach before editing', kind: 'mode', surfaces: ['cli'] },
   { name: 'build', description: 'Build mode — implement changes with tools', kind: 'mode', surfaces: ['cli'] },
   // CLI-local like /goal: the TUI calls POST /brain/yolo itself. Session-scoped — the persisted
-  // default is edited in web Account → Orca AI (or PATCH /auth/me/permissions).
+  // default is edited in web Account → Elowen AI (or PATCH /auth/me/permissions).
   { name: 'yolo', description: 'YOLO — auto-approve tool asks for this session ("on"/"off" or toggle)', kind: 'action', surfaces: ['cli'] },
   { name: 'model', description: 'Switch the AI model', kind: 'picker' },
   // CLI-only: the reasoning-effort picker is wired in the TUI. Discord tunes reasoning through its own
@@ -58,7 +58,7 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   // adminOnly: the toggle flips a daemon-wide LspManager singleton (spawns/kills servers for everyone),
   // so it must be gated to operators — a non-admin must not disable diagnostics for other users.
   { name: 'lsp', description: 'Language diagnostics (LSP) — status, servers and on/off', kind: 'action', surfaces: ['cli'], adminOnly: true },
-  { name: 'restart', description: 'Restart the Orca daemon', kind: 'action', adminOnly: true },
+  { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action', adminOnly: true },
   { name: 'help', description: 'Show the available commands', kind: 'info' },
   // CLI-only conversation management (the other surfaces manage conversations through their own UI).
   { name: 'sessions', description: 'Pick a conversation', kind: 'picker', surfaces: ['cli'] },

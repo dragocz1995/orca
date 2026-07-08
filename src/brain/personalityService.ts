@@ -6,12 +6,12 @@ export interface PersonalityServiceDeps {
   store: PersonalityStore;
   /** Renders a named prompt template (per-user override aware) — the brain's `d.prompts` seam. */
   prompts: { render(name: string, vars: Record<string, string>, userId?: number): string };
-  /** Resolves an Orca user to their display identity — the brain's `d.users` seam. */
+  /** Resolves an Elowen user to their display identity — the brain's `d.users` seam. */
   users: { get(id: number): { name?: string; username?: string } | null | undefined };
   /** The user's communication-style setting (advisorStyle → the {{personality}} paragraph). Absent →
    *  the default style. */
   userSettings?: (userId: number) => { advisorStyle?: string } | undefined;
-  /** The assistant's configured display identity (Settings → Orca AI). Absent → 'Orca'. */
+  /** The assistant's configured display identity (Settings → Elowen AI). Absent → 'Elowen'. */
   agentName?: () => string;
 }
 

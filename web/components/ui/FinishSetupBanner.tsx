@@ -16,7 +16,7 @@ export function FinishSetupBanner() {
   const me = useMe();
   const isAdmin = me.data?.user.is_admin === true;
   const readiness = useSystemReadiness(isAdmin);
-  const [state, setState] = usePersistentState<(typeof DISMISS_VALUES)[number]>('orca.dashboard.finishSetup', 'open', DISMISS_VALUES);
+  const [state, setState] = usePersistentState<(typeof DISMISS_VALUES)[number]>('elowen.dashboard.finishSetup', 'open', DISMISS_VALUES);
 
   if (!isAdmin || state === 'dismissed') return null;
   const chatOk = readiness.data?.checks.find((c) => c.id === 'chat')?.ok;

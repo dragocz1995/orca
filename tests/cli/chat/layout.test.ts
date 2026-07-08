@@ -230,7 +230,7 @@ describe('chat layout components', () => {
 
   const telemetryState = (over: Partial<TelemetryState> = {}): TelemetryState => ({
     usage: { tokens: 10, contextWindow: 100, percent: 10, totalTokens: 20, cost: 0 },
-    cwd: '~/orca',
+    cwd: '~/elowen',
     branch: 'main',
     mcp: null,
     lspEnabled: null,
@@ -309,13 +309,13 @@ describe('chat layout components', () => {
       hints: '⏎ send · / commands',
       tip: 'Tip ask anything',
       notice: '',
-      statusLeft: '~/orca · main',
+      statusLeft: '~/elowen · main',
       version: '1.8.7',
     }));
     const rows = screen.render(90);
     expect(rows).toHaveLength(24);
     const rendered = rows.join('\n');
-    expect(rendered).toContain('█████'); // the ORCA wordmark
+    expect(rendered).toContain('█████'); // the ELOWEN wordmark
     expect(rendered).toContain('Build · kimi-k2 moonshot');
     expect(rendered).toContain('⏎ send · / commands');
     expect(rendered).toContain('Tip ask anything');
@@ -324,9 +324,9 @@ describe('chat layout components', () => {
     expect(inputRow).toContain('[input 72]');
     expect(inputRow.indexOf('[')).toBe(9);
     const last = rows[rows.length - 1]!;
-    expect(last).toContain('~/orca · main');
-    expect(last).toContain('orca v1.8.7');
-    expect(last.indexOf('orca v1.8.7')).toBeGreaterThan(last.indexOf('~/orca · main'));
+    expect(last).toContain('~/elowen · main');
+    expect(last).toContain('elowen v1.8.7');
+    expect(last.indexOf('elowen v1.8.7')).toBeGreaterThan(last.indexOf('~/elowen · main'));
   });
 
   it('surfaces transient notices on the start screen', () => {
@@ -336,7 +336,7 @@ describe('chat layout components', () => {
       hints: 'hints',
       tip: 'tip',
       notice: 'error: daemon unreachable',
-      statusLeft: '~/orca',
+      statusLeft: '~/elowen',
       version: '1.8.7',
     }));
     expect(screen.render(80).join('\n')).toContain('error: daemon unreachable');
@@ -386,7 +386,7 @@ describe('drag-to-copy selection', () => {
 
   it('reasoning segments disappear when showThoughts is false', () => {
     const view = fromHistory([{ role: 'assistant', text: 'answer' }]);
-    view.turns = [{ role: 'orca', segments: [{ kind: 'reasoning', text: 'secret chain' }, { kind: 'text', text: 'answer' }], streaming: false }];
+    view.turns = [{ role: 'elowen', segments: [{ kind: 'reasoning', text: 'secret chain' }, { kind: 'text', text: 'answer' }], streaming: false }];
     const viewport = new ChatViewport(
       { view, notice: '', modelName: 'kimi', thinkingSeconds: 0, showThoughts: false },
       getMarkdownTheme(),
@@ -416,7 +416,7 @@ describe('per-turn render cache', () => {
     const first = viewport.render(60).join('\n');
     // Sneakily mutate the settled turn IN PLACE — a cached render must not see it...
     const turn = view.turns[1]!;
-    if (turn.role === 'orca' && turn.segments[0]?.kind === 'text') turn.segments[0].text = 'MUTATED answer';
+    if (turn.role === 'elowen' && turn.segments[0]?.kind === 'text') turn.segments[0].text = 'MUTATED answer';
     expect(viewport.render(60).join('\n')).toBe(first);
     // ...until the cache epoch changes (an expand toggle invalidates everything).
     viewport.toggleThought(-999); // no-op key → no epoch bump

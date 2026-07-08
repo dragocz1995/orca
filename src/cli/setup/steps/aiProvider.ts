@@ -290,7 +290,7 @@ async function runAgentSmokeTest(ctx: WizardCtx, providerId: string, model: stri
   for (;;) {
     const s = p.spinner(); s.start('Testing the agent…');
     const r = await apiJson<{ ok?: boolean; model?: string; reply?: string; error?: string }>(ctx, 'POST', '/brain/test', { providerId, model });
-    if (r.data?.ok) { s.stop(`Orca answered (${r.data.model ?? model})`); return 'ok'; }
+    if (r.data?.ok) { s.stop(`Elowen answered (${r.data.model ?? model})`); return 'ok'; }
     s.stop(`The agent didn't answer: ${r.data?.error ?? `HTTP ${r.status}`}`, 'error');
     const next = guard(await p.select({
       message: 'What next?',

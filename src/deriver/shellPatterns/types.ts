@@ -6,7 +6,7 @@ export interface DetectedPrompt {
   acceptKeys: string[];
   /** Environmental gate (e.g. workspace-trust) the agent must clear just to start — not an action
    *  it wants to take. The deriver clears these directly under autonomy, without an overseer call:
-   *  orca only ever spawns into projects the user registered, so trusting the workspace is implied. */
+   *  elowen only ever spawns into projects the user registered, so trusting the workspace is implied. */
   autoAccept?: boolean;
   /** What kind of prompt this is. 'permission' (default) is an approve/reject gate the deriver clears
    *  with `acceptKeys`. 'choice' is the agent asking the user to pick one of `options`: the overseer

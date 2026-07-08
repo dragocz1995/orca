@@ -3,7 +3,7 @@ import type { Component, Focusable, SelectItem } from '@earendil-works/pi-tui';
 import { color, chatTheme } from '../chat/theme.js';
 import { padAnsi } from './text.js';
 
-const CANCEL: symbol = Symbol('orca-prompt-cancel');
+const CANCEL: symbol = Symbol('elowen-prompt-cancel');
 
 type MaybeCancel<T> = T | typeof CANCEL;
 type Primitive = string | number | boolean;
@@ -99,7 +99,7 @@ function writeBlock(title: string, body: string[] | string): void {
 }
 
 export function intro(message: string): void {
-  writeBlock('Orca', [message]);
+  writeBlock('Elowen', [message]);
 }
 
 export function outro(message: string): void {

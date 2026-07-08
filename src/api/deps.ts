@@ -46,8 +46,8 @@ export interface ServerDeps {
   gitLock?: KeyedMutex;
   project: { id: number; path: string };
   fallback: AgentSpec;
-  /** How spawned agents invoke the orca CLI (`orca` globally, or `node <path>` in a checkout). Same
-   *  value threaded to spawn/pilot/overseer; used by the guide service to render `orca help`. Absent → `orca`. */
+  /** How spawned agents invoke the elowen CLI (`elowen` globally, or `node <path>` in a checkout). Same
+   *  value threaded to spawn/pilot/overseer; used by the guide service to render `elowen help`. Absent → `elowen`. */
   cli?: string;
   clock: Clock;
   config: ConfigStore;
@@ -95,16 +95,16 @@ export interface ServerDeps {
   advisor?: import('../advisor/service.js').AdvisorService;
   /** Per-user embedded brain (PI agent) — the new advisor engine. Absent → brain routes degrade to 503. */
   brain?: import('../brain/brainService.js').BrainService;
-  /** Restart the Orca daemon (the admin-only `/restart` slash command): announce it on the platforms,
+  /** Restart the Elowen daemon (the admin-only `/restart` slash command): announce it on the platforms,
    *  drop a marker so the next boot announces "back online", then hand off to systemd. Absent → 501. */
   restartDaemon?: (byUserId: number) => Promise<void>;
-  /** Orca exec engine (embedded-brain workers): kill controls + task transcripts. */
+  /** Elowen exec engine (embedded-brain workers): kill controls + task transcripts. */
   brainWorkers?: { isLive(session: string): boolean; abort(session: string): Promise<void> };
-  /** Brain message store — feeds GET /tasks/:id/conversation for orca workers. */
+  /** Brain message store — feeds GET /tasks/:id/conversation for elowen workers. */
   brainStore?: import('../store/brainStore.js').BrainStore;
   /** Per-user, per-platform personality profiles (named prompt bodies). Absent → the personality API degrades. */
   personalityStore?: PersonalityStore;
-  /** Orca RAW memory persistence (user-scoped): facts, packed-Float32 embeddings, audit events. */
+  /** Elowen RAW memory persistence (user-scoped): facts, packed-Float32 embeddings, audit events. */
   memoryStore?: import('../store/memoryStore.js').MemoryStore;
   /** Per-user memory categories (labels + LLM-facing descriptions). Absent → the category routes 400. */
   memoryCategoryStore?: import('../store/memoryCategoryStore.js').MemoryCategoryStore;
@@ -133,7 +133,7 @@ export interface ServerDeps {
   /** Latest published version lookup for the System panel. Injected in tests; defaults to a cached
    *  npm-registry fetch. */
   latestVersion?: () => Promise<string | null>;
-  /** Start a manual in-place update (detached). Injected in tests; defaults to spawning `orca update`. */
+  /** Start a manual in-place update (detached). Injected in tests; defaults to spawning `elowen update`. */
   startUpdate?: () => void;
   /** Restart one systemd unit (detached, `--no-block`). Injected in tests; defaults to sudo systemctl. */
   startRestart?: (target: 'daemon' | 'web') => void;

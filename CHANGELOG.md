@@ -1,22 +1,22 @@
 # Changelog
 
-All notable changes to Orcasynth are documented here. The format loosely follows
+All notable changes to Elowen are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); the daemon version is the root `package.json` version.
 
 ## [1.8.7] - 2026-07-06
 
 ### Added
-- **Setup now gets you to a working agent out of the box.** `orca setup` verifies the agent actually
-  answers (a real one-shot **chat smoke-test**), points tasks at Orca's **built-in engine**
-  (`orca:<provider>/<model>`) so they run on *any* provider without a separate agent CLI, seeds a default
+- **Setup now gets you to a working agent out of the box.** `elowen setup` verifies the agent actually
+  answers (a real one-shot **chat smoke-test**), points tasks at Elowen's **built-in engine**
+  (`elowen:<provider>/<model>`) so they run on *any* provider without a separate agent CLI, seeds a default
   tool set (files, terminal, askuser, runtime-context, skills, subagent) on a fresh install, and ends with
   a **readiness matrix** plus the web URL and login.
-- **`orca doctor`** — an on-demand readiness report (chat, tasks, missions, memory, platforms, plugins),
+- **`elowen doctor`** — an on-demand readiness report (chat, tasks, missions, memory, platforms, plugins),
   each check with a fix hint; exits non-zero when something needs attention.
-- **Non-interactive setup** — `orca setup --non-interactive` runs the whole onboarding from flags/env (no
+- **Non-interactive setup** — `elowen setup --non-interactive` runs the whole onboarding from flags/env (no
   prompts) for agents and CI, with correct exit codes. See Install → Non-interactive setup.
-- **CLI chat redesign** — the `orca chat` terminal UI gets a refreshed layout and switchable colour themes
-  (Orca / blue / mono).
+- **CLI chat redesign** — the `elowen chat` terminal UI gets a refreshed layout and switchable colour themes
+  (Elowen / blue / mono).
 
 ### Changed
 - New daemon endpoints back the above: `POST /brain/test` (one-shot completion) and `GET /system/readiness`.
@@ -49,7 +49,7 @@ All notable changes to Orcasynth are documented here. The format loosely follows
 ### Fixed
 - Complete the 1.8.3 install/setup unification in the source tree — the `v1.8.3` tag was missing the file
   moves (the published npm package was already complete); `v1.8.4` has the full, buildable tree.
-- `orca setup` in a non-interactive shell now words its guidance for an interactive terminal and honors
+- `elowen setup` in a non-interactive shell now words its guidance for an interactive terminal and honors
   `--reset`; the launcher's "open web UI" prints the URL over SSH instead of claiming a browser opened.
 
 ### Changed
@@ -60,7 +60,7 @@ All notable changes to Orcasynth are documented here. The format loosely follows
 ## [1.8.3] - 2026-07-06
 
 ### Changed
-- **`orca install` now runs the same onboarding wizard as `orca setup`.** The interactive install used to
+- **`elowen install` now runs the same onboarding wizard as `elowen setup`.** The interactive install used to
   have its own first-run wizard (admin + autopilot + GitHub) that overlapped the setup wizard; there is now
   a single onboarding path — account, project, AI provider, memory. The autopilot CLI-engine choice and the
   GitHub PR-workflow prompt live in the web Settings; unattended (flag-driven) installs are unchanged.
@@ -77,11 +77,11 @@ All notable changes to Orcasynth are documented here. The format loosely follows
 ## [1.8.1] - 2026-07-06
 
 ### Added
-- **First-install onboarding wizard (`orca setup`)** — a guided terminal wizard so a fresh
-  `npm install -g orcasynth` reaches a working setup without hunting through config. Five skippable,
+- **First-install onboarding wizard (`elowen setup`)** — a guided terminal wizard so a fresh
+  `npm install -g elowen` reaches a working setup without hunting through config. Five skippable,
   reversible steps: **account**, **default project**, **AI provider**, **memory**, **review**. The
   launcher offers it once on a fresh install (never re-nagging after completion, with resume for an
-  interrupted run) and `orca setup` runs it any time (`--reset` to start over).
+  interrupted run) and `elowen setup` runs it any time (`--reset` to start over).
   - **AI provider** step covers an API key, a custom OpenAI-compatible endpoint, and OAuth sign-in
     (Claude / GitHub Copilot / Codex-OpenAI) with a cross-platform browser opener and a printed-URL
     fallback for headless boxes; already-connected accounts are offered for reuse.
@@ -93,9 +93,9 @@ All notable changes to Orcasynth are documented here. The format loosely follows
 ## [1.8.0] - 2026-07-06
 
 ### Added
-- **"Talk to Orca" in the launcher** — running `orca` in a terminal now offers *Talk to Orca* as the first
+- **"Talk to Elowen" in the launcher** — running `elowen` in a terminal now offers *Talk to Elowen* as the first
   menu action, dropping you straight into the interactive terminal chat (still reachable directly via
-  `orca chat`).
+  `elowen chat`).
 - **Rewritten user manual** — the documentation site is a full agent-first guide (getting started, install,
   tasks & missions, agents & autonomy, web UI, CLI, brain & chat, plugins, projects, configuration,
   account & security, architecture), now illustrated with screenshots.
@@ -105,11 +105,11 @@ All notable changes to Orcasynth are documented here. The format loosely follows
   and **SSE** (remote URL). stdio servers run in their own process group and are killed as a group on
   reload/disable, so `npx` child processes are never orphaned. Configured per server in Settings → Plugins
   (name · transport · command/args/env or URL · enabled).
-- **Configurable agent step limit** — Settings → Orca AI → *Max agent steps* (1–200, default 20). The turn
+- **Configurable agent step limit** — Settings → Elowen AI → *Max agent steps* (1–200, default 20). The turn
   is aborted once the agent exceeds it, preventing runaway loops. Discord shows the live `Step N / MAX`
   counter in the existing status message.
-- **Per-model context windows** — Settings → Orca AI lets you pin the max context window (tokens) for each
-  Orca AI model, for endpoints that don't report one reliably. Drives the context-usage % and the
+- **Per-model context windows** — Settings → Elowen AI lets you pin the max context window (tokens) for each
+  Elowen AI model, for endpoints that don't report one reliably. Drives the context-usage % and the
   (auto-)compaction trigger; falls back to a default when unset.
 - **Open a session in the web chat** — clicking a conversation in Sessions opens it in the web chat dock and
   continues it with full history.

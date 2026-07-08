@@ -493,7 +493,7 @@ export function createPickers(
           tui, editor, title: `Uninstall ${srv.label}?`,
           items: [
             { value: 'no', label: 'Cancel', description: 'keep the server' },
-            { value: 'yes', label: 'Uninstall', description: "removes it from Orca's prefix and stops running servers" },
+            { value: 'yes', label: 'Uninstall', description: "removes it from Elowen's prefix and stops running servers" },
           ],
           onPick: (v) => { if (v === 'yes') runManage(srv, false); },
         });

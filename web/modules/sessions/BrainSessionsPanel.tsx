@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2, MessageSquare, Circle } from 'lucide-react';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import { openBrainSession } from '../../lib/brainDock';
 import { localDateTime } from '../../lib/format';
 import { useTranslation } from '../../lib/i18n';
@@ -31,14 +31,14 @@ export function BrainSessionsPanel() {
   const qc = useQueryClient();
   const me = useMe();
   const isAdmin = me.data?.user?.is_admin ?? false;
-  const [adminView, setAdminView] = usePersistentState<'all' | 'mine'>('orca.sessions.brainView', 'all', ['all', 'mine']);
+  const [adminView, setAdminView] = usePersistentState<'all' | 'mine'>('elowen.sessions.brainView', 'all', ['all', 'mine']);
   // A non-admin only ever has their own; the toggle applies to admins.
   const view: 'all' | 'mine' = isAdmin ? adminView : 'mine';
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
 
-  const managed = useQuery({ queryKey: ['brain-managed-sessions'], queryFn: orcaClient.brainManagedSessions, enabled: isAdmin && view === 'all' });
-  const own = useQuery({ queryKey: ['brain-sessions'], queryFn: orcaClient.brainSessions, enabled: view === 'mine' });
+  const managed = useQuery({ queryKey: ['brain-managed-sessions'], queryFn: elowenClient.brainManagedSessions, enabled: isAdmin && view === 'all' });
+  const own = useQuery({ queryKey: ['brain-sessions'], queryFn: elowenClient.brainSessions, enabled: view === 'mine' });
   const q = view === 'all' ? managed : own;
   // Own sessions carry no kind/tokens — they're always continuable conversations.
   const sessions: Row[] = view === 'all'
@@ -50,15 +50,15 @@ export function BrainSessionsPanel() {
   const doDelete = async (id: string) => {
     setConfirmId(null);
     try {
-      if (view === 'all') await orcaClient.brainDeleteManagedSession(id);
-      else await orcaClient.brainDeleteSession(id);
+      if (view === 'all') await elowenClient.brainDeleteManagedSession(id);
+      else await elowenClient.brainDeleteSession(id);
       await refresh();
       toast(t.sessionsPanel.deleted, 'ok');
     } catch { toast(t.common.error, 'error'); }
   };
   const doDeleteAll = async () => {
     setConfirmAll(false);
-    try { const { deleted } = await orcaClient.brainDeleteAllManagedSessions(); await refresh(); toast(`${t.sessionsPanel.deletedAll} (${deleted})`, 'ok'); }
+    try { const { deleted } = await elowenClient.brainDeleteAllManagedSessions(); await refresh(); toast(`${t.sessionsPanel.deletedAll} (${deleted})`, 'ok'); }
     catch { toast(t.common.error, 'error'); }
   };
 

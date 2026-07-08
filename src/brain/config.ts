@@ -9,13 +9,13 @@ const OAUTH_LABELS: Record<string, string> = {
   'oauth-openai-codex': 'ChatGPT account',
 };
 
-/** Derive the brain's provider set from Orca config + connected OAuth accounts. Precedence:
+/** Derive the brain's provider set from Elowen config + connected OAuth accounts. Precedence:
  *  1. dedicated `brain.providers` entries,
  *  2. synthetic entries for connected OAuth accounts that have no explicit entry (connecting an
  *     account in Settings → Brain is enough — its models appear without extra configuration),
  *  3. with neither, the autopilot relay endpoint as a synthetic OpenAI-compatible provider.
  *  Returns null when nothing usable is configured — the brain routes degrade to 503. */
-export function brainConfigFromOrca(config: ConfigStore, authStorage?: AuthStorage): BrainRuntimeConfig | null {
+export function brainConfigFromElowen(config: ConfigStore, authStorage?: AuthStorage): BrainRuntimeConfig | null {
   // Stamp each entry's provenance so downstream lists can tell OAuth accounts from API-key endpoints.
   const providers: BrainProviderEntry[] = config.brainProviders().map((p) => ({
     ...p, origin: p.type.startsWith('oauth-') ? 'oauth' as const : 'api-key' as const,

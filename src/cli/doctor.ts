@@ -17,12 +17,12 @@ function guard<T>(value: T | symbol): T {
 }
 
 /** Prompt for admin credentials (default username `admin`) and sign in via the same `/auth/login` helper
- *  the setup wizard uses, retrying on a bad password. `ORCA_TOKEN` skips the prompt entirely — the
+ *  the setup wizard uses, retrying on a bad password. `ELOWEN_TOKEN` skips the prompt entirely — the
  *  non-interactive override for scripts/CI that already hold a bearer. */
 async function authenticate(base: string, env: NodeJS.ProcessEnv): Promise<string> {
-  const envToken = env.ORCA_TOKEN;
+  const envToken = (env.ELOWEN_TOKEN ?? env.ORCA_TOKEN);
   if (envToken) return envToken;
-  p.intro('Orca doctor');
+  p.intro('Elowen doctor');
   for (;;) {
     const username = guard(await p.text({ message: 'Admin username', initialValue: 'admin' })).trim();
     const password = guard(await p.password({ message: 'Admin password' }));
@@ -54,14 +54,14 @@ function readinessReport(checks: ReadinessCheck[], styled: boolean): { allOk: bo
   }
   lines.push('');
   lines.push(allOk
-    ? (styled ? color.success('Everything checks out. Orca is ready to go.') : 'Everything checks out. Orca is ready to go.')
+    ? (styled ? color.success('Everything checks out. Elowen is ready to go.') : 'Everything checks out. Elowen is ready to go.')
     : (styled ? color.error('Some checks need attention. See the hints above.') : 'Some checks need attention. See the hints above.'));
   return { allOk, body: lines.join('\n') };
 }
 
 async function showDoctorModal(body: string, allOk: boolean): Promise<void> {
   const action = await p.select({
-    message: allOk ? 'Orca doctor passed' : 'Orca doctor needs attention',
+    message: allOk ? 'Elowen doctor passed' : 'Elowen doctor needs attention',
     note: { title: 'Readiness', body },
     options: [
       { value: 'exit', label: 'Close' },
@@ -71,26 +71,26 @@ async function showDoctorModal(body: string, allOk: boolean): Promise<void> {
   if (action === 'open') openBrowser(webBaseUrl());
 }
 
-/** `orca doctor` — a layperson-readable readiness report: what works, and how to fix what doesn't. Never
- *  hangs a non-interactive caller: without a TTY and no `ORCA_TOKEN`, it prints guidance and exits 0. */
+/** `elowen doctor` — a layperson-readable readiness report: what works, and how to fix what doesn't. Never
+ *  hangs a non-interactive caller: without a TTY and no `ELOWEN_TOKEN`, it prints guidance and exits 0. */
 export async function runDoctor(args: string[], env: NodeJS.ProcessEnv, base: string, version: string): Promise<void> {
   void version; // no version-gated behavior yet — kept for dispatch-signature parity with runSetup
   if (args.includes('--help') || args.includes('-h')) {
-    console.log('orca doctor — check Orca\'s health (daemon, providers, memory, tasks).\n  In a TTY it prompts for admin credentials; non-interactively set ORCA_TOKEN.');
+    console.log('elowen doctor — check Elowen\'s health (daemon, providers, memory, tasks).\n  In a TTY it prompts for admin credentials; non-interactively set ELOWEN_TOKEN.');
     return;
   }
 
   const isTTY = !!process.stdout.isTTY;
-  if (!isTTY && !env.ORCA_TOKEN) {
-    console.log('Run `orca doctor` in an interactive terminal to check Orca\'s health, or set ORCA_TOKEN to run it non-interactively.');
+  if (!isTTY && !(env.ELOWEN_TOKEN ?? env.ORCA_TOKEN)) {
+    console.log('Run `elowen doctor` in an interactive terminal to check Elowen\'s health, or set ELOWEN_TOKEN to run it non-interactively.');
     return;
   }
 
   // A daemon that's up but sick (500/502, or a proxy answering for it) must not pass as healthy.
   try { const r = await fetch(`${base}/health`); if (!r.ok) throw new Error(`health ${r.status}`); }
   catch {
-    const message = 'Start Orca first: `orca up`';
-    if (isTTY) p.note(message, 'Orca doctor');
+    const message = 'Start Elowen first: `elowen up`';
+    if (isTTY) p.note(message, 'Elowen doctor');
     else console.log(message);
     process.exitCode = 1;
     return;
@@ -105,7 +105,7 @@ export async function runDoctor(args: string[], env: NodeJS.ProcessEnv, base: st
     data = await r.json() as ReadinessResponse;
   } catch (e) {
     const message = `Couldn't run the readiness check: ${(e as Error).message}`;
-    if (isTTY) p.note(color.error(message), 'Orca doctor');
+    if (isTTY) p.note(color.error(message), 'Elowen doctor');
     else console.error(message);
     process.exitCode = 1;
     return;

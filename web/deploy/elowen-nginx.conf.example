@@ -1,32 +1,32 @@
-# TLS reverse proxy for the orca web dashboard.
+# TLS reverse proxy for the elowen web dashboard.
 #
 # The dashboard now uses an httpOnly, Secure session cookie (the daemon token never reaches the
 # browser). "Secure" means the cookie is dropped over plain HTTP — so the web app MUST be served
 # over HTTPS, with the daemon reachable only from the web app (bind it to localhost).
 #
 # Setup (Debian/Ubuntu, nginx + certbot):
-#   1. Point a DNS A record at this host:   orca.example.com -> <your server IP>
+#   1. Point a DNS A record at this host:   elowen.example.com -> <your server IP>
 #   2. Drop this file in /etc/nginx/sites-available/ and symlink it into sites-enabled/,
-#      replacing orca.example.com with your domain.
-#   3. Issue a certificate:   sudo certbot --nginx -d orca.example.com
-#   4. Run the web app on localhost:4500 with ORCA_DAEMON_URL=http://localhost:4400
+#      replacing elowen.example.com with your domain.
+#   3. Issue a certificate:   sudo certbot --nginx -d elowen.example.com
+#   4. Run the web app on localhost:4500 with ELOWEN_DAEMON_URL=http://localhost:4400
 #      (the BFF proxy injects the daemon bearer token server-side).
 #   5. Bind the daemon to localhost only, so :4400 is never exposed publicly.
 #   6. sudo nginx -t && sudo systemctl reload nginx
 
 server {
     listen 80;
-    server_name orca.example.com;
+    server_name elowen.example.com;
     # Let certbot serve the ACME challenge, redirect everything else to HTTPS.
     location / { return 301 https://$host$request_uri; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name orca.example.com;
+    server_name elowen.example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/orca.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/orca.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/elowen.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/elowen.example.com/privkey.pem;
 
     # Generous body size for file uploads (avatars, project files).
     client_max_body_size 25m;

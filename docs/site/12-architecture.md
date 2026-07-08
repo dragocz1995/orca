@@ -7,11 +7,11 @@ eyebrow: Reference
 
 # Architecture
 
-Orca is a personal AI agent you chat with — it reasons, calls tools, edits files,
+Elowen is a personal AI agent you chat with — it reasons, calls tools, edits files,
 runs commands, and manages tasks across the web, the CLI, and chat platforms. This
 page is for when you want to look under the hood and see how that agent is built.
 
-The design follows Orca's fourth pillar: a **lightweight app with professional-grade
+The design follows Elowen's fourth pillar: a **lightweight app with professional-grade
 code**. The whole system is a single Node.js daemon plus a separate Next.js web
 process, both backed by one SQLite file. It is small enough to self-host on a modest
 box, and clean enough to read end to end. The dashboards, kanban, timeline, and
@@ -27,12 +27,12 @@ terminal sessions you use every day are all just windows onto this core — ways
 └──────────┘     └──────────────┘     │  REST API │
                                       │  SSE      │
 ┌──────────┐     ┌──────────────┐     │  MCP      │
-│  CLI     │────▶│  orca client │────▶│  WS/PTY   │
+│  CLI     │────▶│  elowen client │────▶│  WS/PTY   │
 │  chat    │     │  (dist/cli)  │     └────┬──────┘
 └──────────┘     └──────────────┘          │
                                      ┌─────┴──────┐
                                      │  SQLite DB │
-                                     │  orca.db   │
+                                     │  elowen.db   │
                                      └────────────┘
 ```
 
@@ -48,7 +48,7 @@ There are two long-running processes:
   (backend-for-frontend), so the browser only ever sees `:4500` and the daemon stays
   private. This keeps the security boundary clean and the front end lightweight.
 
-The `orca` CLI is a thin client over the same REST API, with daemon autostart built
+The `elowen` CLI is a thin client over the same REST API, with daemon autostart built
 in — the first command you run brings the daemon up if it is not already listening.
 See [Install](install) for how the two processes are wired at startup.
 
@@ -127,7 +127,7 @@ talk to the brain at once:
   without hijacking each other.
 
 The same brain machinery can also execute work, not just chat. A **brain worker** runs an
-`orca:` coding task on the embedded brain — an in-process agent session scoped to the
+`elowen:` coding task on the embedded brain — an in-process agent session scoped to the
 task's checkout, with policy-guarded tools and a built-in close tool — as an alternative
 to spawning an external CLI in tmux. Task states flow through exactly as they do for CLI
 workers, and a watchdog recovers any that stall (one of the [timer loops](#timer-loops)
@@ -210,7 +210,7 @@ Four ship today:
   self-contained task and return its result, inheriting the caller's access and never
   more.
 
-When a platform sender is a *linked* Orca account, their turns run through that account's
+When a platform sender is a *linked* Elowen account, their turns run through that account's
 own project policy and tool grants — exactly as their web chat would; unmapped senders
 stay silent. See [Plugins](plugins) for setup of each surface.
 
@@ -329,7 +329,7 @@ the terminal and files tools while another has only chat — a different set of 
 permissions per person, enforced at the data layer. See
 [Account & Security](account-security) for the full model.
 
-Default path: `~/.config/orca/orca.db`. Override it with the `ORCA_DB` environment
+Default path: `~/.config/elowen/elowen.db`. Override it with the `ELOWEN_DB` environment
 variable — see [Configuration](configuration) for the full list of environment
 settings.
 

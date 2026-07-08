@@ -7,7 +7,7 @@ import { logger } from '../shared/logger.js';
 const log = logger('pr-feedback');
 
 /** How many auto fix rounds a mission's PR may consume before escalating to a human. Matches the spirit
- *  of taskStore's REVIEW_FIX budget — it bounds the Codex↔Orca review ping-pong. */
+ *  of taskStore's REVIEW_FIX budget — it bounds the Codex↔Elowen review ping-pong. */
 const PR_FIX_BUDGET = 2;
 
 export interface PrFeedbackDeps {

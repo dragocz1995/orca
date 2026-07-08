@@ -12,12 +12,12 @@ import { FONT_STACKS } from './palettes';
 // status colours, the 8 normal + 8 bright ANSI background swatches, and a trailing prompt so the cursor
 // style is visible. Deterministic on purpose — the preview must only change with the settings.
 const SAMPLE = [
-  '\x1b[32m➜\x1b[0m \x1b[36m~/orca\x1b[0m \x1b[90mgit:(\x1b[0m\x1b[35mmain\x1b[0m\x1b[90m)\x1b[0m orca run build',
+  '\x1b[32m➜\x1b[0m \x1b[36m~/elowen\x1b[0m \x1b[90mgit:(\x1b[0m\x1b[35mmain\x1b[0m\x1b[90m)\x1b[0m elowen run build',
   '\x1b[32m✓ build green\x1b[0m  \x1b[33m⚠ 2 warnings\x1b[0m  \x1b[31m✗ 1 failed\x1b[0m  \x1b[90m(1.4s)\x1b[0m',
   '\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  \x1b[0m',
   '\x1b[100m  \x1b[101m  \x1b[102m  \x1b[103m  \x1b[104m  \x1b[105m  \x1b[106m  \x1b[107m  \x1b[0m',
   '',
-  '\x1b[32m➜\x1b[0m \x1b[36m~/orca\x1b[0m ',
+  '\x1b[32m➜\x1b[0m \x1b[36m~/elowen\x1b[0m ',
 ].join('\r\n');
 
 // macOS-style titlebar traffic lights — deliberately literal (terminal chrome, not app theme).
@@ -80,7 +80,7 @@ export function TerminalPreview({ settings, resolvedTheme }: { settings: Termina
     <div className="overflow-hidden rounded-lg border border-border" style={{ backgroundColor: bg }}>
       <div className="flex items-center gap-1.5 px-3.5 py-2.5" style={{ borderBottom: `1px solid ${chrome}0.1)` }}>
         {DOTS.map((c) => <span key={c} className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c }} aria-hidden />)}
-        <span className="ml-2 truncate font-mono text-[10px]" style={{ color: `${chrome}0.45)` }}>orca</span>
+        <span className="ml-2 truncate font-mono text-[10px]" style={{ color: `${chrome}0.45)` }}>elowen</span>
       </div>
       <div className="px-3.5 py-3">
         <div ref={ref} className="h-40 w-full overflow-hidden [&_.xterm-viewport]:[scrollbar-width:none] [&_.xterm-viewport::-webkit-scrollbar]:hidden" />

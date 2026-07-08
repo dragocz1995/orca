@@ -1,5 +1,5 @@
 import type { BrainProviderType } from '../../../store/configStore.js';
-import { orcaExec } from '../../../shared/execs.js';
+import { elowenExec } from '../../../shared/execs.js';
 import { apiJson } from '../http.js';
 import type { WizardCtx } from '../types.js';
 
@@ -24,7 +24,7 @@ export function keepProvider(e: PublicProvider): { id: string; label: string; ty
  *  block (as this used to) was both wasted work and a check-then-act race that could revert a concurrent
  *  edit of autonomy/maxSessions. Single source for the wizard AND headless setup. Returns whether it saved. */
 export async function putEmbeddedExec(ctx: WizardCtx, providerId: string, model: string): Promise<boolean> {
-  const r = await apiJson(ctx, 'PUT', '/config', { defaults: { exec: orcaExec(providerId, model) } });
+  const r = await apiJson(ctx, 'PUT', '/config', { defaults: { exec: elowenExec(providerId, model) } });
   return r.ok;
 }
 
@@ -34,6 +34,6 @@ export function humanError(e: unknown, status?: number): string {
   if (status === 401 || status === 403) return 'You need to be signed in as an admin for this step.';
   if (status === 409) return 'That name is already taken.';
   const msg = e instanceof Error ? e.message : String(e ?? 'Unknown error');
-  if (/ECONNREFUSED|fetch failed|network|ENOTFOUND/i.test(msg)) return "Couldn't reach the Orca daemon — is it running? Try `orca up`.";
+  if (/ECONNREFUSED|fetch failed|network|ENOTFOUND/i.test(msg)) return "Couldn't reach the Elowen daemon — is it running? Try `elowen up`.";
   return msg;
 }

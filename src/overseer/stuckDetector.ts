@@ -16,10 +16,10 @@ function startedOf(t: Task): number | null {
 }
 
 /** in_progress tasks whose agent tmux session is no longer live — the agent exited or crashed
- *  (no `orca close`), or the task never got an agent label. Shared by the startup zombie
+ *  (no `elowen close`), or the task never got an agent label. Shared by the startup zombie
  *  reconcile and the runtime stuck detector. */
 export function deadAgentTasks(liveSessions: Set<string>, inProgress: Task[]): Task[] {
-  return inProgress.filter((t) => { const name = agentOf(t); return !name || !liveSessions.has(`orca-${name}`); });
+  return inProgress.filter((t) => { const name = agentOf(t); return !name || !liveSessions.has(`elowen-${name}`); });
 }
 
 export interface StuckDetectorDeps {
@@ -39,14 +39,14 @@ export interface StuckDetectorDeps {
 }
 
 /**
- * Detect agents that died without `orca close`: their task is stuck `in_progress` while the tmux
+ * Detect agents that died without `elowen close`: their task is stuck `in_progress` while the tmux
  * session is gone, so the mission would never advance. Each such task is reverted to `open` (so the
  * mission/scheduler re-spawns it) until it has been relaunched `maxRelaunch` times, after which it
  * is escalated to a human (`blocked`) to avoid an infinite crash loop.
  * Returns the task ids it touched.
  */
 export async function sweepStuckTasks(d: StuckDetectorDeps): Promise<{ reverted: string[]; escalated: string[] }> {
-  const live = new Set((await d.tmux.list()).filter((s) => s.startsWith('orca-')));
+  const live = new Set((await d.tmux.list()).filter((s) => s.startsWith('elowen-')));
   const reverted: string[] = []; const escalated: string[] = [];
   for (const t of deadAgentTasks(live, d.tasks.list({ status: 'in_progress' }))) {
     const started = startedOf(t);

@@ -9,26 +9,26 @@ eyebrow: Guide
 
 ## The agent you talk to
 
-Orca **is** the brain. The brain is the embedded agent core you chat with — it
+Elowen **is** the brain. The brain is the embedded agent core you chat with — it
 reasons, calls tools, edits files, runs commands, loads plugins and skills,
 remembers what matters, and can even wake itself up on a schedule. Everything
 else in the product — the [Dashboard, Kanban, Timeline and Sessions](web-ui) —
-exists so you can *watch and steer* this agent. The brain is Orca's identity;
+exists so you can *watch and steer* this agent. The brain is Elowen's identity;
 the dashboards are the window onto it.
 
 You reach the same agent from four places: the **web dock**, the **CLI**,
 **Discord**, and **WhatsApp**. Same reasoning, same tools, same memory — just a
-different surface. And because Orca is modular to the core, every one of those
+different surface. And because Elowen is modular to the core, every one of those
 capabilities (each chat platform, each tool, memory, skills) is a plugin you can
 add or remove. Nothing here is baked in; it's all [Plugins](plugins).
 
-![The Orca brain chat, showing a conversation with tool-call traces](images/brain-chat.png)
+![The Elowen brain chat, showing a conversation with tool-call traces](images/brain-chat.png)
 
 ## Architecture
 
 Under the hood the brain is a multi-provider AI engine. You don't need this to
 use it, but it helps to know how the pieces fit when you're configuring or
-extending Orca:
+extending Elowen:
 
 | Component | Purpose |
 |-----------|---------|
@@ -62,9 +62,9 @@ modes:
 ### CLI chat
 
 ```bash
-orca chat                  # start an interactive chat
-orca chat --new            # fresh conversation
-orca chat --session <id>   # resume a past conversation
+elowen chat                  # start an interactive chat
+elowen chat --new            # fresh conversation
+elowen chat --session <id>   # resume a past conversation
 ```
 
 The CLI chat uses an opencode-style layout: tool glyphs, a status bar, and
@@ -87,8 +87,8 @@ The brain keeps distinct, resumable conversations:
 - **Resume** — pick up any past conversation with its full history intact.
 - **Search** — fulltext search across everything you've ever discussed.
 
-Conversations persist in SQLite (`~/.config/orca/orca.db`) and survive daemon
-restarts, so nothing is lost when you restart Orca.
+Conversations persist in SQLite (`~/.config/elowen/elowen.db`) and survive daemon
+restarts, so nothing is lost when you restart Elowen.
 
 ## Model catalog
 
@@ -100,12 +100,12 @@ The model picker aggregates every model available to you from three sources:
 | **Auto-fetch** — pulled live from the provider API | `/v1/models` endpoint |
 | **OAuth-connected accounts** | Anthropic, GitHub Copilot, OpenAI |
 
-Configure it all in **Settings → Orca AI**. Each provider carries its own API key,
+Configure it all in **Settings → Elowen AI**. Each provider carries its own API key,
 base URL, and model list, so you can mix and match freely.
 
 ## Supported providers
 
-The `orca setup` wizard ships presets for the common providers, so you usually
+The `elowen setup` wizard ships presets for the common providers, so you usually
 just pick one and paste a key. Each is an OpenAI-compatible (or Anthropic
 Messages) endpoint — for anything not listed, choose **Custom OpenAI-compatible
 endpoint** and enter its base URL by hand.
@@ -138,15 +138,15 @@ GitHub Copilot, ChatGPT/Codex), see below.
 
 ### Chat smoke-test
 
-Whichever provider you connect, `orca setup` runs a **chat smoke-test** — one
+Whichever provider you connect, `elowen setup` runs a **chat smoke-test** — one
 tiny, real completion — before it lets you move on, so you know the model
-actually answers rather than just that a key was saved. Run `orca doctor` any
+actually answers rather than just that a key was saved. Run `elowen doctor` any
 time for a readiness report — chat, tasks, missions, memory, platforms and
 plugins — to see what works and how to fix the rest.
 
 Any provider that passes the smoke-test is enough to run ordinary
-[tasks](tasks-missions) — they execute on Orca's built-in engine
-(`orca:<provider>/<model>`), no separate agent CLI required. Multi-phase
+[tasks](tasks-missions) — they execute on Elowen's built-in engine
+(`elowen:<provider>/<model>`), no separate agent CLI required. Multi-phase
 **missions** (plan → engage → execute) need one step more: either an
 OpenAI-compatible key for the planning relay, or an installed agent CLI as the
 [Pilot](tasks-missions#planning-backends).
@@ -167,7 +167,7 @@ picker — pick their models per conversation just like any other.
 
 The agent **remembers** across conversations, so context you shared last week is
 still there today. Memory is **per-user and private**: each person reaches only
-their own memories — from their own Orca chat or a linked platform account
+their own memories — from their own Elowen chat or a linked platform account
 (Discord/WhatsApp) — never another user's, never the operator's. Nothing bleeds
 between accounts.
 
@@ -223,7 +223,7 @@ Discord/WhatsApp, or as a default in your [account settings](web-ui#account).
 
 ## Limits
 
-**Settings → Orca AI** carries a **Limits** card — operator-tunable ceilings that
+**Settings → Elowen AI** carries a **Limits** card — operator-tunable ceilings that
 let you trade cost, verbosity and latency to taste. Every value is a whole number
 **clamped to a safe range**: the daemon re-clamps whatever you type, so a field
 can never be pushed somewhere dangerous. The defaults are sensible; leave them
@@ -244,7 +244,7 @@ turn looping forever.
 
 ## Tools are per-user
 
-What the agent can *do* is governed by Orca's RBAC. Under **Settings → Users**,
+What the agent can *do* is governed by Elowen's RBAC. Under **Settings → Users**,
 an admin can give each user a **different set of tools and permissions** — grant
 one person the terminal and files tools while another gets chat only, and scope
 each user to specific projects. The agent you chat with only ever wields the

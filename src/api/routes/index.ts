@@ -1,4 +1,4 @@
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 import { registerAuthGuards } from '../middleware.js';
 import { registerAuthRoutes } from './auth.js';
 import { registerProjectRoutes } from './projects.js';
@@ -17,7 +17,7 @@ import { registerMemoryRoutes } from './memory.js';
 /** Register every route family on the app. Order matters: the auth/tenancy guards are global
  *  middleware and MUST register before any family so every downstream handler is authenticated and
  *  gated. Families register distinct paths, so their relative order is otherwise immaterial. */
-export function registerRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerRoutes(app: ElowenApp, ctx: RouteContext): void {
   registerAuthGuards(app, ctx);
   registerAuthRoutes(app, ctx);
   registerTaskRoutes(app, ctx);

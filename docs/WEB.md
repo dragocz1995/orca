@@ -34,8 +34,8 @@ registered in `modules/registry.ts`.
 - **LoginGate** — wraps the entire app, probes `/api/auth/me` on mount
 - **Token** — httpOnly session cookie, never in JS or `localStorage`. The
   browser talks to the same-origin `/api` BFF proxy with
-  `credentials: 'same-origin'`. No `NEXT_PUBLIC_ORCA_URL`.
-- **Logout** — expires the cookie server-side, fires `orca:auth-cleared` event
+  `credentials: 'same-origin'`. No `NEXT_PUBLIC_ELOWEN_URL`.
+- **Logout** — expires the cookie server-side, fires `elowen:auth-cleared` event
 - **EventBridge** — only mounted after auth
 
 ### Role-based access
@@ -112,10 +112,10 @@ First-run wizard: system deps, providers, autopilot, users.
 
 ## Data layer
 
-### orcaClient (`lib/orcaClient.ts`)
+### elowenClient (`lib/elowenClient.ts`)
 
 Thin fetch wrapper. Sets `BASE = '/api'`, `credentials: 'same-origin'`.
-On 401, clears token and throws `OrcaApiError`.
+On 401, clears token and throws `ElowenApiError`.
 
 ### Queries (`lib/queries.ts`)
 
@@ -142,7 +142,7 @@ sessions, projects, config, users, plugins, brain, memory, advisor, system.
 
 Two SSE connections:
 
-1. **Event bus** (`/events`) — global state changes via `useOrcaEvents`
+1. **Event bus** (`/events`) — global state changes via `useElowenEvents`
 2. **Pane stream** (`/sessions/:name/stream`) — per-session terminal content
 
 Events: `task`, `mission`, `signal`, `plan`, `review`.
@@ -218,7 +218,7 @@ Every user-facing string in both CS and EN dictionaries.
 
 ## PWA
 
-Orca is installable as a PWA with offline-capable push notifications:
+Elowen is installable as a PWA with offline-capable push notifications:
 
 - Service worker (`public/sw.js`) with VAPID push handler
 - Inline action buttons (Allow, Reject, Approve, Rerun)

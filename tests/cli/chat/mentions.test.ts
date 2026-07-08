@@ -118,7 +118,7 @@ describe('fuzzy + frecency ranking', () => {
 
 describe('frecency persistence (per project)', () => {
   it('bumps, persists and reloads per workDir', () => {
-    const env: NodeJS.ProcessEnv = { HOME: makeDir('orca-mentions-') };
+    const env: NodeJS.ProcessEnv = { HOME: makeDir('elowen-mentions-') };
     bumpMentionFrecency('/proj/a', 'src/x.ts', env, 1000);
     bumpMentionFrecency('/proj/a', 'src/x.ts', env, 2000);
     bumpMentionFrecency('/proj/b', 'other.ts', env, 3000);
@@ -128,19 +128,19 @@ describe('frecency persistence (per project)', () => {
   });
 
   it('prunes to the most recently used entries and survives a corrupt file', () => {
-    const env: NodeJS.ProcessEnv = { HOME: makeDir('orca-mentions-') };
+    const env: NodeJS.ProcessEnv = { HOME: makeDir('elowen-mentions-') };
     for (let i = 0; i < MAX_FRECENCY_ENTRIES + 5; i++) bumpMentionFrecency('/p', `f${i}.ts`, env, i);
     const map = loadMentionFrecency('/p', env);
     expect(Object.keys(map)).toHaveLength(MAX_FRECENCY_ENTRIES);
     expect(map['f0.ts']).toBeUndefined(); // oldest pruned
-    writeFileSync(join(env.HOME!, '.config', 'orca', 'cli-mentions.json'), 'not json{');
+    writeFileSync(join(env.HOME!, '.config', 'elowen', 'cli-mentions.json'), 'not json{');
     expect(loadMentionFrecency('/p', env)).toEqual({});
   });
 });
 
 describe('expandMentions (attachment expansion)', () => {
   const project = (): string => {
-    const cwd = makeDir('orca-proj-');
+    const cwd = makeDir('elowen-proj-');
     writeFileSync(join(cwd, 'notes.txt'), 'hello world\n');
     return cwd;
   };
@@ -262,7 +262,7 @@ describe('clipboard image reading', () => {
 
 describe('file index', () => {
   it('walks bounded, skipping dot/dependency directories', () => {
-    const cwd = makeDir('orca-walk-');
+    const cwd = makeDir('elowen-walk-');
     mkdirSync(join(cwd, 'src'));
     mkdirSync(join(cwd, 'node_modules', 'x'), { recursive: true });
     mkdirSync(join(cwd, '.git'), { recursive: true });

@@ -16,7 +16,7 @@ function fakeGh(script: string) {
 }
 
 beforeEach(() => {
-  binDir = mkdtempSync(join(tmpdir(), 'orca-gh-'));
+  binDir = mkdtempSync(join(tmpdir(), 'elowen-gh-'));
   origPath = process.env.PATH;
   process.env.PATH = `${binDir}:${origPath}`;
 });
@@ -28,7 +28,7 @@ afterEach(() => {
 describe('createPR', () => {
   it('parses the PR number + url from the gh create output', async () => {
     fakeGh(`if [ "$1" = "pr" ] && [ "$2" = "create" ]; then echo "https://github.com/o/r/pull/123"; fi`);
-    const ref = await createPR({ dir: binDir, base: 'main', head: 'orca/x', title: 'T', body: 'B', token: 't' });
+    const ref = await createPR({ dir: binDir, base: 'main', head: 'elowen/x', title: 'T', body: 'B', token: 't' });
     expect(ref).toEqual({ number: 123, url: 'https://github.com/o/r/pull/123' });
   });
 
@@ -36,27 +36,27 @@ describe('createPR', () => {
     fakeGh(`
 if [ "$1" = "pr" ] && [ "$2" = "create" ]; then echo "a pull request already exists" >&2; exit 1; fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"number":7,"url":"https://github.com/o/r/pull/7"}'; fi`);
-    const ref = await createPR({ dir: binDir, base: 'main', head: 'orca/x', title: 'T', body: 'B', token: 't' });
+    const ref = await createPR({ dir: binDir, base: 'main', head: 'elowen/x', title: 'T', body: 'B', token: 't' });
     expect(ref).toEqual({ number: 7, url: 'https://github.com/o/r/pull/7' });
   });
 
   it('returns null when gh is unavailable / both calls fail', async () => {
     fakeGh(`exit 1`);
-    const ref = await createPR({ dir: binDir, base: 'main', head: 'orca/x', title: 'T', body: 'B', token: 't' });
+    const ref = await createPR({ dir: binDir, base: 'main', head: 'elowen/x', title: 'T', body: 'B', token: 't' });
     expect(ref).toBeNull();
   });
 
   it('passes the token to gh via GH_TOKEN', async () => {
     // The stub echoes a URL only when GH_TOKEN is the expected value — proving the env propagated.
     fakeGh(`if [ "$GH_TOKEN" = "secret-tok" ]; then echo "https://github.com/o/r/pull/9"; else exit 1; fi`);
-    const ref = await createPR({ dir: binDir, base: 'main', head: 'orca/x', title: 'T', body: 'B', token: 'secret-tok' });
+    const ref = await createPR({ dir: binDir, base: 'main', head: 'elowen/x', title: 'T', body: 'B', token: 'secret-tok' });
     expect(ref).toEqual({ number: 9, url: 'https://github.com/o/r/pull/9' });
   });
 
   it('omits GH_TOKEN entirely when no token is configured (uses gh\'s own login)', async () => {
     // An empty GH_TOKEN would override gh's stored auth — so with no token it must be UNSET, not "".
     fakeGh(`if [ -z "\${GH_TOKEN+x}" ]; then echo "https://github.com/o/r/pull/4"; else exit 1; fi`);
-    const ref = await createPR({ dir: binDir, base: 'main', head: 'orca/x', title: 'T', body: 'B', token: '' });
+    const ref = await createPR({ dir: binDir, base: 'main', head: 'elowen/x', title: 'T', body: 'B', token: '' });
     expect(ref).toEqual({ number: 4, url: 'https://github.com/o/r/pull/4' });
   });
 });

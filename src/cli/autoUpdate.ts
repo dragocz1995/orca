@@ -4,7 +4,7 @@ import { dbPath } from './paths.js';
 import { hasLiveMission } from './missionGate.js';
 import { update, type UpdateResult } from './update.js';
 
-/** What `orca update --auto` (the hourly systemd timer) decided. It only upgrades when the operator
+/** What `elowen update --auto` (the hourly systemd timer) decided. It only upgrades when the operator
  *  opted in (config.autoUpdate) AND no mission is live — restarting the daemon mid-mission would kill
  *  the running agent sessions, so a busy box defers to the next tick. */
 export type AutoUpdateOutcome =
@@ -34,7 +34,7 @@ function readGate(env: NodeJS.ProcessEnv): { enabled: boolean; busy: boolean } {
 }
 
 /** Gate, then update. Never throws on the "skip" paths — a disabled or busy box is a normal no-op for
- *  the timer, not a failure (so `systemctl status orca-update` stays green). */
+ *  the timer, not a failure (so `systemctl status elowen-update` stays green). */
 export async function autoUpdate(env: NodeJS.ProcessEnv, deps: AutoUpdateDeps): Promise<AutoUpdateOutcome> {
   const { enabled, busy } = (deps.gate ?? (() => readGate(env)))();
   if (!enabled) return { ran: false, reason: 'disabled' };

@@ -1,4 +1,4 @@
-import type { OrcaEvent, EventBus } from '../../api/sse.js';
+import type { ElowenEvent, EventBus } from '../../api/sse.js';
 import type { TaskStore } from '../../store/taskStore.js';
 import type { TaskUsageStore } from '../../store/taskUsageStore.js';
 import type { AgentSpec } from '../../spawn/commandBuilder.js';
@@ -43,7 +43,7 @@ export class UsageRecorder {
     });
   }
 
-  private handle(e: OrcaEvent): void {
+  private handle(e: ElowenEvent): void {
     if (e.type !== 'task' || (e.status !== 'closed' && e.status !== 'cancelled')) return;
     const task = this.d.tasks.get(e.taskId);
     if (!task) return;
@@ -51,7 +51,7 @@ export class UsageRecorder {
     if (!exec) return; // nothing to attribute (no exec label → no model)
     // Embedded-brain workers have no CLI session on disk: BrainWorkerService records their usage
     // itself at close, and there is nothing to capture for resume (rehydration is store-driven).
-    if (exec.startsWith('orca:')) return;
+    if (exec.startsWith('elowen:')) return;
     const siblings = this.d.tasks.list({ project_id: task.project_id });
     const projectPath = this.d.pathFor(task);
     // Stamp the CLI session id for resume FIRST, independent of usage: even if token parsing comes up

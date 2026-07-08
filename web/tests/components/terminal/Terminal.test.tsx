@@ -11,7 +11,7 @@ vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = fitSpy; } }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 vi.mock('../../../lib/useTerminalPrefs', () => ({ useTerminalPrefs: () => ({ fontSize: 12, fontFamily: 'system', cursorStyle: 'block', cursorBlink: true, scrollback: 1000, theme: 'auto', palette: {} }) }));
 const sessionInputSpy = vi.fn((..._a: unknown[]) => Promise.resolve({ ok: true }));
-vi.mock('../../../lib/orcaClient', () => ({ BASE: '/api', orcaClient: { resizeSession: vi.fn(() => Promise.resolve({ ok: true })), sessionInput: (name: string, data: string) => sessionInputSpy(name, data) } }));
+vi.mock('../../../lib/elowenClient', () => ({ BASE: '/api', elowenClient: { resizeSession: vi.fn(() => Promise.resolve({ ok: true })), sessionInput: (name: string, data: string) => sessionInputSpy(name, data) } }));
 
 class FakeES { static last: FakeES; listeners: Record<string, (e: { data: string }) => void> = {}; close() {} constructor(public url: string) { FakeES.last = this; } addEventListener(t: string, fn: (e: { data: string }) => void) { this.listeners[t] = fn; } emit(t: string, d: unknown) { this.listeners[t]?.({ data: JSON.stringify(d) }); } }
 beforeEach(() => { (globalThis as unknown as { EventSource: typeof FakeES }).EventSource = FakeES; writeSpy.mockClear(); clearSpy.mockClear(); fitSpy.mockClear(); sessionInputSpy.mockClear(); onDataHandler = null; });
@@ -24,7 +24,7 @@ const HIDE = '\x1b[?25l';
 
 describe('Terminal', () => {
   it('mounts xterm and writes pane frames atomically (no separate clear)', () => {
-    render(<Terminal name="orca-A" />, { wrapper: createWrapper().wrapper });
+    render(<Terminal name="elowen-A" />, { wrapper: createWrapper().wrapper });
     expect(openSpy).toHaveBeenCalled();
     act(() => FakeES.last.emit('pane', { pane: 'frame-1' }));
     expect(clearSpy).not.toHaveBeenCalled();
@@ -32,7 +32,7 @@ describe('Terminal', () => {
   });
 
   it('skips write when pane is unchanged (B1 — idle dedupe guard)', () => {
-    render(<Terminal name="orca-B" />, { wrapper: createWrapper().wrapper });
+    render(<Terminal name="elowen-B" />, { wrapper: createWrapper().wrapper });
     // paneRef starts as '' and pane starts as '' — identical, so no write
     act(() => FakeES.last.emit('pane', { pane: '' }));
     expect(clearSpy).not.toHaveBeenCalled();
@@ -40,23 +40,23 @@ describe('Terminal', () => {
   });
 
   it('non-interactive terminal does not wire keyboard input', () => {
-    render(<Terminal name="orca-D" />, { wrapper: createWrapper().wrapper });
+    render(<Terminal name="elowen-D" />, { wrapper: createWrapper().wrapper });
     expect(onDataHandler).toBeNull(); // read-only: no onData subscription
   });
 
   it('interactive terminal forwards every keystroke verbatim to the input endpoint', () => {
-    render(<Terminal name="orca-E" interactive />, { wrapper: createWrapper().wrapper });
+    render(<Terminal name="elowen-E" interactive />, { wrapper: createWrapper().wrapper });
     expect(onDataHandler).not.toBeNull();
     act(() => onDataHandler!('\x1b[A')); // up-arrow bytes
     act(() => onDataHandler!('x'));
-    expect(sessionInputSpy).toHaveBeenCalledWith('orca-E', '\x1b[A');
-    expect(sessionInputSpy).toHaveBeenCalledWith('orca-E', 'x');
+    expect(sessionInputSpy).toHaveBeenCalledWith('elowen-E', '\x1b[A');
+    expect(sessionInputSpy).toHaveBeenCalledWith('elowen-E', 'x');
   });
 
   it('ResizeObserver is attached on mount (B2)', () => {
     // ResizeObserver stub is in tests/setup.ts; verify observe was called on the container
     const observeSpy = vi.spyOn(globalThis.ResizeObserver.prototype, 'observe');
-    render(<Terminal name="orca-C" />, { wrapper: createWrapper().wrapper });
+    render(<Terminal name="elowen-C" />, { wrapper: createWrapper().wrapper });
     expect(observeSpy).toHaveBeenCalled();
     observeSpy.mockRestore();
   });

@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, OrcaConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, PersonalityProfile, PersonalityCreate, PersonalityPatch, CliSettings, TerminalSettings, PermissionSettings, PluginInfo, PluginDetail, PluginContributions, PluginLogs, PluginHookExecutions, Marketplace, CronJob, DiscordChannelOption, WhatsAppPairing, PluginSkill, BrainModelOption, BrainSessionInfo, ManagedSession, BrainSearchHit, BrainMessage, BrainStatus, SlashCommandDef, AskAnswer, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, DayUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SystemReadiness, SkillsInfo, SkillInstallResult, Memory, MemoryEvent, MemoryCreate, MemoryPatch, MemoryFilters, EmbeddingSettings, EmbeddingSettingsPatch, RetrievalResult, UserToolPill, UserStats, MemoryCategory, MemoryCategoryCreate, MemoryCategoryPatch, CategorizationSettings, CategorizationSettingsPatch } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, ElowenConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, PersonalityProfile, PersonalityCreate, PersonalityPatch, CliSettings, TerminalSettings, PermissionSettings, PluginInfo, PluginDetail, PluginContributions, PluginLogs, PluginHookExecutions, Marketplace, CronJob, DiscordChannelOption, WhatsAppPairing, PluginSkill, BrainModelOption, BrainSessionInfo, ManagedSession, BrainSearchHit, BrainMessage, BrainStatus, SlashCommandDef, AskAnswer, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, DayUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SystemReadiness, SkillsInfo, SkillInstallResult, Memory, MemoryEvent, MemoryCreate, MemoryPatch, MemoryFilters, EmbeddingSettings, EmbeddingSettingsPatch, RetrievalResult, UserToolPill, UserStats, MemoryCategory, MemoryCategoryCreate, MemoryCategoryPatch, CategorizationSettings, CategorizationSettingsPatch } from './types';
 import { clearToken } from './token';
 
 // Same-origin BFF base: the browser talks only to this web origin's /api proxy, which injects the
@@ -15,15 +15,15 @@ export function terminalWsUrl(ticket: string, directPort?: number | null): strin
   return `${proto}//${host}/ws/terminal?ticket=${encodeURIComponent(ticket)}`;
 }
 
-export class OrcaApiError extends Error {
-  constructor(message: string, public status: number, public code?: string) { super(message); this.name = 'OrcaApiError'; }
+export class ElowenApiError extends Error {
+  constructor(message: string, public status: number, public code?: string) { super(message); this.name = 'ElowenApiError'; }
 }
 
 /** A presentable message for a caught error: prefer the server-provided error code (a short
- *  human-readable string from the daemon) over the raw `orca <status> on <path>` diagnostic, so
- *  toasts show "forbidden" rather than "Error: orca 403 on /tasks". */
+ *  human-readable string from the daemon) over the raw `elowen <status> on <path>` diagnostic, so
+ *  toasts show "forbidden" rather than "Error: elowen 403 on /tasks". */
 export function apiErrorMessage(e: unknown): string {
-  if (e instanceof OrcaApiError) return e.code ?? e.message;
+  if (e instanceof ElowenApiError) return e.code ?? e.message;
   if (e instanceof Error) return e.message;
   return String(e);
 }
@@ -32,11 +32,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   // The httpOnly session cookie rides along automatically with same-origin credentials; the proxy
   // turns it into the daemon bearer. No Authorization header is set here on purpose.
   const res = await fetch(`${BASE}${path}`, { ...init, credentials: 'same-origin' });
-  if (res.status === 401) { clearToken(); throw new OrcaApiError(`orca 401 on ${path}`, 401); }
+  if (res.status === 401) { clearToken(); throw new ElowenApiError(`elowen 401 on ${path}`, 401); }
   if (!res.ok) {
     let code: string | undefined;
     try { code = ((await res.json()) as { error?: string }).error; } catch { /* non-JSON body */ }
-    throw new OrcaApiError(`orca ${res.status} on ${path}`, res.status, code);
+    throw new ElowenApiError(`elowen ${res.status} on ${path}`, res.status, code);
   }
   // 204 No Content (and other empty 2xx bodies) have nothing to parse — callers of such routes
   // type the result as void/unknown, so returning undefined is correct and avoids a SyntaxError.
@@ -46,13 +46,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     // A 2xx with a non-JSON body (HTML error page from a proxy, truncated stream) — surface a
     // typed error instead of letting an opaque SyntaxError bubble into react-query.
-    throw new OrcaApiError(`non-JSON response from ${path}`, res.status);
+    throw new ElowenApiError(`non-JSON response from ${path}`, res.status);
   }
 }
 
 const json = (body: unknown, method = 'POST'): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-export const orcaClient = {
+export const elowenClient = {
   tasks: (projectId?: number) => req<Task[]>(projectId != null ? `/tasks?project_id=${projectId}` : '/tasks'),
   ready: () => req<Task[]>('/tasks/ready'),
   sessions: () => req<SessionInfo[]>('/sessions'),
@@ -102,9 +102,9 @@ export const orcaClient = {
   setTaskStatus: (id: string, status: string) => req<Task>(`/tasks/${id}`, json({ status }, 'PATCH')),
   setTaskExec: (id: string, exec: string) => req<Task>(`/tasks/${id}`, json({ exec }, 'PATCH')),
   approveGate: (id: string) => req<{ released: string[] }>(`/tasks/${id}/approve-gate`, { method: 'POST' }),
-  /** Every `orca ask` parked on a human (overseer escalated / no overseer), for the Escalations inbox. */
+  /** Every `elowen ask` parked on a human (overseer escalated / no overseer), for the Escalations inbox. */
   pendingAsks: () => req<PendingAsk[]>('/asks/pending'),
-  /** Answer a worker's escalated question — unblocks the agent waiting on `orca ask`. */
+  /** Answer a worker's escalated question — unblocks the agent waiting on `elowen ask`. */
   replyAsk: (taskId: string, askId: string, text: string) => req<{ ok: boolean }>(`/tasks/${encodeURIComponent(taskId)}/ask/${encodeURIComponent(askId)}/reply`, json({ text })),
   sessionPane: (name: string, ansi = false) => req<{ pane: string }>(`/sessions/${encodeURIComponent(name)}/pane${ansi ? '?ansi=1' : ''}`),
   killSession: (name: string) => req<{ ok: boolean }>(`/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' }),
@@ -128,8 +128,8 @@ export const orcaClient = {
   /** Squash-merge a PR-native mission's PR into the base branch. Resolves on success; rejects with the
    *  gate reason (PR not open / conflicts / CI not green) so the UI can show why it was refused. */
   mergeMissionPr: (id: string) => req<{ ok: boolean }>(`/missions/${id}/merge-pr`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
-  getConfig: () => req<OrcaConfig>('/config'),
-  updateConfig: (patch: ConfigPatch) => req<OrcaConfig>('/config', json(patch, 'PUT')),
+  getConfig: () => req<ElowenConfig>('/config'),
+  updateConfig: (patch: ConfigPatch) => req<ElowenConfig>('/config', json(patch, 'PUT')),
   system: () => req<SystemInfo>('/system'),
   systemReadiness: () => req<SystemReadiness>('/system/readiness'),
   systemUpdate: () => req<{ started: boolean }>('/system/update', json({})),
@@ -250,7 +250,7 @@ export const orcaClient = {
   // server-side, never exposed to JS. The caller wraps the Blob in a short-lived object URL for <img src>.
   projectRawBlob: async (id: number, path: string): Promise<Blob> => {
     const res = await fetch(`${BASE}/projects/${id}/raw?path=${encodeURIComponent(path)}`, { credentials: 'same-origin' });
-    if (!res.ok) throw new OrcaApiError(`orca ${res.status} on raw ${path}`, res.status);
+    if (!res.ok) throw new ElowenApiError(`elowen ${res.status} on raw ${path}`, res.status);
     return res.blob();
   },
   newProjectFile: (id: number, path: string) => req<{ ok: boolean }>(`/projects/${id}/new-file`, json({ path })),
@@ -318,7 +318,7 @@ export const orcaClient = {
   embeddingSettings: () => req<EmbeddingSettings>('/memory/embedding'),
   saveEmbeddingSettings: (patch: EmbeddingSettingsPatch) => req<EmbeddingSettings>('/memory/embedding', json(patch, 'PUT')),
   /** Admin: probe the embedding provider with a tiny sample. An embed failure resolves 200 `{ ok:false }`
-   *  (read `ok`); the unconfigured case is a 400 that `req` throws as an OrcaApiError for the caller to catch. */
+   *  (read `ok`); the unconfigured case is a 400 that `req` throws as an ElowenApiError for the caller to catch. */
   testEmbedding: () => req<{ ok: true; dimensions: number; provider: string | null; model: string } | { ok: false; error: string }>('/memory/embedding/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   cliStatus: () => req<CliDetectionResult>('/integrations/cli-status'),
   githubStatus: () => req<GithubAuthStatus>('/integrations/github-status'),

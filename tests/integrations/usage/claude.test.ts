@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { claudeUsage } from '../../../src/integrations/usage/claude.js';
 
 let home: string;
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'orca-claude-usage-')); });
+beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'elowen-claude-usage-')); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 describe('claudeUsage (head-only session matching)', () => {

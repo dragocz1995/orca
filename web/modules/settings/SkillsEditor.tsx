@@ -11,7 +11,7 @@ import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { usePluginSkills } from '../../lib/queries';
 import { useCreatePluginSkill, useDeletePluginSkill } from '../../lib/mutations';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 
 const textareaClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent';
 

@@ -96,9 +96,9 @@ export async function detectBaseBranch(repo: string, configured: string): Promis
   try {
     const { stdout } = await run('git', ['-C', cwd, 'symbolic-ref', '--short', 'HEAD']);
     const ref = stdout.trim();
-    // Skip an `orca/…` ref: if the main checkout happens to sit on a prior mission branch, basing a new
+    // Skip an `elowen/…` ref: if the main checkout happens to sit on a prior mission branch, basing a new
     // mission off it would chain unrelated work. Only a real base branch (main/master/…) qualifies here.
-    if (ref && !ref.startsWith('orca/')) return ref;
+    if (ref && !ref.startsWith('elowen/')) return ref;
   } catch { /* detached HEAD — fall through */ }
   return 'main';
 }

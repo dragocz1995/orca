@@ -26,7 +26,7 @@ export interface ExternalEditOpts {
  *  then. The temp file always gets cleaned up. */
 export async function editTextExternally(o: ExternalEditOpts): Promise<string | null> {
   const [cmd = 'vi', ...args] = editorCommand(o.env);
-  const dir = mkdtempSync(join(tmpdir(), 'orca-editor-'));
+  const dir = mkdtempSync(join(tmpdir(), 'elowen-editor-'));
   const file = join(dir, 'draft.md');
   try {
     writeFileSync(file, o.text, 'utf-8');

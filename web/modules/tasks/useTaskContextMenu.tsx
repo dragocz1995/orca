@@ -6,7 +6,7 @@ import { ContextMenu, DIVIDER, type ContextMenuState, type MenuEntry } from '../
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 import { openTerminalWindow } from '../../lib/openTerminalWindow';
 import { taskExec, taskSessionName, agentDisplayName } from '../../lib/agentUtils';
 import { allModels } from '../../lib/execPresets';

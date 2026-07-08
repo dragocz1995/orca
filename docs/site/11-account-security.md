@@ -7,7 +7,7 @@ eyebrow: Guide
 
 # Account & Security
 
-Orca is a personal AI agent you talk to — it reasons, edits files, runs commands
+Elowen is a personal AI agent you talk to — it reasons, edits files, runs commands
 and works across chat platforms on your behalf. An agent with that much reach has
 to be locked down properly, so security is not an afterthought here: every request
 is authenticated, every user gets exactly the tools and models you grant them, and
@@ -21,7 +21,7 @@ by hand.
 
 ## Authentication
 
-Orca uses **Bearer token** authentication on every API request except
+Elowen uses **Bearer token** authentication on every API request except
 `GET /health` and `POST /auth/login`.
 
 ```http
@@ -44,7 +44,7 @@ can't read it either.
 
 ## Token scopes
 
-Not every token is equal. Orca issues three scopes so an agent it spawns can never
+Not every token is equal. Elowen issues three scopes so an agent it spawns can never
 act with your full rights.
 
 | Scope | Purpose |
@@ -80,7 +80,7 @@ Content-Type: application/json
 ```
 
 A successful login returns a bearer token. Login is **rate-limited to 10 attempts
-per 5 minutes per IP** (Orca prefers the `x-real-ip` header over `x-forwarded-for`),
+per 5 minutes per IP** (Elowen prefers the `x-real-ip` header over `x-forwarded-for`),
 which blunts brute-force attempts.
 
 Password policy:
@@ -89,12 +89,12 @@ Password policy:
 - Changed via `POST /auth/me/password`, which requires the **current password** —
   so a hijacked session can't silently rotate the password without knowing it.
 
-You can set an initial admin at first boot with the `ORCA_BOOTSTRAP_USER` and
-`ORCA_BOOTSTRAP_PASS` environment variables (see [Configuration](configuration)).
+You can set an initial admin at first boot with the `ELOWEN_BOOTSTRAP_USER` and
+`ELOWEN_BOOTSTRAP_PASS` environment variables (see [Configuration](configuration)).
 
 ## RBAC: roles
 
-Orca ships **full role-based access control**. There are two roles:
+Elowen ships **full role-based access control**. There are two roles:
 
 | Role | Access |
 |------|--------|
@@ -108,12 +108,12 @@ Roles are the coarse layer. The powerful part is what sits underneath them:
 
 ## Per-user tools & models
 
-This is the headline of Orca's security model, so it's worth spelling out. Beyond
+This is the headline of Elowen's security model, so it's worth spelling out. Beyond
 the admin/member role, an admin controls three things **per user** on the
 [Users](web-ui) page:
 
 - **Per-user tools (`disabled_tools`)** — turn individual brain tools off for a
-  specific person. Every capability in Orca is a tool ([Plugins](plugins) register
+  specific person. Every capability in Elowen is a tool ([Plugins](plugins) register
   them), so you can grant one user `terminal` + `files` and give another only chat.
   Disable `terminal` for a junior member and they simply won't have shell access,
   no matter what they ask the agent to do.
@@ -127,7 +127,7 @@ the admin/member role, an admin controls three things **per user** on the
 
 In practice: give one teammate a full engineering toolkit, give another a chat-only
 account, and scope a contractor to a single project — all from one pane, all
-auto-saved. That per-user tools-and-rights model is a core pillar of Orca, not a
+auto-saved. That per-user tools-and-rights model is a core pillar of Elowen, not a
 bolt-on.
 
 ## Project assignment & visibility
@@ -147,7 +147,7 @@ is deleted, so you never leave orphan grants behind.
 ## Granular tool permissions
 
 Disabling a tool outright is the blunt instrument. The sharp one lives in
-**Account → Orca AI → Permission rules**: for the tools a user *does* have, you
+**Account → Elowen AI → Permission rules**: for the tools a user *does* have, you
 decide per pattern whether a call **runs, asks, or is refused**. Every tool call the
 brain makes resolves to one of three actions:
 
@@ -182,8 +182,8 @@ and a later rule beats an earlier one. Put a catch-all like `*` first, then narr
 ### YOLO mode
 
 **YOLO** flips every `ask` to `allow` without prompting (a `deny` rule still denies).
-Set your **persisted default** with the YOLO toggle in Account → Orca AI — it applies
-to new sessions. Inside a running `orca chat` session the **`/yolo`** command
+Set your **persisted default** with the YOLO toggle in Account → Elowen AI — it applies
+to new sessions. Inside a running `elowen chat` session the **`/yolo`** command
 overrides it just for that session, without touching your saved default. There's a
 standing warning on the toggle for a reason: auto-approving tool runs is a real
 security trade-off.
@@ -200,24 +200,24 @@ spawned subagent) there's nobody to ask, so what happens is your call:
 
 ## Personality & advisor style
 
-Orca isn't just capable — it can sound the way you want it to. Each user shapes their
+Elowen isn't just capable — it can sound the way you want it to. Each user shapes their
 own assistant voice, and none of it leaks between accounts.
 
 **Communication style** is the always-on layer, set in **Account → Personality** as a
 single pick: **Professional** (default), **Friendly**, **Concise** or **Detailed**.
 It rewrites the assistant's register everywhere your brain runs — web chat and
-`orca chat` alike — and applies on top of any active persona profile.
+`elowen chat` alike — and applies on top of any active persona profile.
 
 **Persona profiles** go further. You can author named profiles per surface — **Web**
 and **Discord** — each with a tone, a style, and a full instruction prompt written in
 a Markdown editor. Enable one as the **active** profile for that surface and it's
 pinned into the system prompt at spawn. Duplicate, edit, disable or delete them from
-the same pane; runtime knobs (models, thinking level) stay in the Orca AI section, so
+the same pane; runtime knobs (models, thinking level) stay in the Elowen AI section, so
 personality and mechanics never tangle.
 
 Discord is the exception worth calling out: it's a **shared, owner-anchored channel**,
 not a per-user session. The bot wears **one persona** there — the channel **owner's**
-active `discord` profile — so everyone talking to Orca on Discord meets the same,
+active `discord` profile — so everyone talking to Elowen on Discord meets the same,
 deliberately-configured face.
 
 ## Memory
@@ -231,7 +231,7 @@ both halves of that under your control as per-user toggles (both on by default):
   *your* account.
 
 They're read fresh each turn, so flipping one applies to your very next message, and
-they cover web chat, `orca chat` and your own verified Discord messages. See the
+they cover web chat, `elowen chat` and your own verified Discord messages. See the
 [Brain](brain) guide for how recall and the curator work under the hood.
 
 ![Memory — the assistant's durable, per-user memory store](images/brain-memory.png)
@@ -242,7 +242,7 @@ they cover web chat, `orca chat` and your own verified Discord messages. See the
 avatar, plus a live **UI scale** slider that zooms the whole app (a per-device
 preference, like the terminal look below).
 
-Two fields here are more than cosmetic — they **link an external identity to your Orca
+Two fields here are more than cosmetic — they **link an external identity to your Elowen
 account**, which is what lets the owner persona and per-user memory work off-web:
 
 - **Discord user ID** — maps your Discord user to this account, so your Discord
@@ -265,7 +265,7 @@ per-user look set in **Account → Terminal**, with a live preview and autosave:
 
 ## Push notifications
 
-Because the agent runs autonomously, you want to know the moment it needs you. Orca
+Because the agent runs autonomously, you want to know the moment it needs you. Elowen
 supports **PWA push notifications** over the VAPID protocol.
 
 ![Account settings — notifications and per-device subscriptions](images/account-settings.png)

@@ -1,10 +1,10 @@
 import { parseBody } from '../validation.js';
 import { createNoteSchema } from '../schemas/activity.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** The activity timeline and inter-agent handoff notes. Both are tenancy-scoped: the timeline to the
  *  caller's accessible projects, the notes to the target epic's project. */
-export function registerActivityRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerActivityRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d, accessibleProjects, canAccessProject } = ctx;
   app.get('/activity', (c) => {
     if (!d.events) return c.json([]);
@@ -22,7 +22,7 @@ export function registerActivityRoutes(app: OrcaApp, ctx: RouteContext): void {
 
   // Inter-agent handoff notes. Scope defaults to 'mission'; the target is an epic id (a leading `m-`
   // from a mission id is stripped here so workers — which hold the bare epicId — and the overseer —
-  // which holds ORCA_MISSION=m-<epicId> — both work). Access is gated by the target epic's project, so
+  // which holds ELOWEN_MISSION=m-<epicId> — both work). Access is gated by the target epic's project, so
   // an agent can only read/write notes for a mission in a project it is actively working in.
   const noteTarget = (raw: string | undefined): string => {
     const v = raw ?? '';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { run } from '../../src/cli/index.js';
-import { OrcaClient } from '../../src/cli/client.js';
+import { ElowenClient } from '../../src/cli/client.js';
 
 function fakeClient() {
   return {
@@ -9,7 +9,7 @@ function fakeClient() {
     overseerDecide: vi.fn().mockResolvedValue({}),
     close: vi.fn().mockResolvedValue({}),
     sendInput: vi.fn().mockResolvedValue({}),
-  } as unknown as OrcaClient;
+  } as unknown as ElowenClient;
 }
 
 describe('cli reasoning verbs', () => {
@@ -29,15 +29,15 @@ describe('cli reasoning verbs', () => {
   it('close passes through a valid --outcome', async () => {
     const c = fakeClient();
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    await run(['close', 'orca-1', '--summary', 'done', '--outcome', 'ok'], c, {});
-    expect((c.close as any)).toHaveBeenCalledWith('orca-1', { summary: 'done', outcome: 'ok' });
+    await run(['close', 'elowen-1', '--summary', 'done', '--outcome', 'ok'], c, {});
+    expect((c.close as any)).toHaveBeenCalledWith('elowen-1', { summary: 'done', outcome: 'ok' });
     vi.restoreAllMocks();
   });
   it('close rejects an invalid --outcome with exit code 2 (no silent null)', async () => {
     const c = fakeClient();
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
-    await expect(run(['close', 'orca-1', '--outcome', 'success'], c, {})).rejects.toThrow('exit');
+    await expect(run(['close', 'elowen-1', '--outcome', 'success'], c, {})).rejects.toThrow('exit');
     expect(exit).toHaveBeenCalledWith(2);
     expect((c.close as any)).not.toHaveBeenCalled();
     err.mockRestore(); exit.mockRestore();
@@ -45,22 +45,22 @@ describe('cli reasoning verbs', () => {
   it('send appends a newline by default so the message is submitted', async () => {
     const c = fakeClient();
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    await run(['send', 'orca-Nova', 'use variant B'], c, {});
-    expect((c.sendInput as any)).toHaveBeenCalledWith('orca-Nova', 'use variant B\n');
+    await run(['send', 'elowen-Nova', 'use variant B'], c, {});
+    expect((c.sendInput as any)).toHaveBeenCalledWith('elowen-Nova', 'use variant B\n');
     vi.restoreAllMocks();
   });
   it('send --no-enter types the text without submitting', async () => {
     const c = fakeClient();
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    await run(['send', 'orca-Nova', 'draft text', '--no-enter'], c, {});
-    expect((c.sendInput as any)).toHaveBeenCalledWith('orca-Nova', 'draft text');
+    await run(['send', 'elowen-Nova', 'draft text', '--no-enter'], c, {});
+    expect((c.sendInput as any)).toHaveBeenCalledWith('elowen-Nova', 'draft text');
     vi.restoreAllMocks();
   });
   it('send without a message errors out and sends nothing', async () => {
     const c = fakeClient();
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
-    await expect(run(['send', 'orca-Nova'], c, {})).rejects.toThrow('exit');
+    await expect(run(['send', 'elowen-Nova'], c, {})).rejects.toThrow('exit');
     expect(exit).toHaveBeenCalledWith(1);
     expect((c.sendInput as any)).not.toHaveBeenCalled();
     err.mockRestore(); exit.mockRestore();

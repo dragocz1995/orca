@@ -78,10 +78,10 @@ describe('LSP server registry', () => {
     expect(commandExists('anything', { PATH: '' } as NodeJS.ProcessEnv)).toBe(false);
   });
 
-  it("resolves servers from Orca's own LSP prefix even when they are not on PATH", () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-lsp-'));
+  it("resolves servers from Elowen's own LSP prefix even when they are not on PATH", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'elowen-lsp-'));
     const prev = process.env.ORCA_DB;
-    process.env.ORCA_DB = join(dir, 'orca.db'); // lspPrefixDir → <dir>/lsp
+    process.env.ORCA_DB = join(dir, 'elowen.db'); // lspPrefixDir → <dir>/lsp
     try {
       mkdirSync(join(dir, 'lsp', 'bin'), { recursive: true });
       writeFileSync(join(dir, 'lsp', 'bin', 'fake-server'), '#!/bin/sh\n');
@@ -349,7 +349,7 @@ describe('LspManager', () => {
     expect(r.skipped).toBe('no-server-installed');
   });
 
-  it('reports unsupported-language for code Orca has no server for (never says "install")', async () => {
+  it('reports unsupported-language for code Elowen has no server for (never says "install")', async () => {
     const mgr = new LspManager({ root: '/proj', readFile: () => 'class X {}', spawn: () => fakeServer({}) });
     const r = await mgr.checkFile('/proj/Main.java');
     expect(r.language).toBe('java');

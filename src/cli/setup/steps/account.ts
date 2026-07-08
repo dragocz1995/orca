@@ -3,7 +3,7 @@ import { isFirstRun, createAdmin, login } from '../../setup.js';
 import { guard, type StepResult, type WizardCtx } from '../types.js';
 
 /** Step 0 — the daemon's first admin. On a fresh box (zero users) create it; on a re-run or an
- *  `orca install` box an admin already exists, so offer to sign in (later steps need the token) or skip. */
+ *  `elowen install` box an admin already exists, so offer to sign in (later steps need the token) or skip. */
 export async function runAccountStep(ctx: WizardCtx): Promise<StepResult> {
   const first = await isFirstRun(ctx.fetchFn, ctx.base);
   return first ? createFlow(ctx) : existingFlow(ctx);

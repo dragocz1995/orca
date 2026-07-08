@@ -11,7 +11,7 @@ import { UserStore } from '../../src/store/userStore.js';
 
 function makeApp() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   users.create('alice', 'secret');
   const app = createServer({
@@ -49,7 +49,7 @@ describe('POST /mcp auth gating', () => {
     });
     expect(initRes.status).toBe(200);
     const initBody = await initRes.text();
-    expect(initBody).toContain('orca');
+    expect(initBody).toContain('elowen');
     expect(initBody).toContain('protocolVersion');
 
     const toolsRes = await app.request('/mcp', {
@@ -58,8 +58,8 @@ describe('POST /mcp auth gating', () => {
     });
     expect(toolsRes.status).toBe(200);
     const toolsBody = await toolsRes.text();
-    expect(toolsBody).toContain('orca_request');
-    expect(toolsBody).toContain('orca_tasks');
+    expect(toolsBody).toContain('elowen_request');
+    expect(toolsBody).toContain('elowen_tasks');
   });
 
   it('agent-scope service token gets 403 (not in agentAllowed)', async () => {

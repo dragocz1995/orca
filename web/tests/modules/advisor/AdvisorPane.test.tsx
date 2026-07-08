@@ -33,11 +33,11 @@ describe('AdvisorPane', () => {
     const onRemove = vi.fn();
     server.use(
       ...baseHandlers,
-      http.get('*/api/advisor/status', () => HttpResponse.json({ running: true, exec: 'sonnet', session: 'orca-advisor-1' })),
+      http.get('*/api/advisor/status', () => HttpResponse.json({ running: true, exec: 'sonnet', session: 'elowen-advisor-1' })),
       http.get('*/api/sessions', () => HttpResponse.json([])),
     );
     renderPane(<AdvisorPane pane={{ id: 'advisor', kind: 'advisor' }} onRemove={onRemove} />);
-    expect((await screen.findByTestId('stream')).textContent).toBe('orca-advisor-1');
+    expect((await screen.findByTestId('stream')).textContent).toBe('elowen-advisor-1');
     fireEvent.click(screen.getByRole('button', { name: /close panel|zavřít panel/i }));
     expect(onRemove).toHaveBeenCalled();
   });
@@ -47,10 +47,10 @@ describe('AdvisorPane', () => {
     server.use(
       ...baseHandlers,
       http.get('*/api/advisor/status', () => HttpResponse.json({ running: false, exec: '', session: null })),
-      http.get('*/api/sessions', () => HttpResponse.json([{ name: 'orca-w1', role: 'agent', agent: 'w1' }])),
+      http.get('*/api/sessions', () => HttpResponse.json([{ name: 'elowen-w1', role: 'agent', agent: 'w1' }])),
     );
-    renderPane(<AdvisorPane pane={{ id: 'orca-w1', kind: 'session', name: 'orca-w1' }} onRemove={onRemove} />);
-    expect((await screen.findByTestId('stream')).textContent).toBe('orca-w1');
+    renderPane(<AdvisorPane pane={{ id: 'elowen-w1', kind: 'session', name: 'elowen-w1' }} onRemove={onRemove} />);
+    expect((await screen.findByTestId('stream')).textContent).toBe('elowen-w1');
     fireEvent.click(screen.getByRole('button', { name: /close panel|zavřít panel/i }));
     expect(onRemove).toHaveBeenCalled();
   });

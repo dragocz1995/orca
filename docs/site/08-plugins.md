@@ -7,10 +7,10 @@ eyebrow: Reference
 
 # Plugins
 
-Orca is a personal AI agent you chat with — and almost everything that agent can
+Elowen is a personal AI agent you chat with — and almost everything that agent can
 *do* arrives as a plugin. Chat platforms, tools, skills, memory, automation,
 security checks, even the little status line under the chat: each is a
-self-contained module you can add or remove. Orca is modular to the core.
+self-contained module you can add or remove. Elowen is modular to the core.
 
 That is the third pillar in practice. The agent's capabilities are not baked in;
 they are composed. You decide which platforms it answers on, which tools it may
@@ -22,7 +22,7 @@ the codebase.
 ## Everything is a plugin
 
 Plugins register their capabilities with the brain (the embedded agent core you
-talk to — see [Brain & Chat](brain-chat)) at runtime. Orca ships fourteen
+talk to — see [Brain & Chat](brain-chat)) at runtime. Elowen ships fourteen
 bundled plugins out of the box: the platforms **discord** and **whatsapp**; the
 tools **files**, **terminal**, **mcp**, **subagent** and **askuser**; automation
 via **cronjob**; the surface extras **statusline** and **runtime-context**;
@@ -51,7 +51,7 @@ you installed yourself are uninstalled outright.
 
 ## The marketplace
 
-Bundled plugins ship with Orca, but you are not limited to them. Orca includes a
+Bundled plugins ship with Elowen, but you are not limited to them. Elowen includes a
 **plugin marketplace**: a curated registry you browse from **Settings →
 Plugins** to install, update, and uninstall extra plugins.
 
@@ -70,7 +70,7 @@ Plugins** to install, update, and uninstall extra plugins.
 The marketplace only offers install/update on plugins it owns, never on the
 built-ins. Installs are allowed only for names the registry publishes, so the
 trust surface is simply "do you trust this registry", the same posture as the
-Orca package itself. If the registry can't be reached (offline, for example), the
+Elowen package itself. If the registry can't be reached (offline, for example), the
 UI tells you the marketplace is unavailable rather than pretending the catalog is
 empty.
 
@@ -178,7 +178,7 @@ what the agent can do is low-friction and low-risk.
 ## Platforms: Discord & WhatsApp
 
 Platform plugins are where you actually meet the agent. You write; it answers
-from Orca AI, streams its work, and pushes to you proactively.
+from Elowen AI, streams its work, and pushes to you proactively.
 
 ### Discord
 
@@ -200,7 +200,7 @@ when `@mentioned`.
 - A large **server toolset** for admin sessions — channels, roles, members,
   threads, pins, and messages
 
-Each Discord role maps to a set of allowed Orca projects, a role prompt and the
+Each Discord role maps to a set of allowed Elowen projects, a role prompt and the
 tools the bot may use for it, so who can reach which project is policy, not luck.
 The first matching role wins; members with no mapped role are silently ignored.
 Configure in **Settings → Plugins → discord**.
@@ -209,8 +209,8 @@ Configure in **Settings → Plugins → discord**.
 
 ![The WhatsApp plugin: edit-in-place streaming replies with the agent's tool trace](images/plugins-whatsapp.png)
 
-Talk to Orca from WhatsApp, powered by Baileys. Write a message and it answers
-from Orca AI.
+Talk to Elowen from WhatsApp, powered by Baileys. Write a message and it answers
+from Elowen AI.
 
 - Text commands: `/model`, `/new`, `/help`
 - Per-chat model menu — a numbered list you reply to with a number
@@ -236,7 +236,7 @@ give another only chat, per user, via `disabled_tools`. See
 
 ### files
 
-File-system access scoped to your Orca projects:
+File-system access scoped to your Elowen projects:
 
 | Tool | Purpose |
 |------|---------|
@@ -342,7 +342,7 @@ Loads Markdown **skills** from disk and exposes them to the agent so it can pull
 in focused, reusable know-how on demand (`read_skill`, `create_skill`,
 `list_skills`, `delete_skill`).
 
-- **Bundled skills** ship with Orca and are read-only
+- **Bundled skills** ship with Elowen and are read-only
 - **User skills** are created with the `create_skill` tool or the Settings editor
 - **Format** — Markdown with YAML frontmatter (`name`, `description`)
 - **Hot-reload** — new or changed skills apply to new conversations immediately
@@ -371,7 +371,7 @@ to expose in the config (leave the list empty to enable them all).
 Small surface extras that keep the chat honest and grounded — the clarity
 pillar.
 
-**statusline** prints a footer under the chat — in the web dock and the `orca`
+**statusline** prints a footer under the chat — in the web dock and the `elowen`
 chat CLI — with what you choose to show. Every metric is off by default; switch
 on the ones you want:
 
@@ -398,7 +398,7 @@ themselves, see [Configuration](configuration).
 ---
 
 Which plugins your agent runs, and which of their tools each *user* may call, is
-exactly the kind of thing Orca's RBAC lets you tune per person. To see the whole
+exactly the kind of thing Elowen's RBAC lets you tune per person. To see the whole
 agent from the outside — dashboards, sessions, and the Plugins screen — read
 [Web UI](web-ui).
 

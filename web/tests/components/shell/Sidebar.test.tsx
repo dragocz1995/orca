@@ -17,7 +17,7 @@ describe('Sidebar (registry-driven)', () => {
     // An admin sees the admin-only "Administration" group.
     client.setQueryData(['me'], { user: { id: 1, username: 'admin', is_admin: true, allowed_execs: [], name: '', email: '', avatar: '', default_exec: '', created_at: '' } });
     render(<Wrapper><Sidebar /></Wrapper>);
-    expect(screen.getByAltText('Orca')).toBeInTheDocument();
+    expect(screen.getByAltText('Elowen')).toBeInTheDocument();
     expect(screen.getByText('Operate')).toBeInTheDocument();
     expect(screen.getByText('Administration')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Dash/ }).className).toContain('border-accent');
@@ -42,8 +42,8 @@ describe('Sidebar (registry-driven)', () => {
   it('shows live agents and last outcome in the ops bar', () => {
     const { wrapper: Wrapper, client } = createWrapper();
     client.setQueryData(['tasks'], [{ id: 'tx', title: 'Refactor', status: 'closed', outcome: 'ok', result_summary: 'passed', closed_at: '2026-06-18 10:00:00' }]);
-    client.setQueryData(['sessions'], [{ name: 'orca-a', role: 'agent', agent: 'a' }, { name: 'orca-b', role: 'agent', agent: 'b' }]);
-    client.setQueryData(['session-signals'], { 'orca-a': { type: 'needs_input', question: 'go?' } });
+    client.setQueryData(['sessions'], [{ name: 'elowen-a', role: 'agent', agent: 'a' }, { name: 'elowen-b', role: 'agent', agent: 'b' }]);
+    client.setQueryData(['session-signals'], { 'elowen-a': { type: 'needs_input', question: 'go?' } });
     render(<Wrapper><Sidebar /></Wrapper>);
     // The notification bell moved to the TopBar; the Sidebar keeps the ops bar (live agents + last outcome).
     expect(screen.getByText('2 live agents')).toBeInTheDocument();

@@ -11,13 +11,13 @@ import type { TurnIdentity } from '../../src/plugins/policyContext.js';
 import type { Policy } from '../../src/plugins/policy.js';
 
 const POLICY: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
-/** The genuine operator's own Orca chat. */
-const OWNER: TurnIdentity = { platform: 'orca', userId: '1', orcaUserId: 1, admin: true, owner: true };
+/** The genuine operator's own Elowen chat. */
+const OWNER: TurnIdentity = { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true };
 /** The operator's LINKED Discord account: platform turn, raw Discord id in `userId`, but resolved to
- *  Orca account #1 and owner=true → same private memory as their web chat. */
-const LINKED_OWNER: TurnIdentity = { platform: 'discord', userId: '871427549014671400', orcaUserId: 1, admin: true, owner: true };
+ *  Elowen account #1 and owner=true → same private memory as their web chat. */
+const LINKED_OWNER: TurnIdentity = { platform: 'discord', userId: '871427549014671400', elowenUserId: 1, admin: true, owner: true };
 /** A trusted platform channel: admin-role sender, owner-anchored session, but NOT the operator (no
- *  linked account → no orcaUserId, owner=false). */
+ *  linked account → no elowenUserId, owner=false). */
 const CHANNEL: TurnIdentity = { platform: 'discord', userId: 'disc-9', admin: true, owner: false };
 
 /** Real store + a memory service with embeddings DISABLED (config null) → findSimilar is a no-op and
@@ -64,7 +64,7 @@ describe('buildMemoryTools', () => {
   it('a non-owner channel turn cannot touch categories', async () => {
     const { byName } = toolset();
     const r = await run(CHANNEL, () => byName('memory_category_create').execute('c', { name: 'Secret' }));
-    expect(txt(r)).toBe('Memory is only available to you — in your own Orca chat or from your linked platform account.');
+    expect(txt(r)).toBe('Memory is only available to you — in your own Elowen chat or from your linked platform account.');
   });
 
   it('owner identity: memory_add stores and memory_search finds it', async () => {
@@ -94,19 +94,19 @@ describe('buildMemoryTools', () => {
     expect(store.get(1, id)!.status).toBe('deleted');
   });
 
-  it('linked-owner platform turn: keys to the Orca account (#1), not the raw Discord id', async () => {
+  it('linked-owner platform turn: keys to the Elowen account (#1), not the raw Discord id', async () => {
     const { store, byName } = toolset();
     const add = await run(LINKED_OWNER, () => byName('memory_add').execute('c1', { body: 'Filip jede na Discordu.' }));
     expect(txt(add)).toMatch(/Stored memory #\d+/);
-    // Written to Orca account #1 (same store as the web chat), NOT under the Discord id.
+    // Written to Elowen account #1 (same store as the web chat), NOT under the Discord id.
     expect(store.list(1)).toHaveLength(1);
     const search = await run(LINKED_OWNER, () => byName('memory_search').execute('c2', { query: 'Discord' }));
     expect(txt(search)).toContain('Discord');
   });
 
-  it('a regular non-owner user with an Orca account uses their OWN memory (keyed by orcaUserId)', async () => {
-    // Patricie: authenticated, not the operator (owner=false), not admin — but a resolved Orca account.
-    const MEMBER: TurnIdentity = { platform: 'orca', userId: '2', orcaUserId: 2, admin: false, owner: false };
+  it('a regular non-owner user with an Elowen account uses their OWN memory (keyed by elowenUserId)', async () => {
+    // Patricie: authenticated, not the operator (owner=false), not admin — but a resolved Elowen account.
+    const MEMBER: TurnIdentity = { platform: 'elowen', userId: '2', elowenUserId: 2, admin: false, owner: false };
     const { store, byName } = toolset();
     const add = await run(MEMBER, () => byName('memory_add').execute('c1', { body: 'Patricie preferuje krátké odpovědi.' }));
     expect(txt(add)).toMatch(/Stored memory #\d+/);
@@ -119,20 +119,20 @@ describe('buildMemoryTools', () => {
   it('channel / non-owner identity: refused, nothing written', async () => {
     const { store, byName } = toolset();
     const r = await run(CHANNEL, () => byName('memory_add').execute('c1', { body: 'should not persist' }));
-    expect(txt(r)).toBe('Memory is only available to you — in your own Orca chat or from your linked platform account.');
-    // No memory was written for ANY user (the channel sender has no linked orcaUserId).
+    expect(txt(r)).toBe('Memory is only available to you — in your own Elowen chat or from your linked platform account.');
+    // No memory was written for ANY user (the channel sender has no linked elowenUserId).
     expect(store.list(1)).toHaveLength(0);
     expect(store.listEvents(1)).toHaveLength(0);
 
     const search = await run(CHANNEL, () => byName('memory_search').execute('c2', { query: 'anything' }));
-    expect(txt(search)).toBe('Memory is only available to you — in your own Orca chat or from your linked platform account.');
+    expect(txt(search)).toBe('Memory is only available to you — in your own Elowen chat or from your linked platform account.');
   });
 
   it('task-worker (no identity established): refused', async () => {
     const { store, byName } = toolset();
     // A task-worker turn runs without a turn identity → currentIdentity() is null.
     const r = await run(undefined, () => byName('memory_add').execute('c1', { body: 'worker leak' }));
-    expect(txt(r)).toBe('Memory is only available to you — in your own Orca chat or from your linked platform account.');
+    expect(txt(r)).toBe('Memory is only available to you — in your own Elowen chat or from your linked platform account.');
     expect(store.list(1)).toHaveLength(0);
   });
 });

@@ -4,7 +4,7 @@ import { runAiStep, shouldWireAutopilot } from '../../../src/cli/setup/steps/aiP
 import { keepProvider, type PublicProvider } from '../../../src/cli/setup/steps/shared.js';
 import type { WizardCtx } from '../../../src/cli/setup/types.js';
 
-// The wizard's steps drive Orca's prompt adapter for interactive input. The wiring test below only exercises
+// The wizard's steps drive Elowen's prompt adapter for interactive input. The wiring test below only exercises
 // the "reuse an already-configured provider" path, which needs just `select` (the top-level provider
 // choice, and — on a failed smoke test — the "What next?" follow-up); everything else is a silent stub.
 vi.mock('../../../src/cli/ui/prompts.js', () => ({
@@ -65,7 +65,7 @@ async function promptSelect(): Promise<Mock> {
 }
 
 describe('cli/setup.runAiStep — reuse-provider wiring', () => {
-  it('after reusing a saved provider: embeds defaults.exec as orca:<provider>/<model> and runs the smoke test', async () => {
+  it('after reusing a saved provider: embeds defaults.exec as elowen:<provider>/<model> and runs the smoke test', async () => {
     const select = await promptSelect();
     select.mockResolvedValueOnce('reuse:relay'); // the top-level "Connect an AI provider" choice
 
@@ -87,7 +87,7 @@ describe('cli/setup.runAiStep — reuse-provider wiring', () => {
     // preserved without a read-then-write race.
     const puts = calls.filter((c) => c.method === 'PUT' && c.path === '/config');
     expect(puts).toContainEqual({ method: 'PUT', path: '/config', body: { autopilot: { providerId: 'relay', model: 'm1' } } });
-    expect(puts).toContainEqual({ method: 'PUT', path: '/config', body: { defaults: { exec: 'orca:relay/m1' } } });
+    expect(puts).toContainEqual({ method: 'PUT', path: '/config', body: { defaults: { exec: 'elowen:relay/m1' } } });
 
     // the smoke test ran against the just-embedded provider/model
     const smoke = calls.find((c) => c.method === 'POST' && c.path === '/brain/test');
@@ -111,7 +111,7 @@ describe('cli/setup.runAiStep — reuse-provider wiring', () => {
 
     expect(result).toEqual({ status: 'done' }); // "keep anyway" still completes the step
     const defaultsPut = calls.find((c) => c.method === 'PUT' && c.path === '/config' && (c.body as { defaults?: unknown }).defaults);
-    expect(defaultsPut?.body).toEqual({ defaults: { exec: 'orca:relay/m1' } });
+    expect(defaultsPut?.body).toEqual({ defaults: { exec: 'elowen:relay/m1' } });
     expect(calls.filter((c) => c.method === 'POST' && c.path === '/brain/test')).toHaveLength(1); // no retry loop taken
   });
 });

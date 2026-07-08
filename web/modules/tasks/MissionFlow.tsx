@@ -3,7 +3,7 @@ import { type MouseEvent } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { Rocket, Coins, Clock, Layers } from 'lucide-react';
 import type { Task } from '../../lib/types';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import { useSessions, useSessionSignals, useConfig } from '../../lib/queries';
 import { taskExec, taskSessionName, taskElapsedMs } from '../../lib/agentUtils';
 import { formatCost, formatDuration } from '../../lib/format';
@@ -46,7 +46,7 @@ export function MissionFlow({ epic, phases, activeId, onSelectPhase, onContextMe
   const usage = useQueries({
     queries: phases.map((p) => ({
       queryKey: ['task-usage', p.id],
-      queryFn: () => orcaClient.taskUsage(p.id),
+      queryFn: () => elowenClient.taskUsage(p.id),
       staleTime: 5 * 60 * 1000,
     })),
   });

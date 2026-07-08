@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { callOrcaApi } from '../../src/shared/apiClient.js';
+import { callElowenApi } from '../../src/shared/apiClient.js';
 
 function fakeFetch(captured: { url?: string; init?: RequestInit }, res: () => Response): typeof fetch {
   return (async (url: string, init?: RequestInit) => {
@@ -8,10 +8,10 @@ function fakeFetch(captured: { url?: string; init?: RequestInit }, res: () => Re
   }) as unknown as typeof fetch;
 }
 
-describe('callOrcaApi', () => {
+describe('callElowenApi', () => {
   it('forwards method, path, bearer token and JSON body', async () => {
     const cap: { url?: string; init?: RequestInit } = {};
-    const res = await callOrcaApi('POST', '/tasks', { title: 'x' }, {
+    const res = await callElowenApi('POST', '/tasks', { title: 'x' }, {
       url: 'http://d:4400', token: 'tok',
       fetchImpl: fakeFetch(cap, () => new Response(JSON.stringify({ ok: true, items: [1] }), { status: 200, headers: { 'content-type': 'application/json' } })),
     });
@@ -27,7 +27,7 @@ describe('callOrcaApi', () => {
 
   it('omits body and content-type on GET', async () => {
     const cap: { url?: string; init?: RequestInit } = {};
-    await callOrcaApi('GET', '/tasks', undefined, {
+    await callElowenApi('GET', '/tasks', undefined, {
       url: 'http://d:4400', token: 't',
       fetchImpl: fakeFetch(cap, () => new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } })),
     });
@@ -37,7 +37,7 @@ describe('callOrcaApi', () => {
 
   it('prefixes a leading slash when the path lacks one', async () => {
     const cap: { url?: string; init?: RequestInit } = {};
-    await callOrcaApi('GET', 'health', undefined, {
+    await callElowenApi('GET', 'health', undefined, {
       url: 'http://d:4400', token: 't',
       fetchImpl: fakeFetch(cap, () => new Response('{}', { status: 200 })),
     });
@@ -46,7 +46,7 @@ describe('callOrcaApi', () => {
 
   it('returns non-ok status without throwing; non-JSON body falls back to text', async () => {
     const fetchImpl = (async () => new Response('boom', { status: 500 })) as unknown as typeof fetch;
-    const res = await callOrcaApi('GET', '/x', undefined, { url: 'http://d:4400', token: 't', fetchImpl });
+    const res = await callElowenApi('GET', '/x', undefined, { url: 'http://d:4400', token: 't', fetchImpl });
     expect(res.ok).toBe(false);
     expect(res.status).toBe(500);
     expect(res.data).toBeUndefined();

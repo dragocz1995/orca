@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { terminalWsUrl } from '../../lib/orcaClient';
+import { terminalWsUrl } from '../../lib/elowenClient';
 
 // jsdom serves a default location (http://localhost) — assert relative to it so the test is host-agnostic.
 describe('terminalWsUrl', () => {

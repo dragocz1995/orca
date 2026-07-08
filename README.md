@@ -1,19 +1,19 @@
 <div align="center">
 
-# 🐋 Orca
+# 🐋 Elowen
 
 **A personal AI agent you talk to — self-hosted, and yours.**
 
 `Chat · Act · Automate · Extend`
 
-Orca is a self-hosted personal AI agent. You chat with it and it acts: it plans,
+Elowen is a self-hosted personal AI agent. You chat with it and it acts: it plans,
 calls tools, edits files, runs shell commands, and manages your tasks — and it
-reaches you wherever you are: the `orca` CLI, the web dock, Discord, or WhatsApp.
+reaches you wherever you are: the `elowen` CLI, the web dock, Discord, or WhatsApp.
 Same agent, same tools, same memory on every surface. It runs on **your**
 machine, uses **your** models, and every capability is a plugin you add or
 remove. No SaaS, no lock-in.
 
-[![CI](https://github.com/dragocz1995/orca/actions/workflows/ci.yml/badge.svg)](https://github.com/dragocz1995/orca/actions/workflows/ci.yml)
+[![CI](https://github.com/dragocz1995/elowen/actions/workflows/ci.yml/badge.svg)](https://github.com/dragocz1995/elowen/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-43853d.svg)](https://nodejs.org)
 
@@ -25,32 +25,32 @@ remove. No SaaS, no lock-in.
 
 <div align="center">
 
-![The Orca CLI — a reply with tool calls, a git-style diff and the telemetry panel](docs/screenshots/cli/05-diff.png)
+![The Elowen CLI — a reply with tool calls, a git-style diff and the telemetry panel](docs/screenshots/cli/05-diff.png)
 
 </div>
 
 ```bash
-npm install -g orcasynth   # installs the `orca` command
-orca setup                 # guided wizard: account, project, AI provider, memory
-orca                       # bare `orca` opens the chat TUI
+npm install -g elowen   # installs the `elowen` command
+elowen setup                 # guided wizard: account, project, AI provider, memory
+elowen                       # bare `elowen` opens the chat TUI
 ```
 
 The agent is the product. The dashboards, boards and terminals further down are
 how you **observe and steer** what it's doing — they are not the point; the
 agent is.
 
-## What makes it Orca
+## What makes it Elowen
 
 - **Clarity** — a clean, uncluttered UI where you always see what the agent is doing.
 - **Simplicity** — easy to run, easy to control, sensible defaults, low friction.
 - **Fully extensible** — every capability (chat platforms, tools, memory,
-  automation, security) is an add/remove-able plugin. Orca is modular to the core.
+  automation, security) is an add/remove-able plugin. Elowen is modular to the core.
 - **Lightweight, professional-grade** — one SQLite-backed daemon plus a Next.js
   web UI. Small footprint, clean, tested codebase.
 
 ## The terminal is home
 
-The `orca` CLI is the full agent in your shell — an opencode-style TUI with a
+The `elowen` CLI is the full agent in your shell — an opencode-style TUI with a
 streaming transcript, a telemetry panel (context, project, branch, LSP), and a
 slash-command menu. Tool calls render dim and collapse when done; file edits show
 as git-style diffs; model reasoning folds into clickable **Thought** rows you can
@@ -83,7 +83,7 @@ And the input line does more than send text:
 - **Pickers & prefs** — `/model` (providers, auto-fetched catalogs, OAuth
   accounts), `/theme` (15 built-in themes), and `/keybinds` to rebind every
   modifier chord live, persisted per machine.
-- **Headless** — `orca run "<prompt>"` for scripts and CI, with `--json` JSONL
+- **Headless** — `elowen run "<prompt>"` for scripts and CI, with `--json` JSONL
   event output and meaningful exit codes.
 
 The full reference — every command, key and flag — lives in
@@ -92,7 +92,7 @@ The full reference — every command, key and flag — lives in
 ## Give it real work
 
 - **Tasks** are the atomic unit: each one runs an agent in its own isolated tmux
-  session, on Orca's built-in engine or a coding-agent CLI (Claude Code,
+  session, on Elowen's built-in engine or a coding-agent CLI (Claude Code,
   OpenCode, Codex, Kilo Code) — configurable per task.
 - **Missions (autopilot)** decompose a bigger goal into ordered phases — plan →
   engage → execute → review → complete — and drive them end to end, with
@@ -146,7 +146,7 @@ a detail page showing exactly what it contributes.
 
 ## Watch and steer: the web UI
 
-Because Orca runs real work for you, it gives you rich surfaces to observe and
+Because Elowen runs real work for you, it gives you rich surfaces to observe and
 control it — a live dashboard, tasks with live agent output, a kanban board, a
 timeline, real tmux terminals you can jump into, a Monaco editor, per-run
 token/cost stats, and operator-tunable **limits** (tool-output size, memory
@@ -167,27 +167,27 @@ clamped to safe ranges).
 ## Install
 
 ```bash
-npm install -g orcasynth   # installs the `orca` command
-orca setup                 # ~2-minute guided wizard
+npm install -g elowen   # installs the `elowen` command
+elowen setup                 # ~2-minute guided wizard
 ```
 
-Requires **Node ≥ 22** and **tmux**. `orca setup` brings the daemon and web UI
+Requires **Node ≥ 22** and **tmux**. `elowen setup` brings the daemon and web UI
 up, then walks you through five skippable, re-runnable steps: **account**,
 **project**, **AI provider** — sign in with Claude, GitHub Copilot or
 ChatGPT/Codex, paste an API key, or point at any OpenAI-compatible endpoint,
 capped with a live chat smoke-test — **memory**, and optional **code
 intelligence** (TypeScript language server). In a non-interactive shell it never
 blocks; for a full server deployment (dedicated user, systemd units, reverse
-proxy with optional HTTPS), run `orca install` as root instead.
+proxy with optional HTTPS), run `elowen install` as root instead.
 
 Then just talk to it:
 
 ```bash
-orca                        # opens the chat TUI
-orca run "<prompt>"         # non-interactive: one turn, streamed, then exit
-orca up | down | status     # manage the daemon (:4400) + web UI (:4500)
-orca doctor                 # readiness report: what works, how to fix the rest
-orca update                 # update to the latest release
+elowen                        # opens the chat TUI
+elowen run "<prompt>"         # non-interactive: one turn, streamed, then exit
+elowen up | down | status     # manage the daemon (:4400) + web UI (:4500)
+elowen doctor                 # readiness report: what works, how to fix the rest
+elowen update                 # update to the latest release
 ```
 
 Or open `http://localhost:4500` and log in for the web UI.
@@ -200,9 +200,9 @@ Or open `http://localhost:4500` and log in for the web UI.
                   │  Next.js BFF │       │
                   └──────────────┘       │
                                           ▼
-  orca CLI ──────▶┌──────────────────┐ ┌──────────┐
+  elowen CLI ──────▶┌──────────────────┐ ┌──────────┐
   Discord  ──────▶│  Daemon (:4400)  │ │ SQLite   │
-  WhatsApp ──────▶│  REST + SSE + WS │ │ orca.db  │
+  WhatsApp ──────▶│  REST + SSE + WS │ │ elowen.db  │
                   └────────┬─────────┘ └──────────┘
                            │
                     ┌──────┴──────┐
@@ -213,13 +213,13 @@ Or open `http://localhost:4500` and log in for the web UI.
 
 One self-hosted daemon (REST + SSE + WebSocket + a built-in MCP server) backed by
 SQLite, a Next.js web UI that talks to it over a same-origin BFF proxy so the
-daemon stays private, and agents that run in isolated tmux sessions. The `orca`
+daemon stays private, and agents that run in isolated tmux sessions. The `elowen`
 CLI is a thin client over the same REST API, with daemon autostart built in.
 Deep dive: [`docs/site/12-architecture.md`](./docs/site/12-architecture.md).
 
 ## Documentation
 
-Full user manual at **[orca.dragocz.dev](https://orca.dragocz.dev)** and in
+Full user manual at **[elowen.dragocz.dev](https://elowen.dragocz.dev)** and in
 [`docs/site/`](./docs/site):
 [Getting Started](./docs/site/01-getting-started.md) ·
 [Install](./docs/site/02-install.md) ·
@@ -248,7 +248,7 @@ See [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) for the full contributor guid
 
 ## Built with
 
-Orca stands on a small, deliberately chosen open-source stack:
+Elowen stands on a small, deliberately chosen open-source stack:
 
 - **Agent core** — the embedded brain and the chat TUI are built on the **PI
   toolkit** ([`@earendil-works/pi-ai`](https://github.com/earendil-works/pi),

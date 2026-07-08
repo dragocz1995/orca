@@ -1,11 +1,11 @@
 import { authMiddleware } from './auth.js';
 import { classifySession } from '../overseer/sessionInfo.js';
-import type { OrcaApp, RouteContext } from './context.js';
+import type { ElowenApp, RouteContext } from './context.js';
 
 /** Register the authentication + tenancy guards as global (`*`) middleware. MUST run before any route
  *  family is registered so every handler downstream sees a validated `user`/`tokenScope` and is gated.
  *  No-op without a user store (open/single-user mode keeps the API ungated). */
-export function registerAuthGuards(app: OrcaApp, ctx: RouteContext): void {
+export function registerAuthGuards(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   if (!d.users) return;
   const users = d.users;
@@ -17,10 +17,10 @@ export function registerAuthGuards(app: OrcaApp, ctx: RouteContext): void {
   //   • close its task        → PATCH /tasks/:id
   //   • submit a plan         → POST  /plan/:jobId/submit  (+ GET /plan/:jobId)
   //   • overseer poll/decide  → GET /missions/:id/overseer/next, POST /missions/:id/overseer/decide
-  //   • read-only listings    → GET /tasks, /tasks/ready, /sessions   (orca ls|ready|sessions)
-  //   • handoff notes         → GET /notes, POST /notes   (orca note ls|add)
-  //   • ask the autopilot     → POST /tasks/:id/ask, GET /tasks/:id/ask/:askId   (orca ask)
-  //   • read its control guide → GET /tasks/:id/guide   (orca help)
+  //   • read-only listings    → GET /tasks, /tasks/ready, /sessions   (elowen ls|ready|sessions)
+  //   • handoff notes         → GET /notes, POST /notes   (elowen note ls|add)
+  //   • ask the autopilot     → POST /tasks/:id/ask, GET /tasks/:id/ask/:askId   (elowen ask)
+  //   • read its control guide → GET /tasks/:id/guide   (elowen help)
   // Its task PATCH is field-scoped to status/outcome in the route (close only), not the full patch surface.
   // The human reply (POST /tasks/:id/ask/:askId/reply) is deliberately NOT allowed — an agent must
   // not answer its own question. Project ownership of the affected row is still enforced downstream
@@ -28,18 +28,18 @@ export function registerAuthGuards(app: OrcaApp, ctx: RouteContext): void {
   const agentAllowed = (method: string, path: string): boolean => {
     if (method === 'GET') {
       if (path === '/tasks' || path === '/tasks/ready' || path === '/sessions') return true;
-      if (path === '/notes') return true; // read a mission's handoff notes (orca note ls)
+      if (path === '/notes') return true; // read a mission's handoff notes (elowen note ls)
       if (/^\/plan\/[^/]+$/.test(path)) return true;
       if (/^\/missions\/[^/]+\/overseer\/next$/.test(path)) return true;
-      if (/^\/tasks\/[^/]+\/ask\/[^/]+$/.test(path)) return true; // long-poll an ask's reply (orca ask)
-      if (/^\/tasks\/[^/]+\/guide$/.test(path)) return true; // fetch the agent control guide (orca help)
+      if (/^\/tasks\/[^/]+\/ask\/[^/]+$/.test(path)) return true; // long-poll an ask's reply (elowen ask)
+      if (/^\/tasks\/[^/]+\/guide$/.test(path)) return true; // fetch the agent control guide (elowen help)
     }
     if (method === 'PATCH' && /^\/tasks\/[^/]+$/.test(path)) return true;
     if (method === 'POST') {
-      if (path === '/notes') return true; // leave a handoff note for later phases (orca note add)
+      if (path === '/notes') return true; // leave a handoff note for later phases (elowen note add)
       if (/^\/plan\/[^/]+\/submit$/.test(path)) return true;
       if (/^\/missions\/[^/]+\/overseer\/decide$/.test(path)) return true;
-      if (/^\/tasks\/[^/]+\/ask$/.test(path)) return true; // post an open question to the autopilot (orca ask)
+      if (/^\/tasks\/[^/]+\/ask$/.test(path)) return true; // post an open question to the autopilot (elowen ask)
     }
     return false;
   };

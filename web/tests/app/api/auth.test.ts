@@ -15,7 +15,7 @@ describe('auth login route', () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ token: 'secret-tok' }), { status: 200, headers: { 'content-type': 'application/json' } }));
     const res = await login(post('https://web.test/api/auth/login', { username: 'admin', password: 'x' }));
     const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('orca_session=secret-tok');
+    expect(setCookie).toContain('elowen_session=secret-tok');
     expect(setCookie).toMatch(/HttpOnly/);
     const body = await res.json();
     expect(body).toEqual({ ok: true });
@@ -91,13 +91,13 @@ describe('auth login route', () => {
 describe('auth logout route', () => {
   it('expires the cookie', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
-    const req = new Request('https://web.test/api/auth/logout', { method: 'POST', headers: { origin: 'https://web.test', cookie: 'orca_session=secret-tok' } });
+    const req = new Request('https://web.test/api/auth/logout', { method: 'POST', headers: { origin: 'https://web.test', cookie: 'elowen_session=secret-tok' } });
     const res = await logout(req);
     expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/);
   });
 
   it('rejects a cross-origin logout (logout CSRF)', async () => {
-    const req = new Request('https://web.test/api/auth/logout', { method: 'POST', headers: { origin: 'https://evil.test', cookie: 'orca_session=secret-tok' } });
+    const req = new Request('https://web.test/api/auth/logout', { method: 'POST', headers: { origin: 'https://evil.test', cookie: 'elowen_session=secret-tok' } });
     const res = await logout(req);
     expect(res.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();

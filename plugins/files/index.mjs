@@ -1,6 +1,6 @@
 // Files plugin: read/write/list, each confined to the caller's accessible repos via ctx.assertPathAllowed
 // (which reads the per-session Policy). A guard rejection is returned as an error text so the model can
-// react, not thrown, matching how the orca_* tools surface API errors.
+// react, not thrown, matching how the elowen_* tools surface API errors.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';

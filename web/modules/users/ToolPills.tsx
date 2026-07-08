@@ -33,7 +33,7 @@ export function ToolPills({ userId }: { userId: number }) {
   const pluginCount = new Set(all.map((x) => x.plugin).filter(Boolean)).size;
 
   const groupLabelOf = (x: UserToolPill) =>
-    x.plugin ?? (x.group === 'memory' ? t.managePicker.toolGroupMemory : t.managePicker.toolGroupOrca);
+    x.plugin ?? (x.group === 'memory' ? t.managePicker.toolGroupMemory : t.managePicker.toolGroupElowen);
   const items: ManageSelectionItem[] = all.map((x) => ({
     id: x.name,
     label: x.name,

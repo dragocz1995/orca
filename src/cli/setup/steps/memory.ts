@@ -8,7 +8,7 @@ import { getBrainProviders, keepProvider } from './shared.js';
  *  or set up OpenRouter; fully optional. Persists via PUT /memory/embedding, then offers a validation test
  *  that never blocks completion. */
 export async function runMemoryStep(ctx: WizardCtx): Promise<StepResult> {
-  p.note('Memory lets Orca recall useful facts across conversations using embeddings. Optional.', 'Memory');
+  p.note('Memory lets Elowen recall useful facts across conversations using embeddings. Optional.', 'Memory');
 
   const ai = ctx.answers.ai;
   // Reuse only works when the AI provider is an openai-type endpoint WITH a key (embeddings go through

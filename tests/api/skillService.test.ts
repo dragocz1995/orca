@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSkillService } from '../../src/api/services/skillService.js';
 
-const MASTER_V2 = `---\nname: orca-workflow\ndescription: test\nmetadata:\n  version: 2\n---\n\nbody\n`;
-const target = (home: string, root: string) => join(home, root, 'skills', 'orca-workflow', 'SKILL.md');
+const MASTER_V2 = `---\nname: elowen-workflow\ndescription: test\nmetadata:\n  version: 2\n---\n\nbody\n`;
+const target = (home: string, root: string) => join(home, root, 'skills', 'elowen-workflow', 'SKILL.md');
 
 describe('skillService', () => {
   let home: string;
@@ -13,7 +13,7 @@ describe('skillService', () => {
   const svc = () => createSkillService({ home, env: {}, readMaster: () => MASTER_V2 });
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), 'orca-skill-'));
+    home = mkdtempSync(join(tmpdir(), 'elowen-skill-'));
     // claude-code + codex are "present" (config root exists); opencode is absent.
     mkdirSync(join(home, '.claude'), { recursive: true });
     mkdirSync(join(home, '.codex'), { recursive: true });
@@ -52,7 +52,7 @@ describe('skillService', () => {
   it('detects an outdated install and refreshes it on install', () => {
     // Pre-seed an old version (1) into claude-code's skills dir.
     const t = target(home, '.claude');
-    mkdirSync(join(home, '.claude', 'skills', 'orca-workflow'), { recursive: true });
+    mkdirSync(join(home, '.claude', 'skills', 'elowen-workflow'), { recursive: true });
     writeFileSync(t, MASTER_V2.replace('version: 2', 'version: 1'), 'utf-8');
     const before = svc().status().find((s) => s.provider === 'claude-code')!;
     expect(before).toMatchObject({ installed: true, version: 1, upToDate: false });
@@ -83,8 +83,8 @@ describe('skillService', () => {
 
     svc2().installAll();
     // Written under the overridden dirs, NOT the HOME-relative defaults.
-    expect(existsSync(join(codexHome, 'skills', 'orca-workflow', 'SKILL.md'))).toBe(true);
-    expect(existsSync(join(xdgHome, 'opencode', 'skills', 'orca-workflow', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(codexHome, 'skills', 'elowen-workflow', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(xdgHome, 'opencode', 'skills', 'elowen-workflow', 'SKILL.md'))).toBe(true);
     expect(existsSync(target(home, '.codex'))).toBe(false);
     expect(existsSync(target(home, '.config/opencode'))).toBe(false);
 

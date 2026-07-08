@@ -11,7 +11,7 @@ import { ConfigStore } from '../../src/store/configStore.js';
 import { UserStore } from '../../src/store/userStore.js';
 
 function makeAuthedApp() {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db); users.create('admin', 'pass');
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db),
@@ -118,7 +118,7 @@ describe('cli detection integration via API', () => {
   });
 
   it('detects fresh install state (fresh db — no settings row)', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const config = new ConfigStore(db); // no settings saved yet
     const users = new UserStore(db); users.create('admin', 'pass');
     // Overwrite settings so the row actually exists — force a known state.
@@ -135,7 +135,7 @@ describe('cli detection integration via API', () => {
   });
 
   it('detects configured install after config is saved', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const config = new ConfigStore(db);
     // Persist a config row to simulate configured install.
     config.update({ autopilot: { apiKey: 'sk-set' } });

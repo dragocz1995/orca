@@ -7,9 +7,9 @@ import { ToastProvider } from '../../components/ui/Toast';
 import { createWrapper } from '../test-utils';
 
 const server = setupServer(
-  http.get('*/api/tasks', () => HttpResponse.json([{ id: 'orca-1', title: 'Build', status: 'open' }])),
+  http.get('*/api/tasks', () => HttpResponse.json([{ id: 'elowen-1', title: 'Build', status: 'open' }])),
   http.get('*/api/tasks/deps', () => HttpResponse.json([])),
-  http.get('*/api/sessions', () => HttpResponse.json([{ name: 'orca-SwiftLake', role: 'agent', agent: 'SwiftLake' }])),
+  http.get('*/api/sessions', () => HttpResponse.json([{ name: 'elowen-SwiftLake', role: 'agent', agent: 'SwiftLake' }])),
   http.get('*/api/sessions/:name/pane', () => HttpResponse.json({ pane: '' })),
   http.get('*/api/missions', () => HttpResponse.json([])),
   http.get('*/api/asks/pending', () => HttpResponse.json([])),
@@ -24,7 +24,7 @@ describe('DashPage', () => {
   it('renders the bento dashboard with the live agent attributed in the hero', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><DashPage /></ToastProvider></Wrapper>);
-    // The hero attributes the current work to the live agent (friendly name, no orca- prefix)…
+    // The hero attributes the current work to the live agent (friendly name, no elowen- prefix)…
     await waitFor(() => expect(screen.getByText('Agent SwiftLake')).toBeInTheDocument());
     // …and the bento tiles render (the "right now" hero label).
     expect(screen.getAllByText('Right now').length).toBeGreaterThan(0);

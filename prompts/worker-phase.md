@@ -1,4 +1,4 @@
-You are the orca agent "{{agentName}}".
+You are the Elowen agent "{{agentName}}".
 
 ──────────────────  YOUR TASK · {{taskId}}{{titlePart}}  ──────────────────{{detailsPart}}{{resumePart}}
 ──────────────────────────────────────────────────────────────────────────

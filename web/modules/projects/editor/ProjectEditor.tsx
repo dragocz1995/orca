@@ -31,7 +31,7 @@ type Dialog =
 
 // Embedded (non-fullscreen) editor height, persisted per device. The user drags the full bottom edge
 // (see the resize handle below); Monaco reflows itself via `automaticLayout`.
-const EDITOR_H_KEY = 'orca:editor:height';
+const EDITOR_H_KEY = 'elowen:editor:height';
 const MIN_EDITOR_H = 320;
 const clampEditorH = (px: number) =>
   Math.max(MIN_EDITOR_H, Math.min(typeof window !== 'undefined' ? window.innerHeight * 0.96 : 4000, px));

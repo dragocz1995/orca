@@ -19,7 +19,7 @@ import { formatTokens } from '../../lib/format';
 import { useBrainModels, useConfig, useMe, useSystem, useSystemSkills } from '../../lib/queries';
 import { useAutoSave } from '../../lib/useAutoSave';
 import { useUpdateConfig, useCleanupAll, useSystemUpdate, useSystemRestart, useInstallSkills } from '../../lib/mutations';
-import { OrcaApiError } from '../../lib/orcaClient';
+import { ElowenApiError } from '../../lib/elowenClient';
 import { allModels, isPresetExec, removeModel, upsertModel } from '../../lib/execPresets';
 import { usePersistentState } from '../../lib/usePersistentState';
 import { useSearchParams } from 'next/navigation';
@@ -82,7 +82,7 @@ export default function SettingsPage() {
   // `?cat=<section>`. Switching flips the state directly (so the view changes instantly) AND rewrites
   // the URL (so F5 / share / the sidebar highlight agree).
   const searchParams = useSearchParams();
-  const [category, setCategoryState] = usePersistentState<Category>('orca.settings.category', 'models', CATEGORY_VALUES);
+  const [category, setCategoryState] = usePersistentState<Category>('elowen.settings.category', 'models', CATEGORY_VALUES);
   const isValidCat = (c: string | null): c is Category => !!c && (CATEGORY_VALUES as readonly string[]).includes(c);
   // React to CLIENT-side URL changes — the sidebar's nested settings sub-items navigate to `?cat=x`
   // without remounting the page, and useSearchParams updates on those.
@@ -111,12 +111,12 @@ export default function SettingsPage() {
   const [allowed, setAllowed] = useState<string[]>([]);
   const [customModels, setCustomModels] = useState<{ label: string; exec: string }[]>([]);
   const [modelNotes, setModelNotes] = useState<Record<string, string>>({});
-  // Per-model max context window overrides (Orca AI models only), keyed `providerId/model`. Lives here
-  // in the Models section next to where models are enabled — one home for all Orca AI model config.
+  // Per-model max context window overrides (Elowen AI models only), keyed `providerId/model`. Lives here
+  // in the Models section next to where models are enabled — one home for all Elowen AI model config.
   const [modelWindows, setModelWindows] = useState<Record<string, number>>({});
   // The model whose autopilot description is being edited (null = editor closed).
   const [noteFor, setNoteFor] = useState<{ label: string; exec: string } | null>(null);
-  // The Orca AI model whose context-window override is being edited (null = editor closed).
+  // The Elowen AI model whose context-window override is being edited (null = editor closed).
   const [ctxFor, setCtxFor] = useState<{ model: string; key: string; effective: number } | null>(null);
   const [model, setModel] = useState('');
   const [overseerModel, setOverseerModel] = useState('');
@@ -337,7 +337,7 @@ export default function SettingsPage() {
       <div className="mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-6">
         {category === 'models' && (
           <>
-            {/* Cross-link to where models come from (accounts, keys, endpoints) — the Orca AI section. */}
+            {/* Cross-link to where models come from (accounts, keys, endpoints) — the Elowen AI section. */}
             <p className="-mb-2 text-xs">
               <button type="button" onClick={() => setCategory('brain')} className="font-medium text-accent hover:underline">
                 {t.settings.embeddedProviderLink}
@@ -347,9 +347,9 @@ export default function SettingsPage() {
              *  executor picker uses, so what admins configure here matches what users pick. */}
             {PROVIDERS.map((prov) => {
               const cliItems = models.filter((m) => execProvider(m.exec) === prov.id);
-              const orcaItems = prov.id === 'orca' ? (brainModels.data ?? []) : [];
-              if (cliItems.length === 0 && orcaItems.length === 0) return null;
-              const groupExecs = [...cliItems.map((m) => m.exec), ...orcaItems.map((m) => m.exec)];
+              const elowenItems = prov.id === 'elowen' ? (brainModels.data ?? []) : [];
+              if (cliItems.length === 0 && elowenItems.length === 0) return null;
+              const groupExecs = [...cliItems.map((m) => m.exec), ...elowenItems.map((m) => m.exec)];
               const enabledCount = groupExecs.filter((e) => allowed.includes(e)).length;
               return (
                 <div key={prov.id} className="flex flex-col gap-3">
@@ -357,7 +357,7 @@ export default function SettingsPage() {
                     <ProviderLogo meta={prov} size={28} />
                     <span className="text-sm font-semibold text-text">{prov.label}</span>
                     <span className="font-mono text-tiny text-text-muted">{enabledCount}/{groupExecs.length}</span>
-                    {prov.embedded ? <HelpTip align="left">{t.help.orcaModels}</HelpTip> : null}
+                    {prov.embedded ? <HelpTip align="left">{t.help.elowenModels}</HelpTip> : null}
                   </div>
                   <div className="@container">
                   <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
@@ -413,7 +413,7 @@ export default function SettingsPage() {
                         </div>
                       );
                     })}
-                    {orcaItems.map((m) => {
+                    {elowenItems.map((m) => {
                       const winKey = `${m.provider}/${m.model}`;
                       // Local state is the live truth for overrides (seeded from the same config
                       // `m.contextWindowSet` derives from, then autosaved), so a just-set or
@@ -580,7 +580,7 @@ export default function SettingsPage() {
               <div className="@container">
               <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
                 <SettingCard title={t.settings.executor} description={t.help.executor} icon={Cpu}>
-                  {/* Same worker + Orca AI split the task picker uses, in the unified manage-selection
+                  {/* Same worker + Elowen AI split the task picker uses, in the unified manage-selection
                       modal, so the default executor can also be a brain model. A saved value missing
                       from the catalog stays selectable as a pinned row. */}
                   <BackendPicker value={defExec} onChange={setDefExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
@@ -624,7 +624,7 @@ export default function SettingsPage() {
 
         {category === 'providers' && (
           <div className="flex flex-col gap-5">
-            {/* Agent skills sit at the top of CLI Agents — they install/verify the `orca-workflow`
+            {/* Agent skills sit at the top of CLI Agents — they install/verify the `elowen-workflow`
                 skill into the very CLI agents this section configures. The daemon self-installs on
                 startup; this is the on-demand re-apply + per-provider status. */}
             <div className="card-interactive flex w-full flex-col gap-4 rounded-xl border border-border bg-surface p-5">
@@ -756,11 +756,11 @@ export default function SettingsPage() {
               }
             >
               <div className="flex flex-col gap-5">
-              {/* Hero — Orca identity, current version and the update affordance. Flat OLED: hairline
+              {/* Hero — Elowen identity, current version and the update affordance. Flat OLED: hairline
                   border, no glow/gradient/shadow. */}
               <div className="relative w-full rounded-2xl border border-border bg-surface px-6 py-9 text-center">
                 <div className="relative flex flex-col items-center gap-5">
-                  <img src="/orca-logo.png" alt={t.common.appName} className="h-12 w-auto" />
+                  <img src="/elowen-logo.png" alt={t.common.appName} className="h-12 w-auto" />
                   <div className="flex flex-col items-center gap-2.5">
                     <span className="font-mono text-4xl font-bold tracking-tight text-text">{system.data?.version ?? '—'}</span>
                     {system.data?.updateAvailable
@@ -779,7 +779,7 @@ export default function SettingsPage() {
                     type="button"
                     onClick={() => systemUpdate.mutate(undefined, {
                       onSuccess: () => toast(t.settings.updateStarted),
-                      onError: (e) => toast(e instanceof OrcaApiError && e.code === 'mission_running' ? t.settings.updateBlockedMission : String(e), 'error'),
+                      onError: (e) => toast(e instanceof ElowenApiError && e.code === 'mission_running' ? t.settings.updateBlockedMission : String(e), 'error'),
                     })}
                     disabled={systemUpdate.isPending || !system.data?.updateAvailable}
                     className="inline-flex h-9 items-center gap-1.5 rounded-md border border-accent bg-accent px-4 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:opacity-60"

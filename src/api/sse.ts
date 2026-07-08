@@ -5,13 +5,13 @@ import { logger } from '../shared/logger.js';
 
 const log = logger('sse');
 
-export type OrcaEvent =
+export type ElowenEvent =
   | { type: 'signal'; session: string; signal: DerivedSignal }
   | { type: 'mission'; missionId: string; state: string }
   | { type: 'task'; taskId: string; status: string }
   | { type: 'review'; missionId: string; taskId: string; approve: boolean; rationale: string }
   | { type: 'decision'; taskId: string; kind: 'prompt' | 'choice'; question: string; outcome: 'approved' | 'escalated' | 'chose'; rationale: string; confidence: number; optionLabel?: string }
-  // A free-text turn in the worker↔autopilot conversation on a task (`orca ask`): the agent's question
+  // A free-text turn in the worker↔autopilot conversation on a task (`elowen ask`): the agent's question
   // or the reply (overseer/human/sentinel). Persisted on the task so the detail pane renders the thread.
   | { type: 'message'; taskId: string; role: 'agent' | 'autopilot' | 'human'; text: string }
   // A transient nudge that a task's pending-ask state changed (escalated to a human, or answered) so the
@@ -21,11 +21,11 @@ export type OrcaEvent =
   | { type: 'plan'; jobId: string; status: PlanJobStatus; epicId?: string; phases?: Phase[]; error?: string };
 
 export class EventBus implements SignalSink {
-  private subs = new Set<(e: OrcaEvent) => void>();
-  subscribe(fn: (e: OrcaEvent) => void): () => void { this.subs.add(fn); return () => this.subs.delete(fn); }
+  private subs = new Set<(e: ElowenEvent) => void>();
+  subscribe(fn: (e: ElowenEvent) => void): () => void { this.subs.add(fn); return () => this.subs.delete(fn); }
   /** Isolate subscribers: a throwing/closed subscriber (e.g. a torn-down SSE stream) must not abort
    *  the broadcast to the rest — otherwise one dead client silences live events for everyone. */
-  publish(e: OrcaEvent): void {
+  publish(e: ElowenEvent): void {
     for (const fn of this.subs) {
       try { fn(e); } catch (err) { log.error('event subscriber threw', err); }
     }

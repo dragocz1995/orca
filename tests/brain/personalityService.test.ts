@@ -23,7 +23,7 @@ function build() {
     store,
     prompts: fakePrompts(),
     users: fakeUsers({ 1: { name: 'Filip', username: 'filip' } }),
-    agentName: () => 'Orca',
+    agentName: () => 'Elowen',
   });
   return { store, service };
 }

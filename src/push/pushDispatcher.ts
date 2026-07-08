@@ -1,4 +1,4 @@
-import type { OrcaEvent, EventBus } from '../api/sse.js';
+import type { ElowenEvent, EventBus } from '../api/sse.js';
 import type { MissionStore } from '../store/missionStore.js';
 import type { TaskStore } from '../store/taskStore.js';
 import type { UserStore } from '../store/userStore.js';
@@ -20,7 +20,7 @@ export interface PushDispatcherDeps {
   missionGit?: PrInfoReader;
 }
 
-/** The single EventBus subscriber that turns Orca lifecycle events into phone push notifications.
+/** The single EventBus subscriber that turns Elowen lifecycle events into phone push notifications.
  *  Maps each "a human is (maybe) needed" or "mission finished" event to a payload + recipient set and
  *  fires the sender. Every handler is null-guarded and wrapped so a lookup miss or a sender error can
  *  never abort the bus broadcast. */
@@ -34,7 +34,7 @@ export class PushDispatcher {
     });
   }
 
-  private handle(e: OrcaEvent): void {
+  private handle(e: ElowenEvent): void {
     const payload = this.map(e);
     if (!payload) return;
     const recipients = payload.missionId ? recipientsForMission(payload.missionId, this.d) : [];
@@ -45,7 +45,7 @@ export class PushDispatcher {
 
   /** Map an event to a payload, or null when it warrants no push. Resolves the owning mission so the
    *  recipient set can be derived in `handle`. */
-  private map(e: OrcaEvent): PushPayload | null {
+  private map(e: ElowenEvent): PushPayload | null {
     if (e.type === 'review') {
       if (e.approve) return null; // approved → nothing to decide
       const phase = this.d.tasks.get(e.taskId);
@@ -76,9 +76,9 @@ export class PushDispatcher {
     return null;
   }
 
-  /** Resolve a tmux session (`orca-<agent>`) to its task via the agent:<name> label (latest match). */
+  /** Resolve a tmux session (`elowen-<agent>`) to its task via the agent:<name> label (latest match). */
   private taskForSession(session: string) {
-    const name = session.replace(/^orca-/, '');
+    const name = session.replace(/^elowen-/, '');
     return this.d.tasks.list().filter((t) => t.labels.includes(`agent:${name}`)).at(-1) ?? null;
   }
 

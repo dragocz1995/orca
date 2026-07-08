@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { BASE } from './orcaClient';
+import { BASE } from './elowenClient';
 
 // Dedupe seam: identical idle frames must not churn React state (the backend
 // resends full snapshots on an interval). Returns the previous reference when

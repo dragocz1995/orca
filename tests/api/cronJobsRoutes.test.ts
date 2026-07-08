@@ -15,9 +15,9 @@ import { ProjectStore } from '../../src/store/projectStore.js';
 import { UserProjectStore } from '../../src/store/userProjectStore.js';
 
 function setup() {
-  const dataRoot = mkdtempSync(join(tmpdir(), 'orca-cronjobs-'));
+  const dataRoot = mkdtempSync(join(tmpdir(), 'elowen-cronjobs-'));
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw');
   const amy = users.create('amy', 'pw');

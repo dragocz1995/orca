@@ -3,27 +3,27 @@ import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { ORCA_CLI_VERSION } from './version.js';
-import { OrcaClient } from './client.js';
+import { ELOWEN_CLI_VERSION } from './version.js';
+import { ElowenClient } from './client.js';
 import { defaultLifecycleDeps, runLifecycle, runApiCommand } from './commands.js';
-import { callOrcaApi } from '../shared/apiClient.js';
+import { callElowenApi } from '../shared/apiClient.js';
 import { menu } from './menu.js';
 import { interactiveLogin, launchChat } from './chat/launch.js';
 
-const BASE = process.env.ORCA_URL ?? 'http://localhost:4400';
+const BASE = (process.env.ELOWEN_URL ?? process.env.ORCA_URL) ?? 'http://localhost:4400';
 
-const USAGE = "usage: orca [command] [options]  —  run `orca --help` for the full command list";
+const USAGE = "usage: elowen [command] [options]  —  run `elowen --help` for the full command list";
 
-/** The full, grouped help shown for `orca --help`. Kept as a function so the version is interpolated. */
+/** The full, grouped help shown for `elowen --help`. Kept as a function so the version is interpolated. */
 function helpText(version: string): string {
-  return `orca ${version} - control plane for autonomous coding agents
+  return `elowen ${version} - control plane for autonomous coding agents
 
 USAGE
-  orca                            open the interactive Orca chat (in a terminal)
-  orca <command> [options]
+  elowen                            open the interactive Elowen chat (in a terminal)
+  elowen <command> [options]
 
 SETUP                             (setup = this machine, local · install = a shared server, as root)
-  setup                           set up Orca on THIS machine: the onboarding wizard
+  setup                           set up Elowen on THIS machine: the onboarding wizard
                                   (account, project, AI provider, memory, LSP)
                                     --reset                   start over from scratch
                                     --non-interactive         flag-driven setup (no prompts; for agents/CI)
@@ -32,10 +32,10 @@ SETUP                             (setup = this machine, local · install = a sh
                                       --memory <reuse|openrouter|skip> --memory-key --embedding-model --skip-test
                                       --lsp                     install the TypeScript language server
                                       secrets can come from env instead of argv (avoids ps/history leaks):
-                                      ORCA_ADMIN_PASSWORD, ORCA_API_KEY, ORCA_OPENROUTER_KEY
+                                      ELOWEN_ADMIN_PASSWORD, ELOWEN_API_KEY, ELOWEN_OPENROUTER_KEY
   doctor                          readiness check: what works, and how to fix what doesn't
-  install                         provision Orca as a shared server: systemd units, a reverse proxy
-                                  and the first admin (run as root). See \`orca install --help\`.
+  install                         provision Elowen as a shared server: systemd units, a reverse proxy
+                                  and the first admin (run as root). See \`elowen install --help\`.
 
 SERVICE
   menu                            interactive launcher: start/stop/status/update in one place
@@ -45,9 +45,9 @@ SERVICE
   update                          update to the latest npm release and restart in place
 
 CHAT
-  chat                            open the interactive Orca chat (talk to Orca's brain in the terminal)
+  chat                            open the interactive Elowen chat (talk to Elowen's brain in the terminal)
                                     --model openai|anthropic  pick the configured provider
-  run "<prompt>"                  non-interactive Orca: run one turn/slash/goal, stream it, exit
+  run "<prompt>"                  non-interactive Elowen: run one turn/slash/goal, stream it, exit
   -p, --print "<prompt>"          alias for \`run\` (claude-style)
                                     --model/--provider <id>   pick the model for this run
                                     -c | --resume <id> | --new    continue active (default) / specific / fresh
@@ -56,7 +56,7 @@ CHAT
                                     --goal "<text>" [--max-turns N]  run an autonomous goal until it settles
                                     --json | --verbose | --timeout <s>
                                     a /slash prompt runs that command, e.g. -p "/status", -p "/goal pause"
-  login                           sign in and cache a token for \`orca chat\` (no password prompt next time)
+  login                           sign in and cache a token for \`elowen chat\` (no password prompt next time)
 
 TASKS
   ls                              list all tasks (JSON)
@@ -69,15 +69,15 @@ TASKS
                                     --outcome ok|fail         record the outcome
 
 AGENT-FACING                      (invoked by running agents — rarely needed by hand)
-  help                            print this task's Orca control guide (needs ORCA_TASK)
+  help                            print this task's Elowen control guide (needs ELOWEN_TASK)
   ask "<text>"                    ask the autopilot a free-text question and wait for the reply
-                                    (needs ORCA_TASK; the answer is printed to stdout)
+                                    (needs ELOWEN_TASK; the answer is printed to stdout)
                                     --history                 print this task's chat history instead
   note add <missionId> "<text>"   leave a handoff note for later phases of this mission
   note ls  <missionId>            read this mission's handoff notes (oldest-first)
-  api <METHOD> <path> [body]      generic authenticated REST call (needs ORCA_URL/ORCA_TOKEN)
-  plan submit --phases '<json>'   submit an autopilot plan        (needs ORCA_PLAN_JOB)
-  overseer poll                   wait for the next decision       (needs ORCA_MISSION)
+  api <METHOD> <path> [body]      generic authenticated REST call (needs ELOWEN_URL/ELOWEN_TOKEN)
+  plan submit --phases '<json>'   submit an autopilot plan        (needs ELOWEN_PLAN_JOB)
+  overseer poll                   wait for the next decision       (needs ELOWEN_MISSION)
   overseer decide --id <id> …     resolve a decision: --approve | --escalate | --choice <optionId> | --message "<reply>" | --restart
                                     [--confidence <0..1>] [--rationale "<text>"]
 
@@ -85,7 +85,7 @@ OPTIONS
   -h, --help                      show this help
   -v, --version                   print the version
 
-Docs & issues: https://github.com/dragocz1995/orca`;
+Docs & issues: https://github.com/dragocz1995/elowen`;
 }
 
 /** Commands that talk to the daemon API — only these justify auto-starting it. Everything else
@@ -99,12 +99,12 @@ export function needsDaemon(cmd: string | undefined): boolean {
 }
 
 async function ensureDaemon() {
-  if (process.env.ORCA_AUTOSTART === '0') return;
+  if ((process.env.ELOWEN_AUTOSTART ?? process.env.ORCA_AUTOSTART) === '0') return;
   try { await fetch(`${BASE}/health`); return; } catch { /* down — start daemon */ }
   const entry = join(dirname(fileURLToPath(import.meta.url)), '..', 'daemon', 'index.js');
   spawn(process.execPath, [entry], { detached: true, stdio: 'ignore' }).unref();
   for (let i = 0; i < 50; i++) { try { await fetch(`${BASE}/health`); return; } catch { /* not healthy yet — retry */ await new Promise(r => setTimeout(r, 100)); } }
-  throw new Error('orca daemon did not become healthy');
+  throw new Error('elowen daemon did not become healthy');
 }
 
 /** Read `--flag value` from an argv slice. Returns undefined when the flag is absent OR present without
@@ -119,14 +119,14 @@ function flag(args: string[], name: string): string | undefined {
 }
 function has(args: string[], name: string): boolean { return args.includes(name); }
 
-export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv): Promise<void> {
+export async function run(argv: string[], c: ElowenClient, env: NodeJS.ProcessEnv): Promise<void> {
   const [cmd, arg, ...rest] = argv;
   switch (cmd) {
     case 'ls': console.log(JSON.stringify(await c.tasks(), null, 2)); break;
     case 'ready': console.log(JSON.stringify(await c.ready(), null, 2)); break;
     case 'sessions': console.log(JSON.stringify(await c.sessions(), null, 2)); break;
     case 'chat': {
-      // Interactive Orca chat: a thin pi-tui client over the server-side brain. The shared launcher
+      // Interactive Elowen chat: a thin pi-tui client over the server-side brain. The shared launcher
       // resolves a token (env → cache → interactive login) and opens the TUI — same path as the menu.
       await launchChat(BASE, env, {
         model: flag(argv.slice(1), '--model'),
@@ -146,44 +146,44 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       const session = arg;
       const noEnter = has(rest, '--no-enter');
       const text = rest.filter((a) => a !== '--no-enter')[0];
-      if (!session || text === undefined || text === '') { console.error('usage: orca send <session> "<text>" [--no-enter]'); process.exit(1); }
+      if (!session || text === undefined || text === '') { console.error('usage: elowen send <session> "<text>" [--no-enter]'); process.exit(1); }
       // Default appends a newline so the agent actually receives the message (Enter submits);
       // --no-enter types it without submitting (stage text, or send a lone control char).
       await c.sendInput(session, noEnter ? text : `${text}\n`);
       console.log(`sent to ${session}`); break;
     }
     case 'api': {
-      const code = await runApiCommand(argv.slice(1), env, { call: callOrcaApi, out: (s) => console.log(s), err: (s) => console.error(s) });
+      const code = await runApiCommand(argv.slice(1), env, { call: callElowenApi, out: (s) => console.log(s), err: (s) => console.error(s) });
       process.exit(code);
       break;
     }
     case 'close': {
-      if (!arg) { console.error('usage: orca close <taskId> [--summary "<text>"] [--outcome ok|fail]'); process.exit(1); }
+      if (!arg) { console.error('usage: elowen close <taskId> [--summary "<text>"] [--outcome ok|fail]'); process.exit(1); }
       const outcome = flag(rest, '--outcome');
       // A flag given with no value (`--outcome` at the end, or followed by another flag) is a mistake,
       // not "no outcome" — error instead of silently closing with none, which would let the agent think
       // it recorded ok/fail when it didn't. Same for an empty --summary.
-      if (has(rest, '--outcome') && outcome === undefined) { console.error('orca close: --outcome requires a value (ok or fail)'); process.exit(2); }
-      if (has(rest, '--summary') && flag(rest, '--summary') === undefined) { console.error('orca close: --summary requires a value'); process.exit(2); }
+      if (has(rest, '--outcome') && outcome === undefined) { console.error('elowen close: --outcome requires a value (ok or fail)'); process.exit(2); }
+      if (has(rest, '--summary') && flag(rest, '--summary') === undefined) { console.error('elowen close: --summary requires a value'); process.exit(2); }
       // Reject a typo'd outcome instead of silently storing null — the agent would otherwise think it
       // closed "ok"/"fail" while the task records no outcome at all.
-      if (outcome !== undefined && outcome !== 'ok' && outcome !== 'fail') { console.error('orca close: --outcome must be ok or fail'); process.exit(2); }
+      if (outcome !== undefined && outcome !== 'ok' && outcome !== 'fail') { console.error('elowen close: --outcome must be ok or fail'); process.exit(2); }
       await c.close(arg, { summary: flag(rest, '--summary'), outcome });
       console.log(`closed ${arg}`); break;
     }
     case 'ask': {
       // A worker asks the autopilot a free-text question and blocks until it gets an answer. The task
-      // is taken from ORCA_TASK (set at spawn), so the agent needs only the question text.
-      const taskId = env.ORCA_TASK;
-      if (!taskId) { console.error('orca ask: ORCA_TASK is not set'); process.exit(1); }
-      // `orca ask --history` prints this task's chat history so the agent (or a human in the terminal)
+      // is taken from ELOWEN_TASK (set at spawn), so the agent needs only the question text.
+      const taskId = (env.ELOWEN_TASK ?? env.ORCA_TASK);
+      if (!taskId) { console.error('elowen ask: ELOWEN_TASK is not set'); process.exit(1); }
+      // `elowen ask --history` prints this task's chat history so the agent (or a human in the terminal)
       // can review the whole conversation, e.g. after resuming.
       if (arg === '--history') {
         const rows = await c.askHistory(taskId) as { detail: string }[];
         for (const r of rows) { try { const m = JSON.parse(r.detail) as { role: string; text: string }; console.log(`${m.role}: ${m.text}`); } catch { /* skip malformed row */ } }
         break;
       }
-      if (!arg) { console.error('usage: orca ask "<question>"  |  orca ask --history'); process.exit(1); }
+      if (!arg) { console.error('usage: elowen ask "<question>"  |  elowen ask --history'); process.exit(1); }
       const { askId } = await c.askStart(taskId, arg) as { askId: string };
       // Long-poll until the autopilot/human answers (or the sentinel fires). The server returns `{}`
       // every ~25s as a heartbeat (keeps the HTTP request alive); just re-poll. Print the reply so the
@@ -204,10 +204,10 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       break;
     }
     case 'help': {
-      // `orca help` with ORCA_TASK set is the agent-facing path: print this task's context-aware control
-      // guide (how to work / ask / close), rendered by the daemon. The human `orca help` (no ORCA_TASK)
+      // `elowen help` with ELOWEN_TASK set is the agent-facing path: print this task's context-aware control
+      // guide (how to work / ask / close), rendered by the daemon. The human `elowen help` (no ELOWEN_TASK)
       // never reaches here — main() prints the CLI usage and returns before dispatch.
-      const taskId = env.ORCA_TASK;
+      const taskId = (env.ELOWEN_TASK ?? env.ORCA_TASK);
       if (!taskId) { console.error(USAGE); process.exit(1); }
       const { text } = await c.guide(taskId) as { text?: string };
       if (typeof text === 'string') console.log(text);
@@ -218,29 +218,29 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       // the daemon normalizes the prefix. add → leave a note; ls → read the mission's notes (oldest-first).
       if (arg === 'add') {
         const target = rest[0]; const text = rest[1];
-        if (!target || !text) { console.error('usage: orca note add <missionId> "<text>"'); process.exit(1); }
+        if (!target || !text) { console.error('usage: elowen note add <missionId> "<text>"'); process.exit(1); }
         await c.noteAdd(target, text);
         console.log(`noted on ${target}`); break;
       }
       if (arg === 'ls') {
-        if (!rest[0]) { console.error('usage: orca note ls <missionId>'); process.exit(1); }
+        if (!rest[0]) { console.error('usage: elowen note ls <missionId>'); process.exit(1); }
         console.log(JSON.stringify(await c.notes(rest[0]), null, 2)); break;
       }
-      console.error('usage: orca note <add <missionId> "<text>"|ls <missionId>>'); process.exit(1); break;
+      console.error('usage: elowen note <add <missionId> "<text>"|ls <missionId>>'); process.exit(1); break;
     }
     case 'plan': {
-      if (arg !== 'submit') { console.error("usage: orca plan submit --phases '<json>'"); process.exit(1); }
-      const jobId = env.ORCA_PLAN_JOB;
-      if (!jobId) { console.error('orca plan submit: ORCA_PLAN_JOB is not set'); process.exit(1); }
+      if (arg !== 'submit') { console.error("usage: elowen plan submit --phases '<json>'"); process.exit(1); }
+      const jobId = (env.ELOWEN_PLAN_JOB ?? env.ORCA_PLAN_JOB);
+      if (!jobId) { console.error('elowen plan submit: ELOWEN_PLAN_JOB is not set'); process.exit(1); }
       const raw = flag(rest, '--phases') ?? '[]';
       let phases: unknown;
-      try { phases = JSON.parse(raw); } catch { console.error('orca plan submit: --phases is not valid JSON'); process.exit(1); }
+      try { phases = JSON.parse(raw); } catch { console.error('elowen plan submit: --phases is not valid JSON'); process.exit(1); }
       await c.planSubmit(jobId, phases);
       console.log(`submitted plan to ${jobId}`); break;
     }
     case 'overseer': {
-      const missionId = env.ORCA_MISSION;
-      if (!missionId) { console.error('orca overseer: ORCA_MISSION is not set'); process.exit(1); }
+      const missionId = (env.ELOWEN_MISSION ?? env.ORCA_MISSION);
+      if (!missionId) { console.error('elowen overseer: ELOWEN_MISSION is not set'); process.exit(1); }
       if (arg === 'poll') {
         // Absorb heartbeats HERE, in the CLI process, so the (LLM-driven) overseer agent is woken
         // only for a real decision. The server long-poll returns `{}` every ~25s to keep the HTTP
@@ -256,7 +256,7 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
       }
       if (arg === 'decide') {
         const id = flag(rest, '--id');
-        if (!id) { console.error('usage: orca overseer decide --id <id> (--approve|--escalate|--choice <optionId>|--message "<reply>"|--restart) [--confidence <0..1>] [--rationale "<text>"]'); process.exit(1); }
+        if (!id) { console.error('usage: elowen overseer decide --id <id> (--approve|--escalate|--choice <optionId>|--message "<reply>"|--restart) [--confidence <0..1>] [--rationale "<text>"]'); process.exit(1); }
         // A 'question' decision picks an option (--choice <id>); a 'message' decision answers with free
         // text (--message); a permission/review decision approves or escalates (--approve|--escalate).
         // Either way confidence rides along for the autonomy gate; --escalate is the absence of all.
@@ -269,7 +269,7 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
         await c.overseerDecide(missionId, { id, approve, confidence: Number.isFinite(confidence) ? confidence : 0, rationale: flag(rest, '--rationale') ?? '', ...(choice !== undefined ? { choice } : {}), ...(message !== undefined ? { message } : {}), ...(restart ? { restart: true } : {}) });
         console.log(`decided ${id}`); break;
       }
-      console.error('usage: orca overseer <poll|decide ...>'); process.exit(1); break;
+      console.error('usage: elowen overseer <poll|decide ...>'); process.exit(1); break;
     }
     default: console.error(USAGE); process.exit(1);
   }
@@ -277,42 +277,42 @@ export async function run(argv: string[], c: OrcaClient, env: NodeJS.ProcessEnv)
 
 async function main() {
   const argv = process.argv.slice(2);
-  const version = ORCA_CLI_VERSION;
-  // Bare `orca` in a terminal opens the chat TUI — the agent is the product, so talking to it is the
-  // zero-friction default (like `claude`/`opencode`). The ops launcher moved to `orca menu`; piped/
+  const version = ELOWEN_CLI_VERSION;
+  // Bare `elowen` in a terminal opens the chat TUI — the agent is the product, so talking to it is the
+  // zero-friction default (like `claude`/`opencode`). The ops launcher moved to `elowen menu`; piped/
   // non-TTY still falls through to the usage text below, so scripts keep deterministic behavior.
   if (argv.length === 0 && process.stdin.isTTY) argv.push('chat');
-  // `orca menu` — the interactive launcher (start/stop/status/update). It manages the daemon itself,
+  // `elowen menu` — the interactive launcher (start/stop/status/update). It manages the daemon itself,
   // so it runs BEFORE ensureDaemon like install/setup.
   if (argv[0] === 'menu') { await menu(process.env, version); return; }
   // Help / bare non-TTY invocation: print usage and stop. Must NOT fall through to ensureDaemon.
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') {
-    // A running agent invokes `orca help` with ORCA_TASK set to get its task control guide (not the CLI
+    // A running agent invokes `elowen help` with ELOWEN_TASK set to get its task control guide (not the CLI
     // usage). That path DOES need the daemon, so start it and dispatch through `run`. The `-h`/`--help`
-    // flags and a human's bare `orca help` (no ORCA_TASK) still just print usage.
-    if (argv[0] === 'help' && process.env.ORCA_TASK) {
+    // flags and a human's bare `elowen help` (no ELOWEN_TASK) still just print usage.
+    if (argv[0] === 'help' && (process.env.ELOWEN_TASK ?? process.env.ORCA_TASK)) {
       await ensureDaemon();
-      await run(['help'], new OrcaClient(BASE, process.env.ORCA_TOKEN), process.env);
+      await run(['help'], new ElowenClient(BASE, (process.env.ELOWEN_TOKEN ?? process.env.ORCA_TOKEN)), process.env);
       return;
     }
     console.log(helpText(version)); return;
   }
   if (argv[0] === '--version' || argv[0] === '-v') { console.log(version); return; }
-  // `orca install` is the root provisioning wizard — it sets up systemd, the proxy and the admin
+  // `elowen install` is the root provisioning wizard — it sets up systemd, the proxy and the admin
   // itself, so it must run BEFORE ensureDaemon (no auto-spawn) and before the lifecycle commands.
   if (argv[0] === 'install') { const { install } = await import('./install/index.js'); await install(argv.slice(1)); return; }
-  // `orca setup` runs the onboarding wizard on demand. Like install it manages the daemon itself, so it
+  // `elowen setup` runs the onboarding wizard on demand. Like install it manages the daemon itself, so it
   // runs BEFORE ensureDaemon/runLifecycle and is NOT an API command. In a non-TTY it prints a next step
   // and exits 0 (never blocks CI). Dynamic import keeps the cold-path wizard out of the hot dispatch.
   if (argv[0] === 'setup') { const { runSetup } = await import('./setup/command.js'); await runSetup(argv.slice(1), process.env, BASE, version); return; }
-  // `orca doctor` is a read-only diagnostic — it authenticates and queries the daemon itself (never
+  // `elowen doctor` is a read-only diagnostic — it authenticates and queries the daemon itself (never
   // spawning it), so like `setup` it runs BEFORE ensureDaemon/runLifecycle and is NOT an API command.
   if (argv[0] === 'doctor') { const { runDoctor } = await import('./doctor.js'); await runDoctor(argv.slice(1), process.env, BASE, version); return; }
-  // `orca run "<prompt>"` / `orca -p "<prompt>"` — non-interactive Orca (a single turn, slash command or
+  // `elowen run "<prompt>"` / `elowen -p "<prompt>"` — non-interactive Elowen (a single turn, slash command or
   // autonomous goal, streamed to stdout, then exit). Needs the daemon like `chat`, so bring it up first;
   // then hand off to the headless runner, which resolves a token from env/cache (never prompting).
   if (argv[0] === 'run' || argv[0] === '-p' || argv[0] === '--print' || argv[0] === '--prompt') {
-    // A streamed run is often piped (`orca run … | head`); when the consumer closes the pipe, writing to
+    // A streamed run is often piped (`elowen run … | head`); when the consumer closes the pipe, writing to
     // std{out,err} raises EPIPE — treat that as "consumer done" and exit cleanly instead of crashing on it.
     const onEpipe = (e: NodeJS.ErrnoException): void => { if (e.code === 'EPIPE') process.exit(0); };
     process.stdout.on('error', onEpipe);
@@ -325,7 +325,7 @@ async function main() {
     if (!process.stdout.write('')) await new Promise<void>((r) => process.stdout.once('drain', () => r()));
     process.exit(code);
   }
-  // `orca update --auto` is the hourly systemd timer's entrypoint: gated on the opt-in flag + live
+  // `elowen update --auto` is the hourly systemd timer's entrypoint: gated on the opt-in flag + live
   // missions (read straight from the DB), it never auto-spawns a daemon and stays silent-success when
   // it decides not to update — so handle it before both runLifecycle and ensureDaemon.
   if (argv[0] === 'update' && argv.includes('--auto')) {
@@ -346,15 +346,15 @@ async function main() {
   // Only API commands may auto-start the daemon; an unknown verb errors out without spawning anything.
   if (!needsDaemon(argv[0])) { console.error(USAGE); process.exit(1); }
   await ensureDaemon();
-  const c = new OrcaClient(BASE, process.env.ORCA_TOKEN);
+  const c = new ElowenClient(BASE, (process.env.ELOWEN_TOKEN ?? process.env.ORCA_TOKEN));
   await run(argv, c, process.env);
 }
 
 // Run only when invoked as the binary, not when imported (e.g. by tests). A global npm install exposes
-// `orca` as a SYMLINK in the bin dir, so process.argv[1] is the symlink path while import.meta.url is
+// `elowen` as a SYMLINK in the bin dir, so process.argv[1] is the symlink path while import.meta.url is
 // the real module path — a plain string compare never matches and main() would silently never run.
 // realpathSync resolves the symlink so the comparison holds for both `node dist/cli/index.js` and the
-// installed `orca` command.
+// installed `elowen` command.
 const invoked = process.argv[1];
 if (invoked) {
   let entry = invoked;

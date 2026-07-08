@@ -8,11 +8,11 @@ import { RelayClient } from '../../inference/client.js';
 import { shortId } from '../../shared/id.js';
 import { parseBody } from '../validation.js';
 import { createTaskSchema, patchTaskSchema, planSchema, insertPhasesSchema, askSchema } from '../schemas/tasks.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Tasks, usage, admin cleanup and the plan/replan endpoints. The post-done review workflow that the
  *  close path drives lives in {@link ReviewService}; planning lives in {@link PlanService}. */
-export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
   const {
     d, log, planJobs,
     canAccessProject, notAdmin, accessibleProjects, execAllowedForUser,
@@ -60,7 +60,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     // Pass the task's own project siblings so usage can disambiguate concurrent agents by start-order
     // rank, and read sessions from that project's path (not the daemon home, under multi-project).
     const live = readTaskUsage(task, d.tasks.list({ project_id: task.project_id }), usagePathFor(task), d.fallback);
-    // Embedded-brain (orca:) runs have no on-disk CLI transcript for the live reader — fall back to the
+    // Embedded-brain (elowen:) runs have no on-disk CLI transcript for the live reader — fall back to the
     // snapshot the BrainWorkerService recorded at close (this is where provider-reported cost lives).
     return c.json(live ?? d.taskUsage?.get(task.id) ?? null);
   });
@@ -116,12 +116,12 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json([...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)));
   });
   // Reset the usage stats: wipe the `task_usage` snapshots. Admin-only and irreversible, but it only
-  // clears Orca's own DB rows — the agents' CLI session transcripts are left untouched.
+  // clears Elowen's own DB rows — the agents' CLI session transcripts are left untouched.
   app.post('/usage/reset', c => {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     return c.json({ ok: true, cleared: d.taskUsage?.deleteAll() ?? 0 });
   });
-  // The transcript of an embedded-brain (orca:) worker run — the task detail's conversation tab.
+  // The transcript of an embedded-brain (elowen:) worker run — the task detail's conversation tab.
   // CLI-run tasks have no brain session, so this returns an empty list for them.
   app.get('/tasks/:id/conversation', (c) => {
     const id = c.req.param('id');
@@ -245,7 +245,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ released });
   });
 
-  // `orca ask`: a running worker posts a free-text question for the autopilot and blocks on the reply.
+  // `elowen ask`: a running worker posts a free-text question for the autopilot and blocks on the reply.
   // Authenticated by the spawn-time token; gated by the task's project. The reply is produced async
   // (overseer → human window → sentinel) so this returns an ask id the worker then long-polls below.
   app.post('/tasks/:id/ask', async c => {
@@ -285,7 +285,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     const b = await parseBody(c, askSchema);
     return askService.reply(c.req.param('askId'), b.text) ? c.json({ ok: true }) : c.json({ error: 'ask already answered' }, 409);
   });
-  // Every `orca ask` currently parked on a human (overseer escalated / no overseer), for the Escalations
+  // Every `elowen ask` currently parked on a human (overseer escalated / no overseer), for the Escalations
   // inbox — enriched with the task title + epic, scoped to the projects the caller may see. Not in the
   // agent allow-list: this is a human surface, so a worker token never reaches it.
   app.get('/asks/pending', c => {
@@ -295,7 +295,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json(items);
   });
 
-  // `orca help` (with ORCA_TASK set): a running agent fetches its context-aware control guide — how to
+  // `elowen help` (with ELOWEN_TASK set): a running agent fetches its context-aware control guide — how to
   // work, ask the autopilot, leave handoff notes and close out (plus the epic, for a mission phase). The
   // guide is rendered from the task's live state, so the spawn preamble stays short. In the agent
   // allow-list (a worker token may reach it); still gated by the task's project.
@@ -307,7 +307,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     const text = guideService.render(id);
     if (text === null) return c.json({ error: 'task not found' }, 404);
     // Lightweight observability: surfaces whether agents actually pull the guide (vs skipping it), so a
-    // "the agent never ran `orca help`" reliability gap is visible in the daemon log.
+    // "the agent never ran `elowen help`" reliability gap is visible in the daemon log.
     log.info(`guide fetched for ${id}${c.get('tokenScope') === 'agent' ? ' (agent)' : ''}`);
     return c.json({ text });
   });
@@ -350,9 +350,9 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.post('/admin/cleanup', async c => {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     // Stop missions cleanly first (kills their agents + drains overseers), then sweep any remaining
-    // orca- sessions (manual launches / zombies) so no agent keeps running against deleted tasks.
+    // elowen- sessions (manual launches / zombies) so no agent keeps running against deleted tasks.
     for (const m of d.missions.live()) await d.engine.disengage(m.id).catch(() => { /* best-effort */ });
-    for (const s of (await d.tmux.list()).filter((s) => s.startsWith('orca-'))) {
+    for (const s of (await d.tmux.list()).filter((s) => s.startsWith('elowen-'))) {
       await d.tmux.kill(s).catch(() => { /* already gone */ });
     }
     const removed = d.tasks.deleteAll();
@@ -401,7 +401,7 @@ export function registerTaskRoutes(app: OrcaApp, ctx: RouteContext): void {
     });
     d.bus.publish({ type: 'plan', jobId: job.id, status: 'planning' });
     if (cfg.autopilot.pilotExec && d.pilot) {
-      // Agent backend: spawn the Pilot in the repo; it submits via `orca plan submit`.
+      // Agent backend: spawn the Pilot in the repo; it submits via `elowen plan submit`.
       void d.pilot(job, target.project.path).catch((e) => { planJobs.fail(job.id, String(e)); d.bus.publish({ type: 'plan', jobId: job.id, status: 'failed', error: String(e) }); reapPilotSession(job); });
       return c.json({ jobId: job.id }, 202);
     }

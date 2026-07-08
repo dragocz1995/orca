@@ -1,7 +1,7 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import { FolderGit2 } from 'lucide-react';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 
 /** Single source of truth for rendering a project's identity glyph. When the project has an `icon`
  *  (a project-relative image path chosen from the repo), it renders that image; otherwise the default
@@ -15,7 +15,7 @@ export function ProjectIcon({ project, size = 16, className = '' }: { project: {
     enabled: !!icon,
     staleTime: Infinity,
     queryFn: async () => {
-      const blob = await orcaClient.projectRawBlob(project.id, icon);
+      const blob = await elowenClient.projectRawBlob(project.id, icon);
       return await new Promise<string>((resolve, reject) => {
         const fr = new FileReader();
         fr.onload = () => resolve(fr.result as string);

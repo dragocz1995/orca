@@ -4,9 +4,9 @@ import { commandExists, detectLanguage, listServers, serverForLanguage, type Lan
 
 /** The outcome of checking one file. `skipped` explains a non-check so the agent gets honest, correctly
  *  actionable guidance instead of silence or a wrong "install a server" hint:
- *   - not-a-known-language: the extension isn't code Orca type-checks.
- *   - unsupported-language: it IS code, but Orca has no server registered for it (installing won't help).
- *   - no-server-installed: Orca knows the server, but it isn't on PATH (installing WILL help).
+ *   - not-a-known-language: the extension isn't code Elowen type-checks.
+ *   - unsupported-language: it IS code, but Elowen has no server registered for it (installing won't help).
+ *   - no-server-installed: Elowen knows the server, but it isn't on PATH (installing WILL help).
  *   - server-error: the server is installed but crashed/timed out on this check.
  *   - no-response: the server is up but published no verdict in time (likely still indexing) —
  *     crucially NOT reported as "no problems".
@@ -20,7 +20,7 @@ export interface CheckResult {
 }
 
 /** One registry server as the status surfaces see it: whether its binary is on PATH, whether a live
- *  client for it is currently running, whether Orca can install it itself (npm), and the human install
+ *  client for it is currently running, whether Elowen can install it itself (npm), and the human install
  *  command to show otherwise. */
 interface LspServerStatus { language: string; label: string; command: string; installed: boolean; running: boolean; installable: boolean; installHint: string }
 

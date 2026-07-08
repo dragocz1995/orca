@@ -1,4 +1,4 @@
-import type { OrcaEvent } from './sse.js';
+import type { ElowenEvent } from './sse.js';
 
 /** Lookups needed to resolve an event's owning project. Each returns the project id or null when the
  *  referenced row is gone (events outlive their tasks/jobs), so resolution always fails safe. */
@@ -14,7 +14,7 @@ export interface EventProjectDeps {
 /** The project an event belongs to, or null when it has no project (or its row is gone). Single source
  *  of truth shared by the activity-log stamping (persisted rows) and the live SSE per-subscriber gate,
  *  so both scope identically. A null result is treated as "admin-only" by callers — fail closed. */
-export function eventProjectId(e: OrcaEvent, d: EventProjectDeps): number | null {
+export function eventProjectId(e: ElowenEvent, d: EventProjectDeps): number | null {
   switch (e.type) {
     case 'task':
     case 'review':

@@ -15,7 +15,7 @@ export interface PushPayload {
   missionId?: string;
   /** The phase/task the action targets (review approve/rerun). */
   taskId?: string;
-  /** The agent tmux session (`orca-<agent>`) a needs_input answer is sent to. */
+  /** The agent tmux session (`elowen-<agent>`) a needs_input answer is sent to. */
   session?: string;
   /** Opened PR url, when a finished mission has one. */
   prUrl?: string;

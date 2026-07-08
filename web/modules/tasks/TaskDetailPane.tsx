@@ -4,7 +4,7 @@ import { Pencil, Play, Square, SquareSlash, Archive, TerminalSquare, Link2, Copy
 import type { Task } from '../../lib/types';
 import { useTasks, useAllDeps, useSessionSignal, useConfig, useMissionNotes } from '../../lib/queries';
 import { useCloseTask, useSetTaskStatus, useResumeMission } from '../../lib/mutations';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 import { useTaskControls } from '../../lib/useTaskControls';
 import { taskExec } from '../../lib/agentUtils';
 import { taskSessionName, taskAgentName, taskElapsed, phaseDetails, agentDisplayName } from '../../lib/agentUtils';

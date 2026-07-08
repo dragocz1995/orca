@@ -1,6 +1,6 @@
 # Plugin Development Guide
 
-Orca's brain is extensible through a lightweight plugin system. Plugins are
+Elowen's brain is extensible through a lightweight plugin system. Plugins are
 self-contained ESM modules that register tools, chat platforms, skills, and
 context providers.
 
@@ -266,12 +266,12 @@ const data = await fs.readFile(filePath, 'utf-8'); // ❌
 
 ### Bundled plugins
 
-Place in `plugins/<name>/` in the Orca repository. They ship with the npm
+Place in `plugins/<name>/` in the Elowen repository. They ship with the npm
 package and are discovered automatically.
 
 ### User-installed plugins
 
-Drop into the instance's plugin data directory. Orca discovers them alongside
+Drop into the instance's plugin data directory. Elowen discovers them alongside
 bundled plugins. No build step needed.
 
 ### Hot-reload

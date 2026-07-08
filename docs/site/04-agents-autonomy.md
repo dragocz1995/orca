@@ -7,21 +7,21 @@ eyebrow: Core concepts
 
 # Agents & Autonomy
 
-Orca is a personal AI agent you talk to — it reasons, calls tools, edits files
+Elowen is a personal AI agent you talk to — it reasons, calls tools, edits files
 and runs commands on your behalf. When a job is big enough to warrant its own
-coding agent, Orca spawns one for you: a real CLI coding assistant working
-inside a live session. This page explains how Orca drives those agents and how
+coding agent, Elowen spawns one for you: a real CLI coding assistant working
+inside a live session. This page explains how Elowen drives those agents and how
 it governs them with graduated autonomy, so you always stay in control and can
 see exactly what the agent is doing.
 
-Autonomy is where two of Orca's pillars meet: **clarity** — every decision an
+Autonomy is where two of Elowen's pillars meet: **clarity** — every decision an
 agent makes is visible and steerable — and **simplicity** — sensible defaults
 mean the agent handles the routine and only interrupts you when it genuinely
 needs a human.
 
 ## Providers
 
-Orca can drive four external coding-agent CLIs, plus the embedded **Orca AI**
+Elowen can drive four external coding-agent CLIs, plus the embedded **Elowen AI**
 brain that runs in-process (the agent you chat with directly). You pick a
 provider per task; the model picker in chat and task creation offers whatever
 you are allowed to run.
@@ -32,16 +32,16 @@ you are allowed to run.
 | OpenCode | `opencode:` | `opencode` | Also the target for bare `provider/model` specs |
 | Codex | `codex:` | `codex` | OpenAI's agentic coder |
 | Kilo Code | `kilo:` | `kilo` | Auto-approval lives in Kilo's own config (see below) |
-| Orca AI (brain) | `orca:` | `orca` | Embedded — runs in-process, no external CLI spawned |
+| Elowen AI (brain) | `elowen:` | `elowen` | Embedded — runs in-process, no external CLI spawned |
 
-The brain uses `orca:<provider>/<model>` specs (for example
-`orca:relay/ollama/kimi-k2.7-code`) and is bounded by your configured brain
+The brain uses `elowen:<provider>/<model>` specs (for example
+`elowen:relay/ollama/kimi-k2.7-code`) and is bounded by your configured brain
 providers rather than the CLI allow-list. See [Brain & Chat](brain-chat) for
 the embedded agent, and [Configuration](configuration) for provider setup.
 
 ## Executor resolution
 
-Every task carries an `exec:<spec>` label that tells Orca which agent to spawn.
+Every task carries an `exec:<spec>` label that tells Elowen which agent to spawn.
 The daemon resolves the spec to a program like this:
 
 - `exec:sonnet` → Claude Code with model `sonnet`
@@ -53,12 +53,12 @@ The daemon resolves the spec to a program like this:
 - **No label** → the configured fallback (default: Claude Code / `sonnet`)
 
 A bare plain string (no prefix, no `/`) is only valid when it is explicitly
-allow-listed — otherwise Orca would silently treat it as a Claude Code model
+allow-listed — otherwise Elowen would silently treat it as a Claude Code model
 name, so it is rejected.
 
 Every exec must be in the daemon's `allowedExecs` list or the API rejects the
 task. On top of that, non-admin users can be scoped to a **personal subset** of
-execs — this is part of Orca's per-user tools and permissions model, where each
+execs — this is part of Elowen's per-user tools and permissions model, where each
 user can have a different set of capabilities. An admin can let one user run
 Opus and Codex while another is limited to a cheap OpenCode model. See
 [Account & Security](account-security) for per-user `allowed_execs`.
@@ -76,7 +76,7 @@ Configure each provider in **Settings → Providers**:
 
 > **Kilo Code gotcha:** Kilo's skip-permissions toggle in Providers is a no-op.
 > Kilo's auto-approval is controlled inside Kilo's own configuration, not by an
-> Orca flag — set it there.
+> Elowen flag — set it there.
 
 ## Autonomy levels
 
@@ -117,13 +117,13 @@ line.
 
 ### Agent path (parked overseer)
 
-When `overseerExec` is set (for example `sonnet`), Orca spawns a dedicated,
+When `overseerExec` is set (for example `sonnet`), Elowen spawns a dedicated,
 parked **overseer agent** per active mission. It runs a fully async long-poll
 loop:
 
-1. `orca overseer poll` — absorbs heartbeats and surfaces pending decisions
+1. `elowen overseer poll` — absorbs heartbeats and surfaces pending decisions
 2. Judges the request using the prompt in `prompts/overseer.md`
-3. `orca overseer decide --id <id> --approve --confidence 0.85` — submits its verdict
+3. `elowen overseer decide --id <id> --approve --confidence 0.85` — submits its verdict
 
 Because it is async, the mission keeps moving while the overseer thinks. There is
 no fixed per-decision timeout; instead the [liveness sweep](#liveness--progress-checks)
@@ -132,7 +132,7 @@ pending decisions **escalate to a human** so nothing slips through unreviewed.
 
 ## Deriver (prompt detection)
 
-The deriver is how Orca knows what a live agent is doing. It polls every active
+The deriver is how Elowen knows what a live agent is doing. It polls every active
 agent's tmux pane **every 5 seconds** and detects state changes from the
 terminal output — including the CLI's own permission prompts.
 
@@ -166,7 +166,7 @@ of the system:
 | `prompt` | Deriver | A CLI permission prompt from the agent |
 | `review` | Close handler | Post-completion review: task title, outcome, summary |
 | `question` | Deriver | A multiple-choice question from the agent |
-| `message` | Agent (`orca ask`) | Free-text Q&A with the autopilot |
+| `message` | Agent (`elowen ask`) | Free-text Q&A with the autopilot |
 | `check` | Liveness sweep | Routine progress check on a working agent |
 
 The confidence threshold that separates approve from wait is **0.85 at L1** and
@@ -188,12 +188,12 @@ the sweep acts:
 | Dead overseer | 90 s gone | Escalate its pending decisions (a 60 s watchdog tries to re-park it first) |
 | Absolute backstop | 30 min in any state | Escalate |
 
-## Agent Q&A (`orca ask`)
+## Agent Q&A (`elowen ask`)
 
 A working agent can ask a free-text question mid-mission — to the autopilot or to
 you:
 
-1. The agent calls `orca ask "Is this approach correct?"`
+1. The agent calls `elowen ask "Is this approach correct?"`
 2. The autopilot answers directly, or escalates the question to a human
 3. Unanswered questions surface in the **Escalations** inbox
 4. You reply, and the agent receives your answer and continues
@@ -202,7 +202,7 @@ you:
 
 Escalations is your human-in-the-loop gate — approve, reject, or answer, all
 from one place. See [Web UI](web-ui) for the full inbox, and [CLI](cli) for the
-`orca ask` command and its `--history` flag.
+`elowen ask` command and its `--history` flag.
 
 ## Stuck detector
 
@@ -222,7 +222,7 @@ cold-starting — it keeps its context, its plan, and its place in the work.
 
 ## Persistent goals (`/goal`)
 
-The autonomy levels above govern spawned mission agents. The embedded **Orca AI**
+The autonomy levels above govern spawned mission agents. The embedded **Elowen AI**
 brain — the agent you chat with — has its own autonomous mode: a *persistent
 goal*. Set one with `/goal <what you want>` and the brain works toward it turn
 after turn on its own, checking its own progress, until the goal is done, it hits
@@ -251,7 +251,7 @@ manage a live goal; a headless run takes `--max-turns <n>` for its budget.
 
 Every goal carries a **turn budget** — the number of autonomous turns it may run
 before it stops to check in with you. The default is **8** (configurable per
-instance under **Settings → Orca AI → Limits**, range 1–50). What happens when
+instance under **Settings → Elowen AI → Limits**, range 1–50). What happens when
 the budget is spent depends on whether the session runs in YOLO:
 
 - **Supervised (not YOLO)** — the goal **pauses** at budget with a
@@ -272,7 +272,7 @@ A persistent goal only advances while its conversation has a live driver — it'
 your active conversation, or a bound CLI stream is attached to it. Switch away
 and the goal **pauses** rather than running unattended in the background. And
 because in-memory continuation timers don't survive a restart, a daemon reboot
-pauses every active goal. Autonomous work never self-resumes — matching Orca's
+pauses every active goal. Autonomous work never self-resumes — matching Elowen's
 "escalation waits, nothing self-starts" rule — you bring a paused goal back with
 `/goal resume`. See [Brain & Chat](brain-chat) for the embedded agent.
 

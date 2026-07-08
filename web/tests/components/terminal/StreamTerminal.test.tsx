@@ -31,28 +31,28 @@ import { createWrapper } from '../../test-utils';
 
 describe('StreamTerminal', () => {
   it('writes inbound stream bytes into xterm', () => {
-    render(<StreamTerminal name="orca-advisor-1" />, { wrapper: createWrapper().wrapper });
+    render(<StreamTerminal name="elowen-advisor-1" />, { wrapper: createWrapper().wrapper });
     act(() => capturedOnData!('\x1b[32mhi'));
     expect(writeSpy).toHaveBeenCalledWith('\x1b[32mhi');
   });
 
   it('forwards keystrokes to the stream', () => {
-    render(<StreamTerminal name="orca-advisor-1" />, { wrapper: createWrapper().wrapper });
+    render(<StreamTerminal name="elowen-advisor-1" />, { wrapper: createWrapper().wrapper });
     expect(onDataHandler).not.toBeNull();
     act(() => onDataHandler!('x'));
     expect(sendSpy).toHaveBeenCalledWith('x');
   });
 
   it('pushes the terminal size to the stream once the socket is open', () => {
-    render(<StreamTerminal name="orca-advisor-1" />, { wrapper: createWrapper().wrapper });
+    render(<StreamTerminal name="elowen-advisor-1" />, { wrapper: createWrapper().wrapper });
     // status is 'open' → the size must be synced (cols/rows from the xterm mock).
     expect(resizeSpy).toHaveBeenCalledWith(80, 24);
   });
 
   it('renders the interactive snapshot fallback when the stream is unsupported', () => {
     status = 'unsupported';
-    render(<StreamTerminal name="orca-worker1" />, { wrapper: createWrapper().wrapper });
+    render(<StreamTerminal name="elowen-worker1" />, { wrapper: createWrapper().wrapper });
     const fb = screen.getByTestId('snapshot-fallback');
-    expect(fb.textContent).toBe('orca-worker1:true'); // fallback is interactive
+    expect(fb.textContent).toBe('elowen-worker1:true'); // fallback is interactive
   });
 });

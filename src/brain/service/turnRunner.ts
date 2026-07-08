@@ -191,7 +191,7 @@ export class BrainTurnRunner {
           }
         }
       } catch { /* hook enrichment is best-effort; a failure must never break the turn */ }
-      // The turn's identity: the Orca account itself (memory and other per-user plugin state key on it).
+      // The turn's identity: the Elowen account itself (memory and other per-user plugin state key on it).
       const identity = this.d.identity.forOwnerChat(userId, live.policy);
       // Turn-bound elicitor for ctx.askUser: emit the `ask` event to this conversation's clients and park
       // the answer in the shared registry (settled by /brain/answer). Resolving it does NOT re-enter the
@@ -269,7 +269,7 @@ function isPlanModeUnsafeTool(name: string): boolean {
     'todo_write', 'todo_update',
     'read_file', 'list_dir', 'file_info', 'git_status', 'lsp_diagnostics',
     'list_processes', 'read_process_output',
-    'orca_list_tasks', 'orca_list_missions', 'orca_list_sessions',
+    'elowen_list_tasks', 'elowen_list_missions', 'elowen_list_sessions',
     'memory_search', 'memory_list_recent', 'memory_categories',
   ]);
   if (safeExact.has(name)) return false;

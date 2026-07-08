@@ -1,13 +1,13 @@
 /**
- * The single HTTP-forward core for reaching the Orca REST API with a bearer token. Both the
- * `orca api` CLI verb and every MCP tool delegate here, so the forward logic (headers, JSON parse,
+ * The single HTTP-forward core for reaching the Elowen REST API with a bearer token. Both the
+ * `elowen api` CLI verb and every MCP tool delegate here, so the forward logic (headers, JSON parse,
  * error handling) lives in exactly one place — adding a new REST endpoint makes it work in both
  * with zero edits, and there is never any duplicated request logic to keep in sync.
  */
 export interface CallOpts { url: string; token: string; fetchImpl?: typeof fetch }
 export interface CallResult { status: number; ok: boolean; data: unknown; text: string }
 
-export async function callOrcaApi(method: string, path: string, body: unknown | undefined, opts: CallOpts): Promise<CallResult> {
+export async function callElowenApi(method: string, path: string, body: unknown | undefined, opts: CallOpts): Promise<CallResult> {
   const f = opts.fetchImpl ?? fetch;
   const m = method.toUpperCase();
   const headers: Record<string, string> = { authorization: `Bearer ${opts.token}` };

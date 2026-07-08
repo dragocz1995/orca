@@ -4,7 +4,7 @@ import { encodeMessage, MessageDecoder, type JsonRpcMessage } from './protocol.j
 import { resolveServerCommand, type LanguageServerSpec } from './servers.js';
 
 /** One diagnostic the agent cares about: where it is and what's wrong. Flattened from the LSP shape so
- *  the rest of Orca never touches raw protocol objects. Lines/columns are 1-based (editor convention)
+ *  the rest of Elowen never touches raw protocol objects. Lines/columns are 1-based (editor convention)
  *  even though LSP is 0-based — converted once, at the parse boundary. */
 export interface Diagnostic {
   severity: 'error' | 'warning' | 'info' | 'hint';
@@ -19,7 +19,7 @@ const SEVERITY: Record<number, Diagnostic['severity']> = { 1: 'error', 2: 'warni
 
 /** Interpret an LSP `textDocument/publishDiagnostics` params object into { uri, diagnostics }. Pure and
  *  defensive (servers vary): unknown severities default to 'warning', missing ranges to line 1. This is
- *  the single place raw protocol becomes Orca's Diagnostic — so it carries the unit tests. */
+ *  the single place raw protocol becomes Elowen's Diagnostic — so it carries the unit tests. */
 export function parsePublishDiagnostics(params: unknown): { uri: string; diagnostics: Diagnostic[] } {
   const p = (params && typeof params === 'object') ? params as { uri?: unknown; diagnostics?: unknown } : {};
   const uri = typeof p.uri === 'string' ? p.uri : '';
@@ -59,7 +59,7 @@ export interface LspTransport {
  *  an async 'error' event, so relying on a try/catch would return a dead-pipe transport that stalls every
  *  request. The child is detached-safe: on error/exit the transport notifies so the client can fail fast. */
 export function spawnStdioTransport(spec: LanguageServerSpec, cwd: string): LspTransport | null {
-  // Resolved (not bare) command: servers installed into Orca's own LSP prefix aren't on the daemon's PATH.
+  // Resolved (not bare) command: servers installed into Elowen's own LSP prefix aren't on the daemon's PATH.
   const bin = resolveServerCommand(spec.command);
   if (!bin) return null;
   let child;

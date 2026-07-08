@@ -2,7 +2,7 @@
 
 ## Authentication
 
-Orca uses **Bearer token** authentication. Every route except `GET /health`
+Elowen uses **Bearer token** authentication. Every route except `GET /health`
 and `POST /auth/login` requires a valid token.
 
 ```
@@ -21,7 +21,7 @@ Authorization: Bearer <token>
 
 - **Web UI**: httpOnly session cookie via the same-origin BFF proxy. The token
   never reaches browser JavaScript.
-- **CLI**: `~/.config/orca/token` with `0600` permissions.
+- **CLI**: `~/.config/elowen/token` with `0600` permissions.
 - **Agent**: Environment variable — scoped to the agent's process.
 
 ### Password policy
@@ -113,4 +113,4 @@ at the API boundary before any processing.
 ## Database
 
 SQLite with WAL mode. Database file permissions should be restricted to the
-daemon's user (`chmod 600` recommended for `~/.config/orca/orca.db`).
+daemon's user (`chmod 600` recommended for `~/.config/elowen/elowen.db`).

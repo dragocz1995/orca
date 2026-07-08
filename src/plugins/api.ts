@@ -60,7 +60,7 @@ export interface PluginCapabilities {
 /** Where a channel message came from + what its sender may access. The adapter resolves `access` from
  *  its own role mapping (e.g. Discord role → projects + prompt); a message without `access` is ignored
  *  (an unmapped user gets no brain). `admin: true` runs the turn with the owner's full powers (all
- *  repos + orca_* tools) — reserve it for owner-authored automation (cron), never for foreign senders. */
+ *  repos + elowen_* tools) — reserve it for owner-authored automation (cron), never for foreign senders. */
 export interface SessionSource {
   platform: string;
   userId: string;
@@ -165,7 +165,7 @@ export interface PluginContext {
    *  Refused (and warned) if the name is not kebab-case, shadows a built-in, or collides with another
    *  plugin's command. */
   registerCommand(command: PluginCommand): void;
-  /** Append a chunk of instructions to the brain's system prompt, after the Orca persona. */
+  /** Append a chunk of instructions to the brain's system prompt, after the Elowen persona. */
   registerSystemPromptFragment(fragment: string): void;
   registerHook(hook: PluginHook): void;
   /** Register a provider of EPHEMERAL per-turn context (date/time, live status…). Its string is injected
@@ -193,7 +193,7 @@ export interface PluginContext {
   /** The current turn's access (admin flag + project ids) — a plugin forwards this when delegating to
    *  a sub-agent so the child inherits exactly the caller's scope, never more. */
   currentAccess(): { projectIds: number[]; admin: boolean };
-  /** Who is driving the current turn (platform sender, resolved Orca account, admin flag) — plugins
+  /** Who is driving the current turn (platform sender, resolved Elowen account, admin flag) — plugins
    *  that persist per-user state (long-term memory) key it on this. Null outside a prompt turn. */
   currentIdentity(): TurnIdentity | null;
   /** The persisted brain-session id the current turn runs in (`brain-…`), or undefined outside a

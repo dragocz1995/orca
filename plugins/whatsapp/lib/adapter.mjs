@@ -26,7 +26,7 @@ function cfgNum(cfg, key, def, min, max) {
   return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
 }
 
-/** A minimal pino-shaped logger Baileys accepts, forwarding only warn/error to Orca's logger (trace/
+/** A minimal pino-shaped logger Baileys accepts, forwarding only warn/error to Elowen's logger (trace/
  *  debug/info are dropped — Baileys is extremely chatty). Baileys calls `child()` and pino-style
  *  `(obj, msg)` signatures, so both are tolerated. */
 function pinoShim(log) {
@@ -143,7 +143,7 @@ export class WhatsAppAdapter {
     const sock = makeWASocket({
       auth: this.authState,
       logger: this.plog,
-      browser: Browsers.ubuntu('Orca'),
+      browser: Browsers.ubuntu('Elowen'),
       markOnlineOnConnect: false, // don't suppress the phone's own notifications
       getMessage: async (key) => this.sentStore.get(key.id) ?? undefined,
     });
@@ -543,7 +543,7 @@ export class WhatsAppAdapter {
     const admin = () => senderIsAdmin(this.senderIds(senderJid, chatJid), this.cfg.senderPolicies);
     switch (cmd.toLowerCase()) {
       case 'help':
-        await this.sendText(chatJid, this.msg.help('Orca'));
+        await this.sendText(chatJid, this.msg.help('Elowen'));
         return true;
       case 'new': {
         const gen = (this.state.get(chatJid).gen ?? 0) + 1;

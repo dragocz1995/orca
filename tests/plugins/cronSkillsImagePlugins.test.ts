@@ -13,10 +13,10 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const pluginsDir = join(repoRoot, 'plugins');
 const ADMIN: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
 const LIMITED: Policy = { allowedProjectIds: new Set([1]), allowedPaths: () => [] };
-const OWNER: TurnIdentity = { platform: 'orca', userId: '1', admin: true, owner: true };
+const OWNER: TurnIdentity = { platform: 'elowen', userId: '1', admin: true, owner: true };
 const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text: string }).text;
 
-function freshDataRoot(): string { return mkdtempSync(join(tmpdir(), 'orca-pdata-')); }
+function freshDataRoot(): string { return mkdtempSync(join(tmpdir(), 'elowen-pdata-')); }
 
 describe('cronjob plugin', () => {
   it('parses schedules and computes due-ness', async () => {

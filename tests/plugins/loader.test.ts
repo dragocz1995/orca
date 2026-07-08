@@ -21,7 +21,7 @@ const SKILL = (n: string) => `{name:'${n}',description:'d',filePath:'/s/${n}.md'
 describe('loadPlugins', () => {
   let root: string;
   beforeAll(() => {
-    root = mkdtempSync(join(tmpdir(), 'orca-plugins-'));
+    root = mkdtempSync(join(tmpdir(), 'elowen-plugins-'));
     makePlugin(root, 'good', `export function register(ctx){ ctx.registerSkill(${SKILL('g')}); }`);
     makePlugin(root, 'other', `export function register(ctx){ ctx.registerSystemPromptFragment('frag'); }`);
     makePlugin(root, 'broken', `export function register(){ throw new Error('boom'); }`);
@@ -111,7 +111,7 @@ describe('loadPlugins', () => {
 
 describe('discoverPlugins', () => {
   it('lists valid manifests without importing code, skipping bad apiVersions', () => {
-    const root = mkdtempSync(join(tmpdir(), 'orca-discover-'));
+    const root = mkdtempSync(join(tmpdir(), 'elowen-discover-'));
     makePlugin(root, 'alpha', `export function register(){ throw new Error('never imported'); }`);
     makePlugin(root, 'badver', `export function register(){}`, '999');
     const found = discoverPlugins([root]);
@@ -120,8 +120,8 @@ describe('discoverPlugins', () => {
   });
 
   it('dedupes by name across dirs (first dir wins) and labels sources', () => {
-    const a = mkdtempSync(join(tmpdir(), 'orca-disc-a-'));
-    const b = mkdtempSync(join(tmpdir(), 'orca-disc-b-'));
+    const a = mkdtempSync(join(tmpdir(), 'elowen-disc-a-'));
+    const b = mkdtempSync(join(tmpdir(), 'elowen-disc-b-'));
     makePlugin(a, 'dup', `export function register(){}`);
     makePlugin(b, 'dup', `export function register(){}`);
     makePlugin(b, 'solo', `export function register(){}`);

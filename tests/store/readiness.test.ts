@@ -5,7 +5,7 @@ import { Readiness } from '../../src/store/readiness.js';
 
 let store: TaskStore; let ready: Readiness;
 beforeEach(() => {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   store = new TaskStore(db); ready = new Readiness(db);
   store.create({ id: 't1', project_id: 1, title: 'one' });
   store.create({ id: 't2', project_id: 1, title: 'two' });

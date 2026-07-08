@@ -1,10 +1,10 @@
 // Server-side BFF proxy helpers. The browser only ever talks to this web origin; these helpers let
 // the route handlers translate the httpOnly session cookie into a daemon bearer token, guard against
 // cross-origin (CSRF) writes, and forward request headers cleanly. None of this runs in the browser.
-export const COOKIE_NAME = 'orca_session';
+export const COOKIE_NAME = 'elowen_session';
 
 export function daemonUrl(): string {
-  return process.env.ORCA_DAEMON_URL ?? 'http://localhost:4400';
+  return process.env.ELOWEN_DAEMON_URL ?? process.env.ORCA_DAEMON_URL ?? 'http://localhost:4400';
 }
 
 const ATTRS = 'HttpOnly; SameSite=Lax; Path=/';
@@ -34,8 +34,8 @@ export function clearCookie(secure: boolean): string {
 //  - RETURN_COOKIE: httpOnly stash of the admin's OWN token, so "stop impersonating" can restore it.
 //  - IMPERSONATING_COOKIE: a JS-readable display hint (the target's name) so the UI can show a banner.
 //    It carries no authority — the session token in COOKIE_NAME is what actually authenticates.
-export const RETURN_COOKIE = 'orca_return';
-export const IMPERSONATING_COOKIE = 'orca_as';
+export const RETURN_COOKIE = 'elowen_return';
+export const IMPERSONATING_COOKIE = 'elowen_as';
 
 /** Build a Set-Cookie string for an arbitrary cookie name. `httpOnly=false` makes it readable by page
  *  JS (used for the non-sensitive impersonation display hint); values are URL-encoded. */

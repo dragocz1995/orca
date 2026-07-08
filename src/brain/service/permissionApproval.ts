@@ -1,4 +1,4 @@
-import { orcaExec } from '../../shared/execs.js';
+import { elowenExec } from '../../shared/execs.js';
 import type { ElicitationRegistry } from '../elicitation.js';
 import type { LiveBrain } from '../session/liveBrain.js';
 import { buildPermissionRuleset, approvalQuestion, approvalDecision } from '../toolPermissions.js';
@@ -10,7 +10,7 @@ interface PermissionApprovalDeps {
   permissions?: (userId: number) => PermissionSettings;
   /** Persist an "Always allow" pick from an approval prompt into the user's stored rules. */
   saveAlwaysAllow?: (userId: number, scope: PermissionScope, pattern: string) => void;
-  /** Per-user brain-model permission, keyed by exec spec `orca:<provider>/<model>` (see
+  /** Per-user brain-model permission, keyed by exec spec `elowen:<provider>/<model>` (see
    *  BrainDeps.execAllowed). Absent → no restriction (open mode / tests). */
   execAllowed?: (userId: number, exec: string) => boolean;
   /** The shared ask registry — approval prompts ride the SAME pipeline as ask_user_question. */
@@ -24,13 +24,13 @@ export class PermissionApprovalService {
   constructor(private d: PermissionApprovalDeps) {}
 
   /** Effective YOLO for a conversation: the live session's `/yolo` override when set, else the user's
-   *  persisted default (Account → Orca AI). No permission wiring at all → always false. */
+   *  persisted default (Account → Elowen AI). No permission wiring at all → always false. */
   effectiveYolo(userId: number, live: LiveBrain | undefined): boolean {
     return live?.yoloOverride ?? this.d.permissions?.(userId).yolo ?? false;
   }
 
   /** Flip the SESSION-scoped YOLO override (the CLI `/yolo` command): `on` forces a state, undefined
-   *  toggles the current effective one. Never touches the persisted default (Account → Orca AI) and
+   *  toggles the current effective one. Never touches the persisted default (Account → Elowen AI) and
    *  never survives a session respawn (model switch / restart) — by design a per-session override.
    *  Returns the new effective state. The facade resolves (and existence-checks) the live session. */
   setYolo(userId: number, live: LiveBrain, on?: boolean): { yolo: boolean } {
@@ -42,7 +42,7 @@ export class PermissionApprovalService {
    *  partial ones resolve to the server default, which stays admin-controlled by definition. */
   selectionAllowed(userId: number, sel?: { provider?: string; model?: string }): boolean {
     if (!this.d.execAllowed || !sel?.provider || !sel.model) return true;
-    return this.d.execAllowed(userId, orcaExec(sel.provider, sel.model));
+    return this.d.execAllowed(userId, elowenExec(sel.provider, sel.model));
   }
 
   /** The granular tool-permission context for one turn (read by the execute-time gate in

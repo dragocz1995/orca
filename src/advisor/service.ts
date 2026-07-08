@@ -21,9 +21,9 @@ export interface AdvisorDeps {
   projectId?: number;
   /** Per-user working dir for the advisor session (created by the caller); not a project checkout. */
   advisorDir: (userId: number) => string;
-  /** Daemon URL the advisor reaches the REST API at (ORCA_URL). */
+  /** Daemon URL the advisor reaches the REST API at (ELOWEN_URL). */
   url: string;
-  /** URL of Orca's MCP server (the daemon's `/mcp` route). Passed to the spawn so codex gets it as a
+  /** URL of Elowen's MCP server (the daemon's `/mcp` route). Passed to the spawn so codex gets it as a
    *  `-c` launch flag; claude/opencode get it baked into the config file by `prepareMcp`. */
   mcpUrl: string;
   /** Optional hook to write per-program MCP config into the session cwd before launch (Task 9). */
@@ -34,12 +34,12 @@ export interface AdvisorDeps {
   advisorStyle?: (userId: number) => string;
 }
 
-/** Per-user advisor lifecycle: a persistent `orca-advisor-<userId>` agent session that controls Orca
+/** Per-user advisor lifecycle: a persistent `elowen-advisor-<userId>` agent session that controls Elowen
  *  on the user's behalf with a full-scope token. Chosen exec is remembered and auto-started on login. */
 export class AdvisorService {
   constructor(private d: AdvisorDeps) {}
 
-  private session(userId: number): string { return `orca-advisor-${userId}`; }
+  private session(userId: number): string { return `elowen-advisor-${userId}`; }
 
   /** An exec must be globally allowed AND (for a restricted non-admin) on the user's own allow-list. */
   private execAllowed(userId: number, exec: string): boolean {
@@ -69,14 +69,14 @@ export class AdvisorService {
     await this.d.prepareMcp?.(spec.program, cwd, token, this.d.url);
     const u = this.d.users.get(userId)!;
     const personality = personalityText(this.d.advisorStyle?.(userId) ?? '');
-    // The configured assistant identity (Settings → Orca AI) so {{agentName}} in the prompt resolves —
-    // mirrors how the brain/personality render supplies it. Absent → 'Orca'.
-    const agentName = this.d.config.get().brain.agentName || 'Orca';
+    // The configured assistant identity (Settings → Elowen AI) so {{agentName}} in the prompt resolves —
+    // mirrors how the brain/personality render supplies it. Absent → 'Elowen'.
+    const agentName = this.d.config.get().brain.agentName || 'Elowen';
     const vars = { userName: u.name || u.username, personality, agentName };
     const rawPrompt = this.d.prompts
       ? this.d.prompts.render('advisor', vars, userId)
       : render('advisor', vars);
-    // agentName `advisor-<id>` → SpawnService names the tmux session `orca-advisor-<id>`. The full
+    // agentName `advisor-<id>` → SpawnService names the tmux session `elowen-advisor-<id>`. The full
     // advisor token overrides the daemon's agent service token via extraEnv, so the advisor acts with
     // the user's own rights. The cwd is a neutral per-user dir, not a project checkout.
     await this.d.spawn.launch({
@@ -86,7 +86,7 @@ export class AdvisorService {
       agentName: `advisor-${userId}`,
       spec,
       rawPrompt,
-      extraEnv: { ORCA_TOKEN: token, ORCA_URL: this.d.url },
+      extraEnv: { ELOWEN_TOKEN: token, ELOWEN_URL: this.d.url },
       mcpUrl: this.d.mcpUrl,
     });
     log.info(`advisor started for user ${userId} (${spec.program}/${spec.model})`);

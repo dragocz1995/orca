@@ -10,7 +10,7 @@ import type { Task } from '../../../lib/types';
 
 const server = setupServer(
   http.get('*/api/sessions', () => HttpResponse.json([])),
-  http.get('*/api/projects', () => HttpResponse.json([{ id: 1, slug: 'orca', path: '/var/www/orca', notes: '', icon: '', pr_enabled: null }])),
+  http.get('*/api/projects', () => HttpResponse.json([{ id: 1, slug: 'elowen', path: '/var/www/elowen', notes: '', icon: '', pr_enabled: null }])),
   http.get('*/api/config', () => HttpResponse.json({})),
 );
 beforeAll(() => server.listen());

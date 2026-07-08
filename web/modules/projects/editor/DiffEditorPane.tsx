@@ -11,7 +11,7 @@ export function DiffEditorPane({ path, original, modified }: { path: string; ori
     <MonacoDiffEditor
       key={path}
       height="100%"
-      theme={resolvedTheme === 'light' ? 'orca-light' : 'orca-oled'}
+      theme={resolvedTheme === 'light' ? 'elowen-light' : 'elowen-oled'}
       beforeMount={defineEditorThemes}
       language={langOf(path)}
       original={original}

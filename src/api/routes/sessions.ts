@@ -2,15 +2,15 @@ import { streamSSE } from 'hono/streaming';
 import { classifySession } from '../../overseer/sessionInfo.js';
 import { parseBody } from '../validation.js';
 import { launchSessionSchema, sessionKeysSchema, sessionInputSchema, sessionResizeSchema } from '../schemas/sessions.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Live tmux session surface: list, manual launch, kill, keystrokes/raw input, resize, pane capture,
  *  the live ANSI stream and a single-use ticket for the terminal WebSocket. Every control route is
  *  ownership-gated by sessionAccessible; a manual launch claims the shared checkout atomically. */
-export function registerSessionRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerSessionRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d, sessionAccessible, canAccessProject, execAllowedForUser, sessionService, tickets } = ctx;
   app.get('/sessions', async c => c.json((await d.tmux.list())
-    .filter((s) => s.startsWith('orca-'))
+    .filter((s) => s.startsWith('elowen-'))
     // Visibility mirrors operability: a caller only sees sessions it may control (its projects' agents,
     // its own advisor; admin sees all). Without this the list leaked every running session cross-tenant.
     .filter((s) => sessionAccessible(c, s))
@@ -18,7 +18,7 @@ export function registerSessionRoutes(app: OrcaApp, ctx: RouteContext): void {
       const info = classifySession(s);
       // Tag each session with its project from the agent store (every role upserts there at spawn), so
       // clients can show the repo for workers, pilots and overseers alike — the name alone can't.
-      return { ...info, projectId: d.agents?.projectFor(s.slice('orca-'.length)) ?? undefined };
+      return { ...info, projectId: d.agents?.projectFor(s.slice('elowen-'.length)) ?? undefined };
     })));
   app.post('/sessions', async (c) => {
     const { taskId, exec } = await parseBody(c, launchSessionSchema);

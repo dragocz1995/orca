@@ -42,8 +42,8 @@ const GRUVBOX_DARK: TerminalPalette = {
 /** Preset palettes offered in the section's "load preset" dropdown; selecting one fills all 21 swatches,
  *  which the user can then tweak. Labels are proper nouns (not translated). */
 export const PALETTE_PRESETS: { id: string; label: string; palette: TerminalPalette }[] = [
-  { id: 'orca-dark', label: 'Orca Dark', palette: DARK_PALETTE },
-  { id: 'orca-light', label: 'Orca Light', palette: LIGHT_PALETTE },
+  { id: 'elowen-dark', label: 'Elowen Dark', palette: DARK_PALETTE },
+  { id: 'elowen-light', label: 'Elowen Light', palette: LIGHT_PALETTE },
   { id: 'solarized-dark', label: 'Solarized Dark', palette: SOLARIZED_DARK },
   { id: 'dracula', label: 'Dracula', palette: DRACULA },
   { id: 'gruvbox-dark', label: 'Gruvbox Dark', palette: GRUVBOX_DARK },

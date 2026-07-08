@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { run, needsDaemon } from '../../src/cli/index.js';
-import type { OrcaClient } from '../../src/cli/client.js';
+import type { ElowenClient } from '../../src/cli/client.js';
 
 // The API-backed subcommands must keep working unchanged: `run` dispatches them against the client.
 describe('cli/index.run (API subcommands unchanged)', () => {
   it('ls prints the task list from the client', async () => {
     const logs: string[] = [];
     const orig = console.log; console.log = (s) => logs.push(String(s));
-    const client = { tasks: async () => [{ id: 't1' }] } as unknown as OrcaClient;
+    const client = { tasks: async () => [{ id: 't1' }] } as unknown as ElowenClient;
     try { await run(['ls'], client, {} as NodeJS.ProcessEnv); } finally { console.log = orig; }
     expect(logs.join('')).toContain('t1');
   });
@@ -16,7 +16,7 @@ describe('cli/index.run (API subcommands unchanged)', () => {
 describe('cli/index.run close flag parsing', () => {
   it('passes both flag values through when each has a value', async () => {
     let received: { summary?: string; outcome?: string } | undefined;
-    const client = { close: async (_id: string, opts: { summary?: string; outcome?: string }) => { received = opts; } } as unknown as OrcaClient;
+    const client = { close: async (_id: string, opts: { summary?: string; outcome?: string }) => { received = opts; } } as unknown as ElowenClient;
     const orig = console.log; console.log = () => {};
     try { await run(['close', 't1', '--summary', 'did the thing', '--outcome', 'ok'], client, {} as NodeJS.ProcessEnv); } finally { console.log = orig; }
     expect(received).toEqual({ summary: 'did the thing', outcome: 'ok' });
@@ -37,7 +37,7 @@ describe('cli/index.run close flag parsing', () => {
 
 // Run `close` expecting a process.exit; capture the codes and stderr instead of killing the test runner.
 async function runExpectingExit(argv: string[]): Promise<{ exits: number[]; errs: string[] }> {
-  const client = { close: async () => { throw new Error('close should not be reached'); } } as unknown as OrcaClient;
+  const client = { close: async () => { throw new Error('close should not be reached'); } } as unknown as ElowenClient;
   const origExit = process.exit; const origErr = console.error;
   const exits: number[] = []; const errs: string[] = [];
   process.exit = ((code?: number) => { exits.push(code ?? 0); throw new Error('__exit__'); }) as unknown as typeof process.exit;

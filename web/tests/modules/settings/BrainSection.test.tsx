@@ -5,7 +5,7 @@ import { createWrapper } from '../../test-utils';
 import { en } from '../../../lib/i18n/dictionaries/en';
 
 const saveProviders = vi.fn();
-const CONFIG = { brain: { providers: [], agentName: 'Orca', maxSteps: 20 } };
+const CONFIG = { brain: { providers: [], agentName: 'Elowen', maxSteps: 20 } };
 const OAUTH = { 'oauth-anthropic': true, 'oauth-openai-codex': false, 'oauth-github-copilot': false };
 
 vi.mock('../../../lib/queries', async (importOriginal) => ({
@@ -19,11 +19,11 @@ vi.mock('../../../lib/mutations', async (importOriginal) => ({
   useSaveBrainProviders: () => ({ mutate: saveProviders }),
   useBrainOauthDisconnect: () => ({ mutate: vi.fn() }),
 }));
-vi.mock('../../../lib/orcaClient', async (importOriginal) => {
+vi.mock('../../../lib/elowenClient', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
-    orcaClient: { ...(actual.orcaClient as object), brainOauthCatalog: vi.fn(() => Promise.resolve({ models: ['claude-opus', 'claude-sonnet'] })) },
+    elowenClient: { ...(actual.elowenClient as object), brainOauthCatalog: vi.fn(() => Promise.resolve({ models: ['claude-opus', 'claude-sonnet'] })) },
   };
 });
 

@@ -9,7 +9,7 @@ let root: string;
 const w = (rel: string, body: string) => { const p = join(root, rel); mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, body); };
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'orca-files-'));
+  root = mkdtempSync(join(tmpdir(), 'elowen-files-'));
   w('src/index.ts', 'export const x = 1;');
   w('README.md', '# hi');
   w('node_modules/dep/index.js', 'ignored');
@@ -243,7 +243,7 @@ describe('isProjectImage', () => {
   });
 
   it('rejects an image symlink that points outside the project', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orca-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'elowen-outside-'));
     writeFileSync(join(outside, 'evil.png'), 'PNG');
     try {
       symlinkSync(join(outside, 'evil.png'), join(root, 'linked.png'));
@@ -260,7 +260,7 @@ describe('path-traversal safety', () => {
   });
 
   it('refuses to read through a symlink that points outside the project', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orca-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'elowen-outside-'));
     writeFileSync(join(outside, 'secret.txt'), 'SECRET');
     try {
       symlinkSync(join(outside, 'secret.txt'), join(root, 'link'));
@@ -269,7 +269,7 @@ describe('path-traversal safety', () => {
   });
 
   it('refuses to write through a symlinked directory that escapes the project', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orca-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'elowen-outside-'));
     try {
       symlinkSync(outside, join(root, 'linkdir'));
       expect(() => writeProjectFile(root, 'linkdir/pwned.txt', 'nope')).toThrow(/outside project/);
@@ -278,7 +278,7 @@ describe('path-traversal safety', () => {
   });
 
   it('refuses to OVERWRITE an existing leaf file that is a symlink pointing outside', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orca-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'elowen-outside-'));
     writeFileSync(join(outside, 'secret.txt'), 'ORIGINAL');
     try {
       symlinkSync(join(outside, 'secret.txt'), join(root, 'link')); // existing leaf symlink

@@ -18,7 +18,7 @@ export interface LiveBrain {
   listeners: Set<(e: BrainEvent) => void>;
   turnContext: () => string;
   /** Names of the plugin tools composed into this session — the subset a per-turn ToolPolicy allow-list
-   *  may hide (the built-in orca_ and memory_ tools stay visible). Used by applyToolVisibility to slice
+   *  may hide (the built-in elowen_ and memory_ tools stay visible). Used by applyToolVisibility to slice
    *  the model's advertised tools to what the current sender may use. */
   pluginToolNames: Set<string>;
   /** True while the session runs on the user's vision-fallback model (an image turn hopped onto it). */
@@ -57,12 +57,12 @@ export interface SpawnOpts {
   policy: Policy;
   /** Extra system-prompt chunks appended after the plugin fragments (e.g. a Discord role prompt). */
   extraAppend?: string[];
-  /** Platform channel session (Discord, …): the sender is NOT the verified Orca owner, so the owner's
-   *  full-scope orca_* API tools are withheld — only Policy-guarded plugin tools load. ALWAYS true for
+  /** Platform channel session (Discord, …): the sender is NOT the verified Elowen owner, so the owner's
+   *  full-scope elowen_* API tools are withheld — only Policy-guarded plugin tools load. ALWAYS true for
    *  a shared channel; such a session is never owner-chat, whatever role the sender holds. */
   channel?: boolean;
   /** A shared channel whose sender holds the operator's admin role: resolves to `trusted-channel`
-   *  (all-project Policy + full plugin toolset) instead of `foreign-channel`, but STILL without orca_*
+   *  (all-project Policy + full plugin toolset) instead of `foreign-channel`, but STILL without elowen_*
    *  tools or the owner API token. Only meaningful when `channel` is true. */
   trustedChannel?: boolean;
   /** Reasoning effort for extended-thinking models (empty/undefined = the model default). */

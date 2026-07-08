@@ -22,7 +22,7 @@ function useNow(): Date {
   return now;
 }
 
-/** The dashboard: a bento home for a single Orca agent — "what is my agent doing right now, what does
+/** The dashboard: a bento home for a single Elowen agent — "what is my agent doing right now, what does
  *  it need from me, what did it get done". A 2×2 hero (live work) anchors a grid of colored-chip tiles:
  *  decisions waiting, this month's spend, active agents, the next scheduled run, the activity feed and
  *  today's tasks. Mission control (constellation, mission engage/pause) lives in Tasks now, not here. */

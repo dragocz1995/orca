@@ -30,7 +30,7 @@ export type DerivedSignal =
   // `options` is present when the agent asked a multiple-choice question (the overseer escalated it):
   // the id is the option's 1-based list position, so the UI navigates with Down × (id-1) then Enter.
   | { type: 'needs_input'; question: string; options?: PromptOption[]; context?: string };
-export interface OrcaConfig {
+export interface ElowenConfig {
   allowedExecs: string[];
   customModels: { label: string; exec: string }[];
   hiddenPresets: string[];
@@ -44,7 +44,7 @@ export interface OrcaConfig {
   brain?: { providers: BrainProvider[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number>; limits?: BrainLimits };
 }
 
-/** Operator-tunable brain limits (Settings → Orca AI → Limits) — mirrors `BrainLimits` in
+/** Operator-tunable brain limits (Settings → Elowen AI → Limits) — mirrors `BrainLimits` in
  *  `src/store/configStore.ts`. Every field is a whole number the daemon clamps to a sane range. */
 export interface BrainLimits {
   toolOutputMaxLines: number;
@@ -69,7 +69,7 @@ export interface BrainProvider {
   api?: 'openai-completions' | 'openai-responses';
   apiKeySet: boolean;
 }
-/** One Orca AI (brain) model. `source` = how its provider authenticates (drives the OAuth badge). */
+/** One Elowen AI (brain) model. `source` = how its provider authenticates (drives the OAuth badge). */
 export interface BrainModelOption { provider: string; providerLabel: string; model: string; exec: string; source: 'api-key' | 'oauth' | 'relay'; contextWindow: number; contextWindowSet: boolean }
 /** One brain conversation in the session picker (web chat + CLI). */
 export interface BrainSessionInfo { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean }
@@ -418,7 +418,7 @@ export interface PluginSkill { name: string; description: string; source: 'bundl
 // returns only a success flag.
 export type AuthResult = { ok: true };
 export interface ActivityEvent { id: number; ts: string; type: string; target: string; detail: string; project_id: number | null; label: string }
-/** A worker's `orca ask` question parked on a human (overseer escalated / none), shown in the Escalations inbox. */
+/** A worker's `elowen ask` question parked on a human (overseer escalated / none), shown in the Escalations inbox. */
 export interface PendingAsk { askId: string; taskId: string; question: string; since: number; title: string; epicId: string | null; projectId: number }
 export interface Project { id: number; slug: string; path: string; notes: string; icon: string; pr_enabled: boolean | null }
 interface GitStatus { branch: string; ahead: number; behind: number; dirty: number; clean: boolean }
@@ -466,7 +466,7 @@ export interface FileNode { path: string; type: 'file' | 'dir' }
 /** A shallow directory listing for the new-project path picker (server-side filesystem browse). */
 export interface DirListing { path: string; parent: string | null; entries: { name: string; path: string }[] }
 
-/** Orca's own version + update posture for the System settings panel. `latest` is null when the npm
+/** Elowen's own version + update posture for the System settings panel. `latest` is null when the npm
  *  registry can't be reached; `updateAvailable` is then false. */
 export interface SystemInfo {
   version: string;
@@ -483,7 +483,7 @@ export interface SystemInfo {
 interface ReadinessCheck { id: string; label: string; ok: boolean; detail: string; hint?: string }
 export interface SystemReadiness { checks: ReadinessCheck[] }
 
-/** Per-provider install status of the `orca-workflow` agent skill (Settings → System). The backend also
+/** Per-provider install status of the `elowen-workflow` agent skill (Settings → System). The backend also
  *  returns a parsed `version`, but the panel renders only the derived state below, so it's omitted here. */
 interface SkillStatus {
   provider: string;
@@ -569,7 +569,7 @@ export interface MemoryEvent {
 /** Body for POST /memory — only `body` is required. */
 export interface MemoryCreate { body: string; kind?: string; importance?: number; confidence?: number }
 /** Any subset of the mutable fields for PATCH /memory/:id. Category assignment is NOT here — it's a
- *  separate audited write via PUT /memory/:id/category (orcaClient.setMemoryCategory). */
+ *  separate audited write via PUT /memory/:id/category (elowenClient.setMemoryCategory). */
 export interface MemoryPatch { body?: string; kind?: string; importance?: number; confidence?: number; status?: 'active' | 'archived' | 'deleted' }
 /** Query filters for GET /memory. A non-blank `q` switches the daemon to fulltext search. `categoryId`
  *  present-and-null/empty lists uncategorized, a number lists that category, absent (key omitted) lists all. */
@@ -646,7 +646,7 @@ export interface ModelUsage {
 
 /** Whether a user can reach a tool. `allowed` = they can invoke it; `inherited` = granted by session
  *  role (e.g. memory tools every session gets), not a per-user grant; `disabled` = an admin switched
- *  this plugin tool off for the user; `unavailable` = out of reach (e.g. the operator-only orca_*
+ *  this plugin tool off for the user; `unavailable` = out of reach (e.g. the operator-only elowen_*
  *  control plane for a non-admin). */
 type UserToolState = 'allowed' | 'inherited' | 'disabled' | 'unavailable';
 
@@ -658,7 +658,7 @@ export interface UserToolPill {
   label: string;
   icon: string | null;
   plugin: string | null;
-  group: 'orca' | 'memory' | 'plugin';
+  group: 'elowen' | 'memory' | 'plugin';
   state: UserToolState;
   toggleable: boolean;
 }

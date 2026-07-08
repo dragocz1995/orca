@@ -16,7 +16,7 @@ describe('openDb', () => {
   });
 
   it('migrates a pre-project_id events table without throwing (adds the column + index)', () => {
-    dir = mkdtempSync(join(tmpdir(), 'orca-db-'));
+    dir = mkdtempSync(join(tmpdir(), 'elowen-db-'));
     const path = join(dir, 'old.db');
     // Simulate a DB created before the project_id column existed: events with the OLD shape.
     const old = new Database(path);
@@ -34,7 +34,7 @@ describe('openDb', () => {
   });
 
   it('migrates a pre-work_dir brain_sessions table (adds the column, existing rows read cwd-less)', () => {
-    dir = mkdtempSync(join(tmpdir(), 'orca-db-'));
+    dir = mkdtempSync(join(tmpdir(), 'elowen-db-'));
     const path = join(dir, 'old.db');
     // Simulate a DB created before brain sessions carried a working directory.
     const old = new Database(path);

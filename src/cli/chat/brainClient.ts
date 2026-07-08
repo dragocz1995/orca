@@ -79,7 +79,7 @@ export class BrainClient {
     if (!res.ok) {
       // Surface the server's message ("Nothing to compact…") instead of a bare status code.
       const message = (await res.json().catch(() => null) as { error?: string } | null)?.error;
-      throw new Error(message || `orca brain ${res.status} on ${path}`);
+      throw new Error(message || `elowen brain ${res.status} on ${path}`);
     }
     return res;
   }
@@ -99,7 +99,7 @@ export class BrainClient {
   async sessions(): Promise<{ id: string; title: string; model: string; updated_at: string; active: boolean; attached: number }[]> {
     const res = await this.f(`${this.o.base}/brain/sessions`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/sessions`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/sessions`);
     return (await res.json()) as { id: string; title: string; model: string; updated_at: string; active: boolean; attached: number }[];
   }
 
@@ -152,7 +152,7 @@ export class BrainClient {
   }
 
   /** Flip the SESSION-scoped YOLO override (the /yolo command): `on` forces a state, omitted toggles.
-   *  Resolves with the new effective state (the persisted default lives in Account → Orca AI). */
+   *  Resolves with the new effective state (the persisted default lives in Account → Elowen AI). */
   async setYolo(on?: boolean): Promise<{ yolo: boolean }> {
     const res = await this.post('/brain/yolo', { ...(on === undefined ? {} : { on }), ...(this.bound ? { session: this.bound } : {}) });
     return (await res.json()) as { yolo: boolean };
@@ -163,7 +163,7 @@ export class BrainClient {
   async models(): Promise<{ provider: string; providerLabel: string; model: string; free?: boolean }[]> {
     const res = await this.f(`${this.o.base}/brain/models`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/models`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/models`);
     return (await res.json()) as { provider: string; providerLabel: string; model: string; free?: boolean }[];
   }
 
@@ -171,7 +171,7 @@ export class BrainClient {
   async brainProviders(): Promise<BrainProviderView[]> {
     const res = await this.f(`${this.o.base}/config`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca ${res.status} on /config`);
+    if (!res.ok) throw new Error(`elowen ${res.status} on /config`);
     const body = (await res.json()) as { brain?: { providers?: BrainProviderView[] } };
     return body.brain?.providers ?? [];
   }
@@ -184,13 +184,13 @@ export class BrainClient {
     });
     if (res.status === 401) throw new Unauthorized();
     if (res.status === 403) throw new Error('only an admin can manage providers');
-    if (!res.ok) throw new Error(`orca ${res.status} on /config`);
+    if (!res.ok) throw new Error(`elowen ${res.status} on /config`);
   }
 
   async commands(): Promise<SlashCommandDef[]> {
     const res = await this.f(`${this.o.base}/brain/commands?surface=cli`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/commands`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/commands`);
     const body = (await res.json()) as { commands?: SlashCommandDef[] };
     return body.commands ?? [];
   }
@@ -199,7 +199,7 @@ export class BrainClient {
     const res = await this.f(`${this.o.base}/brain/status${this.boundQs()}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     // Match every sibling method: a daemon error must throw, not get parsed as a garbage BrainStatus.
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/status`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/status`);
     return (await res.json()) as BrainStatus;
   }
 
@@ -207,20 +207,20 @@ export class BrainClient {
   async deleteSession(id: string): Promise<void> {
     const res = await this.f(`${this.o.base}/brain/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/sessions`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/sessions`);
   }
 
   async renameSession(id: string, title: string): Promise<{ id: string; title: string }> {
     const res = await this.f(`${this.o.base}/brain/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', headers: this.headers(true), body: JSON.stringify({ title }) });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `orca brain ${res.status} on /brain/sessions`);
+    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `elowen brain ${res.status} on /brain/sessions`);
     return (await res.json()) as { id: string; title: string };
   }
 
   async mcpServers(): Promise<McpServerView[]> {
     const res = await this.f(`${this.o.base}/plugins/mcp/servers`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca plugins ${res.status} on /plugins/mcp/servers`);
+    if (!res.ok) throw new Error(`elowen plugins ${res.status} on /plugins/mcp/servers`);
     return (await res.json()) as McpServerView[];
   }
 
@@ -237,7 +237,7 @@ export class BrainClient {
   async skills(): Promise<SkillView[]> {
     const res = await this.f(`${this.o.base}/plugins/skills/list`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca plugins ${res.status} on /plugins/skills/list`);
+    if (!res.ok) throw new Error(`elowen plugins ${res.status} on /plugins/skills/list`);
     return (await res.json()) as SkillView[];
   }
 
@@ -246,7 +246,7 @@ export class BrainClient {
   async lspStatus(): Promise<LspStatus> {
     const res = await this.f(`${this.o.base}/brain/lsp`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/lsp`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/lsp`);
     return (await res.json()) as LspStatus;
   }
 
@@ -255,7 +255,7 @@ export class BrainClient {
   async terminalSettings(): Promise<{ theme: string; palette?: Record<string, string>; showThoughtsCli?: boolean }> {
     const res = await this.f(`${this.o.base}/auth/me/terminal-settings`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca ${res.status} on /auth/me/terminal-settings`);
+    if (!res.ok) throw new Error(`elowen ${res.status} on /auth/me/terminal-settings`);
     return (await res.json()) as { theme: string; palette?: Record<string, string>; showThoughtsCli?: boolean };
   }
 
@@ -267,7 +267,7 @@ export class BrainClient {
       body: JSON.stringify(patch),
     });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca ${res.status} on /auth/me/terminal-settings`);
+    if (!res.ok) throw new Error(`elowen ${res.status} on /auth/me/terminal-settings`);
   }
 
   /** Install a registry language server daemon-side (admin-only; the /lsp modal's ctrl+i). Non-2xx
@@ -278,7 +278,7 @@ export class BrainClient {
     return body.message ?? 'installed';
   }
 
-  /** Uninstall a server from Orca's LSP prefix (admin-only; the /lsp modal's ctrl+u). */
+  /** Uninstall a server from Elowen's LSP prefix (admin-only; the /lsp modal's ctrl+u). */
   async lspUninstall(command: string): Promise<string> {
     const res = await this.post('/brain/lsp/uninstall', { command });
     const body = (await res.json()) as { message?: string };
@@ -288,7 +288,7 @@ export class BrainClient {
   async tools(): Promise<RuntimeToolView[]> {
     const res = await this.f(`${this.o.base}/plugins/runtime`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca plugins ${res.status} on /plugins/runtime`);
+    if (!res.ok) throw new Error(`elowen plugins ${res.status} on /plugins/runtime`);
     const body = (await res.json()) as { tools?: RuntimeToolView[] };
     return body.tools ?? [];
   }
@@ -296,13 +296,13 @@ export class BrainClient {
   async deleteSkill(name: string): Promise<void> {
     const res = await this.f(`${this.o.base}/plugins/skills/${encodeURIComponent(name)}`, { method: 'DELETE', headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `orca plugins ${res.status} on /plugins/skills`);
+    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `elowen plugins ${res.status} on /plugins/skills`);
   }
 
   async goal(): Promise<GoalView | null> {
     const res = await this.f(`${this.o.base}/brain/goal${this.boundQs()}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/goal`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/goal`);
     return (await res.json()) as GoalView | null;
   }
 
@@ -328,7 +328,7 @@ export class BrainClient {
     const qs = session ? `?session=${encodeURIComponent(session)}` : '';
     const res = await this.f(`${this.o.base}/brain/messages${qs}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/messages`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/messages`);
     return (await res.json()) as BrainMessageView[];
   }
 
@@ -340,7 +340,7 @@ export class BrainClient {
       body: JSON.stringify({ session, text }),
     });
     if (res.status === 401) throw new Unauthorized();
-    if (!res.ok) throw new Error(`orca brain ${res.status} on /brain/subagent/send`);
+    if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/subagent/send`);
   }
 
   /** Open the SSE stream and deliver each BrainEvent to `onEvent` until `signal` aborts. Follows the
@@ -357,7 +357,7 @@ export class BrainClient {
       try {
         const res = await this.f(`${this.o.base}/brain/stream${qs}`, { headers: this.headers(), signal });
         if (res.status === 401) throw new Unauthorized();
-        if (!res.ok || !res.body) throw new Error(`orca brain ${res.status} on /brain/stream`);
+        if (!res.ok || !res.body) throw new Error(`elowen brain ${res.status} on /brain/stream`);
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = '';

@@ -136,7 +136,7 @@ function registerBridgedTool(ctx, client, serverName, tool) {
 async function connectServer(ctx, spec, live) {
   setServerState(spec.name, { status: 'connecting', transport: transportKind(spec), lastError: null, tools: [], toolCount: 0 });
   const { transport, child } = makeTransport(spec);
-  const client = new Client({ name: 'orca-mcp-bridge', version: '0.1.1' }, { capabilities: {} });
+  const client = new Client({ name: 'elowen-mcp-bridge', version: '0.1.1' }, { capabilities: {} });
   const entry = { name: spec.name, client, transport, child };
   live.push(entry);
   const connectTimeoutMs = configNumber(ctx.config?.connectTimeoutMs, CONNECT_TIMEOUT_MS, 5000, 60000);

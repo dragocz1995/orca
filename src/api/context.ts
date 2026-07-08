@@ -22,7 +22,7 @@ import type { ServerDeps } from './deps.js';
 
 /** The daemon's Hono app, typed with the per-request variables the auth middleware sets. Shared by
  *  `createServer` and every route-family registrar so they all agree on `c.get('user')` etc. */
-export type OrcaApp = Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }>;
+export type ElowenApp = Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }>;
 
 /** Minimal structural view of the request context the access predicates read (the real Hono context
  *  satisfies it). Overloaded `get` so a caller can read both the user and the token scope. */
@@ -84,11 +84,11 @@ export interface RouteContext {
   reviewService: ReviewService;
   /** Manual session launch (atomic checkout claim + snapshot baseline + spawn) for POST /sessions. */
   sessionService: SessionService;
-  /** The free-text worker↔autopilot exchange behind `orca ask` (mission overseer → human window → sentinel). */
+  /** The free-text worker↔autopilot exchange behind `elowen ask` (mission overseer → human window → sentinel). */
   askService: AskService;
-  /** Renders the context-aware control guide an agent fetches with `orca help` (GET /tasks/:id/guide). */
+  /** Renders the context-aware control guide an agent fetches with `elowen help` (GET /tasks/:id/guide). */
   guideService: GuideService;
-  /** Installs/verifies the `orca-workflow` skill across the agent providers (System panel + startup). */
+  /** Installs/verifies the `elowen-workflow` skill across the agent providers (System panel + startup). */
   skillService: SkillService;
   /** Vector retrieval + anti-duplication over the memory store, for the retrieval-debugging route. Built
    *  only when the memory store AND the embedder are both wired (else /memory/retrieve degrades to 400).
@@ -171,7 +171,7 @@ export function createRouteContext(d: ServerDeps): RouteContext {
     return !!epic && canAccessProject(c, epic.project_id);
   };
 
-  // Resolve a live session name (`orca-<agentName>` / `orca-overseer-<missionId>` / `orca-pilot-…`)
+  // Resolve a live session name (`elowen-<agentName>` / `elowen-overseer-<missionId>` / `elowen-pilot-…`)
   // to the task it runs, mirroring the daemon's agent:<name> label convention (bootstrap.taskForSession).
   // Agent names recur across missions, so the MOST RECENT match wins (list is created_at ASC).
   const taskForSession = (session: string): Task | null => {
@@ -267,15 +267,15 @@ export function createRouteContext(d: ServerDeps): RouteContext {
   // service so the check-and-claim sequence is testable without the HTTP surface.
   const sessionService = createSessionService(d, gitLock, pathFor);
 
-  // The free-text worker↔autopilot exchange (`orca ask`) shares the overseer's decision queue, so a
+  // The free-text worker↔autopilot exchange (`elowen ask`) shares the overseer's decision queue, so a
   // worker's question reaches the same parked overseer that answers prompts/reviews.
   const askService = createAskService({ d, decisionQueue });
 
-  // The on-demand control guide an agent fetches with `orca help` — rendered from the task's live state
+  // The on-demand control guide an agent fetches with `elowen help` — rendered from the task's live state
   // (standalone vs mission phase), so the worker preamble can stay short and not duplicate the tutorial.
   const guideService = createGuideService(d);
 
-  // Installs/verifies the `orca-workflow` skill into the agent providers' skills dirs. Stateless (resolves
+  // Installs/verifies the `elowen-workflow` skill into the agent providers' skills dirs. Stateless (resolves
   // the spawning user's HOME itself), so it needs no deps from `d`. Injectable for tests (no real FS writes).
   const skillService = d.skillService ?? createSkillService();
 

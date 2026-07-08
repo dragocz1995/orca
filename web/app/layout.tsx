@@ -26,11 +26,11 @@ export const viewport = {
   ],
 };
 
-// Set data-theme BEFORE first paint from the per-device preference (localStorage 'orca:theme',
+// Set data-theme BEFORE first paint from the per-device preference (localStorage 'elowen:theme',
 // falling back to the OS scheme) so there's no light/dark flash on reload. Kept in sync afterwards by
 // ThemeProvider (lib/useTheme.tsx). `html` has suppressHydrationWarning so the attribute we add here
 // doesn't trip React's markup check.
-const NO_FLASH_THEME = `(function(){try{var t=localStorage.getItem('orca:theme');var d=t==='light'||t==='dark'?t:(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',d);}catch(e){}})();`;
+const NO_FLASH_THEME = `(function(){try{var t=localStorage.getItem('elowen:theme');var d=t==='light'||t==='dark'?t:(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',d);}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

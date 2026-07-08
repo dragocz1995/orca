@@ -5,12 +5,12 @@
 # For a full inference pass, point the relay config at a real OpenAI-compatible endpoint + key first.
 set -euo pipefail
 
-PORT="${ORCA_PORT:-4491}"
-DB="${ORCA_DB:-/tmp/orca-brain-smoke.db}"
+PORT="${ELOWEN_PORT:-4491}"
+DB="${ELOWEN_DB:-/tmp/elowen-brain-smoke.db}"
 BASE="http://127.0.0.1:${PORT}"
 rm -f "$DB"
 
-ORCA_DB="$DB" ORCA_PORT="$PORT" ORCA_AUTOSTART=0 node dist/daemon/index.js &
+ELOWEN_DB="$DB" ELOWEN_PORT="$PORT" ELOWEN_AUTOSTART=0 node dist/daemon/index.js &
 DAEMON=$!
 trap 'kill $DAEMON 2>/dev/null || true' EXIT
 

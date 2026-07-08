@@ -39,7 +39,7 @@ export function ProjectsView() {
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
   const removeProject = useRemoveProject();
-  // Project pending removal — drives the confirm dialog. Removal detaches the project from orca
+  // Project pending removal — drives the confirm dialog. Removal detaches the project from elowen
   // (tasks/missions/access) but never touches files on disk; the backend rejects the home project.
   const [removing, setRemoving] = useState<Project | null>(null);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);

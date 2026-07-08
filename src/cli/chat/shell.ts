@@ -10,7 +10,7 @@ import {
 } from './keys.js';
 import type { Keymap, KeybindAction } from './keys.js';
 import { formatDuration, formatK } from '../ui/text.js';
-import { ORCA_CLI_VERSION } from '../version.js';
+import { ELOWEN_CLI_VERSION } from '../version.js';
 import {
   ChatViewport,
   MainColumn,
@@ -150,7 +150,7 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
     label: `/${cmd.name}`,
     description: cmd.description,
   }));
-  // No PI autocomplete provider: '/' commands and '@' file mentions both use Orca's own overlays
+  // No PI autocomplete provider: '/' commands and '@' file mentions both use Elowen's own overlays
   // (a second popup fighting over Tab/Enter would be chaos).
 
   let panelHandle: ReturnType<TUI['showOverlay']> | null = null;
@@ -198,7 +198,7 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
       tip: `${color.warning('●')} ${color.bold(color.text('Tip'))} ${color.dim('ask anything — try')} ${color.text('"What is the tech stack of this project?"')}`,
       notice: rt.notice,
       statusLeft: `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`,
-      version: ORCA_CLI_VERSION,
+      version: ELOWEN_CLI_VERSION,
     }),
   );
 
@@ -449,8 +449,8 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
         case 'mode_toggle': {
           rt.workMode = rt.workMode === 'plan' ? 'build' : 'plan';
           rt.notice = color.dim(rt.workMode === 'plan'
-            ? 'plan mode: Orca will reason through approach, risks and tests before editing'
-            : 'build mode: Orca can implement with tools');
+            ? 'plan mode: Elowen will reason through approach, risks and tests before editing'
+            : 'build mode: Elowen can implement with tools');
           render();
           return;
         }

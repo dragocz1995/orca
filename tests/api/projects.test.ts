@@ -14,7 +14,7 @@ import { FakeClock } from '../../src/shared/clock.js';
 import { ConfigStore } from '../../src/store/configStore.js';
 
 function makeApp() {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const projects = new ProjectStore(db);
   const git = new FakeGitReader({ isRepo: true, status: { branch: 'main', ahead: 0, behind: 0, dirty: 2, clean: false }, branches: [{ name: 'main', current: true }], commits: [{ hash: 'abc123', subject: 'init', author: 'me', relative: '1 hour ago' }] });
   const app = createServer({
@@ -40,13 +40,13 @@ describe('projects api', () => {
     const patched = await app.request('/projects/1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: '/moved', notes: 'pilot ctx', slug: 'hacked' }) });
     expect(patched.status).toBe(200);
     const body = await patched.json();
-    expect(body).toMatchObject({ id: 1, slug: 'orca', path: '/moved', notes: 'pilot ctx' });
+    expect(body).toMatchObject({ id: 1, slug: 'elowen', path: '/moved', notes: 'pilot ctx' });
     const missing = await app.request('/projects/999', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notes: 'x' }) });
     expect(missing.status).toBe(404);
   });
   it('PATCH /projects/:id sets an icon from a real repo image and rejects an escaping path', async () => {
     const { app } = makeApp();
-    const root = mkdtempSync(join(tmpdir(), 'orca-proj-'));
+    const root = mkdtempSync(join(tmpdir(), 'elowen-proj-'));
     mkdirSync(join(root, 'assets'), { recursive: true });
     writeFileSync(join(root, 'assets/logo.png'), 'PNG');
     try {
@@ -89,7 +89,7 @@ describe('projects api', () => {
   });
   it('GET /fs/dirs lists sub-directories of a server path and 400s on a bad path', async () => {
     const { app } = makeApp();
-    const root = mkdtempSync(join(tmpdir(), 'orca-fsdirs-'));
+    const root = mkdtempSync(join(tmpdir(), 'elowen-fsdirs-'));
     mkdirSync(join(root, 'apps')); mkdirSync(join(root, 'libs')); writeFileSync(join(root, 'README.md'), '#');
     try {
       const res = await app.request(`/fs/dirs?path=${encodeURIComponent(root)}`);

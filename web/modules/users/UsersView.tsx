@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Users, UserPlus, Trash2, LogOut, Shield, ShieldCheck, Lock, LogIn } from 'lucide-react';
 import { useUsers, useMe, useProjects, useConfig } from '../../lib/queries';
 import { useCreateUser, useDeleteUser, useLogout, useUpdateUser } from '../../lib/mutations';
-import type { User as OrcaUser } from '../../lib/types';
+import type { User as ElowenUser } from '../../lib/types';
 import { clearToken, impersonateUser } from '../../lib/token';
 import { useToast } from '../../components/ui/Toast';
 import { Avatar } from '../../components/ui/Avatar';
@@ -38,7 +38,7 @@ export function UsersView() {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   // Deleting a user is destructive + cascades (settings, memory, personality) — always confirm first.
-  const [confirmDelete, setConfirmDelete] = useState<OrcaUser | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<ElowenUser | null>(null);
 
   function handleDelete(id: number) {
     deleteUser.mutate(id, {
@@ -69,14 +69,14 @@ export function UsersView() {
     });
   }
 
-  function handleRole(user: OrcaUser) {
+  function handleRole(user: ElowenUser) {
     updateUser.mutate({ id: user.id, patch: { is_admin: !user.is_admin } }, {
       onSuccess: () => toast(t.users.roleUpdated),
       onError: (err) => toast(String(err) || t.users.updateError, 'error'),
     });
   }
 
-  function handleImpersonate(user: OrcaUser) {
+  function handleImpersonate(user: ElowenUser) {
     void impersonateUser(user.id).catch(() => toast(t.users.impersonateError, 'error'));
   }
 
@@ -87,7 +87,7 @@ export function UsersView() {
   // Default the detail pane to the first user once the list loads (nothing selected yet).
   const selected = data.find((u) => u.id === selectedId) ?? data[0] ?? null;
 
-  function openCtxMenu(e: React.MouseEvent, user: OrcaUser) {
+  function openCtxMenu(e: React.MouseEvent, user: ElowenUser) {
     e.preventDefault();
     e.stopPropagation();
     setCtxMenu({

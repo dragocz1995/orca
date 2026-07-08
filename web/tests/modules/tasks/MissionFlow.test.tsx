@@ -9,7 +9,7 @@ vi.mock('../../../lib/queries', () => ({
   useSessionSignals: () => ({}),
   useConfig: () => ({ data: { defaults: { exec: 'sonnet' } } }),
 }));
-vi.mock('../../../lib/orcaClient', () => ({ orcaClient: { taskUsage: vi.fn().mockResolvedValue(null) } }));
+vi.mock('../../../lib/elowenClient', () => ({ elowenClient: { taskUsage: vi.fn().mockResolvedValue(null) } }));
 
 const epic: Task = { id: 'ep1', title: 'Ship the dashboard', type: 'epic', status: 'in_progress' };
 const phases: Task[] = [

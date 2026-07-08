@@ -5,7 +5,7 @@ import { ChatEditor, sessionItems, modelItems, parseModelValue, pickerContentWid
 
 describe('pickerContentWidth (adaptive modal sizing)', () => {
   it('grows with long descriptions and stays compact for short lists', () => {
-    const short = pickerContentWidth([{ value: 'a', label: 'orca', description: 'x' }], 'Theme');
+    const short = pickerContentWidth([{ value: 'a', label: 'elowen', description: 'x' }], 'Theme');
     const hint = 'not installed · ctrl+i installs (npm install -g typescript-language-server typescript)';
     const long = pickerContentWidth([{ value: 'b', label: 'TypeScript', description: hint }], 'LSP');
     expect(short).toBeLessThan(60);

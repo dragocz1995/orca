@@ -105,7 +105,7 @@ function MultiSelectField({ label, options, value, onChange }: { label: string; 
 }
 
 /** Structured editor for a `rolePolicies` field: each row maps a platform role (e.g. a Discord role id)
- *  to a name, the Orca projects it may touch, and an extra prompt injected for that role — a per-role
+ *  to a name, the Elowen projects it may touch, and an extra prompt injected for that role — a per-role
  *  instructions pattern, kept in the plugin's own config. Rows collapse to a compact header so a
  *  long list stays scannable; a freshly added row starts expanded. */
 function RolePoliciesEditor({ value, onChange }: { value: RolePolicy[]; onChange: (v: RolePolicy[]) => void }) {
@@ -372,7 +372,7 @@ export function PluginConfigEditor({ name, detail, fieldLabel, fieldHint, riskTe
   const { toast } = useToast();
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
-  const monacoTheme = resolvedTheme === 'light' ? 'orca-light' : 'orca-oled';
+  const monacoTheme = resolvedTheme === 'light' ? 'elowen-light' : 'elowen-oled';
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [seeded, setSeeded] = useState(false);
 
@@ -407,7 +407,7 @@ export function PluginConfigEditor({ name, detail, fieldLabel, fieldHint, riskTe
           />
         );
       case 'model':
-        // Brain-only picker: full Orca AI catalog (incl. OAuth accounts) — image gen never runs a CLI worker.
+        // Brain-only picker: full Elowen AI catalog (incl. OAuth accounts) — image gen never runs a CLI worker.
         return <ExecutorPicker value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} models={[]} allowDefault={false} kind="brain" />;
       case 'embeddingModel':
         // Same brain catalog, used to pick the model that produces embeddings (parallels `model`).

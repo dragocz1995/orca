@@ -40,9 +40,9 @@ describe('sweepAgentLiveness — overseer side', () => {
     let settled = false; void v.then(() => { settled = true; });
     const tracker = new PaneActivityTracker(); const deadSince = new Map<string, number>();
     let frame = 0; const pane = () => `frame${frame}`;
-    await run(q, { sessions: ['orca-overseer-m1'], pane, now: 0, tracker, deadSince });
-    frame = 1; await run(q, { sessions: ['orca-overseer-m1'], pane, now: OVERSEER_IDLE, tracker, deadSince });
-    frame = 2; const r = await run(q, { sessions: ['orca-overseer-m1'], pane, now: 2 * OVERSEER_IDLE, tracker, deadSince });
+    await run(q, { sessions: ['elowen-overseer-m1'], pane, now: 0, tracker, deadSince });
+    frame = 1; await run(q, { sessions: ['elowen-overseer-m1'], pane, now: OVERSEER_IDLE, tracker, deadSince });
+    frame = 2; const r = await run(q, { sessions: ['elowen-overseer-m1'], pane, now: 2 * OVERSEER_IDLE, tracker, deadSince });
     expect(r.escalated).toEqual([]);
     expect(settled).toBe(false);
   });
@@ -52,8 +52,8 @@ describe('sweepAgentLiveness — overseer side', () => {
     const v = q.enqueue('m1', 'review', {});
     const id = q.pending()[0]!.id;
     const tracker = new PaneActivityTracker();
-    await run(q, { sessions: ['orca-overseer-m1'], pane: () => 'frozen', now: 0, tracker });
-    const r = await run(q, { sessions: ['orca-overseer-m1'], pane: () => 'frozen', now: OVERSEER_IDLE, tracker });
+    await run(q, { sessions: ['elowen-overseer-m1'], pane: () => 'frozen', now: 0, tracker });
+    const r = await run(q, { sessions: ['elowen-overseer-m1'], pane: () => 'frozen', now: OVERSEER_IDLE, tracker });
     expect(r.escalated).toEqual([id]);
     await expect(v).resolves.toMatchObject({ escalated: true, rationale: 'overseer timeout' });
   });
@@ -62,8 +62,8 @@ describe('sweepAgentLiveness — overseer side', () => {
     const q = new DecisionQueue(() => 0);
     q.enqueue('m1', 'review', {});
     const tracker = new PaneActivityTracker();
-    await run(q, { sessions: ['orca-overseer-m1'], pane: () => 'frozen', now: 0, tracker });
-    const r = await run(q, { sessions: ['orca-overseer-m1'], pane: () => 'frozen', now: OVERSEER_IDLE - 1, tracker });
+    await run(q, { sessions: ['elowen-overseer-m1'], pane: () => 'frozen', now: 0, tracker });
+    const r = await run(q, { sessions: ['elowen-overseer-m1'], pane: () => 'frozen', now: OVERSEER_IDLE - 1, tracker });
     expect(r.escalated).toEqual([]);
   });
 
@@ -73,8 +73,8 @@ describe('sweepAgentLiveness — overseer side', () => {
     const id = q.pending()[0]!.id;
     const tracker = new PaneActivityTracker();
     let frame = 0; const pane = () => `frame${frame}`;
-    await run(q, { sessions: ['orca-overseer-m1'], pane, now: 0, tracker });
-    frame = 1; const r = await run(q, { sessions: ['orca-overseer-m1'], pane, now: HARD, tracker });
+    await run(q, { sessions: ['elowen-overseer-m1'], pane, now: 0, tracker });
+    frame = 1; const r = await run(q, { sessions: ['elowen-overseer-m1'], pane, now: HARD, tracker });
     expect(r.escalated).toEqual([id]); // pane idle is 0 (changed), but enqueuedAt is HARD ago
   });
 
@@ -107,7 +107,7 @@ describe('sweepAgentLiveness — overseer side', () => {
     let settled = false; void v.then(() => { settled = true; });
     const tracker = new PaneActivityTracker(); const deadSince = new Map<string, number>();
     await run(q, { sessions: [], now: 0, tracker, deadSince });
-    const r = await run(q, { sessions: ['orca-overseer-m1'], pane: () => 'x', now: 60_000, tracker, deadSince });
+    const r = await run(q, { sessions: ['elowen-overseer-m1'], pane: () => 'x', now: 60_000, tracker, deadSince });
     expect(r.escalated).toEqual([]);
     expect(settled).toBe(false);
     expect(deadSince.has('m1')).toBe(false);
@@ -127,7 +127,7 @@ describe('sweepAgentLiveness — overseer side', () => {
 
 describe('sweepAgentLiveness — worker side', () => {
   const workerBase = (checkWorker: AgentLivenessDeps['checkWorker'], tracker: PaneActivityTracker, inflight: Set<string>, over: Partial<RunOpts> = {}): RunOpts => ({
-    sessions: ['orca-patricia'], pane: () => 'wedged', tracker, inflight, now: 0,
+    sessions: ['elowen-patricia'], pane: () => 'wedged', tracker, inflight, now: 0,
     sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker, ...over,
   });
 
@@ -138,9 +138,9 @@ describe('sweepAgentLiveness — worker side', () => {
     await run(q, workerBase(checkWorker, tracker, inflight, { now: 0 }));            // idle 0
     const r = await run(q, workerBase(checkWorker, tracker, inflight, { now: WORKER_IDLE })); // idle = bar
     expect(checkWorker).toHaveBeenCalledTimes(1);
-    expect(checkWorker).toHaveBeenCalledWith('orca-patricia', 't1', 'wedged', 5, 'idle');
-    expect(inflight.has('orca-patricia')).toBe(true);
-    expect(r.checked).toEqual(['orca-patricia']);
+    expect(checkWorker).toHaveBeenCalledWith('elowen-patricia', 't1', 'wedged', 5, 'idle');
+    expect(inflight.has('elowen-patricia')).toBe(true);
+    expect(r.checked).toEqual(['elowen-patricia']);
   });
 
   it('does not check a worker that is sitting on a structured prompt (the deriver owns needs_input)', async () => {
@@ -184,7 +184,7 @@ describe('sweepAgentLiveness — worker side', () => {
     const q = new DecisionQueue(() => 0);
     const tracker = new PaneActivityTracker(); const inflight = new Set<string>();
     const checkWorker = vi.fn(async () => {});
-    const base = (now: number): RunOpts => ({ sessions: ['orca-pilot-planner', 'orca-advisor-7'], pane: () => 'frozen', tracker, inflight, now, sessionTaskId: () => 't1', checkWorker });
+    const base = (now: number): RunOpts => ({ sessions: ['elowen-pilot-planner', 'elowen-advisor-7'], pane: () => 'frozen', tracker, inflight, now, sessionTaskId: () => 't1', checkWorker });
     await run(q, base(0));
     await run(q, base(WORKER_IDLE));
     expect(checkWorker).not.toHaveBeenCalled();
@@ -195,7 +195,7 @@ describe('sweepAgentLiveness — progress check (routine glance at a WORKING wor
   const PROGRESS = 600_000;
   // An actively-working worker: its pane changes every tick, so its idle stays at 0 (never wedged).
   const active = (checkWorker: AgentLivenessDeps['checkWorker'], tracker: PaneActivityTracker, inflight: Set<string>, lastProgressAt: Map<string, number>, frame: () => number, over: Partial<RunOpts> = {}): RunOpts => ({
-    sessions: ['orca-iris'], pane: () => `frame${frame()}`, tracker, inflight, lastProgressAt, progressReviewMs: PROGRESS,
+    sessions: ['elowen-iris'], pane: () => `frame${frame()}`, tracker, inflight, lastProgressAt, progressReviewMs: PROGRESS,
     now: 0, sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker, ...over,
   });
 
@@ -206,13 +206,13 @@ describe('sweepAgentLiveness — progress check (routine glance at a WORKING wor
     let f = 0; const frame = () => f;
     f = 0; await run(q, active(checkWorker, tracker, inflight, lastProgressAt, frame, { now: 0 }));        // first sight → seed
     expect(checkWorker).not.toHaveBeenCalled();
-    expect(lastProgressAt.get('orca-iris')).toBe(0);
+    expect(lastProgressAt.get('elowen-iris')).toBe(0);
     f = 1; await run(q, active(checkWorker, tracker, inflight, lastProgressAt, frame, { now: PROGRESS - 1 })); // not due yet
     expect(checkWorker).not.toHaveBeenCalled();
     f = 2; const r = await run(q, active(checkWorker, tracker, inflight, lastProgressAt, frame, { now: PROGRESS })); // due
     expect(checkWorker).toHaveBeenCalledTimes(1);
-    expect(checkWorker).toHaveBeenCalledWith('orca-iris', 't1', 'frame2', 0, 'progress');
-    expect(r.checked).toEqual(['orca-iris']);
+    expect(checkWorker).toHaveBeenCalledWith('elowen-iris', 't1', 'frame2', 0, 'progress');
+    expect(r.checked).toEqual(['elowen-iris']);
   });
 
   it('never fires when progress review is disabled (progressReviewMs = 0)', async () => {
@@ -240,16 +240,16 @@ describe('sweepAgentLiveness — progress check (routine glance at a WORKING wor
     const tracker = new PaneActivityTracker(); const inflight = new Set<string>(); const lastProgressAt = new Map<string, number>();
     const checkWorker = vi.fn(async () => {});
     // Static pane → idle grows to the bar. progressReviewMs small so progress would also be "due".
-    const base = (now: number): RunOpts => ({ sessions: ['orca-iris'], pane: () => 'wedged', tracker, inflight, lastProgressAt, progressReviewMs: 100_000, now, sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker });
+    const base = (now: number): RunOpts => ({ sessions: ['elowen-iris'], pane: () => 'wedged', tracker, inflight, lastProgressAt, progressReviewMs: 100_000, now, sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker });
     await run(q, base(0));
     await run(q, base(WORKER_IDLE));
     expect(checkWorker).toHaveBeenCalledTimes(1);
-    expect(checkWorker).toHaveBeenCalledWith('orca-iris', 't1', 'wedged', 5, 'idle');
+    expect(checkWorker).toHaveBeenCalledWith('elowen-iris', 't1', 'wedged', 5, 'idle');
   });
 
   it('the shared in-flight guard blocks a progress check while any check is awaiting the overseer', async () => {
     const q = new DecisionQueue(() => 0);
-    const tracker = new PaneActivityTracker(); const inflight = new Set<string>(['orca-iris']); const lastProgressAt = new Map<string, number>([['orca-iris', 0]]);
+    const tracker = new PaneActivityTracker(); const inflight = new Set<string>(['elowen-iris']); const lastProgressAt = new Map<string, number>([['elowen-iris', 0]]);
     const checkWorker = vi.fn(async () => {});
     let f = 0; const frame = () => f;
     f = 1; await run(q, active(checkWorker, tracker, inflight, lastProgressAt, frame, { now: PROGRESS + 1 }));
@@ -260,13 +260,13 @@ describe('sweepAgentLiveness — progress check (routine glance at a WORKING wor
     const q = new DecisionQueue(() => 0);
     const tracker = new PaneActivityTracker(); const inflight = new Set<string>(); const lastProgressAt = new Map<string, number>();
     const checkWorker = vi.fn(async () => {});
-    const wedged = (now: number): RunOpts => ({ sessions: ['orca-iris'], pane: () => 'wedged', tracker, inflight, lastProgressAt, progressReviewMs: PROGRESS, now, sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker });
+    const wedged = (now: number): RunOpts => ({ sessions: ['elowen-iris'], pane: () => 'wedged', tracker, inflight, lastProgressAt, progressReviewMs: PROGRESS, now, sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker });
     await run(q, wedged(0));                 // first sight (seeds lastProgressAt)
     await run(q, wedged(WORKER_IDLE));        // wedge check fires (reason 'idle'), stamps lastProgressAt = WORKER_IDLE
     expect(checkWorker).toHaveBeenCalledTimes(1);
-    expect(lastProgressAt.get('orca-iris')).toBe(WORKER_IDLE);
+    expect(lastProgressAt.get('elowen-iris')).toBe(WORKER_IDLE);
     // Worker resumes (pane changes → idle 0) shortly after; progress must NOT fire on the stale stamp.
-    await run(q, { sessions: ['orca-iris'], pane: () => 'resumed-output', tracker, inflight, lastProgressAt, progressReviewMs: PROGRESS, now: WORKER_IDLE + 30_000, sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker });
+    await run(q, { sessions: ['elowen-iris'], pane: () => 'resumed-output', tracker, inflight, lastProgressAt, progressReviewMs: PROGRESS, now: WORKER_IDLE + 30_000, sessionTaskId: () => 't1', programFor: () => 'claude-code', hasPrompt: () => false, checkWorker });
     expect(checkWorker).toHaveBeenCalledTimes(1);
   });
 });

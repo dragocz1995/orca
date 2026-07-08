@@ -25,7 +25,7 @@ export class PushSender {
     const keys = this.keys();
     if (!keys) return; // VAPID not configured → no-op (web push simply unavailable)
     // contact is informational only; the daemon has no real address — a mailto is required by spec.
-    webpush.setVapidDetails('mailto:push@orca.local', keys.publicKey, keys.privateKey);
+    webpush.setVapidDetails('mailto:push@elowen.local', keys.publicKey, keys.privateKey);
     const body = JSON.stringify(payload);
     for (const rec of this.subs.listForUsers(userIds)) {
       try {

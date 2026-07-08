@@ -26,7 +26,7 @@ describe('mission lifecycle via the API', () => {
     const p2 = phases.find((t) => t.title === 'Phase 2')!;
     expect(p1.status).toBe('in_progress');
     expect(p2.status).toBe('open'); // still gated behind P1
-    expect(await deps.tmux.list()).toContain(`orca-${deps.tasks.get(p1.id)!.labels.find((l) => l.startsWith('agent:'))!.slice('agent:'.length)}`);
+    expect(await deps.tmux.list()).toContain(`elowen-${deps.tasks.get(p1.id)!.labels.find((l) => l.startsWith('agent:'))!.slice('agent:'.length)}`);
 
     // Close Phase 1 through the API, then tick: the engine advances and spawns Phase 2.
     expect((await app.request(`/tasks/${p1.id}`, patch(token, { status: 'closed', outcome: 'done' }))).status).toBe(200);

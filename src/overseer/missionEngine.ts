@@ -99,7 +99,7 @@ export class MissionEngine {
     for (const t of this.children(epicId)) {
       if (t.status !== 'in_progress') continue;
       const agent = t.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
-      const session = agent ? `orca-${agent}` : null;
+      const session = agent ? `elowen-${agent}` : null;
       // Guard the kill: if the session exited between `list()` and here, the driver rejects — without
       // the catch one dead session would abort the loop and strand the remaining children in_progress
       // forever (the UI would still read "running"). Mirror overseerAgent.stop / janitor.
@@ -117,7 +117,7 @@ export class MissionEngine {
   async stopTask(taskId: string): Promise<void> {
     const agent = this.d.tasks.get(taskId)?.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
     if (!agent) return;
-    const session = `orca-${agent}`;
+    const session = `elowen-${agent}`;
     if ((await this.d.tmux.list()).includes(session)) {
       try { await this.d.tmux.kill(session); } catch { /* already gone — fine */ }
     }
@@ -274,7 +274,7 @@ export class MissionEngine {
     // prompt decisions silently stop. Idempotent: a no-op while it is still parked (or none configured).
     await this.d.overseer?.ensure(id, project.id, project.path);
 
-    // Slots in use = this epic's own in-progress children — NOT all global orca- tmux
+    // Slots in use = this epic's own in-progress children — NOT all global elowen- tmux
     // sessions (other projects/missions would otherwise starve this one).
     let running = kids.filter(t => t.status === 'in_progress').length;
     // Shared (non-PR) checkouts are single-writer: at most one agent edits project.path at a time, so

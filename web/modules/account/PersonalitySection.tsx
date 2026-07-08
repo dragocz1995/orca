@@ -23,14 +23,14 @@ type Platform = 'web' | 'discord';
 
 /** Per-user personality: how the assistant communicates (style, applied everywhere) plus named
  *  persona profiles per surface (web / discord). One profile can be pinned active. Runtime knobs
- *  (models, thinking level, context) live in the account's Orca AI section. */
+ *  (models, thinking level, context) live in the account's Elowen AI section. */
 export function PersonalitySection() {
   const { t } = useTranslation();
   const [platform, setPlatform] = useState<Platform>('web');
   const [editing, setEditing] = useState<PersonalityProfile | 'new' | null>(null);
   const profiles = usePersonalities(platform);
 
-  // The communication style lives in cli-settings (shared record with the Orca AI section); this
+  // The communication style lives in cli-settings (shared record with the Elowen AI section); this
   // section owns only this personality-facing field. The PATCH merges server-side.
   const cli = useMyCliSettings();
   const saveCli = useSaveMyCliSettings();
@@ -233,7 +233,7 @@ function PersonalityModal({ platform, profile, isActive, onClose }: {
                 language="markdown"
                 value={prompt}
                 onChange={(v) => setPrompt(v ?? '')}
-                theme={resolvedTheme === 'light' ? 'orca-light' : 'orca-oled'}
+                theme={resolvedTheme === 'light' ? 'elowen-light' : 'elowen-oled'}
                 beforeMount={defineEditorThemes}
                 options={{ fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, padding: { top: 12 }, wordWrap: 'on', lineNumbers: 'off', folding: false }}
               />

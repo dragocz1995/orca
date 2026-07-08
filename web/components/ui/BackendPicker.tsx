@@ -20,7 +20,7 @@ function WorkerGroupIcon({ provider }: { provider: ProviderId }) {
 
 /** Per-role reasoning backend picker: a compact summary chip + a Manage modal that reuses the
  *  ExecutorPicker split — a "Workers" group per CLI engine (engine logo on the header, model brand
- *  icon per row) and one group per configured Orca AI provider (provider brand logo on the header,
+ *  icon per row) and one group per configured Elowen AI provider (provider brand logo on the header,
  *  OAuth accounts badged). Single-select: a row click replaces the pick. When `allowRelay`, a pinned
  *  "relay" row (empty exec) sits above the groups; an empty value otherwise resolves to relay too.
  *  A saved-but-unknown exec (e.g. a removed preset) stays visible as a pinned, selectable row so a
@@ -38,15 +38,15 @@ export function BackendPicker({ value, onChange, models, relayLabel, allowRelay 
   const brain = useBrainModels();
   const [open, setOpen] = useState(false);
 
-  // Orca AI models gated by the global allow-list (what may run as an executor), grouped by their real
-  // provider — same rule as ExecutorPicker's `kind='all'` Orca AI section.
+  // Elowen AI models gated by the global allow-list (what may run as an executor), grouped by their real
+  // provider — same rule as ExecutorPicker's `kind='all'` Elowen AI section.
   const allowed = config.data?.allowedExecs;
   const brainList = (brain.data ?? []).filter((m) => !allowed || allowed.includes(m.exec));
 
-  // Worker CLI models (from the preset catalog), grouped by engine; orca execs live in the brain
+  // Worker CLI models (from the preset catalog), grouped by engine; elowen execs live in the brain
   // section, never as workers — mirrors ExecutorPicker.
   const workerModels = [...models]
-    .filter((m) => execProvider(m.exec) !== 'orca')
+    .filter((m) => execProvider(m.exec) !== 'elowen')
     .sort((a, b) => a.label.localeCompare(b.label));
 
   const known = new Set([...workerModels.map((m) => m.exec), ...brainList.map((m) => m.exec)]);
@@ -69,7 +69,7 @@ export function BackendPicker({ value, onChange, models, relayLabel, allowRelay 
     })),
   ];
 
-  // Group icons: engine logos for workers, provider brand logos for Orca AI providers.
+  // Group icons: engine logos for workers, provider brand logos for Elowen AI providers.
   const groupIcons: Record<string, ReactNode> = {};
   for (const prov of new Set(workerModels.map((m) => execProvider(m.exec)))) {
     groupIcons[`w:${prov}`] = <WorkerGroupIcon key={`w:${prov}`} provider={prov} />;

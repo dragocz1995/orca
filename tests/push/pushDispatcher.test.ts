@@ -17,7 +17,7 @@ function harness(prInfo?: PrInfoReader) {
   const tasks = new TaskStore(db);
   const users = new UserStore(db);
   const adminId = users.create('admin', 'pw').id;
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const sent: Captured[] = [];
   const sender = { sendToUsers: async (userIds: number[], payload: PushPayload) => { sent.push({ userIds, payload }); } } as unknown as PushSender;
   const dispatcher = new PushDispatcher({ missions, tasks, users, sender, missionGit: prInfo });
@@ -51,10 +51,10 @@ describe('PushDispatcher', () => {
     h.tasks.create({ id: 'e1', project_id: 1, title: 'Epic', type: 'epic' });
     h.tasks.create({ id: 't1', project_id: 1, title: 'Phase', parent_id: 'e1', labels: ['agent:zoe'] });
     h.missions.create({ id: 'm-e1', epic_id: 'e1', autonomy: 'L3', max_sessions: 1 });
-    h.bus.publish({ type: 'signal', session: 'orca-zoe', signal: { type: 'needs_input', question: 'Run?', options: [], context: '' } });
+    h.bus.publish({ type: 'signal', session: 'elowen-zoe', signal: { type: 'needs_input', question: 'Run?', options: [], context: '' } });
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]!.payload.kind).toBe('needs_input');
-    expect(h.sent[0]!.payload.session).toBe('orca-zoe');
+    expect(h.sent[0]!.payload.session).toBe('elowen-zoe');
   });
 
   it('pushes a done payload with the PR url when a mission completes naturally (epic closed)', () => {

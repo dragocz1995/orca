@@ -17,7 +17,7 @@ function server(opts: { sessions?: unknown[]; tasks?: unknown[]; jobs?: unknown[
   return setupServer(
     http.get('*/api/tasks', () => HttpResponse.json(opts.tasks ?? [{ id: 't1', title: 'Alpha', status: 'in_progress', labels: ['agent:Iris'] }])),
     http.get('*/api/tasks/deps', () => HttpResponse.json([])),
-    http.get('*/api/sessions', () => HttpResponse.json(opts.sessions ?? [{ name: 'orca-Iris', role: 'agent', agent: 'iris' }])),
+    http.get('*/api/sessions', () => HttpResponse.json(opts.sessions ?? [{ name: 'elowen-Iris', role: 'agent', agent: 'iris' }])),
     http.get('*/api/sessions/:name/pane', () => HttpResponse.json({ pane: '' })),
     http.get('*/api/missions', () => HttpResponse.json([])),
     http.get('*/api/auth/me', () => HttpResponse.json({ user: { is_admin: false } })),
@@ -40,7 +40,7 @@ describe('DashboardView', () => {
 
   it('renders the bento tiles with the live agent work in the hero', async () => {
     const { wrapper: Wrapper, client } = createWrapper();
-    client.setQueryData(['session-signals'], { 'orca-Iris': { type: 'working' } });
+    client.setQueryData(['session-signals'], { 'elowen-Iris': { type: 'working' } });
     render(<Wrapper><ToastProvider><DashboardView /></ToastProvider></Wrapper>);
 
     // Tile labels.
@@ -65,12 +65,12 @@ describe('DashboardView', () => {
     srv.use(http.get('*/api/sessions', () => HttpResponse.json([])));
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><DashboardView /></ToastProvider></Wrapper>);
-    expect(await screen.findByText('Orca is resting')).toBeTruthy();
+    expect(await screen.findByText('Elowen is resting')).toBeTruthy();
   });
 
   it('shows the needs-input banner when an agent is waiting', async () => {
     const { wrapper: Wrapper, client } = createWrapper();
-    client.setQueryData(['session-signals'], { 'orca-Iris': { type: 'needs_input', question: 'Proceed?' } });
+    client.setQueryData(['session-signals'], { 'elowen-Iris': { type: 'needs_input', question: 'Proceed?' } });
     render(<Wrapper><ToastProvider><DashboardView /></ToastProvider></Wrapper>);
     expect(await screen.findByText('Needs attention')).toBeTruthy();
     expect(await screen.findByText('Proceed?')).toBeTruthy();

@@ -25,11 +25,11 @@ describe('useUiScale', () => {
     expect(screen.getByText('scale:1.2')).toBeTruthy();
     expect(setSpy).toHaveBeenCalledWith('zoom', '1.2');
     expect(setSpy).toHaveBeenCalledWith('--ui-scale', '1.2'); // full-height layout divides by this
-    expect(localStorage.getItem('orca:ui-scale')).toBe('1.2');
+    expect(localStorage.getItem('elowen:ui-scale')).toBe('1.2');
   });
 
   it('hydrates a persisted value on mount', () => {
-    localStorage.setItem('orca:ui-scale', '1.35');
+    localStorage.setItem('elowen:ui-scale', '1.35');
     render(<UiScaleProvider><Probe /></UiScaleProvider>);
     expect(screen.getByText('scale:1.35')).toBeTruthy();
     expect(setSpy).toHaveBeenCalledWith('zoom', '1.35');

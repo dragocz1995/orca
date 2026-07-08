@@ -36,7 +36,7 @@ export function pendingEscalations(events: ActivityEvent[], tasks: Task[], deps:
     seen.add(e.target);
     const task = byId.get(e.target);
     // A phase the engine has re-opened is mid-flight under L3 self-heal: it re-runs with the review
-    // feedback while its dependents stay gated, but no human is needed — Orca clears it itself on the
+    // feedback while its dependents stay gated, but no human is needed — Elowen clears it itself on the
     // next approving verdict. Only a phase that stayed put (closed after the self-heal budget ran out,
     // or under L1/L2 where rejects never self-heal) is a real, standing escalation. Skip the in-flight
     // ones so the self-heal loop doesn't masquerade as an escalation in the inbox.

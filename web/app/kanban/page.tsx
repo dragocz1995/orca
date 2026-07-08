@@ -27,7 +27,7 @@ import { useProjectFilter } from '../../lib/useProjectFilter';
 const KANBAN_DEFAULT_RANGE: DateRange = { preset: 'today', from: null, to: null };
 
 export default function KanbanPage() {
-  const { selectedProject, setProject } = useProjectFilter('orca.kanban.project');
+  const { selectedProject, setProject } = useProjectFilter('elowen.kanban.project');
   const tasks = useTasks(selectedProject === 'all' ? undefined : selectedProject);
   const deps = useAllDeps();
   const missions = useMissions();
@@ -36,9 +36,9 @@ export default function KanbanPage() {
   const { toast } = useToast();
   const { t } = useTranslation();
   // Remember board vs calendar across reloads (F5) until the user switches.
-  const [view, setView] = usePersistentState<'board' | 'calendar'>('orca.kanban.view', 'board', ['board', 'calendar']);
+  const [view, setView] = usePersistentState<'board' | 'calendar'>('elowen.kanban.view', 'board', ['board', 'calendar']);
   // Date-range window, persisted as one serialized slot. Defaults to today.
-  const [rangeRaw, setRangeRaw] = usePersistentState('orca.kanban.range', serializeRange(KANBAN_DEFAULT_RANGE), isStoredRange);
+  const [rangeRaw, setRangeRaw] = usePersistentState('elowen.kanban.range', serializeRange(KANBAN_DEFAULT_RANGE), isStoredRange);
   const range = useMemo(() => parseRange(rangeRaw) ?? KANBAN_DEFAULT_RANGE, [rangeRaw]);
   const [editing, setEditing] = useState<Task | null>(null);
   const [viewing, setViewing] = useState<Task | null>(null);

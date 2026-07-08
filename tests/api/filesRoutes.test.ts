@@ -17,7 +17,7 @@ import { ConfigStore } from '../../src/store/configStore.js';
 // temp dir so every operation hits the actual filesystem.
 function makeApp() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const projects = new ProjectStore(db);
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db),
@@ -37,7 +37,7 @@ describe('project file editor routes', () => {
   let id: number;
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), 'orca-files-'));
+    root = mkdtempSync(join(tmpdir(), 'elowen-files-'));
     mkdirSync(join(root, 'src'), { recursive: true });
     writeFileSync(join(root, 'src/index.ts'), 'export const hello = 1;\n');
     writeFileSync(join(root, 'README.md'), '# project\n');

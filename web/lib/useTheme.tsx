@@ -7,7 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
  *  to `data-theme` on the document root, and tokens.css swaps the whole palette off that attribute.
  *  Mirrors lib/useUiScale.tsx. */
 
-const KEY = 'orca:theme';
+const KEY = 'elowen:theme';
 export type Theme = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 const DEFAULT_THEME: Theme = 'system';

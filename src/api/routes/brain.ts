@@ -3,17 +3,17 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseBody } from '../validation.js';
 import { brainStartSchema, brainSendSchema, brainModelSchema, brainAnswerSchema, lspInstallSchema, subagentSendSchema } from '../schemas/brain.js';
-import { brainConfigFromOrca } from '../../brain/config.js';
+import { brainConfigFromElowen } from '../../brain/config.js';
 import { listBrainModels, fetchOpenAiModels } from '../../brain/models.js';
-import { orcaExec, isExecAllowedForUser } from '../../shared/execs.js';
+import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
 import type { BrainEvent } from '../../brain/events.js';
 import { commandsWithPlugins, findCommand, type SlashSurface } from '../../brain/slashCommands.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Per-user embedded brain (the new advisor engine): status / start / send / live event stream.
  *  Full-scope callers only — a spawned agent must not drive a human's brain. Each route acts on the
  *  caller's own conversation (`brain-<userId>`). Degrades gracefully when the brain is not wired. */
-export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   const forbidden = (c: { get: (k: 'tokenScope') => string }) => c.get('tokenScope') === 'agent';
 
@@ -119,14 +119,14 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
 
   // The pickable models across every configured brain provider — dedicated entries, connected OAuth
   // accounts, or the relay fallback (feeds the Account → CLI dropdown and the CLI /model picker).
-  // Every item carries its exec spec (`orca:<provider>/<model>`) so pickers, the users admin UI and
+  // Every item carries its exec spec (`elowen:<provider>/<model>`) so pickers, the users admin UI and
   // the settings catalog all speak the same identifier. Non-admins only see models their allow-list
   // permits — this single server-side filter covers web AND CLI.
   app.get('/brain/models', async c => {
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const cfg = brainConfigFromOrca(d.config, d.brainAuth);
+    const cfg = brainConfigFromElowen(d.config, d.brainAuth);
     if (!cfg) return c.json([]);
-    const models = (await listBrainModels(cfg)).map((m) => ({ ...m, exec: orcaExec(m.provider, m.model) }));
+    const models = (await listBrainModels(cfg)).map((m) => ({ ...m, exec: elowenExec(m.provider, m.model) }));
     const u = d.users ? c.get('user') : undefined;
     if (!u || u.is_admin) return c.json(models);
     const globalExecs = d.config.get().allowedExecs;
@@ -249,7 +249,7 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
         case 'restart':
           if (!d.restartDaemon) return c.json({ error: 'restart is not available on this deployment' }, 501);
           await d.restartDaemon(user.id);
-          return c.json({ ok: true, message: 'Restarting the Orca daemon…' });
+          return c.json({ ok: true, message: 'Restarting the Elowen daemon…' });
         case 'lsp': {
           const { toggleLsp } = await import('../../brain/tools/lspTools.js');
           const r = toggleLsp();
@@ -289,7 +289,7 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     return c.json({ error: r.ok ? `Installed, but ${spec.command} is not on PATH — check the npm global bin directory.` : `Install failed: ${r.detail}` }, 502);
   });
 
-  // Uninstall a server from Orca's own LSP prefix (the /lsp modal's ctrl+u). Admin-only, npm-managed
+  // Uninstall a server from Elowen's own LSP prefix (the /lsp modal's ctrl+u). Admin-only, npm-managed
   // servers only; a live client for it is disposed first so nothing keeps running from a removed binary.
   app.post('/brain/lsp/uninstall', async c => {
     if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
@@ -297,15 +297,15 @@ export function registerBrainRoutes(app: OrcaApp, ctx: RouteContext): void {
     const { listServers, commandExists } = await import('../../lsp/servers.js');
     const spec = listServers().find((s) => s.command === command);
     if (!spec) return c.json({ error: 'unknown language server' }, 404);
-    if (!spec.npmPackages?.length) return c.json({ error: `${spec.label} is not managed by Orca — remove it with your toolchain (installed via: ${spec.installHint}).` }, 400);
+    if (!spec.npmPackages?.length) return c.json({ error: `${spec.label} is not managed by Elowen — remove it with your toolchain (installed via: ${spec.installHint}).` }, 400);
     if (!commandExists(spec.command)) return c.json({ ok: true, message: `${spec.label} is not installed.` });
     const { lspManager } = await import('../../brain/tools/lspTools.js');
     lspManager().disposeAll(); // free any live client before its binary disappears
     const { npmUninstallGlobal } = await import('../../lsp/install.js');
     const r = await npmUninstallGlobal(spec.npmPackages);
     if (!r.ok) return c.json({ error: `Uninstall failed: ${r.detail}` }, 502);
-    // Still resolvable afterwards = a system copy outside Orca's prefix; say so instead of "removed".
-    return c.json({ ok: true, message: commandExists(spec.command) ? `${spec.label} removed from Orca's prefix — a system-installed copy remains on PATH.` : `${spec.label} uninstalled.` });
+    // Still resolvable afterwards = a system copy outside Elowen's prefix; say so instead of "removed".
+    return c.json({ ok: true, message: commandExists(spec.command) ? `${spec.label} removed from Elowen's prefix — a system-installed copy remains on PATH.` : `${spec.label} uninstalled.` });
   });
 
   app.post('/brain/send', async c => {

@@ -5,7 +5,7 @@
  *  `pending` bridges that gap — BrainChat consumes it on mount AND handles the live event when the dock
  *  is already open. `continuable` = the session can be resumed and continued (own web/CLI conversation);
  *  otherwise it opens read-only (a shared Discord channel or a task-worker session). */
-export const BRAIN_OPEN_EVENT = 'orca:open-brain-session';
+export const BRAIN_OPEN_EVENT = 'elowen:open-brain-session';
 
 export interface BrainOpenRequest { sessionId: string; continuable: boolean }
 

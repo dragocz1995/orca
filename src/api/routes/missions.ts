@@ -1,11 +1,11 @@
 import { assembleMissionDetail } from '../../store/missionDetail.js';
 import { parseBody } from '../validation.js';
 import { engageMissionSchema, missionActionSchema, overseerDecideSchema } from '../schemas/missions.js';
-import type { AccessCtx, OrcaApp, RouteContext } from '../context.js';
+import type { AccessCtx, ElowenApp, RouteContext } from '../context.js';
 
 /** Mission lifecycle + the overseer long-poll: list/detail, engage, pause/resume, disengage, manual
  *  PR open/merge, and the parked overseer's next/decide endpoints (gated by the mission's own project). */
-export function registerMissionRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerMissionRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d, accessibleProjects, missionAccessible, decisionQueue } = ctx;
   app.get('/missions', c => {
     const allowed = accessibleProjects(c);

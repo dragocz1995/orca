@@ -11,13 +11,13 @@ interface ProjectRow { id: number; slug: string; path: string }
 /** Config-file names that mark a folder as an existing project (subtle reassurance only). */
 const PROJECT_MARKERS = ['package.json', '.git', 'CLAUDE.md', 'pyproject.toml', 'go.mod', 'Cargo.toml'];
 
-/** Step 2 — connect a default project so Orca has somewhere to work. Offers the current folder, another
+/** Step 2 — connect a default project so Elowen has somewhere to work. Offers the current folder, another
  *  path, an existing project, or skip. A new path is validated (and optionally created), a slug derived,
  *  then registered via POST /projects. */
 export async function runProjectStep(ctx: WizardCtx): Promise<StepResult> {
   const existing = await listProjects(ctx);
   const choice = guard(await p.select({
-    message: 'Which project should Orca work in?',
+    message: 'Which project should Elowen work in?',
     options: [
       { value: 'cwd', label: 'This folder', hint: process.cwd() },
       { value: 'custom', label: 'Another folder…', hint: 'enter a path' },
@@ -69,7 +69,7 @@ export async function runProjectStep(ctx: WizardCtx): Promise<StepResult> {
     const r = await apiJson(ctx, 'POST', '/projects', { slug, path, notes: '' });
     if (r.ok) {
       ctx.answers.project = { slug, path, connected: true };
-      p.log.success(`Orca will work in ${path} (${slug}).`);
+      p.log.success(`Elowen will work in ${path} (${slug}).`);
       return { status: 'done' };
     }
     if (r.status === 409) {

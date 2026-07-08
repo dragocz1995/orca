@@ -26,10 +26,10 @@ function setup() {
   const tasks = new TaskStore(db);
   tasks.create({ id: 't1', project_id: 1, title: 'home task' });
   tasks.create({ id: 't2', project_id: 2, title: 'foreign task' });
-  tasks.setAgent('t1', 'Nova'); // session orca-Nova → t1 (project 1)
-  tasks.setAgent('t2', 'Zar');  // session orca-Zar  → t2 (project 2)
+  tasks.setAgent('t1', 'Nova'); // session elowen-Nova → t1 (project 1)
+  tasks.setAgent('t2', 'Zar');  // session elowen-Zar  → t2 (project 2)
   const tmux = new FakeTmuxDriver();
-  for (const s of ['orca-Nova', 'orca-Zar', `orca-advisor-${bob.id}`, `orca-advisor-${admin.id}`]) tmux.setPane(s, '');
+  for (const s of ['elowen-Nova', 'elowen-Zar', `elowen-advisor-${bob.id}`, `elowen-advisor-${admin.id}`]) tmux.setPane(s, '');
   const app = createServer({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as never, spawn: null as never, tmux: tmux as never,
@@ -46,11 +46,11 @@ const names = async (app: ReturnType<typeof setup>['app'], tok: string) =>
 describe('GET /sessions tenancy filtering', () => {
   it('shows a non-admin only sessions in their projects plus their own advisor', async () => {
     const { app, bobTok, bobId } = setup();
-    expect(await names(app, bobTok)).toEqual(['orca-Nova', `orca-advisor-${bobId}`].sort());
+    expect(await names(app, bobTok)).toEqual(['elowen-Nova', `elowen-advisor-${bobId}`].sort());
   });
 
   it('shows an admin every running session', async () => {
     const { app, adminTok, bobId, adminId } = setup();
-    expect(await names(app, adminTok)).toEqual(['orca-Nova', 'orca-Zar', `orca-advisor-${bobId}`, `orca-advisor-${adminId}`].sort());
+    expect(await names(app, adminTok)).toEqual(['elowen-Nova', 'elowen-Zar', `elowen-advisor-${bobId}`, `elowen-advisor-${adminId}`].sort());
   });
 });

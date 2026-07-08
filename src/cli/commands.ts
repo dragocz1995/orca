@@ -1,23 +1,23 @@
 import { start as realStart, stop as realStop, status as realStatus, type RunState, type SvcStatus } from './launcher.js';
 import { update as realUpdate, type UpdateResult } from './update.js';
-import { callOrcaApi } from '../shared/apiClient.js';
+import { callElowenApi } from '../shared/apiClient.js';
 
-/** `orca api <METHOD> <path> [jsonBody]` — generic authenticated REST passthrough. Reads
- *  ORCA_URL/ORCA_TOKEN from the env the daemon injects into every spawned agent, so an agent can
+/** `elowen api <METHOD> <path> [jsonBody]` — generic authenticated REST passthrough. Reads
+ *  ELOWEN_URL/ELOWEN_TOKEN from the env the daemon injects into every spawned agent, so an agent can
  *  drive ANY endpoint without a per-endpoint CLI command (and a new endpoint needs zero CLI edits).
  *  Injectable for tests; returns a process exit code. */
 export async function runApiCommand(
   args: string[], env: NodeJS.ProcessEnv,
-  deps: { call: typeof callOrcaApi; out: (s: string) => void; err: (s: string) => void },
+  deps: { call: typeof callElowenApi; out: (s: string) => void; err: (s: string) => void },
 ): Promise<number> {
   const [method, path, rawBody] = args;
-  if (!method || !path) { deps.err('usage: orca api <METHOD> <path> [jsonBody]'); return 2; }
+  if (!method || !path) { deps.err('usage: elowen api <METHOD> <path> [jsonBody]'); return 2; }
   let body: unknown;
   if (rawBody !== undefined) {
     try { body = JSON.parse(rawBody); } catch { deps.err('api: body must be valid JSON'); return 2; }
   }
-  const url = env.ORCA_URL ?? 'http://localhost:4400';
-  const token = env.ORCA_TOKEN ?? '';
+  const url = (env.ELOWEN_URL ?? env.ORCA_URL) ?? 'http://localhost:4400';
+  const token = (env.ELOWEN_TOKEN ?? env.ORCA_TOKEN) ?? '';
   const res = await deps.call(method, path, body, { url, token });
   deps.out(res.data !== undefined ? JSON.stringify(res.data, null, 2) : res.text);
   return res.ok ? 0 : 1;
@@ -54,7 +54,7 @@ export function formatStatus(s: { daemon: SvcStatus; web: SvcStatus }, version?:
     return `  ${name.padEnd(7)} ${dot}  running  :${svc.port}  ${health}${svc.healthy && url ? `  ${url}` : ''}`.trimEnd();
   };
   const body = [line('daemon', s.daemon, ''), line('web', s.web, `http://localhost:${s.web.port || 4500}`)];
-  return (version ? [`  orca v${version}`, '', ...body] : body).join('\n');
+  return (version ? [`  elowen v${version}`, '', ...body] : body).join('\n');
 }
 
 /** Dispatch the install-lifecycle commands. Returns true when handled, false for anything else (the
@@ -63,14 +63,14 @@ export function formatStatus(s: { daemon: SvcStatus; web: SvcStatus }, version?:
 export async function runLifecycle(cmd: string | undefined, env: NodeJS.ProcessEnv, deps: LifecycleDeps): Promise<boolean> {
   switch (cmd) {
     case 'up': {
-      deps.log('Starting orca…');
+      deps.log('Starting elowen…');
       const s = await deps.start(env, { version: deps.version });
-      deps.log(`orca is up — daemon :${s.daemon.port}, web :${s.web.port}\nOpen http://localhost:${s.web.port}`);
+      deps.log(`elowen is up — daemon :${s.daemon.port}, web :${s.web.port}\nOpen http://localhost:${s.web.port}`);
       return true;
     }
     case 'down': {
       await deps.stop(env);
-      deps.log('orca stopped');
+      deps.log('elowen stopped');
       return true;
     }
     case 'status': {

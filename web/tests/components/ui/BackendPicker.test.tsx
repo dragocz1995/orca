@@ -7,18 +7,18 @@ import { onUnhandledRequest } from '../../msw';
 import { BackendPicker } from '../../../components/ui/BackendPicker';
 import { createWrapper } from '../../test-utils';
 
-// Worker presets fed to the picker + the Orca AI (brain) catalog served over the network. The
+// Worker presets fed to the picker + the Elowen AI (brain) catalog served over the network. The
 // allow-list gates which brain models appear — mirrors ExecutorPicker's `kind='all'` rule.
 const MODELS = [
   { label: 'Claude Sonnet 4.5', exec: 'sonnet' },
   { label: 'GPT-5 Codex', exec: 'codex:gpt-5' },
 ];
 const BRAIN = [
-  { provider: 'anthropic', providerLabel: 'Anthropic', model: 'Claude Opus', exec: 'orca:anthropic::opus', source: 'oauth', contextWindow: 200000, contextWindowSet: false },
+  { provider: 'anthropic', providerLabel: 'Anthropic', model: 'Claude Opus', exec: 'elowen:anthropic::opus', source: 'oauth', contextWindow: 200000, contextWindowSet: false },
 ];
 
 const server = setupServer(
-  http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet', 'codex:gpt-5', 'orca:anthropic::opus'] })),
+  http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet', 'codex:gpt-5', 'elowen:anthropic::opus'] })),
   http.get('*/api/brain/models', () => HttpResponse.json(BRAIN)),
 );
 beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
@@ -50,7 +50,7 @@ describe('BackendPicker', () => {
     expect(screen.getByText('Relay (model via API)')).toBeTruthy();
   });
 
-  it('opens the modal with worker + Orca AI groups, group logos and per-row icons', async () => {
+  it('opens the modal with worker + Elowen AI groups, group logos and per-row icons', async () => {
     mount({ onChange: vi.fn() });
     fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
 
@@ -59,9 +59,9 @@ describe('BackendPicker', () => {
     expect(workers.querySelector('img')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Claude Sonnet 4.5/ }).querySelector('img')).toBeTruthy();
 
-    // Orca AI provider group: provider brand logo on the header, OAuth-badged row.
-    const orca = await screen.findByRole('heading', { name: 'Anthropic' });
-    expect(orca.querySelector('img')).toBeTruthy();
+    // Elowen AI provider group: provider brand logo on the header, OAuth-badged row.
+    const elowen = await screen.findByRole('heading', { name: 'Anthropic' });
+    expect(elowen.querySelector('img')).toBeTruthy();
     expect(screen.getByText('OAuth')).toBeTruthy();
   });
 
@@ -74,13 +74,13 @@ describe('BackendPicker', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith('codex:gpt-5'));
   });
 
-  it('single-select picks an Orca AI brain model by its exec', async () => {
+  it('single-select picks an Elowen AI brain model by its exec', async () => {
     const onChange = vi.fn();
     mount({ onChange });
     fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
     fireEvent.click(await screen.findByRole('button', { name: /Claude Opus/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith('orca:anthropic::opus'));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('elowen:anthropic::opus'));
   });
 
   it('when allowRelay, a pinned relay row lets the user clear the pick to relay', async () => {

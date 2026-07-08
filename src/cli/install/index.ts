@@ -5,7 +5,7 @@ import { realRunner, type Runner } from './runner.js';
 import { preflight, preflightBlockers } from './preflight.js';
 import { ensureServiceUser, userHome, type ServiceUserChoice } from './serviceUser.js';
 import { AGENT_CLIS, detectAgentClis, installCommand } from './agentClis.js';
-import { daemonUnit, webUnit, updateService, updateTimer, orcaSudoers, type UnitParams } from './systemdUnits.js';
+import { daemonUnit, webUnit, updateService, updateTimer, elowenSudoers, type UnitParams } from './systemdUnits.js';
 import { detectProxy, nginxVhost, apacheVhost, certbotCommand, type ProxyKind } from './proxy.js';
 import { SERVICES } from '../systemd.js';
 import { applySetup, buildSetupPlan, defaultExecForCli, isFirstRun, type SetupAnswers } from '../setup.js';
@@ -13,8 +13,8 @@ import { selfPrefix, reinstallNpmArgs } from '../update.js';
 import { runOnboarding } from '../setup/wizard.js';
 import { INSTALL_INFO_PATH, serializeInstallInfo, type InstallInfo } from '../installInfo.js';
 
-const DAEMON_PORT = Number(process.env.ORCA_PORT ?? 4400);
-const WEB_PORT = Number(process.env.ORCA_WEB_PORT ?? 4500);
+const DAEMON_PORT = Number((process.env.ELOWEN_PORT ?? process.env.ORCA_PORT) ?? 4400);
+const WEB_PORT = Number((process.env.ELOWEN_WEB_PORT ?? process.env.ORCA_WEB_PORT) ?? 4500);
 
 /** How the web UI is reached. Drives the reverse proxy, the web's bind interface and the canonical URL.
  *   - domain:    nginx/apache vhost + (optional) Let's Encrypt; web bound to 127.0.0.1.
@@ -36,7 +36,7 @@ interface Deployment {
   webHost: string;
 }
 
-/** Everything `orca install` needs to provision a box, resolved either interactively (modal prompts)
+/** Everything `elowen install` needs to provision a box, resolved either interactively (modal prompts)
  *  or non-interactively (CLI flags). Collecting it up front keeps the two front-ends thin and lets the
  *  executor below stay prompt-free. `admin === null` means "don't create an admin" (e.g. re-run on a
  *  box that already has one). */
@@ -67,7 +67,7 @@ function packagePaths(): { daemonEntry: string; webServer: string } {
   return { daemonEntry: join(pkgRoot, 'dist', 'daemon', 'index.js'), webServer: join(pkgRoot, 'web-dist', 'server.js') };
 }
 
-/** npm's global bin dir (where the `orca` symlink + globally-installed agent CLIs land). */
+/** npm's global bin dir (where the `elowen` symlink + globally-installed agent CLIs land). */
 async function npmGlobalBin(r: Runner): Promise<string> {
   const res = await r.exec('npm', ['prefix', '-g']);
   return join(res.stdout.trim() || '/usr/local', 'bin');
@@ -135,7 +135,7 @@ async function aptInstall(r: Runner, ...pkgs: string[]): Promise<void> {
 
 /** Best-effort: enable the real-PTY terminal stream. node-pty (an optional dependency) needs a C
  *  toolchain to compile its native addon when no prebuilt binary matches, so ensure python3/make/g++,
- *  then install node-pty into the globally-installed orcasynth package where the daemon loads it from.
+ *  then install node-pty into the globally-installed elowen package where the daemon loads it from.
  *  A failure here is non-fatal — the terminal degrades to the snapshot mirror. */
 export async function ensureTerminalStreaming(r: Runner): Promise<void> {
   if (!(await r.which('cc')) || !(await r.which('python3'))) await aptInstall(r, 'python3', 'make', 'g++');
@@ -156,18 +156,18 @@ async function provisionSystemd(r: Runner, user: string, home: string, deploy: D
     daemonHost: direct ? '0.0.0.0' : '127.0.0.1', wsDirectPort: direct ? DAEMON_PORT : undefined,
   };
   // Ensure the data tree exists and is owned by the service user before first boot.
-  await must(r, 'mkdir', ['-p', join(home, '.config', 'orca', 'logs')]);
-  await must(r, 'chown', ['-R', `${user}:`, join(home, '.config', 'orca')]);
+  await must(r, 'mkdir', ['-p', join(home, '.config', 'elowen', 'logs')]);
+  await must(r, 'chown', ['-R', `${user}:`, join(home, '.config', 'elowen')]);
 
-  await r.writeFile('/etc/systemd/system/orca-daemon.service', daemonUnit(params));
-  await r.writeFile('/etc/systemd/system/orca-web.service', webUnit(params));
+  await r.writeFile('/etc/systemd/system/elowen-daemon.service', daemonUnit(params));
+  await r.writeFile('/etc/systemd/system/elowen-web.service', webUnit(params));
   // The auto-update timer + its oneshot service ship disabled-by-default behaviour: the timer fires
   // hourly but the service no-ops unless the operator turns auto-update on in Settings.
-  await r.writeFile('/etc/systemd/system/orca-update.service', updateService(params));
-  await r.writeFile('/etc/systemd/system/orca-update.timer', updateTimer());
+  await r.writeFile('/etc/systemd/system/elowen-update.service', updateService(params));
+  await r.writeFile('/etc/systemd/system/elowen-update.timer', updateTimer());
   await must(r, 'systemctl', ['daemon-reload']);
   for (const svc of SERVICES) await must(r, 'systemctl', ['enable', '--now', `${svc}.service`]);
-  await must(r, 'systemctl', ['enable', '--now', 'orca-update.timer']);
+  await must(r, 'systemctl', ['enable', '--now', 'elowen-update.timer']);
 
   for (const svc of SERVICES) {
     const res = await r.exec('systemctl', ['is-active', svc]);
@@ -176,19 +176,19 @@ async function provisionSystemd(r: Runner, user: string, home: string, deploy: D
 }
 
 /** Grant the service user passwordless systemctl for its own units, so the auto-update timer (and a
- *  manual `orca update`) can take a freshly-installed binary live. Validated in a temp file with
+ *  manual `elowen update`) can take a freshly-installed binary live. Validated in a temp file with
  *  `visudo -cf` and only then atomically installed at 0440 — a malformed drop-in would break sudo for
  *  the whole box, so it's never written unchecked. */
 async function provisionSudoers(r: Runner, user: string): Promise<void> {
-  const tmp = '/tmp/orca.sudoers';
-  // Pin the literal self-reinstall command so `orca update` (run as the service user) can sudo it.
-  // Absolute npm path so sudo matches it; same prefix `orca update` computes, so the two stay in lockstep.
+  const tmp = '/tmp/elowen.sudoers';
+  // Pin the literal self-reinstall command so `elowen update` (run as the service user) can sudo it.
+  // Absolute npm path so sudo matches it; same prefix `elowen update` computes, so the two stay in lockstep.
   const npm = (await r.which('npm')) ?? '/usr/bin/npm';
   const reinstallCmd = [npm, ...reinstallNpmArgs(selfPrefix())].join(' ');
-  await r.writeFile(tmp, orcaSudoers(user, reinstallCmd));
+  await r.writeFile(tmp, elowenSudoers(user, reinstallCmd));
   const chk = await r.exec('visudo', ['-cf', tmp]);
   if (chk.code !== 0) { await r.exec('rm', ['-f', tmp]); throw new Error(`visudo rejected the drop-in: ${(chk.stderr || chk.stdout).trim()}`); }
-  await must(r, 'install', ['-o', 'root', '-g', 'root', '-m', '0440', tmp, '/etc/sudoers.d/orca']);
+  await must(r, 'install', ['-o', 'root', '-g', 'root', '-m', '0440', tmp, '/etc/sudoers.d/elowen']);
   await r.exec('rm', ['-f', tmp]);
 }
 
@@ -203,14 +203,14 @@ async function resolveProxy(r: Runner, preference: ProxyKind): Promise<ProxyKind
 /** Render the vhost for the domain and make the proxy serve it. */
 async function configureVhost(r: Runner, kind: ProxyKind, domain: string): Promise<void> {
   if (kind === 'nginx') {
-    await r.writeFile('/etc/nginx/sites-available/orca.conf', nginxVhost(domain, WEB_PORT, DAEMON_PORT));
-    await must(r, 'ln', ['-sf', '/etc/nginx/sites-available/orca.conf', '/etc/nginx/sites-enabled/orca.conf']);
+    await r.writeFile('/etc/nginx/sites-available/elowen.conf', nginxVhost(domain, WEB_PORT, DAEMON_PORT));
+    await must(r, 'ln', ['-sf', '/etc/nginx/sites-available/elowen.conf', '/etc/nginx/sites-enabled/elowen.conf']);
     await must(r, 'nginx', ['-t']);
     await must(r, 'systemctl', ['reload', 'nginx']);
   } else {
-    await r.writeFile('/etc/apache2/sites-available/orca.conf', apacheVhost(domain, WEB_PORT));
+    await r.writeFile('/etc/apache2/sites-available/elowen.conf', apacheVhost(domain, WEB_PORT));
     await must(r, 'a2enmod', ['proxy', 'proxy_http']);
-    await must(r, 'a2ensite', ['orca']);
+    await must(r, 'a2ensite', ['elowen']);
     await must(r, 'systemctl', ['reload', 'apache2']);
   }
 }
@@ -252,12 +252,12 @@ async function execute(r: Runner, plan: InstallPlan): Promise<{ tls: boolean }> 
   await step('Configuring systemd services', () => provisionSystemd(r, plan.user.username, home, plan.deploy));
 
   // Non-fatal: without the sudoers drop-in the services still run — only in-place self-updates
-  // (auto-update timer + manual `orca update`) lose the ability to restart the units unattended.
+  // (auto-update timer + manual `elowen update`) lose the ability to restart the units unattended.
   await step('Granting self-update permissions', () => provisionSudoers(r, plan.user.username))
     .catch((e) => p.log.warn(`Self-update permissions not granted (auto-update can't restart units until fixed): ${(e as Error).message}`));
 
   const ready = await step('Waiting for the daemon', () => waitForDaemon());
-  if (!ready) throw new Error('daemon did not become reachable — check: journalctl -u orca-daemon');
+  if (!ready) throw new Error('daemon did not become reachable — check: journalctl -u elowen-daemon');
 
   const d = plan.deploy;
   let tlsOk = false;
@@ -280,7 +280,7 @@ async function execute(r: Runner, plan: InstallPlan): Promise<{ tls: boolean }> 
 
   // Record the deployment so the launcher menu shows the right URL and drives systemd (not a 2nd daemon).
   const info: InstallInfo = { publicUrl: publicUrl(d, tlsOk), mode: d.mode, serviceUser: plan.user.username, daemonPort: DAEMON_PORT, webPort: WEB_PORT };
-  await must(r, 'mkdir', ['-p', '/etc/orca']);
+  await must(r, 'mkdir', ['-p', '/etc/elowen']);
   await r.writeFile(INSTALL_INFO_PATH, serializeInstallInfo(info));
   return { tls: tlsOk };
 }
@@ -301,7 +301,7 @@ function flag(args: string[], name: string): string | undefined {
 /** Build a plan from CLI flags for `--unattended`. Resolves create-vs-existing from whether the user
  *  already exists, so the same command is idempotent across re-runs. */
 async function planFromArgs(r: Runner, args: string[]): Promise<InstallPlan> {
-  const username = flag(args, '--user') ?? 'orca';
+  const username = flag(args, '--user') ?? 'elowen';
   const exists = (await userHome(r, username)) !== null;
 
   const agentsRaw = flag(args, '--agents');
@@ -353,20 +353,20 @@ function deploymentFromArgs(args: string[]): Deployment {
 
 async function chooseServiceUser(): Promise<ServiceUserChoice> {
   const mode = await p.select({
-    message: 'Which user should the ORCA services and agents run as?',
+    message: 'Which user should the ELOWEN services and agents run as?',
     options: [
-      { value: 'create', label: 'Create a dedicated "orca" system user', hint: 'recommended' },
+      { value: 'create', label: 'Create a dedicated "elowen" system user', hint: 'recommended' },
       { value: 'existing', label: 'Use an existing user' },
     ],
   });
   bail(mode);
   const name = await p.text({
     message: mode === 'existing' ? 'Existing username' : 'New username',
-    initialValue: mode === 'existing' ? '' : 'orca',
+    initialValue: mode === 'existing' ? '' : 'elowen',
     validate: (v) => (mode === 'existing' && !(v ?? '').trim() ? 'Required' : undefined),
   });
   bail(name);
-  return { mode: mode as ServiceUserChoice['mode'], username: name.trim() || 'orca' };
+  return { mode: mode as ServiceUserChoice['mode'], username: name.trim() || 'elowen' };
 }
 
 async function chooseAgents(r: Runner, user: string): Promise<string[]> {
@@ -395,7 +395,7 @@ async function detectPublicIp(r: Runner): Promise<string> {
 
 async function chooseDeployment(r: Runner): Promise<Deployment> {
   const mode = await p.select({
-    message: 'How will you reach the ORCA web UI?',
+    message: 'How will you reach the ELOWEN web UI?',
     options: [
       { value: 'domain', label: 'A domain name', hint: 'nginx + free HTTPS (Let’s Encrypt)' },
       { value: 'ip', label: 'This server’s IP, on a port', hint: `http://<ip>:${WEB_PORT} — no reverse proxy` },
@@ -415,7 +415,7 @@ async function chooseDeployment(r: Runner): Promise<Deployment> {
   }
 
   // domain
-  const domain = await p.text({ message: 'Domain name', placeholder: 'orca.example.com', validate: (v) => {
+  const domain = await p.text({ message: 'Domain name', placeholder: 'elowen.example.com', validate: (v) => {
     const t = (v ?? '').trim();
     if (!t) return 'Required';
     if (isIpAddress(t)) return 'That’s an IP — pick the IP option instead (Let’s Encrypt needs a domain name)';
@@ -460,17 +460,17 @@ function planSummary(plan: InstallPlan): string {
   ].join('\n');
 }
 
-/** `orca install` — provision a fresh Debian/Ubuntu box. Run as root. Pass `--unattended` (with flags)
+/** `elowen install` — provision a fresh Debian/Ubuntu box. Run as root. Pass `--unattended` (with flags)
  *  for a non-interactive install; otherwise an interactive wizard collects every answer. */
-const INSTALL_HELP = `orca install - provision a fresh Debian/Ubuntu box as an orca service (run as root)
+const INSTALL_HELP = `elowen install - provision a fresh Debian/Ubuntu box as an elowen service (run as root)
 
 USAGE
-  orca install                    interactive wizard (recommended)
-  orca install --unattended [options]
+  elowen install                    interactive wizard (recommended)
+  elowen install --unattended [options]
 
 OPTIONS
   --unattended                    run non-interactively from the flags below
-  --user <name>                   service user that runs the agents          (default: orca)
+  --user <name>                   service user that runs the agents          (default: elowen)
   --agents <list>                 agent CLIs to install: all | none | claude,opencode,codex
   --no-tmux                       skip installing tmux
 
@@ -496,7 +496,7 @@ export async function install(args: string[] = []): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) { console.log(INSTALL_HELP); return; }
   const r = realRunner();
   const unattended = args.includes('--unattended');
-  p.intro(`orca install${unattended ? ' (unattended)' : ''}`);
+  p.intro(`elowen install${unattended ? ' (unattended)' : ''}`);
 
   const pf = await preflight(r);
   const blockers = preflightBlockers(pf);
@@ -530,7 +530,7 @@ export async function install(args: string[] = []): Promise<void> {
   const { tls } = await execute(r, plan);
 
   // Interactive: now that the daemon is live, run the shared onboarding wizard (account, project, AI
-  // provider, memory) — the SAME one as `orca setup`, embedded so install frames the intro/outro. This
+  // provider, memory) — the SAME one as `elowen setup`, embedded so install frames the intro/outro. This
   // is the single onboarding path; there is no separate install wizard. The unattended path above already
   // created the admin from flags, so it skips this.
   let adminUser = plan.admin?.username ?? null;
@@ -540,10 +540,10 @@ export async function install(args: string[] = []): Promise<void> {
   const summary = [
     `Open       ${url}`,
     adminUser ? `Sign in    ${adminUser}` : 'Sign in    create an admin in the web UI',
-    `Status     systemctl status orca-daemon orca-web`,
-    `Logs       journalctl -u orca-daemon -f`,
-    `Restart    systemctl restart orca-daemon orca-web`,
+    `Status     systemctl status elowen-daemon elowen-web`,
+    `Logs       journalctl -u elowen-daemon -f`,
+    `Restart    systemctl restart elowen-daemon elowen-web`,
   ].join('\n');
-  p.note(summary, 'ORCA is ready');
-  p.outro(`Done - ORCA is live at ${url}`);
+  p.note(summary, 'ELOWEN is ready');
+  p.outro(`Done - ELOWEN is live at ${url}`);
 }

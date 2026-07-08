@@ -1,13 +1,13 @@
 import { parseBody } from '../validation.js';
 import { advisorStartSchema } from '../schemas/advisor.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Per-user advisor lifecycle (status/start/stop). Full-scope callers only — a spawned agent must not
- *  start or stop a human's advisor; each route acts on the caller's own `orca-advisor-<userId>`. */
-export function registerAdvisorRoutes(app: OrcaApp, ctx: RouteContext): void {
+ *  start or stop a human's advisor; each route acts on the caller's own `elowen-advisor-<userId>`. */
+export function registerAdvisorRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   // Per-user advisor lifecycle. Full-scope (non-agent) callers only — a spawned agent must not be able
-  // to start/stop a human's advisor. Each acts on the caller's own session (`orca-advisor-<userId>`).
+  // to start/stop a human's advisor. Each acts on the caller's own session (`elowen-advisor-<userId>`).
   app.get('/advisor/status', async c => {
     if (!d.advisor) return c.json({ running: false, exec: '', session: null });
     if (c.get('tokenScope') === 'agent') return c.json({ error: 'forbidden' }, 403);

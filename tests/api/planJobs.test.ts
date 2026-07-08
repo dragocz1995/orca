@@ -92,14 +92,14 @@ describe('async plan jobs (relay path)', () => {
     const t = await makeTestApp({ apiKey: '' });
     // A pilot is planning: its session is live and recorded on the job.
     const job = t.deps.planJobs.create({ goal: 'g', projectId: 1, epicId: null, dryRun: false });
-    t.deps.planJobs.setSession(job.id, 'orca-pilot-Atlas');
-    await t.deps.tmux.spawn('orca-pilot-Atlas', { cwd: '/o', command: 'planning' });
-    expect(await t.deps.tmux.list()).toContain('orca-pilot-Atlas');
+    t.deps.planJobs.setSession(job.id, 'elowen-pilot-Atlas');
+    await t.deps.tmux.spawn('elowen-pilot-Atlas', { cwd: '/o', command: 'planning' });
+    expect(await t.deps.tmux.list()).toContain('elowen-pilot-Atlas');
     // The pilot submits its plan → the job settles → its session must be reaped so it can't linger
     // and later collide with a fresh plan job's name.
     const res = await t.app.request(`/plan/${job.id}/submit`, { method: 'POST', headers: { authorization: `Bearer ${t.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ phases: [{ title: 'Build', type: 'feature' }] }) });
     expect(res.status).toBe(200);
-    expect(await t.deps.tmux.list()).not.toContain('orca-pilot-Atlas');
+    expect(await t.deps.tmux.list()).not.toContain('elowen-pilot-Atlas');
   });
 
   it('POST /plan/:id/submit rejects empty/invalid phases', async () => {

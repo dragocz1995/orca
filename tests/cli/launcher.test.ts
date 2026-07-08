@@ -9,7 +9,7 @@ let home: string;
 let env: NodeJS.ProcessEnv;
 const sample: RunState = { daemon: { pid: 111, port: 4400 }, web: { pid: 222, port: 4500 }, version: '1.1.1', startedAt: '2026-06-22T00:00:00Z' };
 
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'orca-launch-')); env = { HOME: home } as NodeJS.ProcessEnv; });
+beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'elowen-launch-')); env = { HOME: home } as NodeJS.ProcessEnv; });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 describe('cli/launcher state', () => {
@@ -21,8 +21,8 @@ describe('cli/launcher state', () => {
     expect(readState(env)).toBeNull();
   });
   it('returns null (not throw) when the run file is corrupt', () => {
-    mkdirSync(join(home, '.config', 'orca'), { recursive: true });
-    writeFileSync(join(home, '.config', 'orca', 'run.json'), '{ not json', 'utf8');
+    mkdirSync(join(home, '.config', 'elowen'), { recursive: true });
+    writeFileSync(join(home, '.config', 'elowen', 'run.json'), '{ not json', 'utf8');
     expect(readState(env)).toBeNull();
   });
   it('clearState removes the run file and tolerates a missing one', () => {

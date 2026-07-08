@@ -39,7 +39,7 @@ interface EmbeddingsResponse {
   data?: { embedding?: unknown }[];
 }
 
-/** Turns text into vectors via an OpenAI-compatible `/v1/embeddings` endpoint, reusing Orca's
+/** Turns text into vectors via an OpenAI-compatible `/v1/embeddings` endpoint, reusing Elowen's
  *  provider credentials. Pure network/compute — NO DB access (MemoryStore owns persistence). */
 export class EmbeddingService {
   private readonly resolveProvider: ProviderResolver;

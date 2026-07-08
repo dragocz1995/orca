@@ -1,4 +1,4 @@
-import { BASE } from './orcaClient';
+import { BASE } from './elowenClient';
 
 // Client-side web-push helpers. The service worker (web/public/sw.js) mirrors `actionToRequest` in
 // plain JS — keep the two in sync (the mapping is unit-tested here).

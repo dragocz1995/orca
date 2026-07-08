@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-/** Metadata `orca install` records about a systemd-provisioned box, so the launcher menu can show the
+/** Metadata `elowen install` records about a systemd-provisioned box, so the launcher menu can show the
  *  real public URL the operator chose (not a hard-coded localhost) and drive the systemd units instead
  *  of spawning a second, conflicting detached daemon. Absent file ⇒ a plain npm (Model-B) install. */
 export interface InstallInfo {
@@ -12,9 +12,9 @@ export interface InstallInfo {
   webPort: number;
 }
 
-/** System-wide so any user invoking `orca` (typically root) can read it, regardless of which user the
+/** System-wide so any user invoking `elowen` (typically root) can read it, regardless of which user the
  *  services run as. */
-export const INSTALL_INFO_PATH = '/etc/orca/install.json';
+export const INSTALL_INFO_PATH = '/etc/elowen/install.json';
 
 export function readInstallInfo(path = INSTALL_INFO_PATH): InstallInfo | null {
   try { return JSON.parse(readFileSync(path, 'utf8')) as InstallInfo; }
@@ -26,9 +26,9 @@ export function serializeInstallInfo(info: InstallInfo): string {
 }
 
 /** The web UI URL to point a user at: the real public URL on a systemd-provisioned box, otherwise the
- *  local standalone web port (honouring ORCA_WEB_PORT, same as the launcher). One source of truth for the
- *  setup outro, `orca doctor`, and headless setup. */
+ *  local standalone web port (honouring ELOWEN_WEB_PORT, same as the launcher). One source of truth for the
+ *  setup outro, `elowen doctor`, and headless setup. */
 export function webBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const port = Number(env.ORCA_WEB_PORT) || 4500;
+  const port = Number((env.ELOWEN_WEB_PORT ?? env.ORCA_WEB_PORT)) || 4500;
   return readInstallInfo()?.publicUrl ?? `http://localhost:${port}`;
 }

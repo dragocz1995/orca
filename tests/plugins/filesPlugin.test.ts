@@ -24,7 +24,7 @@ describe('files plugin', () => {
   let dir: string;
   beforeAll(async () => {
     reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log });
-    dir = mkdtempSync(join(tmpdir(), 'orca-files-'));
+    dir = mkdtempSync(join(tmpdir(), 'elowen-files-'));
     writeFileSync(join(dir, 'hello.txt'), 'hello world');
   });
 
@@ -102,7 +102,7 @@ describe('files plugin', () => {
   });
 
   it('git_status reports branch and dirty files for an allowed repo', async () => {
-    const repo = mkdtempSync(join(tmpdir(), 'orca-files-git-'));
+    const repo = mkdtempSync(join(tmpdir(), 'elowen-files-git-'));
     execFileSync('git', ['init', '-b', 'main'], { cwd: repo, stdio: 'ignore' });
     writeFileSync(join(repo, 'tracked.txt'), 'one\n');
     execFileSync('git', ['add', 'tracked.txt'], { cwd: repo, stdio: 'ignore' });
@@ -117,7 +117,7 @@ describe('files plugin', () => {
 
 describe('files plugin — configurable readCap', () => {
   let dir: string;
-  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'orca-files-cap-')); });
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'elowen-files-cap-')); });
 
   it('a configured readCap (min-clamped 20000) truncates a read that the default 100000 would not', async () => {
     const reg = await loadPlugins({
@@ -151,7 +151,7 @@ describe('files plugin — configurable readCap', () => {
 describe('files plugin — configurable searchMaxMatches', () => {
   let dir: string;
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'orca-files-search-cap-'));
+    dir = mkdtempSync(join(tmpdir(), 'elowen-files-search-cap-'));
     const lines = Array.from({ length: 250 }, (_, i) => `needle line ${i}`).join('\n');
     writeFileSync(join(dir, 'haystack.txt'), lines);
   });

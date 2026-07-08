@@ -17,7 +17,7 @@ import { FakeTmuxDriver } from '../../src/tmux/fakeDriver.js';
 import { EventBus } from '../../src/api/sse.js';
 import { SystemClock } from '../../src/shared/clock.js';
 
-let base: string;   // unique parent so the sibling `.orca-worktrees/` dir is isolated + cleaned
+let base: string;   // unique parent so the sibling `.elowen-worktrees/` dir is isolated + cleaned
 let repo: string;
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
@@ -33,7 +33,7 @@ function setup(prEnabled: boolean) {
   const prs = new MissionPrStore(db);
   const missionGit = new MissionGit({ prs, config, projects, tasks });
   const tmux = new FakeTmuxDriver();
-  const launch = vi.fn().mockResolvedValue({ session: 'orca-AgentX' });
+  const launch = vi.fn().mockResolvedValue({ session: 'elowen-AgentX' });
   const engine = new MissionEngine({
     tasks, readiness: new Readiness(db), missions: new MissionStore(db),
     spawn: { launch } as unknown as SpawnService, tmux, bus: new EventBus(),
@@ -44,12 +44,12 @@ function setup(prEnabled: boolean) {
 }
 
 beforeEach(() => {
-  base = mkdtempSync(join(tmpdir(), 'orca-eng-'));
+  base = mkdtempSync(join(tmpdir(), 'elowen-eng-'));
   repo = join(base, 'project');
   mkdirSync(repo);
   git(repo, 'init', '-q', '-b', 'main');
-  git(repo, 'config', 'user.email', 'test@orca.dev');
-  git(repo, 'config', 'user.name', 'Orca Test');
+  git(repo, 'config', 'user.email', 'test@elowen.dev');
+  git(repo, 'config', 'user.name', 'Elowen Test');
   writeFileSync(join(repo, 'README.md'), '# repo\n');
   git(repo, 'add', '-A'); git(repo, 'commit', '-q', '-m', 'init');
 });
@@ -61,7 +61,7 @@ describe('MissionEngine × MissionGit (PR-native)', () => {
     const m = await engine.engage({ epicId: 'epic', autonomy: 'L3', maxSessions: 1 });
     const rec = prs.get(m.id);
     expect(rec).not.toBeNull();
-    expect(rec!.branch).toBe('orca/demo-epic');
+    expect(rec!.branch).toBe('elowen/demo-epic');
     expect(existsSync(rec!.worktree)).toBe(true);
     // The first phase agent launches with the worktree as its cwd, not the main checkout.
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({ projectPath: rec!.worktree }));
@@ -81,7 +81,7 @@ describe('MissionEngine × MissionGit (PR-native)', () => {
     await engine.disengage(m.id);
     expect(existsSync(dir)).toBe(false);
     expect(prs.get(m.id)).toBeNull();
-    expect(git(repo, 'branch', '--list', 'orca/demo-epic').trim()).toContain('orca/demo-epic');
+    expect(git(repo, 'branch', '--list', 'elowen/demo-epic').trim()).toContain('elowen/demo-epic');
   });
 
   it('commitPhase records the phase work as a commit on the branch', async () => {

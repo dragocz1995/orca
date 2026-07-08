@@ -78,7 +78,7 @@ describe('symlink escape', () => {
     const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } = await import('node:fs');
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
-    const base = mkdtempSync(join(tmpdir(), 'orca-guard-'));
+    const base = mkdtempSync(join(tmpdir(), 'elowen-guard-'));
     const repo = join(base, 'repo'); const outside = join(base, 'outside');
     mkdirSync(repo); mkdirSync(outside);
     writeFileSync(join(outside, 'secret.txt'), 'x');

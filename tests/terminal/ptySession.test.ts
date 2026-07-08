@@ -17,15 +17,15 @@ function fakePty() {
 describe('attachPty', () => {
   it('attaches to the named tmux session', () => {
     const { mod, calls } = fakePty();
-    attachPty(mod, { session: 'orca-advisor-1', cols: 80, rows: 24 });
+    attachPty(mod, { session: 'elowen-advisor-1', cols: 80, rows: 24 });
     expect(calls.spawn[0][0]).toBe('tmux');
-    expect(calls.spawn[0][1]).toEqual(['attach', '-t', 'orca-advisor-1']);
+    expect(calls.spawn[0][1]).toEqual(['attach', '-t', 'elowen-advisor-1']);
     expect(calls.spawn[0][2]).toMatchObject({ cols: 80, rows: 24, name: 'xterm-256color' });
   });
 
   it('forwards writes, resize and kill', () => {
     const { mod, calls } = fakePty();
-    const s = attachPty(mod, { session: 'orca-advisor-1', cols: 80, rows: 24 });
+    const s = attachPty(mod, { session: 'elowen-advisor-1', cols: 80, rows: 24 });
     s.write('ls\n');
     s.resize(100, 40);
     s.kill();

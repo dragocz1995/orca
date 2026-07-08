@@ -1,13 +1,13 @@
 import { parseBody } from '../validation.js';
 import { personalityCreateSchema, personalityPatchSchema } from '../schemas/personality.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Per-user personality profiles: named prompt bodies a user pins active per platform. Self-service —
  *  identity is ALWAYS the caller (`c.get('user')`), never a body/param field, so a user can only read or
  *  mutate their own profiles (the store is user_id-scoped and no-ops on a foreign id). Agent-scoped
  *  tokens never reach here (the middleware allow-list omits `/personality`). Degrades to 400 when the
  *  store isn't wired. */
-export function registerPersonalityRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerPersonalityRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   const store = d.personalityStore;
 

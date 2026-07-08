@@ -26,10 +26,10 @@ export function extractImageRefs(text) {
   return { cleaned, files };
 }
 
-/** Parse a picker exec (`orca:<provider>/<model>`, `<provider>/<model>`, or bare model) into the
+/** Parse a picker exec (`elowen:<provider>/<model>`, `<provider>/<model>`, or bare model) into the
  *  brain's model selection shape. */
 export function parseModelExec(spec) {
-  const s = typeof spec === 'string' ? spec.trim().replace(/^orca:/, '') : '';
+  const s = typeof spec === 'string' ? spec.trim().replace(/^elowen:/, '') : '';
   if (!s) return null;
   const slash = s.indexOf('/');
   return slash > 0 ? { provider: s.slice(0, slash), model: s.slice(slash + 1) } : { model: s };

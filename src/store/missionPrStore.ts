@@ -56,7 +56,7 @@ export class MissionPrStore {
   }
 
   /** Increment the PR fix-round counter and return the new value — the analogue of taskStore.bumpReviewFix,
-   *  but for PR review feedback. Bounds the auto Codex↔Orca fix ping-pong before escalating to a human. */
+   *  but for PR review feedback. Bounds the auto Codex↔Elowen fix ping-pong before escalating to a human. */
   bumpFixRounds(missionId: string): number {
     this.db.prepare('UPDATE mission_pr SET fix_rounds = fix_rounds + 1 WHERE mission_id=?').run(missionId);
     return this.get(missionId)?.fix_rounds ?? 0;

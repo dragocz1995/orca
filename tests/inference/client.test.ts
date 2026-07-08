@@ -20,7 +20,7 @@ describe('RelayClient', () => {
     expect(calledUrl).toBe('https://relay.example/v1/chat/completions');
   });
 
-  it('sends the Orca app-identity headers (X-OpenRouter-Title/X-Title + HTTP-Referer) so relays show "Orca", not "unknown"', async () => {
+  it('sends the Elowen app-identity headers (X-OpenRouter-Title/X-Title + HTTP-Referer) so relays show "Elowen", not "unknown"', async () => {
     let sentHeaders: Record<string, string> = {};
     global.fetch = vi.fn(async (_url: any, init: any) => {
       sentHeaders = init.headers as Record<string, string>;
@@ -28,8 +28,8 @@ describe('RelayClient', () => {
     }) as any;
     const c = new RelayClient({ baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'k', model: 'm' });
     await c.decide('q');
-    expect(sentHeaders['x-openrouter-title']).toBe('Orca');
-    expect(sentHeaders['x-title']).toBe('Orca');
+    expect(sentHeaders['x-openrouter-title']).toBe('Elowen');
+    expect(sentHeaders['x-title']).toBe('Elowen');
     expect(sentHeaders['http-referer']).toMatch(/^https:\/\//);
     expect(sentHeaders.authorization).toBe('Bearer k'); // identity headers don't clobber auth
   });

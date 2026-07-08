@@ -12,13 +12,13 @@ import { fetchLatestVersion } from '../shared/registry.js';
 
 const execFileAsync = promisify(execFile);
 
-/** The npm `--prefix` this very binary lives under, so `orca update` reinstalls *itself* in place —
+/** The npm `--prefix` this very binary lives under, so `elowen update` reinstalls *itself* in place —
  *  no matter where it was globally installed (e.g. a www-data-owned prefix), and without the operator
  *  having to remember any `--prefix`. Returns null when run from a source checkout (no node_modules in
- *  the path), in which case we let npm use its default global prefix. Exported so `orca install` pins
+ *  the path), in which case we let npm use its default global prefix. Exported so `elowen install` pins
  *  the exact same self-reinstall command in sudoers. */
 export function selfPrefix(): string | null {
-  const here = fileURLToPath(import.meta.url); // <prefix>[/lib]/node_modules/orcasynth/dist/cli/update.js
+  const here = fileURLToPath(import.meta.url); // <prefix>[/lib]/node_modules/elowen/dist/cli/update.js
   const idx = here.lastIndexOf('/node_modules/');
   if (idx === -1) return null;
   let base = here.slice(0, idx); // <prefix>/lib  (global, has lib/)  OR  <prefix>  (prefix-style install)
@@ -27,7 +27,7 @@ export function selfPrefix(): string | null {
 }
 
 /** The exact `node_modules` directory npm rewrites on an in-place self-update (it renames the
- *  orcasynth package to a temp sibling there). Writability of THIS dir decides whether the reinstall
+ *  elowen package to a temp sibling there). Writability of THIS dir decides whether the reinstall
  *  needs root. Derived straight from the binary's own path so it's correct for both `lib/node_modules`
  *  (global) and bare-`node_modules` prefixes. Null from a source checkout. */
 function selfPackagesDir(): string | null {
@@ -37,13 +37,13 @@ function selfPackagesDir(): string | null {
   return idx === -1 ? null : here.slice(0, idx + marker.length - 1);
 }
 
-/** The npm args that reinstall orcasynth in place, pinned identically by `orca install` (sudoers) and
- *  run by `orca update` — the single source of truth for the self-update command. */
+/** The npm args that reinstall elowen in place, pinned identically by `elowen install` (sudoers) and
+ *  run by `elowen update` — the single source of truth for the self-update command. */
 export function reinstallNpmArgs(prefix: string | null): string[] {
-  return ['install', '-g', 'orcasynth@latest', ...(prefix ? ['--prefix', prefix] : [])];
+  return ['install', '-g', 'elowen@latest', ...(prefix ? ['--prefix', prefix] : [])];
 }
 
-/** Resolve npm to the SAME absolute path the sudoers drop-in pins (`orca install` also runs `which npm`),
+/** Resolve npm to the SAME absolute path the sudoers drop-in pins (`elowen install` also runs `which npm`),
  *  so a sudo'd reinstall matches the pin instead of relying on root's `secure_path` resolving a bare
  *  `npm` identically. Falls back to bare `npm` (PATH) if resolution fails. */
 async function resolveNpm(): Promise<string> {
@@ -68,9 +68,9 @@ const defaultReinstallIO: ReinstallIO = {
   exec: async (cmd, args) => { await execFileAsync(cmd, args); },
 };
 
-/** Reinstall orcasynth in place. When the global packages dir isn't writable by the current user
+/** Reinstall elowen in place. When the global packages dir isn't writable by the current user
  *  (the common "installed as root in /usr, daemon runs as a non-root service user" layout), route
- *  the npm install through `sudo` — `orca install` grants exactly this command via a pinned sudoers
+ *  the npm install through `sudo` — `elowen install` grants exactly this command via a pinned sudoers
  *  drop-in. A writable prefix (root, or a service-user-owned prefix) installs directly, no sudo. The
  *  absolute npm path is used in BOTH branches so the sudo'd command matches the pinned absolute path. */
 export async function reinstall(io: ReinstallIO = defaultReinstallIO): Promise<void> {
@@ -85,7 +85,7 @@ export async function reinstall(io: ReinstallIO = defaultReinstallIO): Promise<v
 export interface UpdateDeps {
   fetch?: typeof fetch;
   current: string;
-  /** Run the global install. Injected for tests; defaults to `npm i -g orcasynth@latest`. */
+  /** Run the global install. Injected for tests; defaults to `npm i -g elowen@latest`. */
   install?: () => Promise<void>;
   /** Restart running services after a successful install. */
   restart?: (env: NodeJS.ProcessEnv) => Promise<void>;
@@ -117,14 +117,14 @@ export async function update(env: NodeJS.ProcessEnv, deps: UpdateDeps): Promise<
   const readyToRestart = deps.confirmReadyToRestart ?? (() => !hasLiveMission(env));
   if (!readyToRestart()) return { updated: true, from: deps.current, to: latest, restartDeferred: true };
 
-  // A box provisioned by `orca install` is systemd-managed — restart those units (sudo when not root).
+  // A box provisioned by `elowen install` is systemd-managed — restart those units (sudo when not root).
   // A plain launcher install has no install.json — fall back to stop/start of our own spawned daemon.
   const restart = deps.restart ?? (async (e) => {
     if (readInstallInfo()) {
-      // `--no-block`: a web-triggered update spawns this `orca update` INSIDE orca-daemon's systemd
-      // cgroup, so a blocking `systemctl restart orca-daemon orca-web` would have the daemon's own
-      // restart kill this process (and the waiting systemctl client) the instant orca-daemon stops —
-      // before the orca-web job is ever enqueued, leaving the web UI on the old build. With --no-block
+      // `--no-block`: a web-triggered update spawns this `elowen update` INSIDE elowen-daemon's systemd
+      // cgroup, so a blocking `systemctl restart elowen-daemon elowen-web` would have the daemon's own
+      // restart kill this process (and the waiting systemctl client) the instant elowen-daemon stops —
+      // before the elowen-web job is ever enqueued, leaving the web UI on the old build. With --no-block
       // both jobs are handed to systemd (PID 1) up front and run to completion regardless of this
       // process dying. (Cost: we can't observe the restart result — only that it was enqueued.)
       const r = await systemctl('restart', '--no-block', ...SERVICES);
@@ -132,7 +132,7 @@ export async function update(env: NodeJS.ProcessEnv, deps: UpdateDeps): Promise<
       // A box provisioned before `--no-block` was added to the sudoers pin denies the new arg list
       // (sudo matches arguments exactly), so the agent-user restart fails here. Fall back to the legacy
       // command — which the old drop-in still permits — so self-update never hard-breaks. Re-running
-      // `orca install` re-pins sudoers with --no-block and restores the orca-web restart fix; until
+      // `elowen install` re-pins sudoers with --no-block and restores the elowen-web restart fix; until
       // then a web-triggered update degrades to the old behavior (daemon restarts, web may not).
       const legacy = await systemctl('restart', ...SERVICES);
       if (legacy.code !== 0) throw new Error(`installed ${latest} but the restart failed (code ${legacy.code}) — services run the old build until restarted`);

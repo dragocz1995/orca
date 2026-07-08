@@ -7,7 +7,7 @@ eyebrow: Guide
 
 # Projects & Workflow
 
-Orca is an agent you talk to that acts on your code. **Projects** are how you
+Elowen is an agent you talk to that acts on your code. **Projects** are how you
 point that agent at your git repositories and scope exactly what it may touch.
 Each project maps to a repository on disk and carries its own task queue,
 missions, and access controls — so the agent always works inside boundaries you
@@ -40,7 +40,7 @@ The **Notes** field is a simple, high-leverage way to steer the agent: describe
 the stack, conventions, or "don't touch" areas once, and every task planned
 against this project inherits that context.
 
-Removing a project detaches it from Orca — its tasks, missions, agents and access
+Removing a project detaches it from Elowen — its tasks, missions, agents and access
 grants are deleted — but **never touches the files on disk**. The daemon's own
 home project can't be removed.
 
@@ -80,14 +80,14 @@ Toggle it per project (the **PR workflow** setting) or per mission
 
 1. **Engage with PR mode** — the mission runs in PR mode (inherited from the
    project or set explicitly).
-2. **Worktree** — Orca creates an isolated git worktree at
-   `<repo-parent>/.orca-worktrees/<slug>-<missionId>`, separate from your main
+2. **Worktree** — Elowen creates an isolated git worktree at
+   `<repo-parent>/.elowen-worktrees/<slug>-<missionId>`, separate from your main
    checkout.
 3. **Isolated work** — the agent does all its work inside that worktree, never
    touching your working branch.
 4. **Per-phase commits** — each closed phase commits its changes to the
    worktree branch.
-5. **PR auto-opens** — after the first phase closes, Orca opens a pull request
+5. **PR auto-opens** — after the first phase closes, Elowen opens a pull request
    against the base branch.
 6. **Review feedback ingested** — review comments (inline + summary) are pulled
    back in and handed to the agent.
@@ -107,7 +107,7 @@ the same working tree.
 
 ![The project editor](images/projects-editor.png)
 
-Orca ships a self-hosted Monaco editor built directly into the web UI — no
+Elowen ships a self-hosted Monaco editor built directly into the web UI — no
 external service, in keeping with the lightweight, self-hosted design. Select a
 project card and click **Open editor** (or right-click a card → **Open in
 editor**). It's how you inspect and adjust what the agent produced, or make quick
@@ -135,7 +135,7 @@ agent does is opaque:
 1. **At spawn** — the current `HEAD` is stamped on the task as a `base:<sha>`
    label.
 2. **While it runs** — whenever the agent's checkout advances past the last
-   recorded head, Orca refreshes the task's frozen snapshot: the list of changed
+   recorded head, Elowen refreshes the task's frozen snapshot: the list of changed
    files (with their change type) plus the `base` and `head` SHAs. The change feed
    updates live, not only at close.
 3. **Viewing** — the task detail lists the commits the phase landed
@@ -157,10 +157,10 @@ agent had. Agents leave each other **handoff notes** for exactly this:
 
 ```bash
 # Leave a note for later phases of a mission
-orca note add <missionId> "Set up the KeyedMutex in src/shared/keyedMutex.ts"
+elowen note add <missionId> "Set up the KeyedMutex in src/shared/keyedMutex.ts"
 
 # Read all notes left by earlier phases
-orca note ls <missionId>
+elowen note ls <missionId>
 ```
 
 The worker prompt instructs every agent to read the notes at the start of its

@@ -32,13 +32,13 @@ function build(opts: { prAutoOpen: boolean; verify: string }) {
 }
 
 beforeEach(() => {
-  base = mkdtempSync(join(tmpdir(), 'orca-fin-'));
+  base = mkdtempSync(join(tmpdir(), 'elowen-fin-'));
   repo = join(base, 'project'); mkdirSync(repo);
   remote = join(base, 'remote.git');
   binDir = join(base, 'bin'); mkdirSync(binDir);
   origPath = process.env.PATH; process.env.PATH = `${binDir}:${origPath}`;
   git(repo, 'init', '-q', '-b', 'main');
-  git(repo, 'config', 'user.email', 'test@orca.dev'); git(repo, 'config', 'user.name', 'Orca Test');
+  git(repo, 'config', 'user.email', 'test@elowen.dev'); git(repo, 'config', 'user.name', 'Elowen Test');
   writeFileSync(join(repo, 'README.md'), '# repo\n'); git(repo, 'add', '-A'); git(repo, 'commit', '-q', '-m', 'init');
   execFileSync('git', ['init', '-q', '--bare', remote]);
   git(repo, 'remote', 'add', 'origin', remote);
@@ -60,7 +60,7 @@ describe('MissionGit.finishMission (Stage 4)', () => {
     expect(rec.pr_number).toBe(55);
     expect(rec.pr_state).toBe('open');
     // The branch reached the remote.
-    expect(git(remote, 'branch', '--list', 'orca/demo-epic').trim()).toContain('orca/demo-epic');
+    expect(git(remote, 'branch', '--list', 'elowen/demo-epic').trim()).toContain('elowen/demo-epic');
   });
 
   it('holds the mission (no PR) when the verify gate fails', async () => {
@@ -75,7 +75,7 @@ describe('MissionGit.finishMission (Stage 4)', () => {
     expect(prs.get('m-epic')!.pr_state).toBe('verify_failed');
     expect(missionGit.prState('m-epic')).toBe('verify_failed');
     // No branch pushed to the remote.
-    expect(git(remote, 'branch', '--list', 'orca/demo-epic').trim()).toBe('');
+    expect(git(remote, 'branch', '--list', 'elowen/demo-epic').trim()).toBe('');
   });
 
   it('returns ready (no PR) in manual mode, then opens it on openPr', async () => {
@@ -106,7 +106,7 @@ describe('MissionGit.finishMission (Stage 4)', () => {
     const res = await missionGit.openPr('m-epic'); // user clicks "Open PR" before the mission finished
     expect(res.state).toBe('incomplete');
     expect(prs.get('m-epic')!.pr_state).toBeNull(); // unchanged — no PR opened
-    expect(git(remote, 'branch', '--list', 'orca/demo-epic').trim()).toBe(''); // nothing pushed
+    expect(git(remote, 'branch', '--list', 'elowen/demo-epic').trim()).toBe(''); // nothing pushed
   });
 
   it('a project pr_enabled=false suppresses the PR worktree even when the global default is on', async () => {
@@ -152,7 +152,7 @@ if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit 0; fi`);
     // failed, AFTER the squash-merge had already landed — so the merge was reported as refused. Merge
     // and delete are now separate; a failing delete must not undo a successful merge.
     fakeGh(`
-if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],"headRefName":"orca/demo-epic"}'; fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],"headRefName":"elowen/demo-epic"}'; fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit 0; fi
 if [ "$1" = "api" ]; then exit 1; fi`); // the branch delete fails
     const { missionGit, prs } = build({ prAutoOpen: false, verify: '' });
@@ -189,6 +189,6 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo '{"number":8,"url":"https://g
     const res = await missionGit.finishMission('m-epic'); // manual mode, but PR is open → must push
     expect(res.state).toBe('opened'); // NOT 'ready'
     // The fix commit reached the remote branch.
-    expect(git(remote, 'log', '--oneline', 'orca/demo-epic').trim()).toContain('fix round');
+    expect(git(remote, 'log', '--oneline', 'elowen/demo-epic').trim()).toContain('fix round');
   });
 });

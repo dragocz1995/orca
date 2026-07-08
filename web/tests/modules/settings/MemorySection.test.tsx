@@ -17,8 +17,8 @@ vi.mock('../../../lib/mutations', () => ({
 const EMBEDDING: EmbeddingSettings = { providerId: 'openai', model: 'text-embedding-3-small', baseUrl: '', dimensions: 1536, configured: true };
 const CATEGORIZATION: CategorizationSettings = { providerId: 'anthropic', model: '', baseUrl: '', configured: false };
 const MODELS: BrainModelOption[] = [
-  { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-haiku', exec: 'orca:anthropic/claude-haiku', source: 'api-key', contextWindow: 200000, contextWindowSet: false },
-  { provider: 'openai', providerLabel: 'OpenAI', model: 'text-embedding-3-small', exec: 'orca:openai/text-embedding-3-small', source: 'api-key', contextWindow: 8192, contextWindowSet: false },
+  { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-haiku', exec: 'elowen:anthropic/claude-haiku', source: 'api-key', contextWindow: 200000, contextWindowSet: false },
+  { provider: 'openai', providerLabel: 'OpenAI', model: 'text-embedding-3-small', exec: 'elowen:openai/text-embedding-3-small', source: 'api-key', contextWindow: 8192, contextWindowSet: false },
 ];
 const CONFIG = { brain: { providers: [{ id: 'anthropic', label: 'Anthropic', type: 'anthropic' }, { id: 'openai', label: 'OpenAI', type: 'openai' }] } };
 vi.mock('../../../lib/queries', async (importOriginal) => ({

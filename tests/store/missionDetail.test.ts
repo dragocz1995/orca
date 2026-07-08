@@ -7,7 +7,7 @@ import { assembleMissionDetail } from '../../src/store/missionDetail.js';
 let tasks: TaskStore; let missions: MissionStore;
 beforeEach(() => {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/var/www/orca')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/var/www/elowen')").run();
   tasks = new TaskStore(db); missions = new MissionStore(db);
 });
 

@@ -43,7 +43,7 @@ function clock(ms: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** A target like "orca-ab12cd34" / "m-orca-ep" → the task id we can drill into ("orca-ab12cd34"),
+/** A target like "elowen-ab12cd34" / "m-elowen-ep" → the task id we can drill into ("elowen-ab12cd34"),
  *  or null when the target isn't a task (mission/session). Mirrors the event→project linkage. */
 function taskIdOf(p: { type: string; target: string }): string | null {
   return p.type === 'task' || p.type === 'review' ? p.target : null;
@@ -52,14 +52,14 @@ function taskIdOf(p: { type: string; target: string }): string | null {
 export interface Display { label: string; projectId: number | null }
 
 /** Resolve an event's raw target into a human label + the project it belongs to, so the timeline
- *  reads "Refactor the parser" / "Juno" instead of "orca-ab12cd34" / "orca-Juno":
+ *  reads "Refactor the parser" / "Juno" instead of "elowen-ab12cd34" / "elowen-Juno":
  *   - mission `m-<epicId>` → the epic's title
  *   - task/review (target = task id) → the task title
- *   - signal (agent session `orca-<name>`) → the agent name + its worker task's project
+ *   - signal (agent session `elowen-<name>`) → the agent name + its worker task's project
  *  Falls back to the raw target (and the event's own project) when nothing resolves. */
 function resolveDisplay(p: { type: string; target: string; projectId?: number | null }, byId: Map<string, Task>, byAgent: Map<string, Task>, byLabel: Map<string, string>): Display {
   // Prefer the live task/epic title; fall back to the label snapshotted on the event at write time
-  // (so a deleted task still reads as a name instead of a raw orca-<id>), then the raw target.
+  // (so a deleted task still reads as a name instead of a raw elowen-<id>), then the raw target.
   if (p.target.startsWith('m-')) {
     const epic = byId.get(p.target.slice(2));
     return { label: epic?.title ?? byLabel.get(p.target) ?? p.target, projectId: epic?.project_id ?? p.projectId ?? null };
@@ -68,8 +68,8 @@ function resolveDisplay(p: { type: string; target: string; projectId?: number | 
     const t = byId.get(p.target);
     return { label: t?.title ?? byLabel.get(p.target) ?? p.target, projectId: p.projectId ?? t?.project_id ?? null };
   }
-  if (p.target.startsWith('orca-')) {
-    const name = p.target.slice('orca-'.length);
+  if (p.target.startsWith('elowen-')) {
+    const name = p.target.slice('elowen-'.length);
     const t = byAgent.get(name);
     return { label: name, projectId: t?.project_id ?? p.projectId ?? null };
   }
@@ -233,10 +233,10 @@ function EventDetail({ point, display, onClose }: { point: AxisPoint; display: D
 
 export function TimelineView() {
   const { t } = useTranslation();
-  const { selectedProject, setProject } = useProjectFilter('orca.timeline.project');
-  const [filter, setFilter] = usePersistentState<string>('orca.timeline.filter', 'all', ['all', 'task', 'mission', 'signal', 'review']);
-  const [view, setView] = usePersistentState<string>('orca.timeline.view', 'axis', ['axis', 'lanes']);
-  const [rangeRaw, setRangeRaw] = usePersistentState('orca.timeline.range', serializeRange(DEFAULT_RANGE), isStoredRange);
+  const { selectedProject, setProject } = useProjectFilter('elowen.timeline.project');
+  const [filter, setFilter] = usePersistentState<string>('elowen.timeline.filter', 'all', ['all', 'task', 'mission', 'signal', 'review']);
+  const [view, setView] = usePersistentState<string>('elowen.timeline.view', 'axis', ['axis', 'lanes']);
+  const [rangeRaw, setRangeRaw] = usePersistentState('elowen.timeline.range', serializeRange(DEFAULT_RANGE), isStoredRange);
   const range = useMemo(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
   const [picked, setPicked] = useState<AxisPoint | null>(null);
   const type = filter === 'all' ? undefined : filter;
@@ -361,7 +361,7 @@ export function TimelineView() {
         </div>
       ) : null}
 
-      {/* Hero: the lane/axis plot — orca's signature surface */}
+      {/* Hero: the lane/axis plot — elowen's signature surface */}
       <section className="rounded-lg border border-border border-t-2 border-t-accent/40 bg-surface p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
         <div className="mb-4 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-text-muted"><Clock size={12} className="shrink-0 text-text-muted" aria-hidden />{windowLabel}</div>

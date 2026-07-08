@@ -78,7 +78,7 @@ export function TaskConversation({ task }: { task: { id: string } }) {
   const [openFile, setOpenFile] = useState<{ hash: string; path: string } | null>(null);
   const fileDiff = useTaskCommitFileDiff(task.id, openFile?.hash ?? null, openFile?.path ?? null);
   // Embedded-brain workers have no terminal pane — their transcript IS the work log.
-  const isBrainWorker = workerExec.startsWith('orca:');
+  const isBrainWorker = workerExec.startsWith('elowen:');
   const brainChat = useTaskBrainConversation(task.id, isBrainWorker);
 
   const items = useMemo<FeedItem[]>(() => {

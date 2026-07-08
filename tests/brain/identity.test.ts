@@ -21,10 +21,10 @@ describe('IdentityResolver — owner vs admin gating', () => {
     expect(identity.owner).toBe(false); // admin-role stranger must not reach owner-only surfaces
   });
 
-  it('a linked NON-operator account is not owner even when its Orca account is admin', () => {
+  it('a linked NON-operator account is not owner even when its Elowen account is admin', () => {
     const { identity } = resolver({ id: 2, name: 'Amy', username: 'amy', admin: true }).forPlatformTurn(src({}), 1);
     expect(identity.owner).toBe(false);
-    expect(identity.orcaUsername).toBe('amy');
+    expect(identity.elowenUsername).toBe('amy');
   });
 
   it('the operator via their linked platform account IS owner', () => {
@@ -32,7 +32,7 @@ describe('IdentityResolver — owner vs admin gating', () => {
     expect(identity.owner).toBe(true);
   });
 
-  it('exposes linkedUserId (the sender\'s Orca account) only when the platform id is linked', () => {
+  it('exposes linkedUserId (the sender\'s Elowen account) only when the platform id is linked', () => {
     const linked = resolver({ id: 2, name: 'Amy', username: 'amy', admin: false }).forPlatformTurn(src({}), 1);
     expect(linked.linkedUserId).toBe(2); // channel memory recall/save keys on this
     const unlinked = resolver(null).forPlatformTurn(src({}), 1);
@@ -68,26 +68,26 @@ describe('IdentityResolver — owner vs admin gating', () => {
 
 describe('composeSessionTools — the channel/tool security invariant', () => {
   const tool = (name: string) => ({ name }) as ToolDefinition;
-  const orcaTools = () => [tool('orca_create_task'), tool('orca_list_tasks')];
+  const elowenTools = () => [tool('elowen_create_task'), tool('elowen_list_tasks')];
   const pluginTools = [tool('memory_search'), tool('discord_api')];
 
-  it('foreign-channel and task-worker sessions NEVER receive orca_* tools', () => {
+  it('foreign-channel and task-worker sessions NEVER receive elowen_* tools', () => {
     for (const kind of ['foreign-channel', 'task-worker'] as const) {
-      const tools = composeSessionTools({ kind, orcaTools, pluginTools });
-      expect(tools.map((t) => t.name).some((n) => n.startsWith('orca_'))).toBe(false);
+      const tools = composeSessionTools({ kind, elowenTools, pluginTools });
+      expect(tools.map((t) => t.name).some((n) => n.startsWith('elowen_'))).toBe(false);
     }
   });
 
   it('owner-chat sessions do (the operator, incl. their cron automation)', () => {
-    const tools = composeSessionTools({ kind: 'owner-chat', orcaTools, pluginTools });
-    expect(tools.map((t) => t.name)).toContain('orca_create_task');
+    const tools = composeSessionTools({ kind: 'owner-chat', elowenTools, pluginTools });
+    expect(tools.map((t) => t.name)).toContain('elowen_create_task');
   });
 
   it('memory tools compose into every interactive session (incl. foreign-channel), but not task-workers', () => {
     const memoryTools = () => [tool('memory_add'), tool('memory_search')];
     for (const kind of ['owner-chat', 'trusted-channel', 'foreign-channel'] as const) {
       const tools = composeSessionTools({ kind, memoryTools, pluginTools: [] });
-      expect(tools.map((t) => t.name)).toContain('memory_add'); // per-user; the execute-time orcaUserId gate is the guard
+      expect(tools.map((t) => t.name)).toContain('memory_add'); // per-user; the execute-time elowenUserId gate is the guard
     }
     const worker = composeSessionTools({ kind: 'task-worker', memoryTools, pluginTools: [] });
     expect(worker.map((t) => t.name)).not.toContain('memory_add');

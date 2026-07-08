@@ -22,7 +22,7 @@
     "which",
     "dot",
     "gh",
-    "orca"
+    "elowen"
   ],
   "ignoreIssues": {
     "web/lib/i18n/types.ts": [

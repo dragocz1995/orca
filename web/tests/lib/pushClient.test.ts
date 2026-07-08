@@ -17,11 +17,11 @@ describe('actionToRequest', () => {
     ] });
   });
   it('allow / reject send Enter / Escape keys to the session', () => {
-    expect(actionToRequest('allow', { session: 'orca-zoe' })).toEqual({
-      kind: 'fetch', steps: [{ method: 'POST', path: '/api/sessions/orca-zoe/keys', body: { keys: ['Enter'] } }],
+    expect(actionToRequest('allow', { session: 'elowen-zoe' })).toEqual({
+      kind: 'fetch', steps: [{ method: 'POST', path: '/api/sessions/elowen-zoe/keys', body: { keys: ['Enter'] } }],
     });
-    expect(actionToRequest('reject', { session: 'orca-zoe' })).toEqual({
-      kind: 'fetch', steps: [{ method: 'POST', path: '/api/sessions/orca-zoe/keys', body: { keys: ['Escape'] } }],
+    expect(actionToRequest('reject', { session: 'elowen-zoe' })).toEqual({
+      kind: 'fetch', steps: [{ method: 'POST', path: '/api/sessions/elowen-zoe/keys', body: { keys: ['Escape'] } }],
     });
   });
   it('an unknown action (or open) opens the url', () => {

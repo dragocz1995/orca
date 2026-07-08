@@ -16,11 +16,11 @@ import { UserProjectStore } from '../../src/store/userProjectStore.js';
 
 function setup() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw');
   const bob = users.create('bob', 'pw');
-  const avatarsDir = mkdtempSync(join(tmpdir(), 'orca-av-'));
+  const avatarsDir = mkdtempSync(join(tmpdir(), 'elowen-av-'));
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
     engine: null as never, spawn: null as never, tmux: null as never,

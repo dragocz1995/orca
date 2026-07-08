@@ -56,7 +56,7 @@ describe('chat token', () => {
   });
 
   it('defaultIo writes the cache file 0600', () => {
-    const dir = join(tmpdir(), `orca-tok-${process.pid}`);
+    const dir = join(tmpdir(), `elowen-tok-${process.pid}`);
     const realEnv = { HOME: dir } as NodeJS.ProcessEnv;
     defaultIo.write(tokenFile(realEnv), JSON.stringify({ token: 't' }));
     const mode = statSync(tokenFile(realEnv)).mode & 0o777;

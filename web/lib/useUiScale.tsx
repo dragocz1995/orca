@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
  *  localStorage, not the user record, because the right scale depends on the screen in front of you.
  *  Single source of truth shared between the Account slider and the global applier mounted in Shell. */
 
-const KEY = 'orca:ui-scale';
+const KEY = 'elowen:ui-scale';
 export const MIN_SCALE = 0.8;
 export const MAX_SCALE = 1.5;
 export const DEFAULT_SCALE = 1;

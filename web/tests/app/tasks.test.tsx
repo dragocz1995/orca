@@ -10,8 +10,8 @@ import { createWrapper } from '../test-utils';
 
 let spawnBody: unknown = null;
 const server = setupServer(
-  http.get('*/api/tasks', () => HttpResponse.json([{ id: 'orca-1', title: 'Build', status: 'in_progress', type: 'task', labels: [] }])),
-  http.post('*/api/sessions', async ({ request }) => { spawnBody = await request.json(); return HttpResponse.json({ session: 'orca-A' }, { status: 201 }); }),
+  http.get('*/api/tasks', () => HttpResponse.json([{ id: 'elowen-1', title: 'Build', status: 'in_progress', type: 'task', labels: [] }])),
+  http.post('*/api/sessions', async ({ request }) => { spawnBody = await request.json(); return HttpResponse.json({ session: 'elowen-A' }, { status: 201 }); }),
 );
 beforeAll(() => server.listen({ onUnhandledRequest })); afterAll(() => server.close());
 
@@ -19,9 +19,9 @@ describe('TasksPage', () => {
   it('launches a task via the Launch action', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><TasksPage /></ToastProvider></Wrapper>);
-    await waitFor(() => expect(screen.getByText('orca-1')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('elowen-1')).toBeInTheDocument());
     // No live session for this task → the run control shows "Start"
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    await waitFor(() => expect(spawnBody).toMatchObject({ taskId: 'orca-1' }));
+    await waitFor(() => expect(spawnBody).toMatchObject({ taskId: 'elowen-1' }));
   });
 });

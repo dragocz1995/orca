@@ -4,17 +4,17 @@ import { join, delimiter } from 'node:path';
 import { isNewer } from '../../cli/version.js';
 import { handleMcpRequest } from '../../mcp/server.js';
 import { eventProjectId } from '../eventProject.js';
-import { ORCA_VERSION, ORCA_INSTALLED_AT, ORCA_PORT, defaultLatestVersion, defaultStartUpdate, defaultStartRestart } from '../version.js';
+import { ELOWEN_VERSION, ELOWEN_INSTALLED_AT, ELOWEN_PORT, defaultLatestVersion, defaultStartUpdate, defaultStartRestart } from '../version.js';
 import { parseBody } from '../validation.js';
 import { pushSubscribeSchema, pushUnsubscribeSchema, systemRestartSchema } from '../schemas/config.js';
 import { resolveExecutor } from '../../overseer/routing.js';
-import { DEFAULT_BINS, BARE_PLAIN_PROGRAM, parseOrcaExec } from '../../shared/execs.js';
-import type { OrcaEvent } from '../sse.js';
+import { DEFAULT_BINS, BARE_PLAIN_PROGRAM, parseElowenExec } from '../../shared/execs.js';
+import type { ElowenEvent } from '../sse.js';
 import type { ConfigPatch } from '../../store/configStore.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** True when `bin` resolves to an executable on the daemon's PATH — the readiness check for a task exec
- *  that names an external agent CLI (the embedded `orca:` engine skips this, it's always runnable). */
+ *  that names an external agent CLI (the embedded `elowen:` engine skips this, it's always runnable). */
 function binOnPath(bin: string): boolean {
   if (!bin) return false;
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
@@ -24,12 +24,12 @@ function binOnPath(bin: string): boolean {
   return false;
 }
 
-/** Whether a non-`orca:` task exec spec names an installed agent CLI: resolve it to its program (the
+/** Whether a non-`elowen:` task exec spec names an installed agent CLI: resolve it to its program (the
  *  same routing the scheduler uses) and probe that program's binary on PATH. */
 function execCliInstalled(spec: string, providers: Record<string, { bin: string }>): boolean {
   if (!spec) return false;
   const { program } = resolveExecutor([`exec:${spec}`], { program: BARE_PLAIN_PROGRAM, model: spec });
-  // Honor a configured bin path (what the scheduler actually spawns — `orca install` sets these) before
+  // Honor a configured bin path (what the scheduler actually spawns — `elowen install` sets these) before
   // falling back to the program's default name. An absolute/relative path is probed directly; a bare name
   // is searched on PATH.
   const bin = providers[program]?.bin || (DEFAULT_BINS as Record<string, string>)[program];
@@ -43,14 +43,14 @@ function binExists(path: string): boolean { try { accessSync(path, constants.X_O
 /** Daemon-wide surface: the stateless MCP endpoint, web-push key + per-user subscribe/unsubscribe,
  *  config read/write (admin-gated write), the System panel (version/update-available) and the live
  *  SSE event stream (per-subscriber tenancy gate). */
-export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerConfigRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d, accessibleProjects, eventDeps, skillService } = ctx;
-  // MCP endpoint: the advisor agent connects here to control Orca with native tools. Each request is
+  // MCP endpoint: the advisor agent connects here to control Elowen with native tools. Each request is
   // handled statelessly with the toolset bound to the caller's token, and every tool delegates to the
-  // same `callOrcaApi` core as the `orca api` CLI verb — so a new REST endpoint needs zero edits here.
+  // same `callElowenApi` core as the `elowen api` CLI verb — so a new REST endpoint needs zero edits here.
   app.all('/mcp', async c => {
     const token = c.get('token');
-    return handleMcpRequest(c.req.raw, { url: `http://localhost:${ORCA_PORT}`, token });
+    return handleMcpRequest(c.req.raw, { url: `http://localhost:${ELOWEN_PORT}`, token });
   });
 
   // --- Web push: the browser's VAPID public key, plus per-user device subscribe/unsubscribe. The
@@ -94,16 +94,16 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
   app.get('/system', async (c) => {
     const latest = await (d.latestVersion ?? defaultLatestVersion)();
     return c.json({
-      version: ORCA_VERSION,
+      version: ELOWEN_VERSION,
       latest,
-      updateAvailable: latest ? isNewer(latest, ORCA_VERSION) : false,
+      updateAvailable: latest ? isNewer(latest, ELOWEN_VERSION) : false,
       autoUpdate: d.config.get().autoUpdate,
-      lastUpdatedAt: ORCA_INSTALLED_AT,
+      lastUpdatedAt: ELOWEN_INSTALLED_AT,
     });
   });
 
   // First-run readiness: one row per subsystem, so the onboarding UI can show at a glance what actually
-  // works after `orca setup`. Read-only, derived purely from config + the BrainService helper (ONE source
+  // works after `elowen setup`. Read-only, derived purely from config + the BrainService helper (ONE source
   // of truth for "chat is runnable"), never gated behind a running mission. Admin-only (mirrors the
   // admin /system/* routes below).
   app.get('/system/readiness', (c) => {
@@ -114,14 +114,14 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
     // chat — the embedded brain must resolve a model to answer at all.
     const model = d.brain?.resolvableModel() ?? null;
     checks.push({ id: 'chat', label: 'Chat', ok: model != null, detail: model ?? 'no provider',
-      ...(model ? {} : { hint: 'Run `orca setup` to connect an AI provider.' }) });
+      ...(model ? {} : { hint: 'Run `elowen setup` to connect an AI provider.' }) });
 
-    // tasks — the embedded `orca:` engine is always runnable; any other exec must name an installed CLI.
+    // tasks — the embedded `elowen:` engine is always runnable; any other exec must name an installed CLI.
     const exec = cfg.defaults.exec;
-    const orcaSpec = parseOrcaExec(exec); // embedded engine: runnable iff the provider it names still exists
-    const tasksOk = orcaSpec ? cfg.brain.providers.some((pr) => pr.id === orcaSpec.provider) : execCliInstalled(exec, cfg.providers);
+    const elowenSpec = parseElowenExec(exec); // embedded engine: runnable iff the provider it names still exists
+    const tasksOk = elowenSpec ? cfg.brain.providers.some((pr) => pr.id === elowenSpec.provider) : execCliInstalled(exec, cfg.providers);
     checks.push({ id: 'tasks', label: 'Tasks', ok: tasksOk, detail: exec || 'not set',
-      ...(tasksOk ? {} : { hint: orcaSpec ? 'The provider its executor points at is gone — re-run `orca setup`.' : 'The setup wizard points this at the built-in engine — re-run `orca setup`.' }) });
+      ...(tasksOk ? {} : { hint: elowenSpec ? 'The provider its executor points at is gone — re-run `elowen setup`.' : 'The setup wizard points this at the built-in engine — re-run `elowen setup`.' }) });
 
     // missions — the planner/overseer need either the OpenAI-compatible relay or a configured pilot CLI.
     const relay = d.config.autopilotRelay();
@@ -133,7 +133,7 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
     // memory — optional; enabled when an embedding provider is referenced.
     const memoryConfigured = cfg.embedding.providerId.length > 0; // optional feature → always ok, like platforms
     checks.push({ id: 'memory', label: 'Memory', ok: true, detail: memoryConfigured ? (cfg.embedding.model || 'enabled') : 'disabled (optional)',
-      ...(memoryConfigured ? {} : { hint: 'Optional — enable memory in `orca setup` or Settings → Brain.' }) });
+      ...(memoryConfigured ? {} : { hint: 'Optional — enable memory in `elowen setup` or Settings → Brain.' }) });
 
     // platforms — informational: which messaging plugins are enabled.
     const messaging = ['discord', 'whatsapp'].filter((p) => cfg.plugins.enabled.includes(p));
@@ -168,7 +168,7 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
   });
 
   // Restart one of the two systemd units on demand. Admin-only (mirrors /system/update). The response
-  // goes out BEFORE the restart fires: restarting orca-daemon kills this very process, so the detached
+  // goes out BEFORE the restart fires: restarting elowen-daemon kills this very process, so the detached
   // `systemctl restart --no-block` spawn is deferred a beat and PID 1 owns the actual restart.
   app.post('/system/restart', async (c) => {
     if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
@@ -181,7 +181,7 @@ export function registerConfigRoutes(app: OrcaApp, ctx: RouteContext): void {
     // Per-subscriber tenancy gate: admin/open mode (null) streams everything; a tenant receives only
     // events in its projects. An event with no resolvable project is withheld from tenants — fail closed.
     const allowed = accessibleProjects(c);
-    const visible = (e: OrcaEvent): boolean => {
+    const visible = (e: ElowenEvent): boolean => {
       if (!allowed) return true;
       const pid = eventProjectId(e, eventDeps);
       return pid !== null && allowed.has(pid);

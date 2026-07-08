@@ -18,7 +18,7 @@ const head = () => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { enco
 beforeEach(() => {
   db = openDb(':memory:');
   tasks = new TaskStore(db);
-  root = mkdtempSync(join(tmpdir(), 'orca-snap-'));
+  root = mkdtempSync(join(tmpdir(), 'elowen-snap-'));
   git('init', '-q');
   w('a.md', 'one\n');
   git('add', '-A'); git('commit', '-q', '-m', 'init');

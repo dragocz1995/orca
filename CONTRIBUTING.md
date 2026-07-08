@@ -1,6 +1,6 @@
-# Contributing to Orcasynth
+# Contributing to Elowen
 
-Thanks for your interest in improving Orcasynth! This guide covers how to get set up
+Thanks for your interest in improving Elowen! This guide covers how to get set up
 and what we expect from contributions.
 
 ## Getting started
@@ -61,7 +61,7 @@ running `npm run check` locally before pushing catches most failures early.
 
 - **Development** happens in a source checkout (this repo). Its local SQLite database is a
   throwaway dev database — don't treat it as production data. Build and test here.
-- **Production** runs from the **published npm package** `orcasynth` (installed globally),
+- **Production** runs from the **published npm package** `elowen` (installed globally),
   not from a checkout's `dist/`. So a code change reaches a deployment only after a new
   version is published and the global install is updated — building locally is enough for
   development and review.

@@ -15,7 +15,7 @@ import { PlanJobStore } from '../../src/overseer/planJob.js';
 
 function setup() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/other')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw'); // first user → is_admin
@@ -43,16 +43,16 @@ describe('S51 — spawned agent service token is capability-scoped, not admin', 
   it('allows exactly the worker/overseer/pilot verbs the agent CLI drives', async () => {
     const { app, tasks, agentTok } = setup();
     // A live worker in project 1: in_progress + agent label → project 1 is in the agent working set.
-    tasks.create({ id: 'orca-t1', project_id: 1, title: 'close me' });
-    tasks.setAgent('orca-t1', 'Worker');
-    tasks.setStatus('orca-t1', 'in_progress');
-    // close its task (orca close → PATCH /tasks/:id)
-    expect((await app.request('/tasks/orca-t1', patch(agentTok, { status: 'closed', outcome: 'ok' }))).status).toBe(200);
+    tasks.create({ id: 'elowen-t1', project_id: 1, title: 'close me' });
+    tasks.setAgent('elowen-t1', 'Worker');
+    tasks.setStatus('elowen-t1', 'in_progress');
+    // close its task (elowen close → PATCH /tasks/:id)
+    expect((await app.request('/tasks/elowen-t1', patch(agentTok, { status: 'closed', outcome: 'ok' }))).status).toBe(200);
     // but the PATCH is field-scoped to close: an agent can't rewrite exec/title/etc. on a task in its
     // project (intra-tenant integrity) — those fields are 403 even though the route is reachable.
-    expect((await app.request('/tasks/orca-t1', patch(agentTok, { exec: 'codex:gpt-5.5' }))).status).toBe(403);
-    expect((await app.request('/tasks/orca-t1', patch(agentTok, { title: 'renamed' }))).status).toBe(403);
-    // read-only listings (orca ls / ready / sessions)
+    expect((await app.request('/tasks/elowen-t1', patch(agentTok, { exec: 'codex:gpt-5.5' }))).status).toBe(403);
+    expect((await app.request('/tasks/elowen-t1', patch(agentTok, { title: 'renamed' }))).status).toBe(403);
+    // read-only listings (elowen ls / ready / sessions)
     expect((await app.request('/tasks', auth(agentTok))).status).toBe(200);
     expect((await app.request('/tasks/ready', auth(agentTok))).status).toBe(200);
     expect((await app.request('/sessions', auth(agentTok))).status).toBe(200);
@@ -75,32 +75,32 @@ describe('S51 — spawned agent service token is capability-scoped, not admin', 
   it('lets plan submit + overseer poll/decide through for the agent scope', async () => {
     const { app, planJobs, agentTok } = setup();
     const job = planJobs.create({ goal: 'g', projectId: 1, epicId: null, dryRun: true });
-    // plan submit (orca plan submit) — dryRun job, so it records phases without persisting
+    // plan submit (elowen plan submit) — dryRun job, so it records phases without persisting
     expect((await app.request(`/plan/${job.id}/submit`, post(agentTok, { phases: [{ title: 'p1', type: 'task' }] }))).status).toBe(200);
     // overseer decide on an unknown id is a 404 from the queue, NOT a 403 — i.e. the route is reachable
     expect((await app.request('/missions/m-x/overseer/decide', post(agentTok, { id: 'nope', approve: true }))).status).not.toBe(403);
   });
 
-  it('lets the worker drive `orca ask` (start + poll) but never the human reply', async () => {
+  it('lets the worker drive `elowen ask` (start + poll) but never the human reply', async () => {
     const { app, tasks, agentTok } = setup();
-    tasks.create({ id: 'orca-ask', project_id: 1, title: 'ask me' });
-    tasks.setAgent('orca-ask', 'Worker'); tasks.setStatus('orca-ask', 'in_progress');
-    // post an open question to the autopilot (orca ask) — reachable, not 403
-    expect((await app.request('/tasks/orca-ask/ask', post(agentTok, { text: 'A or B?' }))).status).toBe(200);
+    tasks.create({ id: 'elowen-ask', project_id: 1, title: 'ask me' });
+    tasks.setAgent('elowen-ask', 'Worker'); tasks.setStatus('elowen-ask', 'in_progress');
+    // post an open question to the autopilot (elowen ask) — reachable, not 403
+    expect((await app.request('/tasks/elowen-ask/ask', post(agentTok, { text: 'A or B?' }))).status).toBe(200);
     // long-poll its reply — reachable (404 'no such ask' for a bogus id, NOT 403)
-    expect((await app.request('/tasks/orca-ask/ask/bogus?timeoutMs=1', auth(agentTok))).status).not.toBe(403);
+    expect((await app.request('/tasks/elowen-ask/ask/bogus?timeoutMs=1', auth(agentTok))).status).not.toBe(403);
     // the human reply is off-limits to the agent: it must not answer its own question
-    expect((await app.request('/tasks/orca-ask/ask/bogus/reply', post(agentTok, { text: 'self-answer' }))).status).toBe(403);
+    expect((await app.request('/tasks/elowen-ask/ask/bogus/reply', post(agentTok, { text: 'self-answer' }))).status).toBe(403);
     // the pending-ask inbox is a human surface — an agent token can't enumerate it
     expect((await app.request('/asks/pending', auth(agentTok))).status).toBe(403);
   });
 
-  it('lets the worker fetch its control guide (`orca help`) but not a foreign task\'s', async () => {
+  it('lets the worker fetch its control guide (`elowen help`) but not a foreign task\'s', async () => {
     const { app, tasks, agentTok } = setup();
-    tasks.create({ id: 'orca-guide', project_id: 1, title: 'guide me' });
-    tasks.setAgent('orca-guide', 'Worker'); tasks.setStatus('orca-guide', 'in_progress');
+    tasks.create({ id: 'elowen-guide', project_id: 1, title: 'guide me' });
+    tasks.setAgent('elowen-guide', 'Worker'); tasks.setStatus('elowen-guide', 'in_progress');
     // its own guide is reachable (200), not 403
-    expect((await app.request('/tasks/orca-guide/guide', auth(agentTok))).status).toBe(200);
+    expect((await app.request('/tasks/elowen-guide/guide', auth(agentTok))).status).toBe(200);
     // a task in a project it isn't working in stays forbidden
     tasks.create({ id: 'p2-guide', project_id: 2, title: 'not mine' });
     expect((await app.request('/tasks/p2-guide/guide', auth(agentTok))).status).toBe(403);
@@ -109,13 +109,13 @@ describe('S51 — spawned agent service token is capability-scoped, not admin', 
   it('cannot touch a task in a project it is not actively working in (no admin cross-project bypass)', async () => {
     const { app, tasks, agentTok } = setup();
     // A worker is live in project 1, but a task sits idle in project 2 — outside the working set.
-    tasks.create({ id: 'orca-here', project_id: 1, title: 'mine' });
-    tasks.setAgent('orca-here', 'W'); tasks.setStatus('orca-here', 'in_progress');
+    tasks.create({ id: 'elowen-here', project_id: 1, title: 'mine' });
+    tasks.setAgent('elowen-here', 'W'); tasks.setStatus('elowen-here', 'in_progress');
     tasks.create({ id: 'p2-foreign', project_id: 2, title: 'not mine' });
     expect((await app.request('/tasks/p2-foreign', patch(agentTok, { status: 'closed' }))).status).toBe(403);
     // And /tasks lists only the working-set project's rows, not the foreign one.
     const visible = await (await app.request('/tasks', auth(agentTok))).json() as Array<{ id: string }>;
-    expect(visible.some((t) => t.id === 'orca-here')).toBe(true);
+    expect(visible.some((t) => t.id === 'elowen-here')).toBe(true);
     expect(visible.some((t) => t.id === 'p2-foreign')).toBe(false);
   });
 
@@ -134,22 +134,22 @@ describe('S10 / #5 — session ownership is enforced on every /sessions/:name ro
     const bob = users.create('bob', 'pw');
     db.prepare('INSERT INTO user_projects (user_id, project_id) VALUES (?, 1)').run(bob.id);
     s.tasks.create({ id: 'p2-task', project_id: 2, title: 'foreign' });
-    s.tasks.setAgent('p2-task', 'Foreigner'); // → session orca-Foreigner, project 2
-    s.tmux.setPane('orca-Foreigner', 'secret pane');
+    s.tasks.setAgent('p2-task', 'Foreigner'); // → session elowen-Foreigner, project 2
+    s.tmux.setPane('elowen-Foreigner', 'secret pane');
     return { ...s, bobTok: users.issueToken(bob.id) };
   }
 
   it('a non-admin cannot kill / key / resize / read a session whose task lives in a project they cannot access', async () => {
     const { app, bobTok } = withAssignment();
-    expect((await app.request('/sessions/orca-Foreigner', { method: 'DELETE', ...auth(bobTok) })).status).toBe(403);
-    expect((await app.request('/sessions/orca-Foreigner/keys', post(bobTok, { keys: ['Enter'] }))).status).toBe(403);
-    expect((await app.request('/sessions/orca-Foreigner/resize', post(bobTok, { cols: 80, rows: 24 }))).status).toBe(403);
-    expect((await app.request('/sessions/orca-Foreigner/pane', auth(bobTok))).status).toBe(403);
-    expect((await app.request('/sessions/orca-Foreigner/stream', auth(bobTok))).status).toBe(403);
+    expect((await app.request('/sessions/elowen-Foreigner', { method: 'DELETE', ...auth(bobTok) })).status).toBe(403);
+    expect((await app.request('/sessions/elowen-Foreigner/keys', post(bobTok, { keys: ['Enter'] }))).status).toBe(403);
+    expect((await app.request('/sessions/elowen-Foreigner/resize', post(bobTok, { cols: 80, rows: 24 }))).status).toBe(403);
+    expect((await app.request('/sessions/elowen-Foreigner/pane', auth(bobTok))).status).toBe(403);
+    expect((await app.request('/sessions/elowen-Foreigner/stream', auth(bobTok))).status).toBe(403);
   });
 
   it('admin passes through to every session-control route', async () => {
     const { app, adminTok } = withAssignment();
-    expect((await app.request('/sessions/orca-Foreigner', { method: 'DELETE', ...auth(adminTok) })).status).toBe(200);
+    expect((await app.request('/sessions/elowen-Foreigner', { method: 'DELETE', ...auth(adminTok) })).status).toBe(200);
   });
 });

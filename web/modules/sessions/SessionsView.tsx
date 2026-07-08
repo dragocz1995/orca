@@ -21,7 +21,7 @@ export function SessionsView() {
   const params = useSearchParams();
   const { t } = useTranslation();
   const [openTerm, setOpenTerm] = useState<string | null>(null);
-  const [density, setDensity] = usePersistentState<'comfortable' | 'compact'>('orca.sessions.density', 'comfortable', ['comfortable', 'compact']);
+  const [density, setDensity] = usePersistentState<'comfortable' | 'compact'>('elowen.sessions.density', 'comfortable', ['comfortable', 'compact']);
 
   const compact = density === 'compact';
 

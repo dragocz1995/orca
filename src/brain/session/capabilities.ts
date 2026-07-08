@@ -8,21 +8,21 @@ import { BASH_PERMISSION_TOOLS, bashAlwaysPattern, resolveToolPermission, type A
  *  to it, since automation IS the operator). */
 type SessionKind =
   /** The operator's own authenticated chat (web owner chat / owner DM), or their owner-authored
-   *  automation (cron) — full orca_* control-plane tools + the owner API token. This is the ONLY kind
+   *  automation (cron) — full elowen_* control-plane tools + the owner API token. This is the ONLY kind
    *  that ever receives them; a SHARED platform channel never resolves here, whatever role its sender
    *  holds. */
   | 'owner-chat'
   /** A shared platform channel whose sender holds the operator's admin role — elevated to all-project
-   *  Policy + the full plugin toolset, but STILL without orca_* tools and without the owner API token
+   *  Policy + the full plugin toolset, but STILL without elowen_* tools and without the owner API token
    *  (an admin Discord role is not the verified owner). Tool-wise identical to `foreign-channel`; the
    *  distinct label keeps the trust level auditable and stops the channel-keyed session from ever being
    *  mislabelled owner-chat and leaking the owner toolset to a later non-admin sender. */
   | 'trusted-channel'
-  /** A shared platform channel driven by OTHER, role-scoped people — the owner's full-scope orca_* API
+  /** A shared platform channel driven by OTHER, role-scoped people — the owner's full-scope elowen_* API
    *  tools are withheld; only Policy-guarded plugin tools load. */
   | 'foreign-channel'
-  /** An orca-exec task worker — its one control-plane tool (close-own-task) is baked in by the
-   *  caller; plugin tools ride along, but never the owner's orca_* API tools. */
+  /** An elowen-exec task worker — its one control-plane tool (close-own-task) is baked in by the
+   *  caller; plugin tools ride along, but never the owner's elowen_* API tools. */
   | 'task-worker';
 
 /** What a plugin tool call produced — the payload the `tools.call.after` hook receives. `params` is the
@@ -36,11 +36,11 @@ export interface PluginToolResultEvent { tool: string; params: unknown; result: 
 export interface CapabilitySpec {
   kind: SessionKind;
   /** Built lazily so the owner's API token is never even minted for sessions that must not have it. */
-  orcaTools?: () => ToolDefinition[];
+  elowenTools?: () => ToolDefinition[];
   /** PRIVATE per-user long-term memory tools — composed for every interactive session (owner-chat + all
    *  channel kinds), NOT task-workers. Each memory tool re-checks the acting identity at execute time and
-   *  keys on a resolved orcaUserId, so a caller only ever reaches their OWN memory and an unlinked/
-   *  anonymous sender (no orcaUserId) or a task-worker (no identity) gets a locked no-op. */
+   *  keys on a resolved elowenUserId, so a caller only ever reaches their OWN memory and an unlinked/
+   *  anonymous sender (no elowenUserId) or a task-worker (no identity) gets a locked no-op. */
   memoryTools?: () => ToolDefinition[];
   pluginTools: ToolDefinition[];
   /** Observer fired after a PERMITTED plugin tool's execute resolves (never for a policy-denied call or
@@ -83,7 +83,7 @@ function gateToolAccess(tool: ToolDefinition, onToolResult?: (e: PluginToolResul
 const refused = (text: string) => ({ content: [{ type: 'text' as const, text }], details: {} });
 
 /** Wrap ANY session tool with the granular permission gate — THE single choke point every tool call
- *  passes (built-in orca_* and memory_* tools and plugin tools alike; composeSessionTools applies it
+ *  passes (built-in elowen_* and memory_* tools and plugin tools alike; composeSessionTools applies it
  *  to the whole composed set). The turn's rules resolve to allow/ask/deny (resolveToolPermission — last matching
  *  rule wins): `deny` returns an error result naming the rule; `ask` blocks on the turn's approval
  *  channel where a human is attached (owner CLI/web chat) and, everywhere else (channel/cron/subagent
@@ -139,7 +139,7 @@ function gatePermissions(tool: ToolDefinition): ToolDefinition {
 }
 
 /** Compose the tool set for one session. THE security invariant lives here: `trusted-channel`,
- *  `foreign-channel` and `task-worker` sessions NEVER receive the owner's orca_* control-plane tools —
+ *  `foreign-channel` and `task-worker` sessions NEVER receive the owner's elowen_* control-plane tools —
  *  ONLY `owner-chat` does. A shared channel sender (even one holding the admin role) reaching the
  *  owner's full-scope API token would be a privilege escalation. Plugin tools are always composed but
  *  wrapped with the per-turn access gate (see gateToolAccess) — the effective allow/deny is decided at
@@ -148,20 +148,20 @@ function gatePermissions(tool: ToolDefinition): ToolDefinition {
  *  (gatePermissions) — the single choke point the per-user allow/ask/deny rules act on. */
 export function composeSessionTools(spec: CapabilitySpec): ToolDefinition[] {
   const ownerChat = spec.kind === 'owner-chat';
-  const orcaTools = ownerChat ? (spec.orcaTools?.() ?? []) : [];
+  const elowenTools = ownerChat ? (spec.elowenTools?.() ?? []) : [];
   // Memory tools ride every INTERACTIVE session (owner-chat + all channel kinds): memory is per-user, so
   // any linked sender reaches THEIR OWN memory from any surface (web/CLI chat or a Discord channel). The
-  // tools re-check identity at execute time and key on the resolved orcaUserId, so an unlinked/anonymous
+  // tools re-check identity at execute time and key on the resolved elowenUserId, so an unlinked/anonymous
   // sender gets a locked no-op and no one can reach another user's memory. Task-workers (no identity)
   // never compose them.
   const memoryTools = spec.kind !== 'task-worker' ? (spec.memoryTools?.() ?? []) : [];
   const pluginTools = spec.pluginTools.map((t) => gateToolAccess(t, spec.onToolResult));
-  return [...orcaTools, ...memoryTools, ...pluginTools].map(gatePermissions);
+  return [...elowenTools, ...memoryTools, ...pluginTools].map(gatePermissions);
 }
 
 /** The names a turn's ToolPolicy is allowed to HIDE from the model, given the full tool set and which of
  *  them are plugin tools. Mirrors the execute-time gate's scope with one deliberate asymmetry:
- *   - a role's `allow`-list narrows ONLY plugin tools — built-in `orca_*` / `memory_*` (composed per
+ *   - a role's `allow`-list narrows ONLY plugin tools — built-in `elowen_*` / `memory_*` (composed per
  *     SessionKind) stay visible, so a channel never loses its core abilities to a narrow role grant;
  *   - a user's own `deny`-list (their `disabled_tools`) may hide ANY tool it names, plugin or not.
  *  No policy → the full set is visible. */

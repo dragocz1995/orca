@@ -12,7 +12,7 @@ import type { BrainProviderType } from '../../store/configStore.js';
 import type { WizardCtx } from './types.js';
 import type { ReadinessCheck } from '../doctor.js';
 
-/** Non-interactive `orca setup` — the same daemon-API onboarding as the wizard, driven entirely by flags /
+/** Non-interactive `elowen setup` — the same daemon-API onboarding as the wizard, driven entirely by flags /
  *  env instead of prompts. Lets agents and CI reach a working setup headlessly (and is how the whole flow
  *  is E2E-tested, since the modal TUI needs a real TTY). Prints a readiness matrix and exits non-zero on a
  *  hard failure (bad/missing required input), so a caller can branch on it. */
@@ -29,7 +29,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
   // ── Account ──────────────────────────────────────────────────────────────────────────────────
   const first = await isFirstRun(fetch, base);
   if (first) {
-    if (!o.adminPassword) return die('First run needs an admin password: --admin-password <pw> (or ORCA_ADMIN_PASSWORD).');
+    if (!o.adminPassword) return die('First run needs an admin password: --admin-password <pw> (or ELOWEN_ADMIN_PASSWORD).');
     try { ctx.token = await createAdmin(fetch, base, { username: o.adminUser, password: o.adminPassword }); }
     catch (e) { return die(`Creating the admin failed: ${msg(e)}`); }
     ctx.answers.account = { username: o.adminUser, created: true, signedIn: true };
@@ -71,7 +71,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
 
     const providers = await getBrainProviders(ctx);
     // Idempotent: a provider for the same endpoint (type + baseUrl) is UPDATED IN PLACE, not duplicated.
-    // Re-running `orca setup -y --provider …` used to mint openai-2, openai-3… each time. Reusing its id
+    // Re-running `elowen setup -y --provider …` used to mint openai-2, openai-3… each time. Reusing its id
     // lets the filter actually replace it; omitting apiKey on re-save keeps the stored key (config store
     // preserves it). A keyless re-run (model === '') must NOT wipe the existing model list — keep it.
     const existing = providers.find((x) => x.type === type && x.baseUrl === baseUrl);
@@ -89,7 +89,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
     ok('ai', model ? `${label} (${model})` : `${label} — saved keyless (add --api-key/--model later to make it answer)`);
 
     if (model) {
-      if (await putEmbeddedExec(ctx, id, model)) ok('tasks', `built-in engine → orca:${id}/${model}`);
+      if (await putEmbeddedExec(ctx, id, model)) ok('tasks', `built-in engine → elowen:${id}/${model}`);
       else warn('tasks', 'couldn\'t wire the built-in task engine (config save failed).');
     }
     // Autopilot relay needs a real openai key + model; skip for keyless/model-less saves.
@@ -149,7 +149,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
   // and running the test against it would fail and exit 1 on a deliberate state (the wizard skips it too).
   if (o.provider && !o.skipTest && aiHasModel) {
     const r = await apiJson<{ ok?: boolean; model?: string; error?: string }>(ctx, 'POST', '/brain/test', aiProviderId ? { providerId: aiProviderId } : {});
-    if (r.data?.ok) ok('chat', `Orca answered (${r.data.model ?? '?'})`);
+    if (r.data?.ok) ok('chat', `Elowen answered (${r.data.model ?? '?'})`);
     else { chatFailed = true; warn('chat', `agent didn't answer: ${r.data?.error ?? `HTTP ${r.status}`}`); }
   }
 
@@ -165,7 +165,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
     }
   }
   if (chatFailed) { console.error('\nSetup saved, but the agent did not answer — fix the provider / key / model above (or pass --model) and re-run.'); process.exit(1); }
-  console.log(`\nSetup complete. Talk to Orca: orca chat   ·   Web UI: ${webBaseUrl()}`);
+  console.log(`\nSetup complete. Talk to Elowen: elowen chat   ·   Web UI: ${webBaseUrl()}`);
 }
 
 // ── flags ────────────────────────────────────────────────────────────────────────────────────────
@@ -203,19 +203,19 @@ export function parseFlags(args: string[], env: NodeJS.ProcessEnv): HeadlessOpts
   const has = (name: string): boolean => args.includes(name);
   const memory = (val('--memory') ?? 'skip') as HeadlessOpts['memory'];
   return {
-    adminUser: val('--admin-user') ?? env.ORCA_ADMIN_USER ?? 'admin',
-    adminPassword: val('--admin-password') ?? env.ORCA_ADMIN_PASSWORD,
+    adminUser: val('--admin-user') ?? (env.ELOWEN_ADMIN_USER ?? env.ORCA_ADMIN_USER) ?? 'admin',
+    adminPassword: val('--admin-password') ?? (env.ELOWEN_ADMIN_PASSWORD ?? env.ORCA_ADMIN_PASSWORD),
     // Project registration is opt-in: only when `--project <path>` is passed. It used to default to
-    // process.cwd(), which registered a random directory (or hard-failed a bare `orca setup -y` on an
+    // process.cwd(), which registered a random directory (or hard-failed a bare `elowen setup -y` on an
     // already-set-up box) that nobody asked for.
     project: has('--no-project') ? undefined : val('--project'),
     projectSlug: val('--project-slug'),
     provider: val('--provider'),
-    apiKey: val('--api-key') ?? env.ORCA_API_KEY,
+    apiKey: val('--api-key') ?? (env.ELOWEN_API_KEY ?? env.ORCA_API_KEY),
     baseUrl: val('--base-url'),
     model: val('--model'),
     memory: (MEMORY_MODES as readonly string[]).includes(memory) ? memory : 'skip',
-    memoryKey: val('--memory-key') ?? env.ORCA_OPENROUTER_KEY,
+    memoryKey: val('--memory-key') ?? (env.ELOWEN_OPENROUTER_KEY ?? env.ORCA_OPENROUTER_KEY),
     embeddingModel: val('--embedding-model') ?? RECOMMENDED_EMBEDDING_MODEL,
     skipTest: has('--skip-test'),
     lsp: has('--lsp'),

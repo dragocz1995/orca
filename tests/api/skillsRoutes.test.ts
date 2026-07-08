@@ -17,15 +17,15 @@ import { UserProjectStore } from '../../src/store/userProjectStore.js';
 const skillMd = (name: string, description: string) => `---\nname: ${name}\ndescription: ${description}\n---\n\nBody of ${name}.\n`;
 
 function setup() {
-  const dataRoot = mkdtempSync(join(tmpdir(), 'orca-skills-data-'));
+  const dataRoot = mkdtempSync(join(tmpdir(), 'elowen-skills-data-'));
   // A plugin scan root shaped like the real one: <root>/skills is the plugin folder, its bundled
   // .md skills live one level deeper in <root>/skills/skills.
-  const pluginsRoot = mkdtempSync(join(tmpdir(), 'orca-skills-plugins-'));
+  const pluginsRoot = mkdtempSync(join(tmpdir(), 'elowen-skills-plugins-'));
   const bundledDir = join(pluginsRoot, 'skills', 'skills');
   mkdirSync(bundledDir, { recursive: true });
   writeFileSync(join(bundledDir, 'greeting.md'), skillMd('greeting', 'How to greet.'));
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw');
   const amy = users.create('amy', 'pw');

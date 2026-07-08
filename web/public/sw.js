@@ -1,4 +1,4 @@
-// Orca service worker: renders web-push notifications and runs their inline actions. The daemon
+// Elowen service worker: renders web-push notifications and runs their inline actions. The daemon
 // (src/push/) builds every payload, so there is no i18n here — text is rendered verbatim. The
 // action→request mapping mirrors web/lib/pushClient.ts `actionToRequest`; keep the two in sync.
 const SW_VERSION = '1';
@@ -17,7 +17,7 @@ function parsePayload(data) {
 self.addEventListener('push', (event) => {
   const p = parsePayload(event.data);
   if (!p) {
-    event.waitUntil(self.registration.showNotification('Orca', { body: 'Nová událost.' }));
+    event.waitUntil(self.registration.showNotification('Elowen', { body: 'Nová událost.' }));
     return;
   }
   event.waitUntil(self.registration.showNotification(p.title, {
@@ -25,8 +25,8 @@ self.addEventListener('push', (event) => {
     tag: p.missionId || undefined, // collapse repeat notifications about the same mission
     data: p,
     actions: Array.isArray(p.actions) ? p.actions : [],
-    badge: '/orca-logo.png',
-    icon: '/orca-logo.png',
+    badge: '/elowen-logo.png',
+    icon: '/elowen-logo.png',
   }));
 });
 

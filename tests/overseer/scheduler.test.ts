@@ -14,7 +14,7 @@ import { FakeClock } from '../../src/shared/clock.js';
 import { Scheduler } from '../../src/overseer/scheduler.js';
 
 function setup(now: number) {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const tmux = new FakeTmuxDriver();
   const spawn = new SpawnService({ tmux, agents: new AgentStore(db) });
@@ -30,7 +30,7 @@ describe('Scheduler', () => {
     await scheduler.tick();
     expect(tasks.get('a')?.status).toBe('in_progress');
     expect(tasks.get('a')?.scheduled_at).toBeNull(); // consumed
-    expect(await tmux.list()).toContain('orca-Nova');
+    expect(await tmux.list()).toContain('elowen-Nova');
   });
 
 
@@ -76,7 +76,7 @@ describe('Scheduler', () => {
     // agents would clobber each other's edits and muddle per-task change attribution), so each tick
     // launches at most one; the rest stay open and fire on later ticks once the checkout frees.
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     const tmux = new FakeTmuxDriver();
     let n = 0;
@@ -98,7 +98,7 @@ describe('Scheduler', () => {
     // If the task were still 'open' at that point, a concurrent mission/scheduler tick computing `busy`
     // from the in_progress list would miss it and launch a second agent into the same shared checkout.
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     const tmux = new FakeTmuxDriver();
     let statusAtAwait: string | undefined; // the task's status at the moment the lock body (first await) runs
@@ -116,7 +116,7 @@ describe('Scheduler', () => {
     // that and still launch project 2's due task; the fresh per-task read must hold it instead.
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
     const db = openDb(':memory:');
-    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
     const tasks = new TaskStore(db);
     const tmux = new FakeTmuxDriver();
@@ -138,7 +138,7 @@ describe('Scheduler', () => {
   it('launches tasks in DIFFERENT projects concurrently — separate checkouts never block each other', async () => {
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
     const db = openDb(':memory:');
-    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
     const tasks = new TaskStore(db);
     const tmux = new FakeTmuxDriver();
@@ -152,7 +152,7 @@ describe('Scheduler', () => {
 
   it('restores the schedule (and status open) when the spawn fails (O9)', async () => {
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     const failingSpawn = { launch: async () => { throw new Error('tmux down'); } };
     const scheduler = new Scheduler({ tasks, spawn: failingSpawn as never, bus: new EventBus(), projects: new ProjectStore(db), fallback: { program: 'claude-code', model: 'sonnet' }, nameAgent: () => 'Nova', clock: new FakeClock(t0 + 60_000) });
@@ -166,7 +166,7 @@ describe('Scheduler', () => {
     // Regression: a task in_progress without a `base:` label makes snapshotTaskChanges a no-op, so
     // head_sha stays null. The raw HEAD-vs-null compare would publish `change` every tick forever; the
     // re-read of the actually-stamped head_sha must keep it silent.
-    const repo = mkdtempSync(join(tmpdir(), 'orca-sched-'));
+    const repo = mkdtempSync(join(tmpdir(), 'elowen-sched-'));
     const git = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
     git('init', '-q'); git('config', 'user.email', 't@t.io'); git('config', 'user.name', 'T');
     writeFileSync(join(repo, 'f.txt'), 'v0'); git('add', '-A'); git('commit', '-q', '-m', 'c0');
@@ -184,7 +184,7 @@ describe('Scheduler', () => {
   });
 
   it('publishes a single change and refreshes the snapshot when a running task lands a new commit', async () => {
-    const repo = mkdtempSync(join(tmpdir(), 'orca-sched-'));
+    const repo = mkdtempSync(join(tmpdir(), 'elowen-sched-'));
     const git = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
     git('init', '-q'); git('config', 'user.email', 't@t.io'); git('config', 'user.name', 'T');
     writeFileSync(join(repo, 'f.txt'), 'v0'); git('add', '-A'); git('commit', '-q', '-m', 'c0');
@@ -209,7 +209,7 @@ describe('Scheduler', () => {
   it('launches due autostart tasks across every project', async () => {
     const t0 = Date.parse('2026-06-17T12:00:00.000Z');
     const db = openDb(':memory:');
-    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
     const tasks = new TaskStore(db);
     const tmux = new FakeTmuxDriver();
@@ -220,6 +220,6 @@ describe('Scheduler', () => {
     await scheduler.tick();
     expect(tasks.get('p1t')?.status).toBe('in_progress');
     expect(tasks.get('p2t')?.status).toBe('in_progress'); // a different project's task also fired
-    expect(tmux.commandFor('orca-N1')).toContain('/p2'); // project 2 launched in its own path
+    expect(tmux.commandFor('elowen-N1')).toContain('/p2'); // project 2 launched in its own path
   });
 });

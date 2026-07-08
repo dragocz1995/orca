@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 
-/** The two units `orca install` provisions. Shared so the menu and the updater drive the same names. */
-export const SERVICES = ['orca-daemon', 'orca-web'];
+/** The two units `elowen install` provisions. Shared so the menu and the updater drive the same names. */
+export const SERVICES = ['elowen-daemon', 'elowen-web'];
 
 /** Run a command, resolving its exit code + stdout (never rejects). */
 export function runCmd(cmd: string, args: string[]): Promise<{ code: number; stdout: string }> {
@@ -20,7 +20,7 @@ export function systemctl(...args: string[]): Promise<{ code: number; stdout: st
   return asRoot ? runCmd('systemctl', args) : runCmd('sudo', ['systemctl', ...args]);
 }
 
-/** Whether all ORCA units report active. */
+/** Whether all ELOWEN units report active. */
 export async function servicesActive(): Promise<boolean> {
   const r = await systemctl('is-active', ...SERVICES);
   const states = r.stdout.trim().split('\n');

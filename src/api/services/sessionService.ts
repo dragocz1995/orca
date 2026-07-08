@@ -43,7 +43,7 @@ export function createSessionService(d: ServerDeps, gitLock: KeyedMutex, pathFor
     const cwd = checkoutOf(resolver, task);
     if (checkoutBusy(resolver, d.tasks.list({ status: 'in_progress' }), cwd)) return { ok: false, reason: 'busy', message: 'checkout busy' };
     const agentName = uniqueName();
-    d.tasks.setAgent(taskId, agentName);     // link task → orca-<agentName> session for run controls
+    d.tasks.setAgent(taskId, agentName);     // link task → elowen-<agentName> session for run controls
     d.tasks.markStarted(taskId, d.clock.now()); // precise spawn time → correct usage attribution under concurrency
     d.tasks.setStatus(taskId, 'in_progress'); // claim synchronously after the fresh check above
     // Baseline for the per-task change snapshot, under the checkout lock so it lands after any in-flight commit.

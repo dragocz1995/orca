@@ -3,7 +3,7 @@ import type { Mock } from 'vitest';
 import { runLspStep, TS_SERVER_COMMAND } from '../../../src/cli/setup/steps/lsp.js';
 import type { WizardCtx } from '../../../src/cli/setup/types.js';
 
-// The step drives Orca's prompt adapter; only `select` matters here (install / skip / back).
+// The step drives Elowen's prompt adapter; only `select` matters here (install / skip / back).
 vi.mock('../../../src/cli/ui/prompts.js', () => ({
   select: vi.fn(),
   spinner: () => ({ start: () => {}, stop: () => {} }),

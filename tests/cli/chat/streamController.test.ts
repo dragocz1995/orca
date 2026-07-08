@@ -25,7 +25,7 @@ describe('streamController — passive idle rollover', () => {
     const ac = new AbortController();
     const rt = {
       client,
-      // Last turn is an orca reply → passive client (no fresh local `you` turn), the refetch path.
+      // Last turn is an elowen reply → passive client (no fresh local `you` turn), the refetch path.
       view: fromHistory([{ role: 'assistant', text: 'old answer' }]),
       childView: null,
       streamAc: ac,
@@ -47,7 +47,7 @@ describe('streamController — passive idle rollover', () => {
 
     // The buffered text must NOT have folded into the stale pre-rollover view (it would be discarded).
     const hasStreamed = (): boolean => rt.view.turns.some(
-      (t) => t.role === 'orca' && t.segments.some((s) => s.kind === 'text' && s.text.includes('streamed')));
+      (t) => t.role === 'elowen' && t.segments.some((s) => s.kind === 'text' && s.text.includes('streamed')));
     expect(hasStreamed()).toBe(false);
 
     // The refetched transcript lands (fresh conversation — only the just-sent prompt).

@@ -4,7 +4,7 @@ import { QrCode, CheckCircle2, RefreshCw, Unlink } from 'lucide-react';
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import { useTranslation } from '../../lib/i18n';
 import type { WhatsAppPairing } from '../../lib/types';
 
@@ -18,14 +18,14 @@ export function WhatsAppPairSection() {
   const [confirmUnpair, setConfirmUnpair] = useState(false);
 
   const refreshStatus = async () => {
-    try { const s = await orcaClient.whatsappPairing(); setConnected(s.connected); }
+    try { const s = await elowenClient.whatsappPairing(); setConnected(s.connected); }
     catch { setConnected(null); }
   };
   useEffect(() => { void refreshStatus(); }, []);
 
   const doUnpair = async () => {
     setConfirmUnpair(false);
-    try { await orcaClient.whatsappUnpair(); } catch { /* ignore — status refresh reflects reality */ }
+    try { await elowenClient.whatsappUnpair(); } catch { /* ignore — status refresh reflects reality */ }
     await refreshStatus();
   };
 
@@ -66,7 +66,7 @@ function PairModal({ onClose }: { onClose: () => void }) {
     let alive = true;
     const poll = async () => {
       try {
-        const s = await orcaClient.whatsappPairing();
+        const s = await elowenClient.whatsappPairing();
         if (!alive) return;
         setState(s); setError(false);
         if (s.connected) stop();
@@ -74,7 +74,7 @@ function PairModal({ onClose }: { onClose: () => void }) {
     };
     // Kick a fresh pairing attempt (new QR / phone code), then poll until linked.
     void (async () => {
-      try { await orcaClient.whatsappPair(); } catch { if (alive) setError(true); }
+      try { await elowenClient.whatsappPair(); } catch { if (alive) setError(true); }
       await poll();
     })();
     timer.current = setInterval(poll, 1500);
@@ -82,7 +82,7 @@ function PairModal({ onClose }: { onClose: () => void }) {
   }, []);
 
   const refresh = async () => {
-    try { await orcaClient.whatsappPair(); setError(false); } catch { setError(true); }
+    try { await elowenClient.whatsappPair(); setError(false); } catch { setError(true); }
   };
 
   const connected = state?.connected === true;

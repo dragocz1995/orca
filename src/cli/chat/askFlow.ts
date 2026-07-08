@@ -130,7 +130,7 @@ export class AskChoiceDock implements Component, Focusable {
     const progress = `${this.opts.index + 1}/${this.opts.total}`;
     return [
       top,
-      row(`  ${open(theme.text, 'Orca needs a decision')}  ${open(theme.faint, this.opts.question.header || 'ask_user_question')}  ${open(theme.faint, progress)}`),
+      row(`  ${open(theme.text, 'Elowen needs a decision')}  ${open(theme.faint, this.opts.question.header || 'ask_user_question')}  ${open(theme.faint, progress)}`),
       // The question wraps across as many rows as it needs — truncating it made long questions unanswerable.
       ...wrapTextWithAnsi(this.opts.question.question, Math.max(1, innerWidth - 4)).map((line) => row(`  ${open(theme.text, line)}`)),
       row(''),

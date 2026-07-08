@@ -47,12 +47,12 @@ async function build(opts: { exec?: string } = {}) {
 }
 
 beforeEach(() => {
-  base = mkdtempSync(join(tmpdir(), 'orca-fb-'));
+  base = mkdtempSync(join(tmpdir(), 'elowen-fb-'));
   repo = join(base, 'project'); mkdirSync(repo);
   binDir = join(base, 'bin'); mkdirSync(binDir);
   origPath = process.env.PATH; process.env.PATH = `${binDir}:${origPath}`;
   git(repo, 'init', '-q', '-b', 'main');
-  git(repo, 'config', 'user.email', 'test@orca.dev'); git(repo, 'config', 'user.name', 'Orca Test');
+  git(repo, 'config', 'user.email', 'test@elowen.dev'); git(repo, 'config', 'user.name', 'Elowen Test');
   writeFileSync(join(repo, 'README.md'), '# repo\n'); git(repo, 'add', '-A'); git(repo, 'commit', '-q', '-m', 'init');
 });
 afterEach(() => { process.env.PATH = origPath; rmSync(base, { recursive: true, force: true }); });

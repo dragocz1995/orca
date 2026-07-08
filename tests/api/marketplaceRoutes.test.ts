@@ -26,7 +26,7 @@ function writePlugin(dir: string, name: string): void {
 
 /** Lay out a bundled scan root (memory) + a user scan root (weather) so DELETE can branch on `source`. */
 function pluginDirsFixture(): string[] {
-  const base = mkdtempSync(join(tmpdir(), 'orca-mp-'));
+  const base = mkdtempSync(join(tmpdir(), 'elowen-mp-'));
   const bundled = join(base, 'bundled');
   const user = join(base, 'user');
   writePlugin(bundled, 'memory');
@@ -36,7 +36,7 @@ function pluginDirsFixture(): string[] {
 
 function setup(marketplace?: Record<string, unknown>, pluginDirs: string[] = []) {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw');
   const amy = users.create('amy', 'pw');

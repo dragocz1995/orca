@@ -15,26 +15,26 @@ export interface MemoryToolDeps {
 }
 
 /** Message returned when a non-owner turn tries to touch memory. Memory is per-user and PRIVATE —
- *  reachable only from your own Orca chat or your linked platform account. */
-const LOCKED = 'Memory is only available to you — in your own Orca chat or from your linked platform account.';
+ *  reachable only from your own Elowen chat or your linked platform account. */
+const LOCKED = 'Memory is only available to you — in your own Elowen chat or from your linked platform account.';
 
-/** The PI tool text-result shape (mirrors orcaTools). Errors are surfaced as text, never thrown. */
+/** The PI tool text-result shape (mirrors elowenTools). Errors are surfaced as text, never thrown. */
 function text(t: string) {
   return { content: [{ type: 'text' as const, text: t }], details: {} };
 }
 
-/** The acting user's Orca ACCOUNT id behind THIS turn, or null when memory must stay locked. Read at
+/** The acting user's Elowen ACCOUNT id behind THIS turn, or null when memory must stay locked. Read at
  *  EXECUTE time — never closed over at build time. The invariant: memory is per-user + private — EACH
- *  user reaches only their OWN memory, from their own Orca chat OR their linked platform account (same
- *  memory across surfaces). The guard is a resolved `orcaUserId`: it keys memory on the verified account,
+ *  user reaches only their OWN memory, from their own Elowen chat OR their linked platform account (same
+ *  memory across surfaces). The guard is a resolved `elowenUserId`: it keys memory on the verified account,
  *  so a user only ever touches their own — NOT another user's, NOT the operator's. A task-worker has
- *  currentIdentity()===null and an unlinked/anonymous platform sender has no orcaUserId → both locked.
+ *  currentIdentity()===null and an unlinked/anonymous platform sender has no elowenUserId → both locked.
  *  (Gating on `owner` here would have wrongly restricted memory to the single instance operator, locking
  *  every other user out of their own memory.) Never keys on the raw `userId` (the platform id). */
 function actingUserId(): number | null {
   const id = currentIdentity();
-  if (!id || id.orcaUserId == null) return null;
-  return Number.isFinite(id.orcaUserId) ? id.orcaUserId : null;
+  if (!id || id.elowenUserId == null) return null;
+  return Number.isFinite(id.elowenUserId) ? id.elowenUserId : null;
 }
 
 /** One-line rendering of a memory for the model to reason over. */
@@ -253,10 +253,10 @@ function memoryRecategorize(d: MemoryToolDeps) {
 }
 
 /** The per-user private long-term memory toolset. EVERY tool re-derives the acting user from
- *  currentIdentity() at execute time and refuses any turn without a resolved orcaUserId (an unlinked/
+ *  currentIdentity() at execute time and refuses any turn without a resolved elowenUserId (an unlinked/
  *  anonymous sender or a task-worker) — the build-time caller must NEVER close over a user id (that would
  *  leak into another sender's turn in a shared channel). Composed into every interactive session (see
- *  composeSessionTools); the per-tool orcaUserId check is the real guard, keying each user to their own. */
+ *  composeSessionTools); the per-tool elowenUserId check is the real guard, keying each user to their own. */
 export function buildMemoryTools(d: MemoryToolDeps) {
   return [
     memorySearch(d), memoryAdd(d), memoryUpdate(d), memoryMerge(d), memoryDelete(d), memoryListRecent(d),

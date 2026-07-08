@@ -32,24 +32,24 @@ export function taskAgentName(task: Pick<Task, 'labels'>): string | null {
   return label ? label.slice(AGENT_PREFIX.length) : null;
 }
 
-/** The tmux session name (`orca-<agent>`) for a task's agent, or null if it has none. */
+/** The tmux session name (`elowen-<agent>`) for a task's agent, or null if it has none. */
 export function taskSessionName(task: Pick<Task, 'labels'>): string | null {
   const agent = taskAgentName(task);
-  return agent ? `orca-${agent}` : null;
+  return agent ? `elowen-${agent}` : null;
 }
 
-/** The friendly agent name from a session id: `orca-Iris` → `Iris`. Falls back to the raw id. */
+/** The friendly agent name from a session id: `elowen-Iris` → `Iris`. Falls back to the raw id. */
 export function agentDisplayName(session: string): string {
-  return session.replace(/^orca-/, '') || session;
+  return session.replace(/^elowen-/, '') || session;
 }
 
-/** The epic id a mission governs: `m-orca-1234` → `orca-1234` (mission ids are `m-${epicId}`). */
+/** The epic id a mission governs: `m-elowen-1234` → `elowen-1234` (mission ids are `m-${epicId}`). */
 export function missionEpicId(missionId: string): string {
   return missionId.replace(/^m-/, '');
 }
 
 /** A human label for a live session: an overseer/pilot driving a mission shows its epic title (the
- *  goal a human wrote) rather than the opaque `orca-overseer-m-…` id; everything else falls back to
+ *  goal a human wrote) rather than the opaque `elowen-overseer-m-…` id; everything else falls back to
  *  the friendly agent name. Resolved against the task list so it tracks renames automatically. */
 export function sessionLabel(info: Pick<SessionInfo, 'name' | 'role' | 'missionId'>, tasks: Task[]): string {
   if (info.missionId && (info.role === 'overseer' || info.role === 'pilot')) {
@@ -138,11 +138,11 @@ export function lastClosedTask(tasks: Task[]): Task | null {
   return closed.reduce((a, b) => ((parseTs(b.closed_at) ?? 0) > (parseTs(a.closed_at) ?? 0) ? b : a));
 }
 
-/** Resolve the task a live session (`orca-<agent>`) belongs to. Agent names come from a small
+/** Resolve the task a live session (`elowen-<agent>`) belongs to. Agent names come from a small
  *  pool and get reused across tasks, so prefer an in_progress match, then the most recent. */
 export function taskForSession(tasks: Task[], sessionName: string): Task | undefined {
-  if (!sessionName.startsWith('orca-')) return undefined;
-  const label = `${AGENT_PREFIX}${sessionName.slice('orca-'.length)}`;
+  if (!sessionName.startsWith('elowen-')) return undefined;
+  const label = `${AGENT_PREFIX}${sessionName.slice('elowen-'.length)}`;
   const matches = tasks.filter((t) => (t.labels ?? []).includes(label));
   if (matches.length <= 1) return matches[0];
   return matches.find((t) => t.status === 'in_progress')

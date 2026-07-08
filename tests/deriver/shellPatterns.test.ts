@@ -35,13 +35,13 @@ describe('detectAgentPrompt', () => {
   // dialog: its footer reads "enter submit … esc dismiss". The fixture embeds an incidental "4. Run
   // the web app" line in scrollback above the list to prove the parser only takes the contiguous
   // 1..N run directly above the footer.
-  const OC_QUESTION = `  ┃  web/deploy/orca-nginx.conf.example:12:#   4. Run the web app on :4500
+  const OC_QUESTION = `  ┃  web/deploy/elowen-nginx.conf.example:12:#   4. Run the web app on :4500
   ┃
   ┃  # Questions
   ┃
   ┃  Rozpor v portu web UI: which port is canonical?
   ┃
-  ┃  1. :4500 (uprav package.json)                                          ~/orca:main
+  ┃  1. :4500 (uprav package.json)                                          ~/elowen:main
   ┃     Změnit web/package.json start na next start -p 4500.
   ┃  2. :4500 (uprav README + WEB.md)
   ┃     Ponechat package.json, sjednotit docs.

@@ -38,13 +38,16 @@ export function mouseClick(data: string): { x: number; y: number } | null {
 
 const bgFill = (text: string, width: number, bgCode = chatTheme().inputBg): string => `\x1b[${bgCode}m${padAnsi(text, width)}\x1b[0m`;
 
-const ORCA_ART = [
-  '█████ █████ █████  ███ ',
-  '█   █ █   █ █     █   █',
-  '█   █ ████  █     █████',
-  '█   █ █  █  █     █   █',
-  '█████ █   █ █████ █   █',
+const ELOWEN_ART = [
+  '█████ █     █████ █   █ █████ █   █',
+  '█     █     █   █ █   █ █     ██  █',
+  '████  █     █   █ █ █ █ ████  █ █ █',
+  '█     █     █   █ ██ ██ █     █  ██',
+  '█████ █████ █████ █   █ █████ █   █',
 ];
+/** Column where the wordmark's two-tone split falls (faint left half → bright right half). Half of the
+ *  art's fixed 35-column width, kept in one place so both render paths stay aligned to the new glyph run. */
+const ELOWEN_ART_SPLIT = 17;
 
 /** opencode-style per-tool row spec: a fixed glyph + Title-case verb, keyed on the tool NAME so live
  *  and resumed-history rows render identically (`item.icon` exists only on live events). The glyph set
@@ -83,7 +86,7 @@ export class TopRule implements Component {
       ? ` ${color.accent(glyph.whale)} ${color.text(truncateToWidth(title, Math.max(8, width - 12), '…'))} `
       // The brand fallback is 28 visible chars — on a narrower terminal it MUST clip too, or pi-tui's
       // width assert throws and takes the whole TUI down (leaving mouse reporting on).
-      : truncateToWidth(` ${color.accent('Orca Chat')} ${color.faint('new conversation')} `, width, '…');
+      : truncateToWidth(` ${color.accent('Elowen Chat')} ${color.faint('new conversation')} `, width, '…');
     return [`${label}${color.accent('─'.repeat(Math.max(0, width - visibleWidth(label))))}`];
   }
 }
@@ -130,14 +133,14 @@ export function startScreenBox(width: number): { boxWidth: number; leftPad: numb
 /** Row (0-based, within the start screen's rows) where the input box starts — mirror of the vertical
  *  centering in {@link StartScreen.render}, kept here so overlay anchoring can never drift from it. */
 export function startScreenInputTop(rows: number, inputRows: number, noticeRows: number): number {
-  const bodyLength = ORCA_ART.length + 1 + inputRows + 2 + 2 + 1 + (noticeRows ? 1 + noticeRows : 0);
+  const bodyLength = ELOWEN_ART.length + 1 + inputRows + 2 + 2 + 1 + (noticeRows ? 1 + noticeRows : 0);
   const topPad = Math.max(0, Math.floor((rows - 1 - bodyLength) / 2) - 1);
-  return topPad + ORCA_ART.length + 1;
+  return topPad + ELOWEN_ART.length + 1;
 }
 
-/** The empty-conversation start screen (opencode-style): a centered two-tone ORCA wordmark, the input
+/** The empty-conversation start screen (opencode-style): a centered two-tone ELOWEN wordmark, the input
  *  box beneath it with the model line, keyboard hints, a tip — and a slim bottom status row with the
- *  project on the left and the Orca version in the bottom-right corner. The right telemetry panel stays
+ *  project on the left and the Elowen version in the bottom-right corner. The right telemetry panel stays
  *  hidden until the first message lands. */
 export class StartScreen implements Component {
   constructor(
@@ -154,7 +157,7 @@ export class StartScreen implements Component {
     const inputLines = this.input.render(boxWidth);
     const noticeLines = st.notice ? st.notice.split('\n') : [];
     const body = [
-      ...ORCA_ART.map((line) => center(`${color.faint(line.slice(0, 12))}${color.text(line.slice(12))}`)),
+      ...ELOWEN_ART.map((line) => center(`${color.faint(line.slice(0, ELOWEN_ART_SPLIT))}${color.text(line.slice(ELOWEN_ART_SPLIT))}`)),
       '',
       ...inputLines.map((line) => `${indent}${line}`),
       `${indent}${truncateToWidth(st.modelLine, boxWidth, '…')}`,
@@ -164,13 +167,13 @@ export class StartScreen implements Component {
       center(st.tip),
       ...(noticeLines.length ? ['', ...noticeLines.map((line) => center(line))] : []),
     ];
-    const versionLabel = color.faint(`orca v${st.version}`);
+    const versionLabel = color.faint(`elowen v${st.version}`);
     const statusGap = Math.max(1, width - 2 - visibleWidth(st.statusLeft) - visibleWidth(versionLabel) - 2);
     const statusRow = `  ${st.statusLeft}${' '.repeat(statusGap)}${versionLabel}`;
     const rows = this.getRows();
     // Center the block vertically, biased slightly upward (startScreenInputTop mirrors this math);
     // the status row is pinned to the last line.
-    const topPad = Math.max(0, startScreenInputTop(rows, inputLines.length, noticeLines.length) - ORCA_ART.length - 1);
+    const topPad = Math.max(0, startScreenInputTop(rows, inputLines.length, noticeLines.length) - ELOWEN_ART.length - 1);
     const lines: string[] = Array.from({ length: topPad }, () => '');
     lines.push(...body);
     while (lines.length < rows - 1) lines.push('');
@@ -605,7 +608,7 @@ export class TelemetryPanel implements Component {
 }
 
 function panelLogo(width: number): string[] {
-  return ORCA_ART.map((line) => {
+  return ELOWEN_ART.map((line) => {
     const compact = line.replaceAll(' ', '');
     const text = visibleWidth(line) + 4 <= width ? line : compact;
     const pad = Math.max(0, Math.floor((width - visibleWidth(text)) / 2));

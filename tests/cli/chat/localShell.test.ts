@@ -74,7 +74,7 @@ describe('runLocalShell', () => {
 describe('localShellTurn (transcript console block)', () => {
   it('shapes the result as a settled tool turn with a console output block', () => {
     const turn = localShellTurn({ command: 'git status', output: 'clean', exitCode: 0, truncated: false });
-    expect(turn.role).toBe('orca');
+    expect(turn.role).toBe('elowen');
     expect(turn.streaming).toBe(false);
     const seg = turn.segments[0];
     if (seg?.kind !== 'tools') throw new Error('expected a tools segment');

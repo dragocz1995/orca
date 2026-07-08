@@ -1,7 +1,7 @@
 import type { Runner } from './runner.js';
 
-/** Resolve (and, when asked, create) the unprivileged user the ORCA services + agents run as. The
- *  services never run as root; agents run in tmux as this user, and their CLI auth + ~/.config/orca
+/** Resolve (and, when asked, create) the unprivileged user the ELOWEN services + agents run as. The
+ *  services never run as root; agents run in tmux as this user, and their CLI auth + ~/.config/elowen
  *  live in its HOME. */
 export interface ServiceUserChoice { mode: 'create' | 'existing'; username: string }
 

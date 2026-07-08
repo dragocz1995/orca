@@ -3,7 +3,7 @@
 export function openTerminalWindow(name: string): void {
   window.open(
     `/terminal/${encodeURIComponent(name)}`,
-    `orca-terminal-${name}`,
+    `elowen-terminal-${name}`,
     'width=900,height=600,noopener',
   );
 }

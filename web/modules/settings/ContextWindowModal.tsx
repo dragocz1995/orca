@@ -9,7 +9,7 @@ import { AutoSaveStatus } from '../../components/ui/AutoSaveStatus';
 import { useAutoSaveStatus } from '../../lib/useAutoSaveStatus';
 import { useTranslation } from '../../lib/i18n';
 
-/** Focused editor for one Orca AI model's max context window override. The card shows a compact
+/** Focused editor for one Elowen AI model's max context window override. The card shows a compact
  *  read-only preview; the number itself is edited here so the cards stay quiet. Auto-saves the number
  *  on edit (validation preserved: an invalid entry simply doesn't persist); "Use default" clears the
  *  override. `onSave` only persists (it must not close the modal). */
@@ -32,7 +32,7 @@ export function ContextWindowModal({ model, initial, effective, onClose, onSave 
   return (
     <Modal title={t.brain.contextWindow} description={model} onClose={close} size="sm" icon={Gauge}>
       <ModalBody>
-        <Field label={t.brain.contextWindow} hint={t.help.orcaContextWindow}>
+        <Field label={t.brain.contextWindow} hint={t.help.elowenContextWindow}>
           <Input
             type="number"
             min={1}

@@ -3,11 +3,11 @@ import { join } from 'node:path';
 
 /**
  * Global structured logger — single source of truth for everything the daemon prints. Every line is
- * both echoed to the console (so `journalctl -u orca-daemon` still works) AND appended to a daily
+ * both echoed to the console (so `journalctl -u elowen-daemon` still works) AND appended to a daily
  * file under `logs/` in a fixed, human-readable, column-aligned format:
  *
- *   2026-06-20 21:45:03.123  INFO   [overseer]  mission m-orca-ab12 ticked
- *   2026-06-20 21:45:04.001  ERROR  [deriver]   tick failed for orca-Iris — Error: tmux down
+ *   2026-06-20 21:45:03.123  INFO   [overseer]  mission m-elowen-ab12 ticked
+ *   2026-06-20 21:45:04.001  ERROR  [deriver]   tick failed for elowen-Iris — Error: tmux down
  *
  * File logging is best-effort: a write failure (read-only FS, full disk) never throws into the
  * caller — the console line is the durable channel of record.
@@ -32,13 +32,13 @@ export function setLogSink(s: LogSink | undefined): void {
 }
 
 const MIN: LogLevel = ((): LogLevel => {
-  const v = (process.env.ORCA_LOG_LEVEL ?? '').toLowerCase();
+  const v = ((process.env.ELOWEN_LOG_LEVEL ?? process.env.ORCA_LOG_LEVEL) ?? '').toLowerCase();
   return v in ORDER ? (v as LogLevel) : 'info';
 })();
 
 // Default to `<cwd>/logs` (the daemon's WorkingDirectory is the repo root). Overridable so a second
 // process (e.g. the web server) can point at the same directory.
-const DIR = process.env.ORCA_LOG_DIR || join(process.cwd(), 'logs');
+const DIR = (process.env.ELOWEN_LOG_DIR ?? process.env.ORCA_LOG_DIR) || join(process.cwd(), 'logs');
 let dirReady = false;
 
 /** Local wall-clock `YYYY-MM-DD HH:MM:SS.mmm` — readable at a glance, sortable, no timezone noise. */

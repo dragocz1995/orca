@@ -4,7 +4,7 @@ import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Ta
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { useMemories, useMemoryCategories } from '../../lib/queries';
 import { useCreateMemory, useMergeMemories, useDeleteMemory, useRestoreMemory, usePurgeMemories, useEmptyTrash, useSetMemoryCategory } from '../../lib/mutations';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { Segmented } from '../../components/ui/Segmented';
 import { Button } from '../../components/ui/Button';
@@ -37,8 +37,8 @@ const STATUS_VALUES: readonly StatusFilter[] = ['active', 'archived', 'deleted',
 export function MemoryView() {
   const { t } = useTranslation();
 
-  const [tab, setTab] = usePersistentState<Tab>('orca.memory.tab', 'list', TABS);
-  const [status, setStatus] = usePersistentState<StatusFilter>('orca.memory.status', 'active', STATUS_VALUES);
+  const [tab, setTab] = usePersistentState<Tab>('elowen.memory.tab', 'list', TABS);
+  const [status, setStatus] = usePersistentState<StatusFilter>('elowen.memory.status', 'active', STATUS_VALUES);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<string>('all');
   // Category filter — 'all' | 'none' (uncategorized) | a stringified category id. Client-side over the

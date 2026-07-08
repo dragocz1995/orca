@@ -16,7 +16,7 @@ import { ResetUsageModal } from './ResetUsageModal';
 
 export function StatsView() {
   const { t } = useTranslation();
-  const [rangeRaw, setRangeRaw] = usePersistentState('orca.stats.range', serializeRange(DEFAULT_RANGE), isStoredRange);
+  const [rangeRaw, setRangeRaw] = usePersistentState('elowen.stats.range', serializeRange(DEFAULT_RANGE), isStoredRange);
   const range = useMemo(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
   const window = useMemo(() => rangeBounds(range, Date.now()), [range]);
   const usage = useModelUsage(undefined, window);

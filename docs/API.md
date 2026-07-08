@@ -1,6 +1,6 @@
 # API Reference
 
-The Orca daemon exposes a REST API on port `4400`. All endpoints return JSON.
+The Elowen daemon exposes a REST API on port `4400`. All endpoints return JSON.
 CORS is enabled for the web frontend.
 
 **Base URL:** `http://localhost:4400`
@@ -106,17 +106,17 @@ Content-Type: application/json
 { "title": "Fix login bug", "labels": ["exec:sonnet"], "project_id": 1 }
 → 201 { "id": "task-abc", "title": "Fix login bug", … }
 
-PATCH /tasks/orca-abc123
+PATCH /tasks/elowen-abc123
 Content-Type: application/json
 { "status": "closed", "outcome": "ok", "summary": "Fixed the issue" }
-→ 200 { "id": "orca-abc123", "status": "closed", … }
+→ 200 { "id": "elowen-abc123", "status": "closed", … }
 
 POST /tasks/plan
 Content-Type: application/json
 { "goal": "Add a dark mode toggle", "project_id": 1, "engage": true }
 → 202 { "jobId": "plan-job-xyz" }
 
-POST /tasks/orca-epic123/phases
+POST /tasks/elowen-epic123/phases
 Content-Type: application/json
 { "goal": "Add tests for dark mode" }
 → 201 { "tasks": [ … ] }
@@ -152,7 +152,7 @@ Content-Type: application/json
 
 
 ```http
-POST /sessions/orca-Agent42/keys
+POST /sessions/elowen-Agent42/keys
 Content-Type: application/json
 { "keys": ["C-c"] }
 → 200 { "ok": true }
@@ -338,22 +338,22 @@ GET /events
 Authorization: Bearer <token>
 
 event: task
-data: {"type":"task","target":"orca-abc123","detail":"closed"}
+data: {"type":"task","target":"elowen-abc123","detail":"closed"}
 
 event: mission
 data: {"type":"mission","target":"m-abc123","detail":"engaged"}
 
 event: signal
-data: {"type":"signal","target":"orca-Agent42","detail":"needs_input"}
+data: {"type":"signal","target":"elowen-Agent42","detail":"needs_input"}
 
 event: plan
 data: {"type":"plan","target":"plan-job-xyz","detail":"done"}
 
 event: review
-data: {"type":"review","target":"orca-abc123","detail":"approved"}
+data: {"type":"review","target":"elowen-abc123","detail":"approved"}
 
 event: decision
-data: {"type":"decision","taskId":"orca-abc123","kind":"prompt","outcome":"approved","rationale":"Safe operation","confidence":0.92}
+data: {"type":"decision","taskId":"elowen-abc123","kind":"prompt","outcome":"approved","rationale":"Safe operation","confidence":0.92}
 ```
 
 Two SSE connections are used by the web UI:

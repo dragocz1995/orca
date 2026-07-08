@@ -17,7 +17,7 @@ import { Pill } from './pills';
 
 const THINKING_LEVELS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
-/** Account → Orca AI: per-user runtime settings for the embedded brain (web chat + `orca chat`).
+/** Account → Elowen AI: per-user runtime settings for the embedded brain (web chat + `elowen chat`).
  *  Thinking level + vision fallback + auto-compact; the default model pickers render beside this
  *  section in AccountView. Communication style lives in Personality. Its own load/save + autosave. */
 export function CliSection() {
@@ -34,7 +34,7 @@ export function CliSection() {
   const [autoCompactAt, setAutoCompactAt] = useState(80);
 
   const [seeded, setSeeded] = useState(false);
-  // Seed once, on first arrival. A sibling save (AccountView's Orca-model pick, or this section's own
+  // Seed once, on first arrival. A sibling save (AccountView's Elowen-model pick, or this section's own
   // autosave) invalidates ['my-cli-settings'] → refetch; re-seeding from that refetch would clobber an
   // edit still inside the autosave debounce, so only seed while not yet seeded.
   useEffect(() => {

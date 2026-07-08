@@ -11,7 +11,7 @@ const w = (rel: string, body: string) => { const p = join(root, rel); mkdirSync(
 const head = () => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'orca-rangediff-'));
+  root = mkdtempSync(join(tmpdir(), 'elowen-rangediff-'));
   git('init', '-q');
   w('tracked.md', 'original line\n');
   git('add', '-A');
@@ -38,7 +38,7 @@ describe('projectRangeDiff', () => {
 
   it('returns [] for a non-hex ref (no flag injection) and a non-repo dir', async () => {
     expect(await projectRangeDiff(root, '--output=/tmp/x', head())).toEqual([]);
-    const plain = mkdtempSync(join(tmpdir(), 'orca-plain-'));
+    const plain = mkdtempSync(join(tmpdir(), 'elowen-plain-'));
     try { expect(await projectRangeDiff(plain, head(), head())).toEqual([]); }
     finally { rmSync(plain, { recursive: true, force: true }); }
   });

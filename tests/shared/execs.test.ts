@@ -3,8 +3,8 @@ import {
   PROGRAM_PREFIXES,
   DEFAULT_BINS,
   KNOWN_EXECS,
-  parseOrcaExec,
-  orcaExec,
+  parseElowenExec,
+  elowenExec,
   isExecAllowedForUser,
   isModelVisibleForUser,
   EXEC_NOTES,
@@ -13,10 +13,10 @@ import {
 } from '../../src/shared/execs.js';
 
 describe('shared/execs', () => {
-  it('maps every prefix to a program with a default-bin entry (orca is binary-less by design)', () => {
+  it('maps every prefix to a program with a default-bin entry (elowen is binary-less by design)', () => {
     for (const program of Object.values(PROGRAM_PREFIXES)) {
-      expect(DEFAULT_BINS[program]).toBe(program === 'orca' ? '' : DEFAULT_BINS[program]);
-      expect(program === 'orca' ? true : !!DEFAULT_BINS[program]).toBe(true);
+      expect(DEFAULT_BINS[program]).toBe(program === 'elowen' ? '' : DEFAULT_BINS[program]);
+      expect(program === 'elowen' ? true : !!DEFAULT_BINS[program]).toBe(true);
     }
   });
 
@@ -81,57 +81,57 @@ describe('shared/execs', () => {
     });
   });
 
-  describe('orca exec specs', () => {
-    it('round-trips provider/model through orcaExec + parseOrcaExec', () => {
-      expect(parseOrcaExec(orcaExec('relay', 'kimi-k2.7'))).toEqual({ provider: 'relay', model: 'kimi-k2.7' });
+  describe('elowen exec specs', () => {
+    it('round-trips provider/model through elowenExec + parseElowenExec', () => {
+      expect(parseElowenExec(elowenExec('relay', 'kimi-k2.7'))).toEqual({ provider: 'relay', model: 'kimi-k2.7' });
     });
     it('splits on the FIRST slash so the model part may contain more', () => {
-      expect(parseOrcaExec('orca:relay/ollama/kimi-k2.7-code')).toEqual({ provider: 'relay', model: 'ollama/kimi-k2.7-code' });
+      expect(parseElowenExec('elowen:relay/ollama/kimi-k2.7-code')).toEqual({ provider: 'relay', model: 'ollama/kimi-k2.7-code' });
     });
     it('rejects malformed specs', () => {
-      expect(parseOrcaExec('orca:relay')).toBeNull();
-      expect(parseOrcaExec('orca:/model')).toBeNull();
-      expect(parseOrcaExec('orca:relay/')).toBeNull();
-      expect(parseOrcaExec('codex:gpt-5.5')).toBeNull();
+      expect(parseElowenExec('elowen:relay')).toBeNull();
+      expect(parseElowenExec('elowen:/model')).toBeNull();
+      expect(parseElowenExec('elowen:relay/')).toBeNull();
+      expect(parseElowenExec('codex:gpt-5.5')).toBeNull();
     });
-    it('routes the orca: prefix to the orca program', () => {
-      expect(PROGRAM_PREFIXES['orca:']).toBe('orca');
+    it('routes the elowen: prefix to the elowen program', () => {
+      expect(PROGRAM_PREFIXES['elowen:']).toBe('elowen');
     });
   });
 
   describe('isExecAllowedForUser', () => {
-    const globalExecs = ['sonnet']; // the CLI global list; brain (orca:) execs are NOT bounded by it
+    const globalExecs = ['sonnet']; // the CLI global list; brain (elowen:) execs are NOT bounded by it
     it('admin and open mode are unrestricted', () => {
-      expect(isExecAllowedForUser({ is_admin: true, allowed_execs: [] }, globalExecs, 'orca:x/y')).toBe(true);
-      expect(isExecAllowedForUser(null, globalExecs, 'orca:x/y')).toBe(true);
+      expect(isExecAllowedForUser({ is_admin: true, allowed_execs: [] }, globalExecs, 'elowen:x/y')).toBe(true);
+      expect(isExecAllowedForUser(null, globalExecs, 'elowen:x/y')).toBe(true);
     });
     it('CLI execs are bounded by the global list', () => {
       expect(isExecAllowedForUser({ is_admin: false, allowed_execs: [] }, globalExecs, 'opus')).toBe(false); // not global
       expect(isExecAllowedForUser({ is_admin: false, allowed_execs: [] }, globalExecs, 'sonnet')).toBe(true);
     });
-    it('brain (orca:) execs skip the global bound — empty personal list = every configured brain model', () => {
+    it('brain (elowen:) execs skip the global bound — empty personal list = every configured brain model', () => {
       // The reported bug: without this a non-admin gets an EMPTY brain-model picker.
-      expect(isExecAllowedForUser({ is_admin: false, allowed_execs: [] }, globalExecs, 'orca:any/model')).toBe(true);
+      expect(isExecAllowedForUser({ is_admin: false, allowed_execs: [] }, globalExecs, 'elowen:any/model')).toBe(true);
     });
     it('a non-empty personal list narrows further (CLI and brain alike)', () => {
-      expect(isExecAllowedForUser({ is_admin: false, allowed_execs: ['orca:relay/kimi'] }, globalExecs, 'orca:other/m')).toBe(false);
-      expect(isExecAllowedForUser({ is_admin: false, allowed_execs: ['orca:relay/kimi'] }, globalExecs, 'orca:relay/kimi')).toBe(true);
+      expect(isExecAllowedForUser({ is_admin: false, allowed_execs: ['elowen:relay/kimi'] }, globalExecs, 'elowen:other/m')).toBe(false);
+      expect(isExecAllowedForUser({ is_admin: false, allowed_execs: ['elowen:relay/kimi'] }, globalExecs, 'elowen:relay/kimi')).toBe(true);
     });
   });
 
   describe('isModelVisibleForUser (picker display filter)', () => {
     const globalExecs = ['sonnet']; // CLI global list; brain execs bounded by providers, not this
     it('a personal list narrows the picker (CLI and brain)', () => {
-      expect(isModelVisibleForUser({ allowed_execs: ['sonnet'] }, globalExecs, 'orca:relay/kimi')).toBe(false);
+      expect(isModelVisibleForUser({ allowed_execs: ['sonnet'] }, globalExecs, 'elowen:relay/kimi')).toBe(false);
       expect(isModelVisibleForUser({ allowed_execs: ['sonnet'] }, globalExecs, 'sonnet')).toBe(true);
     });
     it('empty personal list = every configured brain model + the global CLI list', () => {
-      expect(isModelVisibleForUser({ allowed_execs: [] }, globalExecs, 'orca:relay/kimi')).toBe(true); // brain not global-bounded
+      expect(isModelVisibleForUser({ allowed_execs: [] }, globalExecs, 'elowen:relay/kimi')).toBe(true); // brain not global-bounded
       expect(isModelVisibleForUser({ allowed_execs: [] }, globalExecs, 'opus')).toBe(false); // CLI not in global
     });
     it('null user = open mode (all global CLI + all brain)', () => {
       expect(isModelVisibleForUser(null, globalExecs, 'sonnet')).toBe(true);
-      expect(isModelVisibleForUser(undefined, globalExecs, 'orca:x/y')).toBe(true); // brain always visible in open mode
+      expect(isModelVisibleForUser(undefined, globalExecs, 'elowen:x/y')).toBe(true); // brain always visible in open mode
     });
   });
 });

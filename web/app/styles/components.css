@@ -19,7 +19,7 @@
    the flat OLED look). */
 .flow-active { animation: flow-pulse 1.8s ease-in-out infinite; }
 
-/* Orca wordmark is white line-art on transparent — invisible on the white light-mode surface.
+/* Elowen wordmark is white line-art on transparent — invisible on the white light-mode surface.
    Inverting the pure-white strokes yields pure black (alpha is preserved), so no separate asset. */
 html[data-theme='light'] .logo-adaptive { filter: invert(1); }
 

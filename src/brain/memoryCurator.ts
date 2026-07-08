@@ -158,7 +158,7 @@ function buildPrompt(userText: string, assistantText: string, existing: { id: nu
       ]
     : [];
   return [
-    'You are the long-term memory curator for the assistant Orca. Below is ONE exchange (one user message',
+    'You are the long-term memory curator for the assistant Elowen. Below is ONE exchange (one user message',
     'and the assistant\'s reply). Extract durable, reusable facts ABOUT THE USER worth remembering in',
     `future sessions, and emit memory operations. Today's date is ${new Date().toISOString().slice(0, 10)}.`,
     '',

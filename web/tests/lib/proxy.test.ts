@@ -62,7 +62,7 @@ describe('proxy helpers', () => {
 
   it('forwardHeaders strips cookie/host/connection', () => {
     const h = forwardHeaders(new Request('https://web.example/api/x', {
-      headers: { cookie: 'orca_session=t', host: 'web.example', 'content-type': 'application/json' },
+      headers: { cookie: 'elowen_session=t', host: 'web.example', 'content-type': 'application/json' },
     }));
     expect(h.get('cookie')).toBeNull();
     expect(h.get('host')).toBeNull();

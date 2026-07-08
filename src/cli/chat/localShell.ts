@@ -1,5 +1,5 @@
 import { exec } from 'node:child_process';
-import type { OrcaTurn } from '../../brain/transcript.js';
+import type { ElowenTurn } from '../../brain/transcript.js';
 import type { ToolOutputView } from '../../brain/messageView.js';
 
 /** `!cmd` local shell escape for the chat TUI (opencode-style): the command runs on THIS machine
@@ -55,7 +55,7 @@ export function runLocalShell(command: string, cwd: string, execFn: ExecFn = exe
 
 /** Shape a local result as a settled assistant turn holding one console block, so the transcript's
  *  existing tool-output rendering (framed block, click-to-expand) applies unchanged. */
-export function localShellTurn(result: LocalShellResult): OrcaTurn {
+export function localShellTurn(result: LocalShellResult): ElowenTurn {
   const full = result.output || '(no output)';
   const lines = full.split('\n');
   const output: ToolOutputView = {
@@ -68,7 +68,7 @@ export function localShellTurn(result: LocalShellResult): OrcaTurn {
     tone: result.exitCode === 0 ? 'normal' : 'danger',
   };
   return {
-    role: 'orca',
+    role: 'elowen',
     streaming: false,
     segments: [{ kind: 'tools', items: [{ name: 'bash', detail: result.command, command: result.command, output }] }],
   };

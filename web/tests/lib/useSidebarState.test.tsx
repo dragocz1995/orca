@@ -10,7 +10,7 @@ describe('useSidebarState', () => {
     expect(result.current.collapsed).toBe(false);
     act(() => result.current.toggle());
     expect(result.current.collapsed).toBe(true);
-    expect(JSON.parse(localStorage.getItem('orca-sidebar')!).collapsed).toBe(true);
+    expect(JSON.parse(localStorage.getItem('elowen-sidebar')!).collapsed).toBe(true);
   });
   it('clamps width and persists', () => {
     const { result } = renderHook(() => useSidebarState());
@@ -20,7 +20,7 @@ describe('useSidebarState', () => {
     expect(result.current.width).toBe(160);
   });
   it('reads stored state on mount', () => {
-    localStorage.setItem('orca-sidebar', JSON.stringify({ collapsed: true, width: 300 }));
+    localStorage.setItem('elowen-sidebar', JSON.stringify({ collapsed: true, width: 300 }));
     const { result } = renderHook(() => useSidebarState());
     expect(result.current.collapsed).toBe(true);
     expect(result.current.width).toBe(300);

@@ -1,10 +1,10 @@
 // Verifies OpenRouter app-attribution is correctly configured for THIS deployment:
-//   1. the outbound identity headers Orca sends (HTTP-Referer + X-OpenRouter-Title/X-Title) match
+//   1. the outbound identity headers Elowen sends (HTTP-Referer + X-OpenRouter-Title/X-Title) match
 //      the configured app URL/title;
 //   2. the public app URL serves a favicon at /favicon.ico WITHOUT auth (OpenRouter scrapes it from the
 //      referer to render the app's icon on its ranking page).
 //
-// Run after a build (reads dist/) and after setting ORCA_APP_URL/ORCA_APP_TITLE for prod:
+// Run after a build (reads dist/) and after setting ELOWEN_APP_URL/ELOWEN_APP_TITLE for prod:
 //   node scripts/verify-openrouter.mjs
 //
 // Exit code 0 = all good; 1 = a check failed. After deploy, also eyeball the app on

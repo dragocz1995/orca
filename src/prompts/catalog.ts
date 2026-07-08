@@ -15,7 +15,7 @@ export interface PromptCatalogEntry {
   /** The model output is parsed as JSON downstream; editing this risks the contract (repair softens it). */
   jsonContract: boolean;
   /** The template itself is system-managed: the user's saved text is APPENDED to the default as extra
-   *  instructions instead of replacing it (the Orca advisor identity stays intact). */
+   *  instructions instead of replacing it (the Elowen advisor identity stays intact). */
   appendOnly?: boolean;
 }
 
@@ -25,9 +25,9 @@ export const EDITABLE_PROMPTS: PromptCatalogEntry[] = [
   { name: 'worker', group: 'workers', vars: [...WORKER_VARS, 'cli'], jsonContract: false },
   { name: 'worker-resume', group: 'workers', vars: [...WORKER_VARS, 'cli'], jsonContract: false },
   { name: 'worker-phase', group: 'workers', vars: [...WORKER_VARS, 'epicId', 'cli'], jsonContract: false },
-  // The embedded (Orca AI) worker: no CLI — it closes its task via the orca_close_task tool.
+  // The embedded (Elowen AI) worker: no CLI — it closes its task via the elowen_close_task tool.
   { name: 'worker-brain', group: 'workers', vars: ['agentName', 'taskId', 'titlePart', 'detailsPart', 'resumePart'], jsonContract: false },
-  // The on-demand control guide an agent fetches with `orca help` (rendered by guideService). `agent-guide`
+  // The on-demand control guide an agent fetches with `elowen help` (rendered by guideService). `agent-guide`
   // is the base; `agent-guide-phase` is appended for a mission phase (sibling rules, handoff, epic close).
   { name: 'agent-guide', group: 'workers', vars: ['cli', 'closeCommand'], jsonContract: false },
   { name: 'agent-guide-phase', group: 'workers', vars: ['epicId', 'cli', 'epicCloseCommand'], jsonContract: false },

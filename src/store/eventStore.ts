@@ -1,9 +1,9 @@
 import type { Db } from './db.js';
-import type { OrcaEvent } from '../api/sse.js';
+import type { ElowenEvent } from '../api/sse.js';
 
 export interface ActivityEvent { id: number; ts: string; type: string; target: string; detail: string; project_id: number | null; label: string }
 
-function toRow(e: OrcaEvent): { type: string; target: string; detail: string } | null {
+function toRow(e: ElowenEvent): { type: string; target: string; detail: string } | null {
   switch (e.type) {
     case 'task': return { type: 'task', target: e.taskId, detail: e.status };
     case 'mission': return { type: 'mission', target: e.missionId, detail: e.state };
@@ -22,7 +22,7 @@ function toRow(e: OrcaEvent): { type: string; target: string; detail: string } |
 
 export class EventStore {
   constructor(private db: Db) {}
-  record(e: OrcaEvent, projectId?: number | null): void {
+  record(e: ElowenEvent, projectId?: number | null): void {
     const r = toRow(e);
     if (!r) return;
     // Stamp the event with its owning project so the timeline can scope it to the right repo. The bus

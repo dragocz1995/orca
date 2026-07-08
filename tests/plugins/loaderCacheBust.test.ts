@@ -20,7 +20,7 @@ function writePlugin(root: string, name: string, version: string, marker: string
 describe('loadPlugins import cache-busting', () => {
   it('re-imports a plugin whose bytes+version changed under the same path', async () => {
     const marker = `__mkbust_${Date.now()}`;
-    const root = mkdtempSync(join(tmpdir(), 'orca-bust-'));
+    const root = mkdtempSync(join(tmpdir(), 'elowen-bust-'));
     writePlugin(root, 'demo', '1.0.0', marker);
     await loadPlugins({ dirs: [root], enabled: ['demo'], logger: silentLogger });
     expect((globalThis as Record<string, unknown>)[marker]).toBe(1);
@@ -35,7 +35,7 @@ describe('loadPlugins import cache-busting', () => {
   });
 
   it('rejects a manifest entry that escapes the plugin dir', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'orca-escape-'));
+    const root = mkdtempSync(join(tmpdir(), 'elowen-escape-'));
     const dir = join(root, 'evil');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'orca-plugin.json'), JSON.stringify({

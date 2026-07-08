@@ -48,7 +48,7 @@ export async function navigate(steps: WizardStep[], ctx: WizardCtx, hooks: NavHo
 
 export interface OnboardingOpts {
   reset?: boolean;
-  /** Embedded inside another flow (e.g. `orca install`): skip the wizard's own intro/outro so the host
+  /** Embedded inside another flow (e.g. `elowen install`): skip the wizard's own intro/outro so the host
    *  provides the framing. Steps and progress still render. */
   embedded?: boolean;
 }
@@ -62,7 +62,7 @@ export async function runOnboarding(base: string, env: NodeJS.ProcessEnv, opts: 
   const ctx: WizardCtx = { base, fetchFn: fetch, answers };
 
   if (!opts.embedded) {
-    p.intro('Welcome to Orca');
+    p.intro('Welcome to Elowen');
     p.log.message(`Let's get your workspace ready — ${TOTAL} quick steps. You can skip anything and finish later.`);
   }
 
@@ -80,7 +80,7 @@ export async function runOnboarding(base: string, env: NodeJS.ProcessEnv, opts: 
     if (e instanceof WizardCancelled) {
       const save = await confirmSave();
       if (save) writeMarker(env, { completed: false, skipped: false, updatedAt: new Date().toISOString(), resume: { answers } });
-      p.cancel(save ? 'Setup paused — resume anytime with `orca setup`.' : 'Setup cancelled.');
+      p.cancel(save ? 'Setup paused — resume anytime with `elowen setup`.' : 'Setup cancelled.');
       return null;
     }
     throw e;
@@ -113,10 +113,10 @@ async function review(ctx: WizardCtx): Promise<ReviewDecision> {
 
 /** Persist the completion marker and (unless embedded in a host flow) print a readiness matrix (what
  *  actually works right now, via GET /system/readiness) followed by the "next steps" outro including the
- *  web URL + login. Embedded mode (`orca install`) skips the outro — the host prints its own summary. */
+ *  web URL + login. Embedded mode (`elowen install`) skips the outro — the host prints its own summary. */
 async function finish(env: NodeJS.ProcessEnv, ctx: WizardCtx, skipped: boolean, embedded: boolean): Promise<void> {
   writeMarker(env, { completed: true, skipped, updatedAt: new Date().toISOString() });
-  if (embedded) return; // the host (e.g. `orca install`) shows its own summary
+  if (embedded) return; // the host (e.g. `elowen install`) shows its own summary
   const answers = ctx.answers;
 
   try { await printReadiness(ctx); } catch { /* best-effort: a dropped daemon must not crash the outro */ }
@@ -124,7 +124,7 @@ async function finish(env: NodeJS.ProcessEnv, ctx: WizardCtx, skipped: boolean, 
   const username = answers.account?.username || 'your admin account'; // '' (skipped account) must fall through
   const lines = [
     `Open ${webBaseUrl()} and sign in as ${username}`,
-    'Talk to it:  orca chat',
+    'Talk to it:  elowen chat',
     'Connect Discord/WhatsApp:  Settings → Plugins',
   ];
   const unfinished = skipped
@@ -132,7 +132,7 @@ async function finish(env: NodeJS.ProcessEnv, ctx: WizardCtx, skipped: boolean, 
     || answers.ai?.status !== 'done'
     || answers.memory?.status !== 'done'
     || answers.lsp?.status !== 'done';
-  if (unfinished) lines.push('Finish setup:  orca setup');
+  if (unfinished) lines.push('Finish setup:  elowen setup');
   p.note(lines.join('\n'), "You're set");
   p.outro('See you');
 }

@@ -1,4 +1,4 @@
-/** Orca's terminal theme registry. The exported `color.*` helpers intentionally stay stable while
+/** Elowen's terminal theme registry. The exported `color.*` helpers intentionally stay stable while
  *  their palette can switch at runtime (`/theme`) without rebuilding every component import. */
 
 const fg = (r: number, g: number, b: number): string => `38;2;${r};${g};${b}`;
@@ -7,7 +7,7 @@ const sgr = (code: string, s: string): string => `\x1b[${code}m${s}\x1b[0m`;
 const sgrOpen = (code: string, s: string): string => `\x1b[${code}m${s}`;
 
 export type ChatThemeName =
-  | 'orca' | 'blue' | 'mono'
+  | 'elowen' | 'blue' | 'mono'
   | 'midnight' | 'forest' | 'ember' | 'rose' | 'violet' | 'ocean'
   | 'sunset' | 'nord' | 'dracula' | 'gruvbox' | 'matrix' | 'sand';
 
@@ -31,9 +31,9 @@ export interface ChatTheme {
 }
 
 const CHAT_THEMES: Record<ChatThemeName, ChatTheme> = {
-  orca: {
-    name: 'orca',
-    label: 'Orca cyan',
+  elowen: {
+    name: 'elowen',
+    label: 'Elowen cyan',
     accent: fg(78, 211, 202),
     accentDim: fg(34, 151, 146),
     accentSoft: fg(132, 231, 224),
@@ -288,7 +288,7 @@ const CHAT_THEMES: Record<ChatThemeName, ChatTheme> = {
   },
 };
 
-let activeTheme: ChatTheme = CHAT_THEMES.orca;
+let activeTheme: ChatTheme = CHAT_THEMES.elowen;
 
 export function chatTheme(): ChatTheme {
   return activeTheme;
@@ -305,10 +305,10 @@ export function isChatThemeName(value: string): value is ChatThemeName {
 
 /** Apply a chat theme derived from the user's web Account → Terminal CUSTOM palette (#rrggbb fields),
  *  so the colors configured on the web carry into the CLI chat. Each slot maps to its nearest ANSI
- *  role; an invalid/missing hex keeps the Orca default for that slot. Backgrounds are derived from the
+ *  role; an invalid/missing hex keeps the Elowen default for that slot. Backgrounds are derived from the
  *  palette background (panels darker-as-is, input/modal slightly lifted so the layers stay readable). */
 export function setCustomChatTheme(palette: Partial<Record<string, string>>): ChatTheme {
-  const base = CHAT_THEMES.orca;
+  const base = CHAT_THEMES.elowen;
   const rgb = (hex?: string): [number, number, number] | null => {
     const m = /^#([0-9a-f]{6})$/i.exec(hex ?? '');
     if (!m) return null;
@@ -374,10 +374,10 @@ export const color = {
 
 /** Brand glyphs and labels. */
 export const glyph = {
-  whale: 'orca',
+  whale: 'elowen',
   tool: '*',
   think: 'thought',
   you: 'you',
-  orca: 'orca',
+  elowen: 'elowen',
   dot: '·',
 };

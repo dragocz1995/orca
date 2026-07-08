@@ -68,7 +68,7 @@ function setup(opts: {
   seedCacheGit?: boolean;
   calls?: string[];
 }): Harness {
-  const base = mkdtempSync(join(tmpdir(), 'orca-mkt-'));
+  const base = mkdtempSync(join(tmpdir(), 'elowen-mkt-'));
   const fixture = join(base, 'fixture-registry');
   const bundledDir = join(base, 'bundled');
   const userDir = join(base, 'user');
@@ -174,7 +174,7 @@ describe('MarketplaceService.install', () => {
   });
 
   it('symlinks host node_modules into the installed plugin so its SDK imports resolve', async () => {
-    const base = mkdtempSync(join(tmpdir(), 'orca-mkt-hostmods-'));
+    const base = mkdtempSync(join(tmpdir(), 'elowen-mkt-hostmods-'));
     const host = join(base, 'host-node-modules');
     mkdirSync(host, { recursive: true });
     const { svc, userDir } = setup({ registryEntries: [{ name: 'weather', version: '1.0.0' }] });

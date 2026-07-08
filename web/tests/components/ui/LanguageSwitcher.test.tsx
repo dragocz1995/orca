@@ -24,7 +24,7 @@ describe('LanguageSwitcher', () => {
     fireEvent.click(screen.getByRole('button'));
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Čeština' }));
 
-    expect(localStorage.getItem('orca-locale')).toBe('cs');
+    expect(localStorage.getItem('elowen-locale')).toBe('cs');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 

@@ -34,14 +34,14 @@ describe('installExitGuards — process listener lifecycle', () => {
 });
 
 describe('viewToPlainText', () => {
-  it('renders user and orca turns with labels, tools and text', () => {
+  it('renders user and elowen turns with labels, tools and text', () => {
     let v = beginAssistant(pushUser(emptyView(), 'ahoj'));
-    v = reduce(v, { type: 'tool', name: 'orca_create_task' });
+    v = reduce(v, { type: 'tool', name: 'elowen_create_task' });
     v = reduce(v, { type: 'text', delta: 'hotovo' });
     const lines = viewToPlainText(v);
     expect(lines).toContain('you');
     expect(lines.some((l) => l.includes('ahoj'))).toBe(true);
-    expect(lines.some((l) => l.includes('* orca_create_task'))).toBe(true);
+    expect(lines.some((l) => l.includes('* elowen_create_task'))).toBe(true);
     expect(lines.some((l) => l.includes('hotovo'))).toBe(true);
   });
 
@@ -61,7 +61,7 @@ describe('reduce — reasoning + notice', () => {
     v = reduce(v, { type: 'reasoning', delta: 'think ' });
     v = reduce(v, { type: 'reasoning', delta: 'more' });
     const turn = v.turns[v.turns.length - 1];
-    expect(turn.role === 'orca' && turn.segments).toEqual([{ kind: 'reasoning', text: 'think more' }]);
+    expect(turn.role === 'elowen' && turn.segments).toEqual([{ kind: 'reasoning', text: 'think more' }]);
   });
 
   it('shows a transient notice and clears it on done + on idle', () => {

@@ -22,8 +22,8 @@ export function AdvisorPanel({ dock }: { dock: UseDockState }) {
   const stackRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sideMenuOpen, setSideMenuOpen] = useState(false);
-  // Chat = the embedded brain (same one `orca chat` talks to); Terminal = the tmux panes. Chat first.
-  const [mode, setMode] = usePersistentState<'chat' | 'terminal'>('orca.dock.mode', 'chat', ['chat', 'terminal']);
+  // Chat = the embedded brain (same one `elowen chat` talks to); Terminal = the tmux panes. Chat first.
+  const [mode, setMode] = usePersistentState<'chat' | 'terminal'>('elowen.dock.mode', 'chat', ['chat', 'terminal']);
   const horizontal = state.side === 'left' || state.side === 'right';
 
   // Width drag: on the right the panel grows as the divider moves left (negative dx), so the sign

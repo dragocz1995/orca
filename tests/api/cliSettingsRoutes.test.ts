@@ -14,7 +14,7 @@ import { UserSettingStore } from '../../src/store/userSettingStore.js';
 
 function setup() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const amy = users.create('amy', 'pw');
   const config = new ConfigStore(db);
@@ -52,14 +52,14 @@ describe('cli-settings routes', () => {
     const { app, users } = setup();
     const bob = users.create('bob', 'pw');
     const bobTok = users.issueToken(bob.id);
-    // `orca:relay/kimi` is a brain exec — bounded by configured providers, not the global CLI allow-list —
+    // `elowen:relay/kimi` is a brain exec — bounded by configured providers, not the global CLI allow-list —
     // so an unrestricted non-admin may select it (guards the empty-picker bug).
     expect((await app.request('/auth/me/cli-settings', patch(bobTok, { model: 'kimi', modelProvider: 'relay' }))).status).toBe(200);
     // A personal allow-list that EXCLUDES it → 400.
-    users.setAllowedExecs(bob.id, ['orca:relay/glm']);
+    users.setAllowedExecs(bob.id, ['elowen:relay/glm']);
     expect((await app.request('/auth/me/cli-settings', patch(bobTok, { model: 'kimi', modelProvider: 'relay' }))).status).toBe(400);
     // …and one that INCLUDES it → 200.
-    users.setAllowedExecs(bob.id, ['orca:relay/kimi']);
+    users.setAllowedExecs(bob.id, ['elowen:relay/kimi']);
     expect((await app.request('/auth/me/cli-settings', patch(bobTok, { model: 'kimi', modelProvider: 'relay' }))).status).toBe(200);
     // Clearing the override is always fine.
     expect((await app.request('/auth/me/cli-settings', patch(bobTok, { model: '', modelProvider: '' }))).status).toBe(200);

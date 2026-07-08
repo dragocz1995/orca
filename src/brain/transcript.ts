@@ -30,8 +30,8 @@ export type Segment =
   | { kind: 'reasoning'; text: string }
   | { kind: 'tools'; items: ToolItem[] };
 export type YouTurn = { role: 'you'; text: string };
-export type OrcaTurn = { role: 'orca'; segments: Segment[]; streaming: boolean };
-export type ChatTurn = YouTurn | OrcaTurn;
+export type ElowenTurn = { role: 'elowen'; segments: Segment[]; streaming: boolean };
+export type ChatTurn = YouTurn | ElowenTurn;
 
 /** The whole view model a surface renders. Pure data — the fold never touches the terminal. `notice`
  *  is a transient runtime line (retry/compaction) cleared when the turn goes idle. */
@@ -67,7 +67,7 @@ export function fromHistory(msgs: HistoryMessage[]): ChatView {
         else segments.push({ kind: 'tools', items: [item] });
       }
     }
-    if (segments.length > 0) turns.push({ role: 'orca', segments, streaming: false });
+    if (segments.length > 0) turns.push({ role: 'elowen', segments, streaming: false });
   }
   return { turns, thinking: false };
 }
@@ -79,7 +79,7 @@ export function pushUser(view: ChatView, text: string): ChatView {
 
 /** Open a fresh streaming assistant turn and switch on the thinking indicator. */
 export function beginAssistant(view: ChatView): ChatView {
-  return { thinking: true, turns: [...view.turns, { role: 'orca', segments: [], streaming: true }] };
+  return { thinking: true, turns: [...view.turns, { role: 'elowen', segments: [], streaming: true }] };
 }
 
 /** Fold one brain event into the view. Pure: returns a new ChatView, never mutates the input. Handles
@@ -88,34 +88,34 @@ export function beginAssistant(view: ChatView): ChatView {
 export function reduce(view: ChatView, e: BrainEvent): ChatView {
   const turns = view.turns.slice();
   // Return a live streaming assistant turn, creating one if the last turn isn't it.
-  const ensureOrca = (): OrcaTurn => {
+  const ensureElowen = (): ElowenTurn => {
     const last = turns[turns.length - 1];
-    if (last && last.role === 'orca' && last.streaming) {
-      const clone: OrcaTurn = { role: 'orca', segments: [...last.segments], streaming: true };
+    if (last && last.role === 'elowen' && last.streaming) {
+      const clone: ElowenTurn = { role: 'elowen', segments: [...last.segments], streaming: true };
       turns[turns.length - 1] = clone;
       return clone;
     }
-    const fresh: OrcaTurn = { role: 'orca', segments: [], streaming: true };
+    const fresh: ElowenTurn = { role: 'elowen', segments: [], streaming: true };
     turns.push(fresh);
     return fresh;
   };
-  const addText = (t: OrcaTurn, delta: string): void => {
+  const addText = (t: ElowenTurn, delta: string): void => {
     const tail = t.segments[t.segments.length - 1];
     if (tail?.kind === 'text') t.segments[t.segments.length - 1] = { kind: 'text', text: tail.text + delta };
     else t.segments.push({ kind: 'text', text: delta });
   };
-  const addReasoning = (t: OrcaTurn, delta: string): void => {
+  const addReasoning = (t: ElowenTurn, delta: string): void => {
     const tail = t.segments[t.segments.length - 1];
     if (tail?.kind === 'reasoning') t.segments[t.segments.length - 1] = { kind: 'reasoning', text: tail.text + delta };
     else t.segments.push({ kind: 'reasoning', text: delta });
   };
   switch (e.type) {
     case 'text': {
-      addText(ensureOrca(), e.delta);
+      addText(ensureElowen(), e.delta);
       return { turns, thinking: true, notice: undefined }; // first answer text clears any transient notice
     }
     case 'reasoning': {
-      addReasoning(ensureOrca(), e.delta);
+      addReasoning(ensureElowen(), e.delta);
       return { turns, thinking: true, notice: view.notice };
     }
     case 'notice': {
@@ -123,7 +123,7 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
       return { turns, thinking: view.thinking, notice: e.done ? undefined : e.message };
     }
     case 'tool': {
-      const t = ensureOrca();
+      const t = ensureElowen();
       const item: ToolItem = { name: e.name, detail: e.detail, icon: e.icon, ...(e.id ? { id: e.id } : {}), ...(e.command ? { command: e.command } : {}) };
       const tail = t.segments[t.segments.length - 1];
       if (tail?.kind === 'tools') t.segments[t.segments.length - 1] = { kind: 'tools', items: [...tail.items, item] };
@@ -133,12 +133,12 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     case 'diff': {
       // An edit finished — attach its diff to the matching tool when PI gives an id; fall back to the
       // most recent tool for legacy events. A notes-only output view (hook annotations) rides along.
-      const t = ensureOrca();
+      const t = ensureElowen();
       attachToTool(t, e.id, (item) => ({ ...item, diff: e.diff, ...(e.output ? { output: e.output } : {}) }));
       return { turns, thinking: true, notice: view.notice };
     }
     case 'tool_output': {
-      const t = ensureOrca();
+      const t = ensureElowen();
       // The end event's output has no command (its PI event carries no args) — thread the verbatim
       // command captured on the matching `tool` (start) event so the console block's first line is filled.
       attachToTool(t, e.id, (item) => ({
@@ -150,7 +150,7 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     case 'subagent': {
       // Live progress of a delegated child run — attach to the matching `delegate` tool item so the
       // renderer can draw the `↳ current tool · Ns · tokens` line and offer the drill-in target.
-      const t = ensureOrca();
+      const t = ensureElowen();
       attachToTool(t, e.id, (item) => ({
         ...item,
         sub: { sessionId: e.sessionId, status: e.status, task: e.task, detail: e.detail, tools: e.tools, tokens: e.tokens, seconds: e.seconds },
@@ -165,11 +165,11 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
     }
     case 'idle': {
       const last = turns[turns.length - 1];
-      if (last && last.role === 'orca') turns[turns.length - 1] = { ...last, streaming: false };
+      if (last && last.role === 'elowen') turns[turns.length - 1] = { ...last, streaming: false };
       return { turns, thinking: false, notice: undefined }; // turn settled → drop any transient notice
     }
     case 'error': {
-      const t = ensureOrca();
+      const t = ensureElowen();
       addText(t, `\n[error: ${e.message}]`);
       t.streaming = false;
       return { turns, thinking: false, notice: undefined };
@@ -179,7 +179,7 @@ export function reduce(view: ChatView, e: BrainEvent): ChatView {
   }
 }
 
-function attachToTool(t: OrcaTurn, id: string | undefined, patch: (item: ToolItem) => ToolItem): void {
+function attachToTool(t: ElowenTurn, id: string | undefined, patch: (item: ToolItem) => ToolItem): void {
   for (let i = t.segments.length - 1; i >= 0; i--) {
     const seg = t.segments[i]!;
     if (seg.kind !== 'tools') continue;

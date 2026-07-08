@@ -19,7 +19,7 @@ interface ReadinessResponse { checks: ReadinessCheck[] }
 
 function makeApp(over: { model?: string | null; withUsers?: boolean; patch?: ConfigPatch } = {}) {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const config = new ConfigStore(db);
   if (over.patch) config.update(over.patch);
   const users = over.withUsers ? new UserStore(db) : undefined;
@@ -61,25 +61,25 @@ describe('GET /system/readiness', () => {
     const { body } = await getChecks(app);
     expect(body.checks[0]).toEqual({
       id: 'chat', label: 'Chat', ok: false, detail: 'no provider',
-      hint: 'Run `orca setup` to connect an AI provider.',
+      hint: 'Run `elowen setup` to connect an AI provider.',
     });
   });
 
-  it('tasks: ok when the embedded engine (orca:) points at a configured provider, independent of PATH', async () => {
+  it('tasks: ok when the embedded engine (elowen:) points at a configured provider, independent of PATH', async () => {
     const { app } = makeApp({ model: 'm', patch: {
-      defaults: { exec: 'orca:relay/kimi', autonomy: 'L3', maxSessions: 1 },
+      defaults: { exec: 'elowen:relay/kimi', autonomy: 'L3', maxSessions: 1 },
       brain: { providers: [{ id: 'relay', label: 'Relay', type: 'openai', baseUrl: 'http://x/v1', models: ['kimi'], apiKey: 'k' }] },
     } });
     const { body } = await getChecks(app);
-    expect(body.checks[1]).toEqual({ id: 'tasks', label: 'Tasks', ok: true, detail: 'orca:relay/kimi' });
+    expect(body.checks[1]).toEqual({ id: 'tasks', label: 'Tasks', ok: true, detail: 'elowen:relay/kimi' });
   });
 
-  it('tasks: not ok when the orca: exec points at a provider that no longer exists', async () => {
-    const { app } = makeApp({ model: 'm', patch: { defaults: { exec: 'orca:gone/kimi', autonomy: 'L3', maxSessions: 1 } } });
+  it('tasks: not ok when the elowen: exec points at a provider that no longer exists', async () => {
+    const { app } = makeApp({ model: 'm', patch: { defaults: { exec: 'elowen:gone/kimi', autonomy: 'L3', maxSessions: 1 } } });
     const { body } = await getChecks(app);
     expect(body.checks[1]).toEqual({
-      id: 'tasks', label: 'Tasks', ok: false, detail: 'orca:gone/kimi',
-      hint: 'The provider its executor points at is gone — re-run `orca setup`.',
+      id: 'tasks', label: 'Tasks', ok: false, detail: 'elowen:gone/kimi',
+      hint: 'The provider its executor points at is gone — re-run `elowen setup`.',
     });
   });
 
@@ -87,7 +87,7 @@ describe('GET /system/readiness', () => {
     afterEach(() => { vi.unstubAllEnvs(); });
 
     it('ok when the resolved program binary is present on PATH', async () => {
-      const binDir = mkdtempSync(join(tmpdir(), 'orca-readiness-bin-'));
+      const binDir = mkdtempSync(join(tmpdir(), 'elowen-readiness-bin-'));
       writeFileSync(join(binDir, 'pi'), '#!/bin/sh\n');
       chmodSync(join(binDir, 'pi'), 0o755);
       vi.stubEnv('PATH', binDir);
@@ -97,13 +97,13 @@ describe('GET /system/readiness', () => {
     });
 
     it('not ok when the resolved program binary is missing from PATH', async () => {
-      const emptyDir = mkdtempSync(join(tmpdir(), 'orca-readiness-empty-'));
+      const emptyDir = mkdtempSync(join(tmpdir(), 'elowen-readiness-empty-'));
       vi.stubEnv('PATH', emptyDir);
       const { app } = makeApp({ model: 'm', patch: { defaults: { exec: 'pi:some-model', autonomy: 'L3', maxSessions: 1 } } });
       const { body } = await getChecks(app);
       expect(body.checks[1]).toEqual({
         id: 'tasks', label: 'Tasks', ok: false, detail: 'pi:some-model',
-        hint: 'The setup wizard points this at the built-in engine — re-run `orca setup`.',
+        hint: 'The setup wizard points this at the built-in engine — re-run `elowen setup`.',
       });
     });
   });
@@ -146,7 +146,7 @@ describe('GET /system/readiness', () => {
     const { body } = await getChecks(app);
     expect(body.checks[3]).toEqual({
       id: 'memory', label: 'Memory', ok: true, detail: 'disabled (optional)',
-      hint: 'Optional — enable memory in `orca setup` or Settings → Brain.',
+      hint: 'Optional — enable memory in `elowen setup` or Settings → Brain.',
     });
   });
 

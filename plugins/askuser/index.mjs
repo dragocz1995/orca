@@ -1,5 +1,5 @@
 // Ask-user plugin: a single tool `ask_user_question` that pauses the turn and lets the user pick from
-// predefined options — the Orca analogue of Claude Code's AskUserQuestion / opencode's question tool.
+// predefined options — the Elowen analogue of Claude Code's AskUserQuestion / opencode's question tool.
 // The heavy lifting (parking the turn, emitting the interactive event, awaiting the answer) lives in the
 // core ElicitationRegistry; this plugin is just the tool surface. `ctx.askUser(questions)` returns one
 // answer per question once the user responds on any surface (CLI picker, web form, Discord components,

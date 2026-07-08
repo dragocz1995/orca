@@ -26,8 +26,8 @@ describe('AccountView', () => {
     render(<Wrapper><UiScaleProvider><ToastProvider><AccountView /></ToastProvider></UiScaleProvider></Wrapper>);
 
     expect(await screen.findByText('@bob')).toBeTruthy();
-    // The default-model rail lives on the Orca AI tab (with the other per-user AI settings).
-    fireEvent.click(screen.getByRole('radio', { name: 'Orca AI' }));
+    // The default-model rail lives on the Elowen AI tab (with the other per-user AI settings).
+    fireEvent.click(screen.getByRole('radio', { name: 'Elowen AI' }));
     // The worker default is now a summary + manage modal — open it and pick the single allowed model.
     fireEvent.click(screen.getByRole('button', { name: 'Manage' }));
     // The modal groups by engine: a "Claude Code" header carrying the provider logo, and a model row.
@@ -42,7 +42,7 @@ describe('AccountView', () => {
   });
 
   it('falls back to the profile section when a removed section id is persisted', async () => {
-    localStorage.setItem('orca.account.section', 'prompts'); // the Prompts tab no longer exists
+    localStorage.setItem('elowen.account.section', 'prompts'); // the Prompts tab no longer exists
     server.use(
       http.get('*/api/auth/me', () => HttpResponse.json({ user: meUser() })),
       http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet'], customModels: [], hiddenPresets: [], autopilot: {}, providers: {}, defaults: {} })),

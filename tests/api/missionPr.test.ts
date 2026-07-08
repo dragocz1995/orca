@@ -78,7 +78,7 @@ describe('GET /missions surfaces a completed PR-native mission', () => {
     missions.create({ id: 'm-epic', epic_id: 'epic', autonomy: 'L3', max_sessions: 1 });
     missions.setState('m-epic', 'disengaged'); // naturally completed → drops out of live()
     const prs = new MissionPrStore(db);
-    prs.create({ mission_id: 'm-epic', branch: 'orca/demo-epic', worktree: '/wt' }); // pr pending (no url yet)
+    prs.create({ mission_id: 'm-epic', branch: 'elowen/demo-epic', worktree: '/wt' }); // pr pending (no url yet)
     const config = new ConfigStore(db);
     const missionGit = new MissionGit({ prs, config, projects, tasks });
     const app = createServer({
@@ -91,7 +91,7 @@ describe('GET /missions surfaces a completed PR-native mission', () => {
     const m = list.find((x) => x.id === 'm-epic');
     expect(m).toBeTruthy();
     expect(m!.state).toBe('disengaged');
-    expect(m!.pr?.branch).toBe('orca/demo-epic');
+    expect(m!.pr?.branch).toBe('elowen/demo-epic');
   });
 
   it('drops a mission once its PR is merged', async () => {
@@ -104,7 +104,7 @@ describe('GET /missions surfaces a completed PR-native mission', () => {
     missions.create({ id: 'm-epic', epic_id: 'epic', autonomy: 'L3', max_sessions: 1 });
     missions.setState('m-epic', 'disengaged');
     const prs = new MissionPrStore(db);
-    prs.create({ mission_id: 'm-epic', branch: 'orca/demo-epic', worktree: '/wt' });
+    prs.create({ mission_id: 'm-epic', branch: 'elowen/demo-epic', worktree: '/wt' });
     prs.setPr('m-epic', { number: 1, url: 'u', state: 'merged' });
     const config = new ConfigStore(db);
     const app = createServer({

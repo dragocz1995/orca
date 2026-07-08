@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 
-const KEY = 'orca-sidebar';
+const KEY = 'elowen-sidebar';
 const MIN = 160, MAX = 360, DEFAULT = 224;
 const clamp = (n: number) => Math.max(MIN, Math.min(MAX, n));
 

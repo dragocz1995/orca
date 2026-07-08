@@ -57,7 +57,7 @@ function ActionSwitch({ value, onChange, label, labels }: {
   );
 }
 
-/** Account → Orca AI: self-service editor for the user's granular tool-permission rules
+/** Account → Elowen AI: self-service editor for the user's granular tool-permission rules
  *  (GET/PATCH /auth/me/permissions — the same blob the chat approval prompt's "Always allow" appends
  *  to, so patterns granted there show up here automatically). Bash rules (command patterns) are the
  *  main list with an add row; tool-name rules render below only when some exist. Rule order is

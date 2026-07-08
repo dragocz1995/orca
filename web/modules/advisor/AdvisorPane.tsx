@@ -9,7 +9,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useAdvisorStatus, useConfig, useMe, useSessionInfos, useTasks } from '../../lib/queries';
 import { useAdvisorStart, useAdvisorStop } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 import { sessionLabel } from '../../lib/agentUtils';
 import { openTerminalWindow } from '../../lib/openTerminalWindow';
 import { ModelIcon } from '../../components/ui/ModelIcon';

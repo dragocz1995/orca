@@ -13,7 +13,7 @@ import { UserProjectStore } from '../../src/store/userProjectStore.js';
 
 function setup() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw'); // first user → is_admin
   const bob = users.create('bob', 'pw');

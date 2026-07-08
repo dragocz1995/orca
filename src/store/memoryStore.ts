@@ -88,7 +88,7 @@ function packVector(vector: Float32Array | Buffer): Buffer {
   return Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
 }
 
-/** Persistence for Orca RAW memories (v1: user-scoped). Every read/write is filtered by user_id and
+/** Persistence for Elowen RAW memories (v1: user-scoped). Every read/write is filtered by user_id and
  *  id-addressed ops enforce ownership. Embeddings live inline as packed Float32 BLOBs (no external
  *  vector DB); this store does NOT make embedding HTTP calls — that's EmbeddingService. Vector search
  *  is Phase 4; `search` here is a keyword LIKE fallback. Deletes are soft (status='deleted'); every

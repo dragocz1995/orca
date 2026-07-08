@@ -101,7 +101,7 @@ export function createReviewService({ d, log, gitLock, decisionQueue, checkoutPa
           // Hand the overseer the REAL evidence — the working-tree changes — not just the agent's
           // self-reported summary, so the review judges the diff instead of rubber-stamping. Workers
           // don't commit, so `git diff HEAD` is the phase's actual change set. In PR-native mode the
-          // agent edits the mission's worktree (and Orca commits each approved phase), so read the diff
+          // agent edits the mission's worktree (and Elowen commits each approved phase), so read the diff
           // THERE — the main checkout would show nothing. Without a worktree it's the project checkout,
           // where the diff is cumulative across the sequential mission.
           const reviewPath = checkoutPathFor(mission.id, existing.project_id);
@@ -151,7 +151,7 @@ export function createReviewService({ d, log, gitLock, decisionQueue, checkoutPa
                 // instead of stacking duplicate feedback blocks onto the description.
                 d.tasks.setResumeNote(id, `[Review rejected — previous attempt was not accepted]: ${verdict.rationale}\nFix the issue and close the task again.`);
                 // Reap the worker if it outlived its task close, so the re-spawn doesn't collide with a
-                // still-live `orca-<agent>` session ("duplicate session" → endless failed re-spawns).
+                // still-live `elowen-<agent>` session ("duplicate session" → endless failed re-spawns).
                 await d.engine.stopTask(id);
                 d.tasks.setStatus(id, 'open'); // re-open so the engine tick re-spawns it (its deps are already satisfied)
                 d.bus.publish({ type: 'task', taskId: id, status: 'open' });

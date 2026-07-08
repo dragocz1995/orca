@@ -5,7 +5,7 @@ import { parseCommand } from './commands.js';
 import { expandPromptCommand } from '../../brain/slashCommands.js';
 import { resolveToken } from './token.js';
 
-/** Parsed `orca run` / `orca -p` invocation. A pure result so the parser is unit-testable. */
+/** Parsed `elowen run` / `elowen -p` invocation. A pure result so the parser is unit-testable. */
 export interface HeadlessOpts {
   prompt?: string;                 // the turn text, or a `/slash …` command
   goal?: string;                   // --goal <text>: start a persistent goal instead of a single turn
@@ -20,7 +20,7 @@ export interface HeadlessOpts {
 }
 
 const USAGE = [
-  'usage: orca run "<prompt>"   |   orca -p "<prompt>"',
+  'usage: elowen run "<prompt>"   |   elowen -p "<prompt>"',
   '  --model <id> --provider <id>   pick the model for this run',
   '  -c | --resume <id> | --new     continue the active conversation (DEFAULT), a specific one, or start fresh',
   '  --mode plan|build | --plan     plan mode hides mutating tools for the turn',
@@ -78,7 +78,7 @@ const dim = (s: string): string => `[2m${s}[0m`;
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** Non-interactive Orca: start (or resume) a conversation, run one turn / slash / goal, stream the result
+/** Non-interactive Elowen: start (or resume) a conversation, run one turn / slash / goal, stream the result
  *  to stdout, and exit with a code that reflects the outcome. The daemon + token plumbing is the same the
  *  TUI uses, so this exercises the full stack (model select, prompts, slash commands, autonomous goals)
  *  straight from a terminal. Exit codes: 0 ok/done · 1 error · 2 usage · 3 goal paused/budget · 4 goal
@@ -96,7 +96,7 @@ export async function runHeadless(
   if (!client) {
     let token: string;
     try { token = resolveToken(env); }
-    catch { io.stderr('No Orca token — set ORCA_TOKEN or run `orca login` first.\n'); return 1; }
+    catch { io.stderr('No Elowen token — set ELOWEN_TOKEN or run `elowen login` first.\n'); return 1; }
     client = new BrainClient({ base, token });
   }
   const c = client;
@@ -114,7 +114,7 @@ export async function runHeadless(
 
   // Continuation model (matches the TUI): by default the server resolves this DIRECTORY's conversation
   // (most recent unattached cwd match, else the most recent unattached cwd-less one, else fresh), so
-  // consecutive `orca run` calls from one project keep talking to the same brain — and every follow-up
+  // consecutive `elowen run` calls from one project keep talking to the same brain — and every follow-up
   // call is BOUND to the resolved session id, so a concurrently open TUI/dock can't hijack it. `--new`
   // starts fresh; `--session <id>` targets a specific conversation. `-c`/`--continue` is the explicit
   // form of the default. The resolved session id is printed so the user knows what they'll continue.
@@ -124,7 +124,7 @@ export async function runHeadless(
     ({ sessionId } = await c.start(startOpts));
     if (o.model || o.provider) { const r = await c.setModel({ model: o.model, provider: o.provider }); if (o.verbose) io.stderr(dim(`[model] ${r.model}\n`)); }
   } catch (e) { io.stderr(`start failed: ${errMsg(e)}\n`); return 1; }
-  io.stderr(dim(`[session ${sessionId}] — continue with \`orca run -c "<next>"\` (or --new to start fresh)\n`));
+  io.stderr(dim(`[session ${sessionId}] — continue with \`elowen run -c "<next>"\` (or --new to start fresh)\n`));
   if (o.json) io.stdout(`${JSON.stringify({ type: 'session', id: sessionId })}\n`);
 
   const slash = o.prompt?.trim().startsWith('/') ? o.prompt.trim() : undefined;
@@ -267,7 +267,7 @@ export async function runHeadless(
 
   // A slash that isn't a built-in may be a plugin prompt macro (kind:'prompt') — the same fallback the
   // TUI applies: expand its template with the typed args and send THAT. Anything else goes through
-  // literally, so `orca run "/review auth"` runs the dev-commands review prompt, not the raw text.
+  // literally, so `elowen run "/review auth"` runs the dev-commands review prompt, not the raw text.
   const resolveSlashText = async (text: string): Promise<string> => {
     const m = /^\/(\S+)(?:\s+([\s\S]+))?$/.exec(text);
     if (!m) return text;

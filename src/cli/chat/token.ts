@@ -4,7 +4,7 @@ import { dataDir } from '../paths.js';
 
 /** Thrown by resolveToken when no token is available anywhere — the caller runs an interactive login. */
 export class NeedsLogin extends Error {
-  constructor() { super('no orca token — run `orca login`'); this.name = 'NeedsLogin'; }
+  constructor() { super('no elowen token — run `elowen login`'); this.name = 'NeedsLogin'; }
 }
 
 /** Injectable IO so token resolution is unit-testable without touching the real filesystem/network. */
@@ -32,7 +32,7 @@ export function tokenFile(env: NodeJS.ProcessEnv): string {
 
 /** Resolve a full-scope token without a password prompt when possible: env → cached file → NeedsLogin. */
 export function resolveToken(env: NodeJS.ProcessEnv, io: TokenIo = defaultIo): string {
-  const fromEnv = env.ORCA_TOKEN?.trim();
+  const fromEnv = (env.ELOWEN_TOKEN ?? env.ORCA_TOKEN)?.trim();
   if (fromEnv) return fromEnv;
   const raw = io.read(tokenFile(env));
   if (raw) {

@@ -32,7 +32,7 @@ export interface TestAppOpts {
  *  Exposes the live stores/queues so tests can arrange state and assert side effects. */
 export async function makeTestApp(opts: TestAppOpts = {}) {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const readiness = new Readiness(db);
   const agents = new AgentStore(db);
@@ -67,8 +67,8 @@ export async function makeTestApp(opts: TestAppOpts = {}) {
 
   /** Seed an epic + one in-progress child phase + an active mission `m-<epic>`. */
   const seedMissionWithChild = () => {
-    const epic = tasks.create({ id: 'orca-ep', project_id: 1, title: 'Epic', type: 'epic', description: 'epic' });
-    const child = tasks.create({ id: 'orca-c1', project_id: 1, title: 'Child phase', type: 'task', parent_id: epic.id, description: 'child' });
+    const epic = tasks.create({ id: 'elowen-ep', project_id: 1, title: 'Epic', type: 'epic', description: 'epic' });
+    const child = tasks.create({ id: 'elowen-c1', project_id: 1, title: 'Child phase', type: 'task', parent_id: epic.id, description: 'child' });
     tasks.setStatus(child.id, 'in_progress');
     const mission = missions.create({ id: `m-${epic.id}`, epic_id: epic.id, autonomy: 'L3', max_sessions: 1 });
     return { missionId: mission.id, epicId: epic.id, childId: child.id };
@@ -78,9 +78,9 @@ export async function makeTestApp(opts: TestAppOpts = {}) {
    *  `autonomy` defaults to L3 so the existing self-heal/review tests get full autonomy; pass L1/L2
    *  to exercise the human-in-the-loop branch (no auto self-heal). */
   const seedMissionWithChain = (autonomy = 'L3') => {
-    const epic = tasks.create({ id: 'orca-ep2', project_id: 1, title: 'Epic2', type: 'epic', description: 'epic' });
-    const p1 = tasks.create({ id: 'orca-p1', project_id: 1, title: 'Phase 1', type: 'task', parent_id: epic.id, description: 'p1' });
-    const p2 = tasks.create({ id: 'orca-p2', project_id: 1, title: 'Phase 2', type: 'task', parent_id: epic.id, description: 'p2' });
+    const epic = tasks.create({ id: 'elowen-ep2', project_id: 1, title: 'Epic2', type: 'epic', description: 'epic' });
+    const p1 = tasks.create({ id: 'elowen-p1', project_id: 1, title: 'Phase 1', type: 'task', parent_id: epic.id, description: 'p1' });
+    const p2 = tasks.create({ id: 'elowen-p2', project_id: 1, title: 'Phase 2', type: 'task', parent_id: epic.id, description: 'p2' });
     tasks.addDep(p2.id, p1.id);
     tasks.setStatus(p1.id, 'in_progress');
     const mission = missions.create({ id: `m-${epic.id}`, epic_id: epic.id, autonomy, max_sessions: 1 });

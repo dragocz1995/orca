@@ -4,7 +4,7 @@ import { Link2 } from 'lucide-react';
 import type { Task } from '../../lib/types';
 import { useTasks } from '../../lib/queries';
 import { useUpdateTask } from '../../lib/mutations';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Field } from '../../components/ui/Field';
@@ -25,7 +25,7 @@ export function DepPickerModal({ task, onClose }: { task: Task; onClose: () => v
 
   useEffect(() => {
     let alive = true;
-    orcaClient.taskDeps(task.id)
+    elowenClient.taskDeps(task.id)
       .then((d) => { if (alive) { setDeps(d); setLoaded(true); } })
       .catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };

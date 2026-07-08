@@ -18,7 +18,7 @@ interface PluginI18n {
 export interface DiscoveredPlugin {
   manifest: PluginManifest;
   dir: string;
-  /** Which scan root it came from: the Orca install ('bundled') or the instance data dir ('user'). */
+  /** Which scan root it came from: the Elowen install ('bundled') or the instance data dir ('user'). */
   source: 'bundled' | 'user';
   /** Per-locale manifest translations from the plugin's `i18n/<lang>.json` files (empty when none). */
   i18n?: Record<string, PluginI18n>;

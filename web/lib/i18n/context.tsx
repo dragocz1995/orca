@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { dictionaries, type Locale } from './dictionaries';
 import type { LocaleDict } from './types';
 
-const STORAGE_KEY = 'orca-locale';
+const STORAGE_KEY = 'elowen-locale';
 const DEFAULT_LOCALE: Locale = 'en';
 
 function getInitialLocale(): Locale {

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { orcaClient } from '../../../lib/orcaClient';
+import { elowenClient } from '../../../lib/elowenClient';
 
 /** Image preview — fetches the raw bytes with the bearer token in an Authorization header (not the
  *  URL query string, which would leak the token into proxy/referrer/history logs — finding W4) and
@@ -14,7 +14,7 @@ export function ImagePreview({ projectId, path }: { projectId: number; path: str
     let objectUrl: string | null = null;
     setUrl(null);
     setFailed(false);
-    orcaClient.projectRawBlob(projectId, path)
+    elowenClient.projectRawBlob(projectId, path)
       .then((blob) => { if (cancelled) return; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); })
       .catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };

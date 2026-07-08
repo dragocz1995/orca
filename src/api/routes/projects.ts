@@ -2,12 +2,12 @@ import { homedir } from 'node:os';
 import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, isProjectImage } from '../../integrations/projectFiles.js';
 import { parseBody } from '../validation.js';
 import { createProjectSchema, updateProjectSchema, writeFileSchema, pathBodySchema, fromToSchema } from '../schemas/projects.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Project registration + the in-app file editor (tree, read/write, raw bytes, file-manager ops) and
  *  read-only git surface (diff, head, commits, changed files). Paths are validated to stay inside the
  *  project root (projectFiles.safe); writes are gated to the project's assigned users. */
-export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerProjectRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d, canAccessProject } = ctx;
   app.get('/projects', (c) => {
     const all = d.projects ? d.projects.list() : [];
@@ -56,7 +56,7 @@ export function registerProjectRoutes(app: OrcaApp, ctx: RouteContext): void {
     if (b.pr_enabled === null || typeof b.pr_enabled === 'boolean') patch.pr_enabled = b.pr_enabled;
     return c.json(d.projects.update(id, patch));
   });
-  // Remove a project from orca entirely: cascades to its tasks, missions, agents and access grants
+  // Remove a project from elowen entirely: cascades to its tasks, missions, agents and access grants
   // (ProjectStore.remove), but never touches the files on disk. Admin-only; the daemon's home project
   // can't be removed (it's where the daemon itself lives).
   app.delete('/projects/:id', (c) => {

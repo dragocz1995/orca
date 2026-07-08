@@ -1,6 +1,6 @@
 import type { Runner } from './runner.js';
 
-/** Environment checks `orca install` runs before touching anything. Pure result + a human blocker
+/** Environment checks `elowen install` runs before touching anything. Pure result + a human blocker
  *  list, so the wizard can refuse early with exact remediation. */
 export interface PreflightResult {
   isRoot: boolean;
@@ -33,8 +33,8 @@ export async function preflight(r: Runner): Promise<PreflightResult> {
  *  it — so it isn't listed here. */
 export function preflightBlockers(p: PreflightResult): string[] {
   const out: string[] = [];
-  if (!p.isRoot) out.push('Must run as root — try: sudo orca install');
-  if (!p.pkgManager) out.push('Unsupported OS: orca install needs apt (Debian/Ubuntu) in this version');
+  if (!p.isRoot) out.push('Must run as root — try: sudo elowen install');
+  if (!p.pkgManager) out.push('Unsupported OS: elowen install needs apt (Debian/Ubuntu) in this version');
   if (!p.node.ok) out.push(`Node ${MIN_NODE_MAJOR}+ required (found ${p.node.version || 'none'})`);
   return out;
 }

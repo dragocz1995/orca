@@ -63,11 +63,11 @@ describe('useTheme / ThemeProvider', () => {
     expect(screen.getByTestId('theme').textContent).toBe('dark');
     expect(screen.getByTestId('resolved').textContent).toBe('dark');
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-    expect(localStorage.getItem('orca:theme')).toBe('dark');
+    expect(localStorage.getItem('elowen:theme')).toBe('dark');
   });
 
   it('hydrates a persisted theme on mount, overriding the system preference', () => {
-    localStorage.setItem('orca:theme', 'light');
+    localStorage.setItem('elowen:theme', 'light');
     mockMatchMedia(true); // system says dark, but the persisted explicit choice wins
     render(<ThemeProvider><Probe /></ThemeProvider>);
     expect(screen.getByTestId('theme').textContent).toBe('light');
@@ -76,7 +76,7 @@ describe('useTheme / ThemeProvider', () => {
   });
 
   it('does not flash dark when a persisted light theme meets a dark OS preference', () => {
-    localStorage.setItem('orca:theme', 'light');
+    localStorage.setItem('elowen:theme', 'light');
     mockMatchMedia(true); // OS prefers dark
     // Simulate the no-flash script in app/layout.tsx, which paints the resolved palette before React mounts.
     document.documentElement.setAttribute('data-theme', 'light');

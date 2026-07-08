@@ -8,23 +8,23 @@ import { update } from './update.js';
 import { SERVICES, runCmd, systemctl, servicesActive } from './systemd.js';
 import { launchChat } from './chat/launch.js';
 
-const BASE = process.env.ORCA_URL ?? 'http://localhost:4400';
+const BASE = (process.env.ELOWEN_URL ?? process.env.ORCA_URL) ?? 'http://localhost:4400';
 
-/** Launcher menu for a systemd-provisioned box (`orca install`): drives the units via systemctl and
+/** Launcher menu for a systemd-provisioned box (`elowen install`): drives the units via systemctl and
  *  shows the real public URL the operator chose — never spawns a second, port-conflicting daemon. */
 async function systemdMenu(info: InstallInfo, version: string): Promise<void> {
-  p.intro(`orca v${version}  ·  systemd`);
-  // A systemd box was provisioned by `orca install`, which already created the admin — don't nag. The
-  // `orca setup` command still runs the wizard here on demand.
+  p.intro(`elowen v${version}  ·  systemd`);
+  // A systemd box was provisioned by `elowen install`, which already created the admin — don't nag. The
+  // `elowen setup` command still runs the wizard here on demand.
   let lastReport: { title?: string; body: string } | undefined;
   for (;;) {
     const active = await servicesActive();
-    const state = active ? `● orca is running  ·  ${info.publicUrl}` : '○ orca is stopped';
+    const state = active ? `● elowen is running  ·  ${info.publicUrl}` : '○ elowen is stopped';
     const action = await p.select({
       message: state,
       note: lastReport,
       options: [
-        { value: 'chat', label: 'Talk to Orca', hint: 'chat in the terminal' },
+        { value: 'chat', label: 'Talk to Elowen', hint: 'chat in the terminal' },
         active ? { value: 'restart', label: 'Restart', hint: 'daemon + web' } : { value: 'start', label: 'Start', hint: 'daemon + web' },
         ...(active ? [{ value: 'stop', label: 'Stop' }] : []),
         { value: 'status', label: 'Status', hint: 'systemctl status' },
@@ -60,13 +60,13 @@ async function systemdMenu(info: InstallInfo, version: string): Promise<void> {
       continue;
     }
     if (action === 'logs') {
-      const r = await runCmd('journalctl', ['-u', 'orca-daemon', '-n', '20', '--no-pager']);
-      lastReport = { title: 'orca-daemon', body: r.stdout.trim() || '(no logs - try: journalctl -u orca-daemon)' };
+      const r = await runCmd('journalctl', ['-u', 'elowen-daemon', '-n', '20', '--no-pager']);
+      lastReport = { title: 'elowen-daemon', body: r.stdout.trim() || '(no logs - try: journalctl -u elowen-daemon)' };
       continue;
     }
     if (action === 'update') {
       try {
-        // Shared updater: self-locating npm --prefix + systemd-aware restart (same path as `orca update`).
+        // Shared updater: self-locating npm --prefix + systemd-aware restart (same path as `elowen update`).
         const r = await update(process.env, { current: version });
         const message = r.updated
           ? (r.restartDeferred ? `Installed ${r.to} — restart deferred (a mission is running).` : `Updated ${r.from} → ${r.to} and restarted.`)
@@ -85,14 +85,14 @@ async function systemdMenu(info: InstallInfo, version: string): Promise<void> {
   }
 }
 
-/** The interactive launcher menu shown when `orca` is run with no arguments in a terminal. */
+/** The interactive launcher menu shown when `elowen` is run with no arguments in a terminal. */
 export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<void> {
-  // A box provisioned by `orca install` is systemd-managed — drive those units, don't spawn our own.
+  // A box provisioned by `elowen install` is systemd-managed — drive those units, don't spawn our own.
   const info = readInstallInfo();
   if (info) { await systemdMenu(info, version); return; }
 
   const deps = { ...defaultLifecycleDeps(version), log: () => {} };
-  p.intro(`orca v${version}`);
+  p.intro(`elowen v${version}`);
   // Offer onboarding once on a fresh install (marker-gated — no daemon call when already set up).
   await maybeOfferSetup(BASE, env, version);
 
@@ -103,16 +103,16 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
     const webUrl = `http://localhost:${st.web.port || 4500}`;
     // At-a-glance state as the prompt title, so it refreshes every loop without piling up notes.
     const state = running
-      ? `${st.daemon.healthy && st.web.healthy ? '● ' : '◐ '}orca is running  ·  ${webUrl}`
-      : '○ orca is stopped';
+      ? `${st.daemon.healthy && st.web.healthy ? '● ' : '◐ '}elowen is running  ·  ${webUrl}`
+      : '○ elowen is stopped';
     const action = await p.select({
       message: state,
       note: lastReport,
       options: [
-        { value: 'chat', label: 'Talk to Orca', hint: 'chat in the terminal' },
+        { value: 'chat', label: 'Talk to Elowen', hint: 'chat in the terminal' },
         running
-          ? { value: 'down', label: 'Stop orca', hint: 'daemon + web' }
-          : { value: 'up', label: 'Start orca', hint: 'daemon + web' },
+          ? { value: 'down', label: 'Stop elowen', hint: 'daemon + web' }
+          : { value: 'up', label: 'Start elowen', hint: 'daemon + web' },
         { value: 'status', label: 'Status', hint: 'service health + ports' },
         { value: 'open', label: 'Open web UI', hint: webUrl },
         { value: 'update', label: 'Update', hint: 'check npm for a newer version' },
@@ -151,7 +151,7 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
     if (action === 'up') {
       try {
         await runLifecycle('up', env, deps);
-        lastReport = { title: 'Services', body: 'orca started' };
+        lastReport = { title: 'Services', body: 'elowen started' };
       }
       catch (e) { lastReport = { title: 'Services', body: (e as Error).message }; continue; }
       continue;
@@ -160,7 +160,7 @@ export async function menu(env: NodeJS.ProcessEnv, version: string): Promise<voi
     // of the loop and eject the operator from the launcher, mirroring the systemd menu's handling.
     try {
       await runLifecycle(action, env, deps);
-      lastReport = { title: action === 'down' ? 'Services' : 'Update', body: action === 'down' ? 'orca stopped' : 'update finished' };
+      lastReport = { title: action === 'down' ? 'Services' : 'Update', body: action === 'down' ? 'elowen stopped' : 'update finished' };
     }
     catch (e) { lastReport = { title: action === 'down' ? 'Services' : 'Update', body: (e as Error).message }; }
   }

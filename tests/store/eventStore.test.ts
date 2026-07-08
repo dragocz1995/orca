@@ -48,7 +48,7 @@ describe('EventStore', () => {
     expect(mission!.label).toBe('Docs autopilot');
   });
   it('leaves the label empty for signals and unknown tasks', () => {
-    events.record({ type: 'signal', session: 'orca-Juno', signal: { type: 'working' } });
+    events.record({ type: 'signal', session: 'elowen-Juno', signal: { type: 'working' } });
     events.record({ type: 'task', taskId: 'ghost', status: 'open' });
     const [task, signal] = events.list(); // newest-first
     expect(signal!.label).toBe('');

@@ -14,17 +14,17 @@ describe('ThemeToggle', () => {
     expect(btn.getAttribute('aria-label')).toContain('System');
 
     fireEvent.click(btn); // system -> light
-    expect(localStorage.getItem('orca:theme')).toBe('light');
+    expect(localStorage.getItem('elowen:theme')).toBe('light');
     expect(btn.getAttribute('aria-label')).toContain('Light');
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
 
     fireEvent.click(btn); // light -> dark
-    expect(localStorage.getItem('orca:theme')).toBe('dark');
+    expect(localStorage.getItem('elowen:theme')).toBe('dark');
     expect(btn.getAttribute('aria-label')).toContain('Dark');
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 
     fireEvent.click(btn); // dark -> system (wraps around)
-    expect(localStorage.getItem('orca:theme')).toBe('system');
+    expect(localStorage.getItem('elowen:theme')).toBe('system');
     expect(btn.getAttribute('aria-label')).toContain('System');
   });
 });

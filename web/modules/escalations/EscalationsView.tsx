@@ -5,7 +5,7 @@ import type { Escalation } from '../../lib/escalations';
 import type { PendingAsk } from '../../lib/types';
 import { useEscalations, usePendingAsks } from '../../lib/queries';
 import { useSetTaskStatus, useResumeMission, useApproveGate, useReplyAsk } from '../../lib/mutations';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 import { formatTaskTime } from '../../lib/format';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
 import { Button } from '../../components/ui/Button';

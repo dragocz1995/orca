@@ -14,7 +14,7 @@ import { FakeTmuxDriver } from '../../src/tmux/fakeDriver.js';
 
 function setup() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw'); // first → admin
   const amy = users.create('amy', 'pw');
@@ -38,7 +38,7 @@ const post = (t: string, body: unknown) => ({ method: 'POST', headers: { authori
 describe('advisor session input access', () => {
   it('owner can send raw input; other user is forbidden; admin allowed', async () => {
     const { app, tmux, amyTok, bobTok, adminTok, amyId } = setup();
-    const name = `orca-advisor-${amyId}`;
+    const name = `elowen-advisor-${amyId}`;
     expect((await app.request(`/sessions/${name}/input`, post(amyTok, { data: 'hi' }))).status).toBe(200);
     expect((await app.request(`/sessions/${name}/input`, post(bobTok, { data: 'x' }))).status).toBe(403);
     expect((await app.request(`/sessions/${name}/input`, post(adminTok, { data: 'y' }))).status).toBe(200);
@@ -47,7 +47,7 @@ describe('advisor session input access', () => {
 
   it('rejects an empty/missing data field with 400', async () => {
     const { app, amyTok, amyId } = setup();
-    const name = `orca-advisor-${amyId}`;
+    const name = `elowen-advisor-${amyId}`;
     expect((await app.request(`/sessions/${name}/input`, post(amyTok, {}))).status).toBe(400);
     expect((await app.request(`/sessions/${name}/input`, post(amyTok, { data: '' }))).status).toBe(400);
   });

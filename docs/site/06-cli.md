@@ -7,48 +7,48 @@ eyebrow: Reference
 
 # CLI
 
-The `orca` CLI is a second way to talk to and drive the same agent — this time from
+The `elowen` CLI is a second way to talk to and drive the same agent — this time from
 your terminal. Everything you can do from the [Web UI](web-ui) has a command-line
 counterpart: chat with the [Brain](brain-chat), inspect and close [tasks](tasks-missions),
 drive [missions and autopilot](agents-autonomy), and manage the daemon. It is the
 low-friction, scriptable surface of the agent — one small binary, sensible defaults,
 no ceremony.
 
-![The Orca CLI chat — a reply with tool calls, a diff and the telemetry panel](../screenshots/cli/05-diff.png)
+![The Elowen CLI chat — a reply with tool calls, a diff and the telemetry panel](../screenshots/cli/05-diff.png)
 
 The CLI connects to the daemon over its REST API. If the daemon is not running, the
-CLI auto-starts it for you (set `ORCA_AUTOSTART=0` to disable that and manage the
+CLI auto-starts it for you (set `ELOWEN_AUTOSTART=0` to disable that and manage the
 daemon yourself).
 
 ## Launch & login
 
 ```bash
-npm install -g orcasynth   # installs the `orca` command
-orca setup                 # guided wizard: account, project, AI provider, memory, LSP
-orca                       # bare `orca` in a terminal opens the chat TUI
+npm install -g elowen   # installs the `elowen` command
+elowen setup                 # guided wizard: account, project, AI provider, memory, LSP
+elowen                       # bare `elowen` in a terminal opens the chat TUI
 ```
 
-`orca setup` is the onboarding wizard — account, project, AI provider (sign-in or API
+`elowen setup` is the onboarding wizard — account, project, AI provider (sign-in or API
 key), memory, and the optional TypeScript language server. It's skippable and
 reversible, and safe to re-run any time (`--reset` to start over); in a non-interactive
-shell it just prints `Run: orca setup` and exits rather than blocking a script. A
-one-time, root-level `orca install` provisions a full **server** deployment instead —
+shell it just prints `Run: elowen setup` and exits rather than blocking a script. A
+one-time, root-level `elowen install` provisions a full **server** deployment instead —
 systemd units, a reverse proxy, and the first admin account.
 
-Once you have an account, `orca` with no arguments — in a terminal — opens the chat
-TUI directly (the same as `orca chat`). The first time a terminal has no cached
+Once you have an account, `elowen` with no arguments — in a terminal — opens the chat
+TUI directly (the same as `elowen chat`). The first time a terminal has no cached
 token, it prompts for your username and password and caches a token at
-`~/.config/orca/cli.json` (mode `0600`), so every command after that runs without
-re-authenticating. Run `orca login` any time to (re)authenticate explicitly, or set
-`ORCA_TOKEN` to skip the prompt entirely (handy for CI and scripts).
+`~/.config/elowen/cli.json` (mode `0600`), so every command after that runs without
+re-authenticating. Run `elowen login` any time to (re)authenticate explicitly, or set
+`ELOWEN_TOKEN` to skip the prompt entirely (handy for CI and scripts).
 
 ## Chat basics
 
 ```bash
-orca chat                  # open the interactive Orca chat
-orca chat --new            # start a fresh conversation
-orca chat --session <id>   # resume a past conversation
-orca chat --model <id>     # pick a model for this session
+elowen chat                  # open the interactive Elowen chat
+elowen chat --new            # start a fresh conversation
+elowen chat --session <id>   # resume a past conversation
+elowen chat --model <id>     # pick a model for this session
 ```
 
 Inside the chat, you're talking to the same [Brain](brain-chat) as the web dock,
@@ -124,7 +124,7 @@ highlighted command into the input (with a trailing space, ready for arguments),
 | `/paste` | Attach an image from the system clipboard |
 | `/editor` | Compose the prompt in your `$EDITOR` |
 | `/lsp` *(admin)* | Language diagnostics — status, install/uninstall servers, on/off |
-| `/restart` *(admin)* | Restart the Orca daemon |
+| `/restart` *(admin)* | Restart the Elowen daemon |
 | `/help` | Show the available commands |
 | `/sessions` | Pick a conversation to resume |
 | `/resume` | Resume a conversation |
@@ -164,7 +164,7 @@ are fixed, but every modifier chord above (`shift+tab`, the `ctrl+…` shortcuts
 leader) is **rebindable**. `/keybinds` opens an interactive editor: arrow to an
 action, `Enter` to capture the next chord you press (press the
 leader first to compose a leader sequence), `x` to unbind, `r` to reset to default.
-Each change persists to this machine's `~/.config/orca/cli-prefs.json` and applies
+Each change persists to this machine's `~/.config/elowen/cli-prefs.json` and applies
 live — no restart. The leader chord itself (`ctrl+x` by default) is just another
 rebindable action, and its sequences (`leader t`/`m`/`l`/`h`) are the second way into
 the theme, model, sessions and help pickers alongside their slash commands.
@@ -237,7 +237,7 @@ tool activity is happening.
 `[x]` marks a completed item, `[•]` the one in progress, `[ ]` a pending one. The
 card collapses automatically once every item is done. It's conversation-scoped (not
 persisted per project) — the closest way to see it outside interactive chat is
-`orca run -p "/status"`, whose JSON output includes the current cards.
+`elowen run -p "/status"`, whose JSON output includes the current cards.
 
 ## Permissions & YOLO
 
@@ -258,7 +258,7 @@ that it was refused.
 Approval prompts only exist where a human is attached — the interactive CLI or web
 chat. Unattended runs (cron jobs, platform channels, sub-agents) have nobody to answer
 them, so an `ask` rule there resolves to **allow** by default, while explicit `deny`
-rules always deny. Prefer failing closed? Switch **Account → Orca AI → Unattended
+rules always deny. Prefer failing closed? Switch **Account → Elowen AI → Unattended
 runs** to *Block*: every `ask` in an unattended run is then denied outright (strict
 mode) — and YOLO does not override that.
 
@@ -266,7 +266,7 @@ For a fully hands-off session, `/yolo` (or `/yolo on`/`off`) auto-approves every
 ask — deny rules still apply. It's session-scoped only: the meta line grows a
 warning-toned **YOLO** chip so an unattended session is never silently unsupervised,
 and the persisted default (if you want YOLO on by default) lives in web
-**Account → Orca AI**.
+**Account → Elowen AI**.
 
 ![The meta line with the YOLO chip, and a denied command's turn continuing normally](../screenshots/cli/07-yolo.png)
 
@@ -274,7 +274,7 @@ and the persisted default (if you want YOLO on by default) lives in web
 
 `/theme` opens a picker of 15 built-in colour themes (plus **Custom**, when your web
 **Account → Terminal** palette is set to `custom`) — pick one and it's saved to this
-machine's `~/.config/orca/cli-prefs.json`.
+machine's `~/.config/elowen/cli-prefs.json`.
 
 ![The `/theme` picker — 15 presets plus the option to use your web Account palette](../screenshots/cli/13-theme-picker.png)
 
@@ -292,16 +292,16 @@ single-machine setup you never touch them.
 
 | Env var | Default | Description |
 |---------|---------|--------------|
-| `ORCA_URL` | `http://localhost:4400` | Daemon URL |
-| `ORCA_TOKEN` | — | API token (auto-resolved via login cache) |
-| `ORCA_AUTOSTART` | `1` | Set to `0` to disable the CLI's auto-start of the daemon |
+| `ELOWEN_URL` | `http://localhost:4400` | Daemon URL |
+| `ELOWEN_TOKEN` | — | API token (auto-resolved via login cache) |
+| `ELOWEN_AUTOSTART` | `1` | Set to `0` to disable the CLI's auto-start of the daemon |
 
-A few more are read at specific moments rather than daily: `ORCA_TASK`, `ORCA_PLAN_JOB`
-and `ORCA_MISSION` are injected by the daemon into a spawned agent (see
+A few more are read at specific moments rather than daily: `ELOWEN_TASK`, `ELOWEN_PLAN_JOB`
+and `ELOWEN_MISSION` are injected by the daemon into a spawned agent (see
 [Tasks & Missions](tasks-missions) and [Agents & Autonomy](agents-autonomy));
-`ORCA_PORT`/`ORCA_WEB_PORT` override the daemon/web ports; `ORCA_ADMIN_USER`,
-`ORCA_ADMIN_PASSWORD`, `ORCA_API_KEY` and `ORCA_OPENROUTER_KEY` feed a non-interactive
-`orca setup --non-interactive` (from env instead of argv, so secrets never hit shell
+`ELOWEN_PORT`/`ELOWEN_WEB_PORT` override the daemon/web ports; `ELOWEN_ADMIN_USER`,
+`ELOWEN_ADMIN_PASSWORD`, `ELOWEN_API_KEY` and `ELOWEN_OPENROUTER_KEY` feed a non-interactive
+`elowen setup --non-interactive` (from env instead of argv, so secrets never hit shell
 history or `ps`). The daemon itself reads a larger set — database path, bind host,
 bootstrap credentials — covered in [Configuration](configuration).
 
@@ -310,40 +310,40 @@ bootstrap credentials — covered in [Configuration](configuration).
 The daemon is the REST API on `:4400`; the web UI runs alongside it on `:4500`.
 
 ```bash
-orca up        # start the daemon + web UI
-orca down      # stop them
-orca status    # health check for both
-orca update    # update to the latest npm release and restart in place
-orca menu      # interactive launcher: start/stop/status/update in one place
-orca doctor    # readiness report: what works, and how to fix what doesn't
+elowen up        # start the daemon + web UI
+elowen down      # stop them
+elowen status    # health check for both
+elowen update    # update to the latest npm release and restart in place
+elowen menu      # interactive launcher: start/stop/status/update in one place
+elowen doctor    # readiness report: what works, and how to fix what doesn't
 ```
 
-`orca menu` is the interactive front door to all of the above — talk to Orca, toggle
+`elowen menu` is the interactive front door to all of the above — talk to Elowen, toggle
 the services, check status, open the web UI, or update, from one picker. On a box
-provisioned with `orca install`, it drives `systemctl`/`journalctl` instead of
+provisioned with `elowen install`, it drives `systemctl`/`journalctl` instead of
 managing its own daemon process, and adds a **Recent daemon logs** entry.
 
-`orca doctor` authenticates (prompting for admin credentials in a TTY, or reading
-`ORCA_TOKEN` non-interactively) and prints a readiness report — chat, tasks,
+`elowen doctor` authenticates (prompting for admin credentials in a TTY, or reading
+`ELOWEN_TOKEN` non-interactively) and prints a readiness report — chat, tasks,
 missions, memory, platforms, plugins — with a hint next to anything that's failing.
 It exits non-zero when something needs attention, so scripts and agents can branch on
 the result.
 
-## Non-interactive: `orca run`
+## Non-interactive: `elowen run`
 
-For scripting and CI, `orca run "<prompt>"` (alias `orca -p`/`--print`) runs one turn
+For scripting and CI, `elowen run "<prompt>"` (alias `elowen -p`/`--print`) runs one turn
 non-interactively and exits — no TUI, no prompts.
 
 ```bash
-orca run "What changed in the last commit?"
-orca run --new "Summarize this repo"          # start a fresh conversation
-orca run -c "Now write a test for that"       # continue the active conversation (default)
-orca run --json "List the open tasks"         # emit every event as JSONL
-orca run --goal "Get the test suite green" --max-turns 20
-orca run -p "/status"                         # run a slash command headlessly
+elowen run "What changed in the last commit?"
+elowen run --new "Summarize this repo"          # start a fresh conversation
+elowen run -c "Now write a test for that"       # continue the active conversation (default)
+elowen run --json "List the open tasks"         # emit every event as JSONL
+elowen run --goal "Get the test suite green" --max-turns 20
+elowen run -p "/status"                         # run a slash command headlessly
 ```
 
-By default `orca run` resumes the **active** conversation, so consecutive calls keep
+By default `elowen run` resumes the **active** conversation, so consecutive calls keep
 talking to the same brain — matching the TUI. `--new` starts fresh; `--session <id>`
 targets a specific one; `--list` prints your conversations (id, title, model) and
 exits. `--mode plan`/`--plan` runs the turn in Plan mode. A `/slash` prompt (e.g.
@@ -360,18 +360,18 @@ one.
 ## Tasks & scripting
 
 ```bash
-orca ls                          # list all tasks (JSON)
-orca ready                       # list tasks ready to run (JSON)
-orca sessions                    # list live agent tmux sessions (JSON)
-orca send <session> "<text>"     # type into a live agent's session and submit
-orca close <id> --summary "..." --outcome ok|fail
-orca api <METHOD> <path> [body]  # raw authenticated REST call, e.g. `orca api GET /tasks`
+elowen ls                          # list all tasks (JSON)
+elowen ready                       # list tasks ready to run (JSON)
+elowen sessions                    # list live agent tmux sessions (JSON)
+elowen send <session> "<text>"     # type into a live agent's session and submit
+elowen close <id> --summary "..." --outcome ok|fail
+elowen api <METHOD> <path> [body]  # raw authenticated REST call, e.g. `elowen api GET /tasks`
 ```
 
-`orca send` is your one-click intervention from the terminal: type straight into a
+`elowen send` is your one-click intervention from the terminal: type straight into a
 running agent's session without leaving the shell (`--no-enter` stages the text
-without submitting it). `orca api` gives you the full REST surface for anything that
-doesn't have its own command — it reads `ORCA_URL`/`ORCA_TOKEN` from the environment,
+without submitting it). `elowen api` gives you the full REST surface for anything that
+doesn't have its own command — it reads `ELOWEN_URL`/`ELOWEN_TOKEN` from the environment,
 the same variables the daemon injects into every agent it spawns, so an agent can
 drive any endpoint without a bespoke CLI command.
 
@@ -383,15 +383,15 @@ autonomy levels and the overseer this drives.
 
 | Command | Purpose |
 |---------|---------|
-| `orca plan submit --phases '[...]'` | Submit an autopilot plan (needs `ORCA_PLAN_JOB`) |
-| `orca overseer poll` | Long-poll for the next overseer decision (needs `ORCA_MISSION`) |
-| `orca overseer decide --id <id> ...` | Submit a verdict: `--approve` / `--escalate` / `--choice <id>` / `--message "<reply>"` |
-| `orca ask "<question>"` | Free-text Q&A with the autopilot (needs `ORCA_TASK`); `--history` prints past exchanges |
-| `orca note add <missionId> "<text>"` | Leave a handoff note for the next phase of a mission |
-| `orca note ls <missionId>` | Read a mission's handoff notes, oldest first |
+| `elowen plan submit --phases '[...]'` | Submit an autopilot plan (needs `ELOWEN_PLAN_JOB`) |
+| `elowen overseer poll` | Long-poll for the next overseer decision (needs `ELOWEN_MISSION`) |
+| `elowen overseer decide --id <id> ...` | Submit a verdict: `--approve` / `--escalate` / `--choice <id>` / `--message "<reply>"` |
+| `elowen ask "<question>"` | Free-text Q&A with the autopilot (needs `ELOWEN_TASK`); `--history` prints past exchanges |
+| `elowen note add <missionId> "<text>"` | Leave a handoff note for the next phase of a mission |
+| `elowen note ls <missionId>` | Read a mission's handoff notes, oldest first |
 
 To kick off an autonomous, multi-turn goal from the CLI yourself, use
-`orca run --goal "<text>"` (or `/goal <text>` inside chat) — a **persistent goal** on
+`elowen run --goal "<text>"` (or `/goal <text>` inside chat) — a **persistent goal** on
 the brain that runs until it settles, pauses or gets blocked. That's a single-agent
 mechanism, distinct from mission/epic autopilot (which is driven server-side and
 exposed through the agent-facing commands above, or from the Web UI).
@@ -399,11 +399,11 @@ exposed through the agent-facing commands above, or from the Web UI).
 ## Auth
 
 ```bash
-orca login        # authenticate and cache a token
-orca sessions      # list live tmux sessions you can attach to or intervene in
+elowen login        # authenticate and cache a token
+elowen sessions      # list live tmux sessions you can attach to or intervene in
 ```
 
-`orca login` caches a token at `~/.config/orca/cli.json` so subsequent commands run
+`elowen login` caches a token at `~/.config/elowen/cli.json` so subsequent commands run
 without re-authenticating.
 
 [Next: Brain & Chat](brain-chat)

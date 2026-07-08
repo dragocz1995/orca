@@ -1,6 +1,6 @@
 /** Single source of truth for the advisor's communication style ("pills" in Account settings).
  *  The chosen style resolves to an English persona paragraph that is substituted for the
- *  `{{personality}}` placeholder in `prompts/advisor.md`. It shapes HOW Orca talks to the user
+ *  `{{personality}}` placeholder in `prompts/advisor.md`. It shapes HOW Elowen talks to the user
  *  (tone, verbosity, and Czech vykani vs tykani), never WHAT it is allowed to do. */
 
 export const ADVISOR_STYLES = ['professional', 'friendly', 'concise', 'detailed'] as const;

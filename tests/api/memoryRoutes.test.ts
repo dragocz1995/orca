@@ -26,7 +26,7 @@ function stubFetch(vector: number[] = [0.1, 0.2, 0.3]): typeof fetch {
 
 function setup(opts: { fetchImpl?: typeof fetch; embeddingConfigured?: boolean } = {}) {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const amy = users.create('amy', 'pw'); // first user → admin
   const bob = users.create('bob', 'pw');
@@ -214,7 +214,7 @@ describe('memory routes', () => {
  *  makes inference() null so the categorizer reports unconfigured. */
 function setupCat(opts: { categorizeReply?: string; categorizationConfigured?: boolean } = {}) {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const amy = users.create('amy', 'pw'); // first user → admin
   const bob = users.create('bob', 'pw');

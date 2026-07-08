@@ -3,17 +3,17 @@ import { openDb } from '../../src/store/db.js';
 import { TaskStore } from '../../src/store/taskStore.js';
 import { FakeTmuxDriver } from '../../src/tmux/fakeDriver.js';
 import { EventBus } from '../../src/api/sse.js';
-import type { OrcaEvent } from '../../src/api/sse.js';
+import type { ElowenEvent } from '../../src/api/sse.js';
 import { sweepStuckTasks, deadAgentTasks } from '../../src/overseer/stuckDetector.js';
 
 const NOW = Date.parse('2026-06-18T12:00:00.000Z');
 
 function setup() {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   const tmux = new FakeTmuxDriver();
   const bus = new EventBus();
-  const events: OrcaEvent[] = [];
+  const events: ElowenEvent[] = [];
   bus.subscribe((e) => events.push(e));
   // Mark a task running: agent label + precise start time + in_progress (mirrors the launch path).
   const start = (id: string, agent: string, startedMs: number) => {
@@ -39,7 +39,7 @@ describe('sweepStuckTasks', () => {
   it('leaves a task whose agent session is still live', async () => {
     const { tasks, tmux, bus, start } = setup();
     start('t1', 'Alive', NOW - 300_000);
-    await tmux.spawn('orca-Alive', { cwd: '/o', command: 'x' });
+    await tmux.spawn('elowen-Alive', { cwd: '/o', command: 'x' });
     const r = await sweepStuckTasks({ tmux, tasks, bus, now: NOW, graceMs: 120_000, maxRelaunch: 2 });
     expect(r.reverted).toEqual([]);
     expect(tasks.get('t1')!.status).toBe('in_progress');
@@ -93,7 +93,7 @@ describe('sweepStuckTasks', () => {
 
 describe('sweepStuckTasks created_at fallback (#54)', () => {
   it('parses an already-ISO created_at (with zone) without producing NaN', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     const tmux = new FakeTmuxDriver();
     const bus = new EventBus();
@@ -110,12 +110,12 @@ describe('sweepStuckTasks created_at fallback (#54)', () => {
 
 describe('deadAgentTasks', () => {
   it('flags in_progress tasks with no live session (or no agent label)', () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'live', project_id: 1, title: 'l', labels: ['agent:Live'] });
     tasks.create({ id: 'dead', project_id: 1, title: 'd', labels: ['agent:Dead'] });
     tasks.create({ id: 'bare', project_id: 1, title: 'b' }); // no agent label
-    const live = new Set(['orca-Live']);
+    const live = new Set(['elowen-Live']);
     const dead = deadAgentTasks(live, [tasks.get('live')!, tasks.get('dead')!, tasks.get('bare')!]);
     expect(dead.map((t) => t.id).sort()).toEqual(['bare', 'dead']);
   });

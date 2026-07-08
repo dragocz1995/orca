@@ -85,11 +85,11 @@ export async function start(env: NodeJS.ProcessEnv, deps: StartDeps): Promise<Ru
   const now = deps.now ?? (() => new Date().toISOString());
   const pollMs = deps.pollMs ?? 200;
   const attempts = deps.attempts ?? 100;
-  // Ports are overridable (ORCA_PORT / ORCA_WEB_PORT) so a second instance — or a smoke test — can run
+  // Ports are overridable (ELOWEN_PORT / ELOWEN_WEB_PORT) so a second instance — or a smoke test — can run
   // alongside an existing one. Defaults are the conventional 4400/4500.
-  const daemonPort = Number(env.ORCA_PORT ?? DAEMON_PORT);
-  const webPort = Number(env.ORCA_WEB_PORT ?? WEB_PORT);
-  const childEnv = { ...env, ORCA_DB: dbPath(env), ORCA_LOG_DIR: logDir(env), ORCA_AUTOSTART: '0' };
+  const daemonPort = Number((env.ELOWEN_PORT ?? env.ORCA_PORT) ?? DAEMON_PORT);
+  const webPort = Number((env.ELOWEN_WEB_PORT ?? env.ORCA_WEB_PORT) ?? WEB_PORT);
+  const childEnv = { ...env, ELOWEN_DB: dbPath(env), ELOWEN_LOG_DIR: logDir(env), ELOWEN_AUTOSTART: '0' };
 
   const launch = (entry: string, extra: NodeJS.ProcessEnv) => {
     const child = spawn(process.execPath, [entry], { detached: true, stdio: 'ignore', env: { ...childEnv, ...extra } });
@@ -99,9 +99,9 @@ export async function start(env: NodeJS.ProcessEnv, deps: StartDeps): Promise<Ru
   };
 
   const existing = readState(env);
-  const daemonPid = existing && isAlive(existing.daemon.pid) ? existing.daemon.pid : launch(daemonEntry(), { ORCA_PORT: String(daemonPort) });
+  const daemonPid = existing && isAlive(existing.daemon.pid) ? existing.daemon.pid : launch(daemonEntry(), { ELOWEN_PORT: String(daemonPort) });
   const webPid = existing && isAlive(existing.web.pid) ? existing.web.pid
-    : launch(webServer(), { PORT: String(webPort), HOSTNAME: '127.0.0.1', ORCA_DAEMON_URL: `http://127.0.0.1:${daemonPort}` });
+    : launch(webServer(), { PORT: String(webPort), HOSTNAME: '127.0.0.1', ELOWEN_DAEMON_URL: `http://127.0.0.1:${daemonPort}` });
 
   // Wait for the daemon to answer; the web proxies it, so it comes up second.
   let healthy = false;
@@ -110,11 +110,11 @@ export async function start(env: NodeJS.ProcessEnv, deps: StartDeps): Promise<Ru
     await new Promise((r) => setTimeout(r, pollMs));
   }
 
-  // Record state even on failure so `orca down`/`status` can see and clean up the spawned pids.
+  // Record state even on failure so `elowen down`/`status` can see and clean up the spawned pids.
   const state: RunState = { daemon: { pid: daemonPid, port: daemonPort }, web: { pid: webPid, port: webPort }, version: deps.version, startedAt: now() };
   writeState(env, state);
   // But never report success when the daemon never answered: a wedged or crash-looping daemon would
-  // otherwise be written as "orca is up". Surface it so the operator knows to check the logs.
-  if (!healthy) throw new Error(`orca daemon did not become healthy on :${daemonPort} after ${Math.round((attempts * pollMs) / 1000)}s — check the logs in ${logDir(env)}`);
+  // otherwise be written as "elowen is up". Surface it so the operator knows to check the logs.
+  if (!healthy) throw new Error(`elowen daemon did not become healthy on :${daemonPort} after ${Math.round((attempts * pollMs) / 1000)}s — check the logs in ${logDir(env)}`);
   return state;
 }

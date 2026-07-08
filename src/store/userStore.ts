@@ -157,7 +157,7 @@ export class UserStore {
   /** The daemon's agent service token, reused across restarts: return the existing valid agent token
    *  if one is still within TTL, else clear stale ones and mint a fresh token. Called at boot — unlike
    *  a blind rotate, this keeps in-flight agents' credential alive across a daemon restart (they'd
-   *  otherwise 401 on `orca close`) while still bounding accumulation (at most one live token). */
+   *  otherwise 401 on `elowen close`) while still bounding accumulation (at most one live token). */
   ensureAgentToken(userId: number, days?: number): string {
     return this.db.transaction(() => {
       const existing = this.db

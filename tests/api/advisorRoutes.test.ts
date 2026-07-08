@@ -15,7 +15,7 @@ import { AdvisorService } from '../../src/advisor/service.js';
 
 function setup(opts: { spawnFails?: boolean } = {}) {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   users.create('admin', 'pw'); // first user becomes admin — keep amy a non-admin member
   const amy = users.create('amy', 'pw');
@@ -25,8 +25,8 @@ function setup(opts: { spawnFails?: boolean } = {}) {
   const spawn = {
     launch: async (input: { agentName: string; projectPath: string }) => {
       if (opts.spawnFails) throw new Error('tmux: failed to create session');
-      await tmux.spawn(`orca-${input.agentName}`, { cwd: input.projectPath, command: '' });
-      return { session: `orca-${input.agentName}` };
+      await tmux.spawn(`elowen-${input.agentName}`, { cwd: input.projectPath, command: '' });
+      return { session: `elowen-${input.agentName}` };
     },
   };
   const advisor = new AdvisorService({
@@ -82,7 +82,7 @@ describe('advisor routes', () => {
     await app.request('/advisor/start', post(amyTok, { exec: 'sonnet' })); // running, autostart armed
     expect(users.get(amy.id)?.advisor_autostart).toBe(true);
     // Kill it via the generic session route (the Sessions page) — not the advisor pane's Stop button.
-    const del = await app.request(`/sessions/orca-advisor-${amy.id}`, { method: 'DELETE', ...auth(amyTok) });
+    const del = await app.request(`/sessions/elowen-advisor-${amy.id}`, { method: 'DELETE', ...auth(amyTok) });
     expect(del.status).toBe(200);
     expect(users.get(amy.id)?.advisor_autostart).toBe(false); // the kill is an explicit "turn it off"
     // A fresh login must NOT resurrect it.
@@ -95,7 +95,7 @@ describe('advisor routes', () => {
   it('killing a non-advisor session does not touch advisor autostart', async () => {
     const { app, users, amy, amyTok } = setup();
     await app.request('/advisor/start', post(amyTok, { exec: 'sonnet' }));
-    await app.request('/sessions/orca-some-agent-7', { method: 'DELETE', ...auth(amyTok) }).catch(() => {});
+    await app.request('/sessions/elowen-some-agent-7', { method: 'DELETE', ...auth(amyTok) }).catch(() => {});
     expect(users.get(amy.id)?.advisor_autostart).toBe(true); // unaffected
   });
 

@@ -24,7 +24,7 @@ describe('PluginRegistryProvider (the daemon-wide shared registry)', () => {
 
   it('invalidate() makes the next get() reload — the stale-worker-registry fix', async () => {
     // Regression: BrainWorkerService used to keep its OWN memo that reloadPlugins() never touched,
-    // so orca-exec workers ran on a stale registry until a daemon restart. With the shared provider,
+    // so elowen-exec workers ran on a stale registry until a daemon restart. With the shared provider,
     // one invalidate() reaches every consumer.
     const registries = [new PluginRegistry(), new PluginRegistry()];
     let i = 0;

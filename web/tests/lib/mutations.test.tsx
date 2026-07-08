@@ -8,7 +8,7 @@ import { useSpawn, useAssignProject, useSavePluginConfig, useTogglePlugin } from
 
 let lastAssignCall: { method: string; userId: string; projectId?: string } | null = null;
 const server = setupServer(
-  http.post('*/api/sessions', () => HttpResponse.json({ session: 'orca-A' }, { status: 201 })),
+  http.post('*/api/sessions', () => HttpResponse.json({ session: 'elowen-A' }, { status: 201 })),
   http.post('*/api/users/:userId/projects', async ({ params, request }) => {
     const body = (await request.json()) as { projectId: number };
     lastAssignCall = { method: 'POST', userId: String(params.userId), projectId: String(body.projectId) };
@@ -29,7 +29,7 @@ describe('useSpawn', () => {
     const spy = vi.spyOn(client, 'invalidateQueries');
     const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
     const { result } = renderHook(() => useSpawn(), { wrapper });
-    result.current.mutate({ taskId: 'orca-1', exec: 'sonnet' });
+    result.current.mutate({ taskId: 'elowen-1', exec: 'sonnet' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(spy).toHaveBeenCalledWith({ queryKey: ['sessions'] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ['tasks'] });

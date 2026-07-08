@@ -102,7 +102,7 @@ function compactOutput(text: string): string {
   return clipped.length > 800 ? `${clipped.slice(0, 799)}…` : clipped;
 }
 
-/** Caps for the expandable ("full") tool-output view. Operator-tunable (Orca AI → Limits): injected once
+/** Caps for the expandable ("full") tool-output view. Operator-tunable (Elowen AI → Limits): injected once
  *  at bootstrap via {@link setToolOutputCaps} and read live per render, so a Settings change applies
  *  without a restart. `mapEvent` is a pure transform shared by the live and history paths (and mirrored
  *  in the web transcript), so a module-level resolver is the single seam rather than threading config
@@ -247,7 +247,7 @@ export function isThinkingOnlyReply(msg: unknown): boolean {
   return extractText(m).trim() === '';
 }
 
-/** Shape stored brain rows for display — shared by the advisor chat history and the orca worker's
+/** Shape stored brain rows for display — shared by the advisor chat history and the elowen worker's
  *  task-conversation endpoint. Only user + assistant turns surface; toolResult/summary rows are
  *  persisted for rehydration but never shown (edit diffs are lifted off toolResult rows onto their
  *  matching assistant toolCall segment). */

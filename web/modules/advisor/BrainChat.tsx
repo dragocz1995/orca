@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../lib/i18n';
 import { useToast } from '../../components/ui/Toast';
 import { useBrainSessions, useBrainCommands } from '../../lib/queries';
-import { orcaClient, BASE } from '../../lib/orcaClient';
+import { elowenClient, BASE } from '../../lib/elowenClient';
 import { formatTaskTime } from '../../lib/format';
 import type { AskQuestion, BrainCard, BrainSearchHit, BrainModelOption, BrainUsage, SlashCommandDef, StatuslineConfig } from '../../lib/types';
 import { fromHistory, pushUser, reduce, upsertCard, type ChatTurn, type ToolItem, type TranscriptEvent } from '../../lib/transcript';
@@ -177,7 +177,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-/** The docked brain chat: the same server-side brain `orca chat` talks to, in the web. Streams over
+/** The docked brain chat: the same server-side brain `elowen chat` talks to, in the web. Streams over
  *  the daemon's SSE, keeps multiple conversations (new/resume via the session picker). */
 export function BrainChat() {
   const { t, locale } = useTranslation();
@@ -227,7 +227,7 @@ export function BrainChat() {
   const active = sessions.data?.find((s) => s.active);
 
   const loadHistory = async () => {
-    const msgs = await orcaClient.brainMessages();
+    const msgs = await elowenClient.brainMessages();
     setTurns(fromHistory(msgs).turns);
   };
 
@@ -238,9 +238,9 @@ export function BrainChat() {
     setNotice(''); // a fresh connection (mount / session switch) starts without a stale runtime line
     setAsk(null); // drop any parked question from the previous conversation
     setCards([]); // and any cards from the previous conversation
-    await orcaClient.brainStart({});
+    await elowenClient.brainStart({});
     await loadHistory();
-    const st = await orcaClient.brainStatus().catch(() => null);
+    const st = await elowenClient.brainStatus().catch(() => null);
     if (st) { setUsage(st.usage); setLineCfg(st.statusline); if (st.pendingAsk) setAsk(st.pendingAsk); setCards(st.cards ?? []); }
     const es = new EventSource(`${BASE}/brain/stream`);
     es.addEventListener('text', (e) => {
@@ -357,7 +357,7 @@ export function BrainChat() {
     if (q.length < 2) { setResults(null); return; }
     let stale = false;
     const timer = setTimeout(() => {
-      orcaClient.brainSearch(q)
+      elowenClient.brainSearch(q)
         .then((hits) => { if (!stale) setResults(hits); })
         .catch(() => { if (!stale) setResults([]); });
     }, 300);
@@ -384,14 +384,14 @@ export function BrainChat() {
     setAttachments([]);
     setBusy(true);
     setTurns((cur) => pushUser({ turns: cur, thinking: false }, shown).turns);
-    try { await orcaClient.brainSend(text, images); } catch { setBusy(false); }
+    try { await elowenClient.brainSend(text, images); } catch { setBusy(false); }
   };
 
   const switchSession = async (opts: { session?: string; fresh?: boolean }) => {
     setReadOnly(null); // leaving any read-only preview
     setPickerOpen(false);
     setSearch('');
-    await orcaClient.brainStart(opts);
+    await elowenClient.brainStart(opts);
     await qc.invalidateQueries({ queryKey: ['brain-sessions'] });
     await connect();
   };
@@ -403,7 +403,7 @@ export function BrainChat() {
     esRef.current?.close();
     setPickerOpen(false); setSearch(''); setAsk(null); setCards([]); setBusy(false); setNotice('');
     setReadOnly(sessionId);
-    const msgs = await orcaClient.brainMessages(sessionId);
+    const msgs = await elowenClient.brainMessages(sessionId);
     setTurns(fromHistory(msgs).turns);
     setReady(true);
   };
@@ -412,7 +412,7 @@ export function BrainChat() {
   const exitReadOnly = () => { setReadOnly(null); void connect(); };
 
   const deleteSession = async (id: string, wasActive: boolean) => {
-    await orcaClient.brainDeleteSession(id).catch(() => undefined);
+    await elowenClient.brainDeleteSession(id).catch(() => undefined);
     await qc.invalidateQueries({ queryKey: ['brain-sessions'] });
     // Deleting the open conversation re-targets to the most recent remaining one (or a fresh state).
     if (wasActive) { setPickerOpen(false); await connect(); }
@@ -423,16 +423,16 @@ export function BrainChat() {
   const slashMatches = slashQuery !== null ? commands.filter((c) => c.name.startsWith(slashQuery)) : [];
   const runModel = async (m: BrainModelOption) => {
     setInput(''); setModelOpts(null);
-    try { await orcaClient.brainSetModel({ provider: m.provider, model: m.model }); await connect(); toast(`${t.brainChat.modelSwitched} ${m.model}`, 'ok'); }
+    try { await elowenClient.brainSetModel({ provider: m.provider, model: m.model }); await connect(); toast(`${t.brainChat.modelSwitched} ${m.model}`, 'ok'); }
     catch (e) { toast((e as Error).message ?? 'error', 'error'); }
   };
   const runSlash = async (cmd: SlashCommandDef) => {
-    if (cmd.name === 'model') { setInput(''); try { setModelOpts(await orcaClient.brainModels()); setSlashIdx(0); } catch { toast('no models', 'error'); } return; }
+    if (cmd.name === 'model') { setInput(''); try { setModelOpts(await elowenClient.brainModels()); setSlashIdx(0); } catch { toast('no models', 'error'); } return; }
     setInput('');
     try {
       if (cmd.name === 'new') { await switchSession({ fresh: true }); return; }
       if (cmd.name === 'status') {
-        const s = await orcaClient.brainStatus(); const u = s.usage;
+        const s = await elowenClient.brainStatus(); const u = s.usage;
         const parts = [s.model && `model: ${s.model}`, u?.percent != null && `context ${Math.round(u.percent)}%`, u && `Σ ${fmtK(u.totalTokens)} tok`, u && `$${u.cost.toFixed(2)}`].filter(Boolean) as string[];
         toast(parts.join('  ·  ') || t.brainChat.noSession, 'ok'); return;
       }
@@ -440,7 +440,7 @@ export function BrainChat() {
       // A prompt macro usually wants arguments — picking it pre-fills the composer (`/review `) so the
       // user types them and submits; the submit path expands the template (args or not).
       if (cmd.kind === 'prompt') { setInput(`/${cmd.name} `); return; }
-      if (cmd.kind === 'action') { const r = await orcaClient.brainCommand(cmd.name); toast(r.message ?? `/${cmd.name}`, 'ok'); return; }
+      if (cmd.kind === 'action') { const r = await elowenClient.brainCommand(cmd.name); toast(r.message ?? `/${cmd.name}`, 'ok'); return; }
       toast(`/${cmd.name}`, 'ok');
     } catch (e) { toast((e as Error).message ?? String(e), 'error'); }
   };
@@ -546,7 +546,7 @@ export function BrainChat() {
             key={ask.id}
             questions={ask.questions}
             kind={ask.kind}
-            onSubmit={(answers) => { void orcaClient.brainAnswer(ask.id, answers).catch(() => undefined); setAsk(null); }}
+            onSubmit={(answers) => { void elowenClient.brainAnswer(ask.id, answers).catch(() => undefined); setAsk(null); }}
           />
         ) : null}
         {notice ? <span className="ml-1 text-tiny italic text-text-muted">· {notice}</span> : null}

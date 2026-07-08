@@ -12,7 +12,7 @@ vi.mock('../../../modules/advisor/SessionPicker', () => ({
 }));
 vi.mock('../../../modules/advisor/BrainChat', () => ({ BrainChat: () => <div data-testid="brain-chat" /> }));
 // The dock defaults to chat mode; these pane-stack tests exercise the terminal mode.
-beforeEach(() => localStorage.setItem('orca.dock.mode', 'terminal'));
+beforeEach(() => localStorage.setItem('elowen.dock.mode', 'terminal'));
 
 function fakeDock(over: Partial<UseDockState['state']> = {}): UseDockState {
   return {

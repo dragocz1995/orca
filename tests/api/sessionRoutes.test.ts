@@ -15,7 +15,7 @@ async function launch(app: Awaited<ReturnType<typeof makeTestApp>>['app'], token
 describe('session control routes', () => {
   it('POST /sessions/:name/keys forwards validated tokens to tmux', async () => {
     const { app, token, deps } = await makeTestApp({});
-    const session = await launch(app, token, deps, 'orca-k');
+    const session = await launch(app, token, deps, 'elowen-k');
     const res = await app.request(`/sessions/${session}/keys`, post(token, { keys: ['C-c', 'Enter'] }));
     expect(res.status).toBe(200);
     expect(deps.tmux.sentKeys(session)).toContainEqual(['C-c', 'Enter']);
@@ -23,7 +23,7 @@ describe('session control routes', () => {
 
   it('POST /sessions/:name/input forwards raw bytes to the pane', async () => {
     const { app, token, deps } = await makeTestApp({});
-    const session = await launch(app, token, deps, 'orca-i');
+    const session = await launch(app, token, deps, 'elowen-i');
     const res = await app.request(`/sessions/${session}/input`, post(token, { data: 'ls -la\n' }));
     expect(res.status).toBe(200);
     expect(deps.tmux.sentRaw(session)).toContain('ls -la\n');
@@ -31,7 +31,7 @@ describe('session control routes', () => {
 
   it('POST /sessions/:name/resize records the new dimensions', async () => {
     const { app, token, deps } = await makeTestApp({});
-    const session = await launch(app, token, deps, 'orca-r');
+    const session = await launch(app, token, deps, 'elowen-r');
     const res = await app.request(`/sessions/${session}/resize`, post(token, { cols: 120, rows: 40 }));
     expect(res.status).toBe(200);
     expect(deps.tmux.sizeFor(session)).toEqual({ cols: 120, rows: 40 });
@@ -41,7 +41,7 @@ describe('session control routes', () => {
 
   it('GET /sessions/:name/pane captures the current pane', async () => {
     const { app, token, deps } = await makeTestApp({});
-    const session = await launch(app, token, deps, 'orca-p');
+    const session = await launch(app, token, deps, 'elowen-p');
     deps.tmux.setPane(session, 'hello from the pane');
     const res = await app.request(`/sessions/${session}/pane`, auth(token));
     expect(res.status).toBe(200);
@@ -50,7 +50,7 @@ describe('session control routes', () => {
 
   it('DELETE /sessions/:name kills a live agent session', async () => {
     const { app, token, deps } = await makeTestApp({});
-    const session = await launch(app, token, deps, 'orca-d');
+    const session = await launch(app, token, deps, 'elowen-d');
     expect(await deps.tmux.list()).toContain(session);
     const res = await app.request(`/sessions/${session}`, { method: 'DELETE', ...auth(token) });
     expect(res.status).toBe(200);
@@ -72,7 +72,7 @@ describe('session control routes', () => {
 
   it('rejects flag-injection keys with a 400 and sends nothing', async () => {
     const { app, token, deps } = await makeTestApp({});
-    const session = await launch(app, token, deps, 'orca-f');
+    const session = await launch(app, token, deps, 'elowen-f');
     expect((await app.request(`/sessions/${session}/keys`, post(token, { keys: ['-t', 'other', 'C-c'] }))).status).toBe(400);
     expect((await app.request(`/sessions/${session}/keys`, post(token, { keys: [] }))).status).toBe(400);
     expect(deps.tmux.sentKeys(session)).toEqual([]);

@@ -14,7 +14,7 @@ import { UserProjectStore } from '../../src/store/userProjectStore.js';
 // A fresh daemon with no users yet: the API is open (setup mode) so onboarding can run before login.
 function makeApp() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),

@@ -72,7 +72,7 @@ import { EmbeddingService } from '../embeddings/embeddingService.js';
 import { EmbeddingQueue } from '../embeddings/embedQueue.js';
 import { MemoryService } from '../brain/memoryService.js';
 import { toEmbeddingConfig } from '../store/configStore.js';
-import { brainConfigFromOrca } from '../brain/config.js';
+import { brainConfigFromElowen } from '../brain/config.js';
 import { listBrainModels } from '../brain/models.js';
 import { setToolOutputCaps } from '../brain/messageView.js';
 import { discoverPlugins, loadPlugins } from '../plugins/loader.js';
@@ -85,7 +85,7 @@ import { dirname, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { systemctl } from '../cli/systemd.js';
-import { isExecAllowedForUser, isModelVisibleForUser, orcaExec } from '../shared/execs.js';
+import { isExecAllowedForUser, isModelVisibleForUser, elowenExec } from '../shared/execs.js';
 import { BrainWorkerService } from '../brain/worker/brainWorker.js';
 
 const log = logger('daemon');
@@ -151,7 +151,7 @@ export function buildApp(opts: BuildOpts) {
       users.create(opts.bootstrap.username, opts.bootstrap.password);
     }
   } else if (users.count() === 0) {
-    log.warn('no users exist and no ORCA_BOOTSTRAP_USER/PASS set — login will be impossible until a user is seeded');
+    log.warn('no users exist and no ELOWEN_BOOTSTRAP_USER/PASS set — login will be impossible until a user is seeded');
   }
   const projects = new ProjectStore(db);
   const userProjects = new UserProjectStore(db);
@@ -161,22 +161,22 @@ export function buildApp(opts: BuildOpts) {
   const prompts = new PromptService(userPrompts);
   const taskUsage = new TaskUsageStore(db);
   const git = new RealGitReader();
-  // Give spawned agents a way to close their task: the orca CLI path + daemon URL + a service token.
+  // Give spawned agents a way to close their task: the elowen CLI path + daemon URL + a service token.
   // The token is AGENT-SCOPED (not the admin's full token): a prompt-injected agent can only drive
   // its own worker/overseer/pilot verbs (close task, plan submit, overseer poll/decide, read-only
   // listings) — never manage users, PUT /config, or register/delete projects (finding S51). Reused
   // across restarts (see ensureAgentToken) so a restart doesn't 401 in-flight agents. Owned by the
   // lowest-id user purely to satisfy the FK; the scope, not the owner, is what bounds it.
   const cliPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'index.js');
-  // How spawned agents invoke the orca CLI. In a global install the `orca` command is on PATH, so set
-  // ORCA_CLI=orca (the systemd unit does); a source checkout leaves it unset and falls back to running
+  // How spawned agents invoke the elowen CLI. In a global install the `elowen` command is on PATH, so set
+  // ELOWEN_CLI=elowen (the systemd unit does); a source checkout leaves it unset and falls back to running
   // this daemon's own CLI by absolute path via node. Single source — threaded to spawn/pilot/overseer.
-  const cli = process.env.ORCA_CLI ?? `node ${cliPath}`;
+  const cli = (process.env.ELOWEN_CLI ?? process.env.ORCA_CLI) ?? `node ${cliPath}`;
   // Reuse the existing agent token across restarts so a daemon restart doesn't 401 in-flight agents
   // mid-task (they hold the token they were spawned with); only mints fresh when none is valid.
   const serviceToken = users.count() > 0 ? users.ensureAgentToken(users.list()[0]!.id) : '';
-  const orcaCli = { cli, url: `http://localhost:${process.env.ORCA_PORT ?? 4400}`, token: serviceToken };
-  const spawn = new SpawnService({ tmux, agents, orca: orcaCli, providers: (program) => config.get().providers[program], prompts });
+  const elowenCli = { cli, url: `http://localhost:${(process.env.ELOWEN_PORT ?? process.env.ORCA_PORT) ?? 4400}`, token: serviceToken };
+  const spawn = new SpawnService({ tmux, agents, elowen: elowenCli, providers: (program) => config.get().providers[program], prompts });
   const bus = new EventBus();
   const events = new EventStore(db);
   const notes = new NoteStore(db);
@@ -243,7 +243,7 @@ export function buildApp(opts: BuildOpts) {
   // so pick the MOST RECENT match (list is created_at ASC) — never an old same-named task,
   // which would make the janitor reap a live agent or skip a real zombie.
   const taskForSession = (session: string) => {
-    const name = session.replace(/^orca-/, '');
+    const name = session.replace(/^elowen-/, '');
     const matches = tasks.list().filter((t) => t.labels.includes(`agent:${name}`));
     return matches[matches.length - 1] ?? null;
   };
@@ -269,7 +269,7 @@ export function buildApp(opts: BuildOpts) {
   const deriver = new Deriver({
     tmux, agents, tasks, sink: bus, clock: new SystemClock(),
     // Resolve strictly via the agent:<name> label. No global "first in-progress task" fallback:
-    // the parked Overseer (orca-overseer-<id>) and the Pilot have no task row, and the fallback would
+    // the parked Overseer (elowen-overseer-<id>) and the Pilot have no task row, and the fallback would
     // mis-attribute their panes — even pressing accept-keys into the Overseer's TUI. Unresolved → skip.
     sessionTaskId: (session) => taskForSession(session)?.id ?? null,
     autonomyFor: (session) => {
@@ -343,13 +343,13 @@ export function buildApp(opts: BuildOpts) {
   // Per-process secret for short-lived signed avatar URLs (finding W2) — keeps the long-lived session
   // token out of <img> src query strings. Rotates on restart; links live ~5 min, so that's harmless.
   const avatarSecret = randomBytes(32).toString('hex');
-  // Per-user advisor: a persistent assistant session controlling Orca on the user's behalf. Its cwd
+  // Per-user advisor: a persistent assistant session controlling Elowen on the user's behalf. Its cwd
   // is a neutral per-user dir (alongside the DB, NOT a project checkout) so the per-program MCP config
   // never pollutes a repo. Disabled for the in-memory DB (tests build their own AdvisorService).
-  const mcpUrl = `${orcaCli.url}/mcp`; // the daemon hosts the MCP server on its own /mcp route
+  const mcpUrl = `${elowenCli.url}/mcp`; // the daemon hosts the MCP server on its own /mcp route
   const advisor = opts.dbPath === ':memory:' ? undefined : new AdvisorService({
     spawn, tmux, users, config, fallback: { program: 'claude-code', model: 'sonnet' },
-    projectId: opts.project.id, url: orcaCli.url, mcpUrl,
+    projectId: opts.project.id, url: elowenCli.url, mcpUrl,
     advisorDir: (id) => { const p = join(dirname(opts.dbPath), 'advisor', String(id)); mkdirSync(p, { recursive: true }); return p; },
     prepareMcp: (program, cwd, token) => writeMcpConfig(program, cwd, token, mcpUrl),
     prompts,
@@ -370,14 +370,14 @@ export function buildApp(opts: BuildOpts) {
   const brainOauth = new BrainOAuthManager(brainAuth);
   // Live provider resolver: adding a provider / connecting an account in Settings applies to the next
   // brain start without a daemon restart.
-  const brainConfig = () => brainConfigFromOrca(config, brainAuth);
+  const brainConfig = () => brainConfigFromElowen(config, brainAuth);
   // Central provider credential resolver exposed to plugins (voice STT/TTS, image gen) so they reuse the
   // operator's configured provider key instead of duplicating a secret. Reads live config each call.
   const resolveProvider = (id: string) => {
     const p = config.brainProviders().find((x) => x.id === id);
     return p ? { id: p.id, label: p.label, type: p.type, baseUrl: p.baseUrl, apiKey: p.apiKey } : null;
   };
-  // Text→vector embedder for Orca memory (consumed by Phase-4 retrieval); reuses the operator's brain
+  // Text→vector embedder for Elowen memory (consumed by Phase-4 retrieval); reuses the operator's brain
   // provider credentials via the same resolver plugins get. Pure network service, no DB access.
   const embeddings = new EmbeddingService({ resolveProvider });
   const brainStore = new BrainStore(db);
@@ -394,13 +394,13 @@ export function buildApp(opts: BuildOpts) {
   // ONE embedding-config mapper shared by the retrieval service AND the background embed queue, so both
   // read the same live config each call (a Settings change applies without a restart). Empty
   // providerId/model → the service degrades to keyword search and the queue no-ops.
-  // Tool-output preview caps (Orca AI → Limits) feed the shared messageView renderer; read live.
+  // Tool-output preview caps (Elowen AI → Limits) feed the shared messageView renderer; read live.
   setToolOutputCaps(() => ({ lines: config.get().brain.limits.toolOutputMaxLines, chars: config.get().brain.limits.toolOutputMaxChars }));
   const embeddingConfig = () => toEmbeddingConfig(config.embeddingConfig());
   // Vector retrieval + anti-duplication over the memory store (owner chat only — the caller gates it).
   const memoryService = new MemoryService({
     store: memoryStore, embeddings, embeddingConfig,
-    // Per-turn recall size is operator-tuned (Orca AI → Limits); read live so a change applies without a restart.
+    // Per-turn recall size is operator-tuned (Elowen AI → Limits); read live so a change applies without a restart.
     recallDefaults: () => ({ count: config.get().brain.limits.memoryRecallCount, chars: config.get().brain.limits.memoryRecallChars }),
   });
   // Background embedder: fills in missing/stale memory vectors so writes never block on the provider.
@@ -424,7 +424,7 @@ export function buildApp(opts: BuildOpts) {
   const memoryCategorizer = new MemoryCategorizer({
     categories: memoryCategoryStore, memories: memoryStore, inference: memoryModelInference, logger: log,
   });
-  // ONE shared plugin registry for the whole daemon (brain chat + orca-exec workers + platforms):
+  // ONE shared plugin registry for the whole daemon (brain chat + elowen-exec workers + platforms):
   // loading is lazy (buildApp is sync), and a plugin toggle invalidates every consumer at once —
   // a per-service memo would leave the workers on a stale registry until a daemon restart.
   const pluginProvider = new PluginRegistryProvider(() => {
@@ -444,7 +444,7 @@ export function buildApp(opts: BuildOpts) {
         const owner = users.list().find((u) => u.is_admin);
         const globalExecs = config.get().allowedExecs;
         return listBrainModels(c).then((models) =>
-          models.filter((m) => isModelVisibleForUser(owner, globalExecs, orcaExec(m.provider, m.model))));
+          models.filter((m) => isModelVisibleForUser(owner, globalExecs, elowenExec(m.provider, m.model))));
       },
       resolveProvider,
       logger: log,
@@ -455,7 +455,7 @@ export function buildApp(opts: BuildOpts) {
   const hookAudit = new HookAuditBuffer();
   const brain: BrainService | undefined = opts.dbPath !== ':memory:'
     ? new BrainService({
-        store: brainStore, users, config: brainConfig, prompts, url: orcaCli.url,
+        store: brainStore, users, config: brainConfig, prompts, url: elowenCli.url,
         authStorage: brainAuth,
         cwd: brainDir,
         projectPath: () => opts.project.path,
@@ -503,24 +503,24 @@ export function buildApp(opts: BuildOpts) {
         memoryCategorizer, memoryCategoryStore,
       })
     : undefined;
-  // The orca exec engine: tasks with an `orca:` exec run on an embedded PI session instead of a
+  // The elowen exec engine: tasks with an `elowen:` exec run on an embedded PI session instead of a
   // spawned CLI. Shares the brain's providers/auth/plugins; closes tasks through the same REST route.
   const brainWorkers = new BrainWorkerService({
     store: brainStore, tasks, bus, taskUsage,
     config: brainConfig, authStorage: brainAuth, prompts,
-    url: orcaCli.url, token: orcaCli.token,
+    url: elowenCli.url, token: elowenCli.token,
     plugins: pluginProvider, // the SAME shared registry — a plugin toggle reaches workers too
   });
   spawn.attachBrainWorker(brainWorkers);
   // Brain workers have no tmux pane — the stuck detector and startup reconcile must see their live
-  // sessions or they would reap every running orca task as dead.
+  // sessions or they would reap every running elowen task as dead.
   const liveSessions = { list: async () => [...(await tmux.list()), ...brainWorkers.liveSessionNames()] };
   // Single-use ticket store for the terminal WebSocket stream — shared between the authenticated
   // `POST /sessions/:name/ws-ticket` route and the daemon's `/ws/terminal` upgrade handler.
   const tickets = createTicketStore();
   // The plugin marketplace: install/update/remove plugins from the curated GitHub registry into the
   // writable user plugin dir (pluginDirs[1]), applied live via the brain's plugin hot-reload. The registry
-  // repo is a shallow-clone cache next to the DB; ORCA_PLUGIN_REGISTRY overrides the repo URL (tests).
+  // repo is a shallow-clone cache next to the DB; ELOWEN_PLUGIN_REGISTRY overrides the repo URL (tests).
   // The host node_modules that installed plugins symlink so their SDK imports resolve. Derived from a real
   // dependency's resolved path (robust to the dist layout) — the SAME modules the daemon itself loads, so a
   // plugin always sees the matching SDK version.
@@ -533,7 +533,7 @@ export function buildApp(opts: BuildOpts) {
     } catch { return undefined; }
   })();
   const marketplace = new MarketplaceService({
-    registryUrl: process.env.ORCA_PLUGIN_REGISTRY || undefined,
+    registryUrl: (process.env.ELOWEN_PLUGIN_REGISTRY ?? process.env.ORCA_PLUGIN_REGISTRY) || undefined,
     cacheDir: join(dirname(opts.dbPath), 'marketplace'),
     userPluginsDir: userPluginDir,
     hostNodeModules,
@@ -552,14 +552,14 @@ export function buildApp(opts: BuildOpts) {
   const restartDaemon = restartMarker
     ? async (byUserId: number): Promise<void> => {
         log.info(`/restart requested by user ${byUserId}`);
-        await brain?.notify('🔄 **Restart** — Orca is restarting, back in a moment…').catch(() => { /* best-effort */ });
+        await brain?.notify('🔄 **Restart** — Elowen is restarting, back in a moment…').catch(() => { /* best-effort */ });
         // Drop the marker (timestamped) so the NEXT boot echoes "back online" — but ONLY for a restart that
         // actually takes. systemctl() resolves an exit code (never throws); on failure the daemon keeps
         // running, so we must undo the marker + tell the operator, or a future unrelated boot would falsely
         // announce recovery.
         try { writeFileSync(restartMarker, String(Date.now())); } catch { /* marker is a nicety, not required */ }
         setTimeout(() => {
-          void systemctl('restart', 'orca-daemon').then((r) => {
+          void systemctl('restart', 'elowen-daemon').then((r) => {
             if (r.code !== 0) {
               log.error(`/restart failed (systemctl exit ${r.code}): ${r.stdout.trim()}`);
               try { unlinkSync(restartMarker); } catch { /* nothing to undo */ }
@@ -580,7 +580,7 @@ export function buildApp(opts: BuildOpts) {
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace
   // or relaunch counter here: a restart isn't an agent death, so it shouldn't spend the budget.
   const reconcileZombies = async () => {
-    const live = new Set((await liveSessions.list()).filter((s) => s.startsWith('orca-')));
+    const live = new Set((await liveSessions.list()).filter((s) => s.startsWith('elowen-')));
     for (const t of deadAgentTasks(live, tasks.list({ status: 'in_progress' }))) {
       tasks.setStatus(t.id, 'open');
       bus.publish({ type: 'task', taskId: t.id, status: 'open' });
@@ -592,14 +592,14 @@ export function buildApp(opts: BuildOpts) {
   // whose mission is no longer active. Inert when overseerExec is empty (relay handles decisions).
   const reconcileOverseers = async () => {
     if (!config.get().autopilot.overseerExec) return;
-    const live = new Set((await tmux.list()).filter((s) => s.startsWith('orca-overseer-')));
+    const live = new Set((await tmux.list()).filter((s) => s.startsWith('elowen-overseer-')));
     const activeIds = new Set(missions.active().map((m) => m.id));
     for (const s of live) {
-      const id = s.replace('orca-overseer-', '');
+      const id = s.replace('elowen-overseer-', '');
       if (!activeIds.has(id)) await tmux.kill(s).catch(() => { /* already gone */ });
     }
     for (const m of missions.active()) {
-      if (live.has(`orca-overseer-${m.id}`)) continue;
+      if (live.has(`elowen-overseer-${m.id}`)) continue;
       const epic = tasks.get(m.epic_id);
       const proj = epic ? projects.get(epic.project_id) : null;
       if (proj) await overseer.start(m.id, proj.id, proj.path);
@@ -624,18 +624,18 @@ export function buildApp(opts: BuildOpts) {
         // falsely announce recovery. The marker holds the request timestamp.
         let fresh = false;
         try { fresh = Date.now() - Number(readFileSync(restartMarker, 'utf8')) < 5 * 60_000; } catch { /* unreadable → treat as stale */ }
-        if (fresh) await brain?.notify('✅ **Back online** — Orca restarted and is ready.').catch(() => { /* best-effort */ });
+        if (fresh) await brain?.notify('✅ **Back online** — Elowen restarted and is ready.').catch(() => { /* best-effort */ });
         try { unlinkSync(restartMarker); } catch { /* already gone */ }
       }
     }).catch((e) => log.error('startPlatforms failed', e));
     void reconcileOverseers().catch((e) => log.error('reconcileOverseers failed', e)); // re-park overseers for active missions / kill orphans
-    // Self-heal the agent-workflow skill: (re)install the bundled `orca-workflow` SKILL.md into every
+    // Self-heal the agent-workflow skill: (re)install the bundled `elowen-workflow` SKILL.md into every
     // present provider on boot. Best-effort — installAll catches its own per-provider errors and never
-    // throws, so this can't block or crash startup. Covers `orca install` (first boot) and `orca update`
+    // throws, so this can't block or crash startup. Covers `elowen install` (first boot) and `elowen update`
     // (restart) with one code path, always as the spawning user. Skipped under the in-memory test DB.
     if (opts.dbPath !== ':memory:') {
       const done = createSkillService().installAll().filter((r) => r.installed).map((r) => r.provider);
-      if (done.length) log.info(`installed orca-workflow skill for: ${done.join(', ')}`);
+      if (done.length) log.info(`installed elowen-workflow skill for: ${done.join(', ')}`);
     }
     const stopDeriver = deriver.start();
     const stopOverseer = clock.setInterval(() => { for (const m of missions.live()) void engine.tick(m.id); }, 90000);
@@ -647,7 +647,7 @@ export function buildApp(opts: BuildOpts) {
         .then((reaped) => { if (reaped.length) log.info(`janitor reaped ${reaped.length} finished session(s): ${reaped.join(', ')}`); })
         .catch((e) => log.error('janitor sweep failed', e));
     }, 60000);
-    // Stuck detector: an agent that died without `orca close` leaves its task in_progress with a
+    // Stuck detector: an agent that died without `elowen close` leaves its task in_progress with a
     // dead session; revert it so the mission re-spawns (bounded), else escalate. 2-min grace
     // covers the spawn→session window; relaunch at most twice before escalating to a human.
     const stopStuck = clock.setInterval(() => {
@@ -689,7 +689,7 @@ export function buildApp(opts: BuildOpts) {
       const name = task.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
       if (name) {
         try { captureResumeLabel({ tasks, pathFor: usagePathFor, fallback: resumeFallback }, task); } catch (e) { log.warn(`resume capture failed for ${task.id}`, e); }
-        await tmux.kill(`orca-${name}`).catch(() => { /* already gone */ });
+        await tmux.kill(`elowen-${name}`).catch(() => { /* already gone */ });
       }
       if (tasks.bumpStuck(task.id) > 2) {
         tasks.setStatus(task.id, 'blocked');
@@ -738,7 +738,7 @@ export function buildApp(opts: BuildOpts) {
         tmux, queue: decisionQueue, tracker: paneTracker, now: clock.now(),
         deadSince: decisionDeadSince, inflightChecks, lastProgressAt: progressLastAt,
         sessionTaskId: (s) => taskForSession(s)?.id ?? null,
-        programFor: (s) => agents.programFor(s.replace(/^orca-/, '')),
+        programFor: (s) => agents.programFor(s.replace(/^elowen-/, '')),
         hasPrompt: (content, program) => detectAgentPrompt(content, program) !== null,
         checkWorker,
         workerIdleMs: WORKER_IDLE_MS, overseerIdleMs: OVERSEER_IDLE_MS, graceMs: DECISION_GRACE_MS, hardMs: DECISION_HARD_MS,

@@ -9,9 +9,9 @@ beforeEach(() => { db = openDb(':memory:'); notes = new NoteStore(db); });
 
 describe('NoteStore', () => {
   it('adds a note and lists it back for its scope/target', () => {
-    const n = notes.add({ scope: 'mission', target: 'orca-1', author: 'Iris', body: 'set up X' });
+    const n = notes.add({ scope: 'mission', target: 'elowen-1', author: 'Iris', body: 'set up X' });
     expect(n.id).toBeGreaterThan(0);
-    expect(notes.list('mission', 'orca-1')).toMatchObject([{ target: 'orca-1', author: 'Iris', body: 'set up X' }]);
+    expect(notes.list('mission', 'elowen-1')).toMatchObject([{ target: 'elowen-1', author: 'Iris', body: 'set up X' }]);
   });
 
   it('lists notes oldest-first (chronological handoff log)', () => {

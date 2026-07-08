@@ -15,8 +15,8 @@ const log = logger('marketplace');
 /** The official curated plugin registry — a single GitHub repo (registry.json + plugins/<name>/) owned
  *  by the project. Installs are allowed ONLY for names listed in its registry.json, so the trust surface
  *  is exactly "do you trust this repo", the same posture as the npm package. Overridable via
- *  ORCA_PLUGIN_REGISTRY (used by tests to point at a local bare repo). */
-const DEFAULT_REGISTRY_URL = 'https://github.com/dragocz1995/orca-plugins.git';
+ *  ELOWEN_PLUGIN_REGISTRY (used by tests to point at a local bare repo). */
+const DEFAULT_REGISTRY_URL = 'https://github.com/dragocz1995/elowen-plugins.git';
 const DEFAULT_REGISTRY_BRANCH = 'main';
 
 /** Canonical plugin-name shape, reused verbatim as a single path segment. Mirrors the skills plugin's
@@ -127,7 +127,7 @@ const defaultIO: MarketplaceIO = {
 };
 
 export interface MarketplaceServiceOptions {
-  /** Registry repo clone URL (constant; ORCA_PLUGIN_REGISTRY override resolved by the caller). */
+  /** Registry repo clone URL (constant; ELOWEN_PLUGIN_REGISTRY override resolved by the caller). */
   registryUrl?: string;
   registryBranch?: string;
   /** Where the registry repo is shallow-cloned (a mirror used for both catalog reads and install copies). */
@@ -135,7 +135,7 @@ export interface MarketplaceServiceOptions {
   /** The WRITABLE plugin scan root (`pluginDirs[1]`). NEVER the bundled dir — that's npm-owned. */
   userPluginsDir: string;
   /** The host's `node_modules`, symlinked into each installed plugin so its bare SDK imports
-   *  (`@earendil-works/…`, `typebox`) resolve — a user-dir plugin lives outside the Orca tree and can't
+   *  (`@earendil-works/…`, `typebox`) resolve — a user-dir plugin lives outside the Elowen tree and can't
    *  reach them otherwise. Unset in tests (they never import the copied plugin). */
   hostNodeModules?: string;
   /** Root of per-plugin writable data dirs; a plugin's data is `<pluginDataRoot>/<name>`. */

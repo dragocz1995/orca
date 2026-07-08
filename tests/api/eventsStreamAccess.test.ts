@@ -4,7 +4,7 @@ import { TaskStore } from '../../src/store/taskStore.js';
 import { Readiness } from '../../src/store/readiness.js';
 import { MissionStore } from '../../src/store/missionStore.js';
 import { EventBus } from '../../src/api/sse.js';
-import type { OrcaEvent } from '../../src/api/sse.js';
+import type { ElowenEvent } from '../../src/api/sse.js';
 import { createServer } from '../../src/api/server.js';
 import { FakeClock } from '../../src/shared/clock.js';
 import { ConfigStore } from '../../src/store/configStore.js';
@@ -60,8 +60,8 @@ async function streamAfter(app: ReturnType<typeof setup>['app'], tok: string, pu
 }
 
 describe('GET /events tenancy filtering', () => {
-  const home: OrcaEvent = { type: 'task', taskId: 't1', status: 'in_progress' };
-  const foreign: OrcaEvent = { type: 'task', taskId: 't2', status: 'in_progress' };
+  const home: ElowenEvent = { type: 'task', taskId: 't1', status: 'in_progress' };
+  const foreign: ElowenEvent = { type: 'task', taskId: 't2', status: 'in_progress' };
 
   it('streams a non-admin only their projects\' events', async () => {
     const { app, bus, bobTok } = setup();

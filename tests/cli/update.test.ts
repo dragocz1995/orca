@@ -55,10 +55,10 @@ describe('cli/update.update', () => {
 
 describe('cli/update.reinstallNpmArgs', () => {
   it('builds the in-place reinstall args with the prefix', () => {
-    expect(reinstallNpmArgs('/usr')).toEqual(['install', '-g', 'orcasynth@latest', '--prefix', '/usr']);
+    expect(reinstallNpmArgs('/usr')).toEqual(['install', '-g', 'elowen@latest', '--prefix', '/usr']);
   });
   it('omits --prefix from a source checkout (no global prefix)', () => {
-    expect(reinstallNpmArgs(null)).toEqual(['install', '-g', 'orcasynth@latest']);
+    expect(reinstallNpmArgs(null)).toEqual(['install', '-g', 'elowen@latest']);
   });
 });
 
@@ -66,16 +66,16 @@ describe('cli/update.reinstall', () => {
   it('installs directly when the packages dir is writable (no sudo)', async () => {
     const d = io({ writable: async () => true });
     await reinstall(d);
-    expect(d.ran).toEqual([{ cmd: 'npm', args: ['install', '-g', 'orcasynth@latest', '--prefix', '/usr'] }]);
+    expect(d.ran).toEqual([{ cmd: 'npm', args: ['install', '-g', 'elowen@latest', '--prefix', '/usr'] }]);
   });
   it('routes the reinstall through sudo when the packages dir is not writable', async () => {
     const d = io({ writable: async () => false });
     await reinstall(d);
-    expect(d.ran).toEqual([{ cmd: 'sudo', args: ['npm', 'install', '-g', 'orcasynth@latest', '--prefix', '/usr'] }]);
+    expect(d.ran).toEqual([{ cmd: 'sudo', args: ['npm', 'install', '-g', 'elowen@latest', '--prefix', '/usr'] }]);
   });
   it('installs directly from a source checkout even if a dir read fails (no packages dir → no sudo)', async () => {
     const d = io({ packagesDir: () => null, prefix: () => null, writable: async () => false });
     await reinstall(d);
-    expect(d.ran).toEqual([{ cmd: 'npm', args: ['install', '-g', 'orcasynth@latest'] }]);
+    expect(d.ran).toEqual([{ cmd: 'npm', args: ['install', '-g', 'elowen@latest'] }]);
   });
 });

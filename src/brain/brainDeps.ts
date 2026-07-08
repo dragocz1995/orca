@@ -28,7 +28,7 @@ export interface BrainDeps {
   authStorage?: AuthStorage;
   /** Renders the brain's system prompt from the editable `advisor` template (per-user override aware). */
   prompts: { render(name: string, vars: Record<string, string>, userId?: number): string };
-  /** Daemon REST base the brain's tools call (ORCA_URL). */
+  /** Daemon REST base the brain's tools call (ELOWEN_URL). */
   url: string;
   /** Working dir for the in-memory session (not a repo checkout). Default: process.cwd(). */
   cwd?: string;
@@ -52,16 +52,16 @@ export interface BrainDeps {
    *  appendSystemPrompt — the cache-safe seam. For Discord `userId` is the channel owner and `platform`
    *  is 'discord', so it resolves the owner's one Discord persona (the locked shared-channel decision). */
   activePersonality?: (userId: number, platform: string) => string | undefined;
-  /** The assistant's configured display identity (Settings → Orca AI). Absent → 'Orca'. */
+  /** The assistant's configured display identity (Settings → Elowen AI). Absent → 'Elowen'. */
   agentName?: () => string;
-  /** Max agent steps (model round-trips) per run before the turn is aborted (Settings → Orca AI). Read
+  /** Max agent steps (model round-trips) per run before the turn is aborted (Settings → Elowen AI). Read
    *  fresh each turn so a config change applies without a session restart. Absent or ≤0 → unlimited. */
   maxSteps?: () => number;
-  /** Operator-tunable brain limits (Settings → Orca AI → Limits): tool-output caps, elicitation timeout,
+  /** Operator-tunable brain limits (Settings → Elowen AI → Limits): tool-output caps, elicitation timeout,
    *  memory recall size, goal turn budget + safety ceiling, live-channel cap. Read fresh so a config
    *  change applies without a restart. Absent (minimal/test wiring) → the built-in defaults. */
   brainLimits?: () => BrainLimits;
-  /** Resolve a platform sender (e.g. a Discord id) to the Orca user who claimed it in their account
+  /** Resolve a platform sender (e.g. a Discord id) to the Elowen user who claimed it in their account
    *  settings. Lets channel turns carry a verified identity line for registered users. */
   resolvePlatformUser?: (platform: string, platformUserId: string) => { id: number; name: string; username?: string; admin: boolean } | null;
   /** Per-user granular tool permissions (allow/ask/deny rules + the persisted YOLO default), read
@@ -70,13 +70,13 @@ export interface BrainDeps {
   permissions?: (userId: number) => PermissionSettings;
   /** Persist an "Always allow" pick from an approval prompt into the user's stored rules. */
   saveAlwaysAllow?: (userId: number, scope: PermissionScope, pattern: string) => void;
-  /** Per-user brain-model permission, keyed by exec spec `orca:<provider>/<model>`. Absent → no
+  /** Per-user brain-model permission, keyed by exec spec `elowen:<provider>/<model>`. Absent → no
    *  restriction (open mode / tests). Enforced on explicit picks; a saved-but-revoked default
    *  silently falls back to the server default instead of erroring. */
   execAllowed?: (userId: number, exec: string) => boolean;
   /** Build a Policy from an explicit project-id set (platform role mappings resolve through this). */
   policyForProjects?: (projectIds: number[]) => Policy;
-  /** The Orca user that anchors platform channel sessions (their token drives the tools) — the admin. */
+  /** The Elowen user that anchors platform channel sessions (their token drives the tools) — the admin. */
   platformOwner?: () => number | undefined;
   /** The user's PRIVATE long-term memory store. Threaded so the owner-chat memory tools can read/write
    *  it and the curator can persist post-turn facts. Absent (with memoryService) → memory disabled. */
@@ -94,7 +94,7 @@ export interface BrainDeps {
   memoryCategoryStore?: MemoryCategoryStore;
   /** Injected for tests; defaults to PI's createAgentSession. */
   createSession?: typeof createAgentSession;
-  /** Injected for tests; builds the resource loader that carries the Orca system prompt. A test passes
+  /** Injected for tests; builds the resource loader that carries the Elowen system prompt. A test passes
    *  `() => undefined` so no disk-touching loader is constructed. */
   resourceLoaderFactory?: (o: { cwd: string; systemPrompt: string; appendSystemPrompt?: string[] }) => ResourceLoader | undefined;
 }

@@ -30,7 +30,7 @@ export function viewToPlainText(view: ChatView): string[] {
       lines.push('you');
       lines.push(...turn.text.split('\n').map((l) => `  ${l}`));
     } else {
-      lines.push(`${glyph.whale} orca`);
+      lines.push(`${glyph.whale} elowen`);
       for (const seg of turn.segments) {
         if (seg.kind === 'tools') {
           for (const item of seg.items) {
@@ -95,7 +95,7 @@ export interface RunChatOpts {
   client?: BrainClient;
 }
 
-/** Launch the interactive Orca chat TUI — an opencode-style layout (user blocks with a teal rail,
+/** Launch the interactive Elowen chat TUI — an opencode-style layout (user blocks with a teal rail,
  *  markdown replies with a metadata line, a bottom status bar) rendered on pi-tui + pi's markdown theme.
  *  Conversations are server-side: /new opens one, /sessions + /resume switch between them.
  *
@@ -104,7 +104,7 @@ export interface RunChatOpts {
  *  (layout/render/input), pickers (modal surface) and commands (the submit dispatcher). */
 export async function runChat(opts: RunChatOpts): Promise<void> {
   if (!process.stdout.isTTY) {
-    process.stderr.write('orca chat needs an interactive terminal (a TTY).\n');
+    process.stderr.write('elowen chat needs an interactive terminal (a TTY).\n');
     return;
   }
   initTheme();

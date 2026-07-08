@@ -10,7 +10,7 @@ const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { 
 const w = (rel: string, body: string) => { const p = join(root, rel); mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, body); };
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'orca-reviewdiff-'));
+  root = mkdtempSync(join(tmpdir(), 'elowen-reviewdiff-'));
   git('init', '-q');
   git('config', 'user.email', 't@t');
   git('config', 'user.name', 'Test');
@@ -48,7 +48,7 @@ describe('projectReviewDiff', () => {
   });
 
   it('returns empty evidence for a non-git directory (no throw)', async () => {
-    const plain = mkdtempSync(join(tmpdir(), 'orca-plain-'));
+    const plain = mkdtempSync(join(tmpdir(), 'elowen-plain-'));
     try {
       const { changedFiles, diff } = await projectReviewDiff(plain);
       expect(changedFiles).toEqual([]);

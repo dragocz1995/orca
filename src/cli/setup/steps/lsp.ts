@@ -4,7 +4,7 @@ import { npmInstallGlobal } from '../../../lsp/install.js';
 import { apiJson } from '../http.js';
 import { guard, type StepResult, type WizardCtx } from '../types.js';
 
-/** What `orca setup` offers to install for out-of-the-box diagnostics: the TypeScript/JavaScript
+/** What `elowen setup` offers to install for out-of-the-box diagnostics: the TypeScript/JavaScript
  *  language server (plus the `typescript` package it drives). Other languages' servers ship with their
  *  own toolchains (pyright, gopls, rust-analyzer, …) and are surfaced in the CLI's /lsp modal instead.
  *  Command, packages and hint come from the ONE server catalog (src/lsp/servers.ts). */
@@ -41,7 +41,7 @@ const defaultDeps: LspStepDeps = { exists: commandExists, install: (ctx) => inst
  *  can type-check its own edits (the lsp_diagnostics tool) out of the box. Local-only (no daemon call)
  *  and fully optional. */
 export async function runLspStep(ctx: WizardCtx, deps: LspStepDeps = defaultDeps): Promise<StepResult> {
-  p.note('Orca can type-check its own edits live through language servers (LSP). Optional.', 'Code intelligence');
+  p.note('Elowen can type-check its own edits live through language servers (LSP). Optional.', 'Code intelligence');
 
   if (deps.exists(TS_SERVER_COMMAND)) {
     p.log.success(`${TS_SERVER_COMMAND} is already installed.`);

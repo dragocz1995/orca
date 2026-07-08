@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with Orcasynth
+about: Report a problem with Elowen
 title: "[bug] "
 labels: bug
 ---
@@ -17,7 +17,7 @@ What you expected to happen.
 **Environment**
 - OS:
 - Node version:
-- Orcasynth version:
+- Elowen version:
 - Agent provider (Claude Code / OpenCode / Codex) + model:
 
 **Logs / screenshots**

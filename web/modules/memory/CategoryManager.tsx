@@ -4,7 +4,7 @@ import { Plus, Pencil, Trash2, Tags } from 'lucide-react';
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { useMemoryCategories } from '../../lib/queries';
 import { useCreateMemoryCategory, useUpdateMemoryCategory, useDeleteMemoryCategory } from '../../lib/mutations';
-import { apiErrorMessage, orcaClient } from '../../lib/orcaClient';
+import { apiErrorMessage, elowenClient } from '../../lib/elowenClient';
 import { CategoryIcon, ICON_NAMES } from '../../lib/categoryIcons';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -93,7 +93,7 @@ function CategoryModal({ category, onClose }: { category?: MemoryCategory; onClo
     if (!q) return;
     let cancelled = false;
     const handle = setTimeout(() => {
-      orcaClient.suggestCategoryIcon(q)
+      elowenClient.suggestCategoryIcon(q)
         .then((res) => { if (!cancelled && !iconTouched.current && res.icon) setIcon(res.icon); })
         .catch(() => { /* fail-soft: keep the current icon */ });
     }, 500);
@@ -105,7 +105,7 @@ function CategoryModal({ category, onClose }: { category?: MemoryCategory; onClo
     const q = name.trim();
     if (!q || suggesting) return;
     setSuggesting(true);
-    try { const res = await orcaClient.suggestCategoryIcon(q); if (res.icon) { setIcon(res.icon); iconTouched.current = true; } }
+    try { const res = await elowenClient.suggestCategoryIcon(q); if (res.icon) { setIcon(res.icon); iconTouched.current = true; } }
     catch { /* fail-soft: keep the current icon */ }
     finally { setSuggesting(false); }
   };

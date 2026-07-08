@@ -49,7 +49,7 @@ export class Deriver {
   }
 
   async tick(): Promise<void> {
-    const sessions = (await this.d.tmux.list()).filter(s => s.startsWith('orca-'));
+    const sessions = (await this.d.tmux.list()).filter(s => s.startsWith('elowen-'));
     for (const session of sessions) {
       // Isolate each session: a vanished session (capturePane) or a relay throw (decideApproval) must
       // not break the 5s sweep for the rest. Robustness of a periodic loop trumps a single iteration.
@@ -59,7 +59,7 @@ export class Deriver {
   }
 
   private async tickSession(session: string): Promise<void> {
-    const program = this.d.agents.programFor(session.replace(/^orca-/, ''));
+    const program = this.d.agents.programFor(session.replace(/^elowen-/, ''));
     if (!program) return;
     const taskId = this.d.sessionTaskId(session); if (!taskId) return;
     const task = this.d.tasks.get(taskId); if (!task) return;
@@ -94,7 +94,7 @@ export class Deriver {
       };
       // L0 (Recommend) always escalates to a human — nothing is cleared autonomously.
       if (!autoClears(autonomy)) { escalate(); return; }
-      // Environmental gates (workspace-trust) just block startup — orca only spawns into the
+      // Environmental gates (workspace-trust) just block startup — elowen only spawns into the
       // user's own registered projects, so clear them directly without an overseer round-trip.
       if (prompt.autoAccept) {
         await this.d.tmux.sendKeys(session, prompt.acceptKeys);

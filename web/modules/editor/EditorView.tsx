@@ -18,7 +18,7 @@ export function EditorView() {
   const router = useRouter();
   const mobile = useMobile();
   const projects = useProjects();
-  const { selectedProject, setProject } = useProjectFilter('orca.editor.project');
+  const { selectedProject, setProject } = useProjectFilter('elowen.editor.project');
   const list = projects.data ?? [];
   const projectId = selectedProject === 'all' ? (list[0]?.id ?? null) : selectedProject;
 

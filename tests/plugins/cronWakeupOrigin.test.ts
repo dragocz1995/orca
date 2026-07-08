@@ -13,10 +13,10 @@ const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const pluginsDir = join(repoRoot, 'plugins');
 const ADMIN: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
-const OWNER: TurnIdentity = { platform: 'orca', userId: '1', orcaUserId: 1, admin: true, owner: true };
+const OWNER: TurnIdentity = { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true };
 const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text: string }).text;
 
-function freshDataRoot(): string { return mkdtempSync(join(tmpdir(), 'orca-pdata-')); }
+function freshDataRoot(): string { return mkdtempSync(join(tmpdir(), 'elowen-pdata-')); }
 
 /** The cron adapter's internals the tests drive directly (listen + a manual tick, no timers), plus the
  *  resolved scheduler limits (see plugins/cronjob/orca-plugin.json's "Scheduler" config section). */
@@ -37,7 +37,7 @@ async function loadCron(dataRoot: string, notify?: (text: string, channelId?: st
 const jobsFile = (dataRoot: string) => join(dataRoot, 'cronjob/jobs.json');
 
 describe('schedule_wakeup origin capture', () => {
-  it('records the originating USER conversation (session + orca user) and says so in the ok message', async () => {
+  it('records the originating USER conversation (session + elowen user) and says so in the ok message', async () => {
     const dataRoot = freshDataRoot();
     const { reg } = await loadCron(dataRoot);
     const wakeup = reg.tools.find((t) => t.name === 'schedule_wakeup')!;
@@ -50,7 +50,7 @@ describe('schedule_wakeup origin capture', () => {
     expect(jobs[0]).toMatchObject({ originSessionId: 'brain-1-abc', originUserId: 1 });
   });
 
-  it('keeps NO origin for channel/task-originated schedules and for turns without an Orca account', async () => {
+  it('keeps NO origin for channel/task-originated schedules and for turns without an Elowen account', async () => {
     const dataRoot = freshDataRoot();
     const { reg } = await loadCron(dataRoot);
     const wakeup = reg.tools.find((t) => t.name === 'schedule_wakeup')!;
@@ -58,7 +58,7 @@ describe('schedule_wakeup origin capture', () => {
     await runWithPolicy(ADMIN, async () => {
       await wakeup.execute('t', { name: 'ch', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never);
     }, { identity: OWNER, sessionId: 'brain-ch-cron-job-x' });
-    // No orcaUserId (unlinked automation) → no origin either.
+    // No elowenUserId (unlinked automation) → no origin either.
     const noAccount = await runWithPolicy(ADMIN, async () =>
       asText(await wakeup.execute('t', { name: 'anon', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never)),
     { identity: { platform: 'cron', userId: 'cron', admin: true, owner: true }, sessionId: 'brain-1' });

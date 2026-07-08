@@ -38,7 +38,7 @@ export interface CategorizationBlock {
 interface ProviderConfig { bin: string; args: string; skipPermissions: boolean; resume: boolean }
 export type Providers = Record<string, ProviderConfig>;
 
-export interface OrcaConfig {
+export interface ElowenConfig {
   allowedExecs: string[];
   customModels: { label: string; exec: string }[];
   hiddenPresets: string[];
@@ -47,7 +47,7 @@ export interface OrcaConfig {
   providers: Providers;
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
-  /** When on, the hourly systemd timer (`orca update --auto`) upgrades to the latest npm release and
+  /** When on, the hourly systemd timer (`elowen update --auto`) upgrades to the latest npm release and
    *  restarts the services — but only while no mission is running. Off by default (opt-in). */
   autoUpdate: boolean;
   /** Live language diagnostics (LSP) after edits. Persisted so the `/lsp` toggle survives a daemon
@@ -62,9 +62,9 @@ export interface OrcaConfig {
   plugins: { enabled: string[]; removed: string[] };
   /** The brain's dedicated model providers (public view: API keys stripped to `apiKeySet`). Empty →
    *  the brain falls back to the autopilot relay endpoint. `agentName` is the assistant's display
-   *  identity ("Orca" by default) — it feeds the persona prompts everywhere the brain speaks.
+   *  identity ("Elowen" by default) — it feeds the persona prompts everywhere the brain speaks.
    *  `maxSteps` caps the agent's per-run model round-trips; `modelContextWindows` lets the operator pin a
-   *  max context window per Orca AI model (`providerId/model`) for endpoints that don't report one. */
+   *  max context window per Elowen AI model (`providerId/model`) for endpoints that don't report one. */
   brain: { providers: BrainProviderPublic[]; agentName: string; maxSteps: number; modelContextWindows: Record<string, number>; limits: BrainLimits };
   /** Memory embedding provider config (no secret — the API key comes from the referenced brain provider). */
   embedding: EmbeddingBlock;
@@ -222,7 +222,7 @@ function sanitizeContextWindows(input: unknown): Record<string, number> {
   return out;
 }
 
-const DEFAULT_CONFIG: OrcaConfig = {
+const DEFAULT_CONFIG: ElowenConfig = {
   allowedExecs: [...KNOWN_EXECS],
   customModels: [],
   hiddenPresets: [],
@@ -235,7 +235,7 @@ const DEFAULT_CONFIG: OrcaConfig = {
   lspEnabled: true,
   webPush: { publicKey: '', publicKeySet: false },
   plugins: { enabled: ['files', 'terminal', 'askuser', 'runtime-context', 'skills', 'subagent'], removed: [] },
-  brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {}, limits: { ...DEFAULT_BRAIN_LIMITS } },
+  brain: { providers: [], agentName: 'Elowen', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {}, limits: { ...DEFAULT_BRAIN_LIMITS } },
   embedding: { providerId: '', model: '', baseUrl: '', dimensions: null },
   categorization: { providerId: '', model: '', baseUrl: '' },
 };
@@ -289,7 +289,7 @@ const defaultStored = (): Stored => ({
   lspEnabled: true,
   webPush: null,
   plugins: { enabled: [...DEFAULT_CONFIG.plugins.enabled], removed: [], config: {} },
-  brain: { providers: [], agentName: 'Orca', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {}, limits: { ...DEFAULT_BRAIN_LIMITS } },
+  brain: { providers: [], agentName: 'Elowen', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {}, limits: { ...DEFAULT_BRAIN_LIMITS } },
   embedding: { providerId: '', model: '', baseUrl: '', dimensions: null },
   categorization: { providerId: '', model: '', baseUrl: '' },
 });
@@ -358,7 +358,7 @@ export class ConfigStore {
           : legacyEmptyPlugins(),
         brain: {
           providers: sanitizeBrainProviders(p.brain?.providers),
-          agentName: typeof p.brain?.agentName === 'string' && p.brain.agentName.trim() ? p.brain.agentName.trim().slice(0, 40) : 'Orca',
+          agentName: typeof p.brain?.agentName === 'string' && p.brain.agentName.trim() ? p.brain.agentName.trim().slice(0, 40) : 'Elowen',
           maxSteps: clampMaxSteps(p.brain?.maxSteps, d.brain.maxSteps),
           modelContextWindows: sanitizeContextWindows(p.brain?.modelContextWindows),
           limits: clampBrainLimits(p.brain?.limits, d.brain.limits),
@@ -383,7 +383,7 @@ export class ConfigStore {
       .run({ data: JSON.stringify(s) });
   }
 
-  get(): OrcaConfig {
+  get(): ElowenConfig {
     const s = this.read();
     return {
       allowedExecs: s.allowedExecs,
@@ -443,7 +443,7 @@ export class ConfigStore {
     return !!this.db.prepare('SELECT 1 FROM settings WHERE id = 1').get();
   }
 
-  update(patch: ConfigPatch): OrcaConfig {
+  update(patch: ConfigPatch): ElowenConfig {
     const cur = this.read();
     const newKey = patch.autopilot?.apiKey;
     const newGhToken = patch.autopilot?.ghToken;

@@ -154,7 +154,7 @@ function coerceIcon(reply: string): string {
  *  new category. English prompt; the memory body itself stays in the user's own language. */
 function buildClassifyPrompt(body: string, cats: MemoryCategoryRow[]): string {
   return [
-    'You are the memory classifier for the assistant Orca. Assign the memory below to EXACTLY ONE of the categories.',
+    'You are the memory classifier for the assistant Elowen. Assign the memory below to EXACTLY ONE of the categories.',
     'Decide by each category\'s description. If none fits, reply with the word "none".',
     'Reply with ONLY the category name (exactly as listed), no other text. Do not invent new categories.',
     '',

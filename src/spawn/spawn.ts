@@ -8,9 +8,9 @@ import { logger } from '../shared/logger.js';
 
 const log = logger('spawn');
 
-/** How a spawned agent reaches back to the daemon to close its task. `cli` is the full orca
- *  invocation: the global `orca` command in production, or `node <dist/cli/index.js>` in a checkout. */
-export interface OrcaCliConfig { cli: string; url: string; token: string }
+/** How a spawned agent reaches back to the daemon to close its task. `cli` is the full elowen
+ *  invocation: the global `elowen` command in production, or `node <dist/cli/index.js>` in a checkout. */
+export interface ElowenCliConfig { cli: string; url: string; token: string }
 /** Per-program binary override + extra args + permission-bypass toggle + resume toggle (configured in
  *  Settings → Providers). `skipPermissions` and `resume` default to true at the config layer;
  *  undefined here means "use the built-in default" (bypass on / resume on). */
@@ -22,30 +22,32 @@ export interface BrainWorkerLauncher {
 }
 
 export class SpawnService {
-  constructor(private d: { tmux: TmuxDriver; agents: AgentStore; orca?: OrcaCliConfig; providers?: ProviderResolver; prompts?: PromptService; brainWorker?: BrainWorkerLauncher }) {}
+  constructor(private d: { tmux: TmuxDriver; agents: AgentStore; elowen?: ElowenCliConfig; providers?: ProviderResolver; prompts?: PromptService; brainWorker?: BrainWorkerLauncher }) {}
   /** Late wiring: the brain worker is constructed after SpawnService in bootstrap (it shares the
    *  brain's config/auth built further down), so it attaches here instead of via the constructor. */
   attachBrainWorker(w: BrainWorkerLauncher): void { this.d.brainWorker = w; }
   async launch(input: { projectId: number; projectPath: string; taskId: string; agentName: string; spec: AgentSpec; taskTitle?: string; taskDescription?: string; resumeNote?: string; epicId?: string; extraEnv?: Record<string, string>; rawPrompt?: string; resume?: PendingResume; ownerId?: number | null; mcpUrl?: string }): Promise<{ session: string }> {
-    // `orca:<provider>/<model>` execs run on the embedded brain — no binary, no tmux pane. The one
+    // `elowen:<provider>/<model>` execs run on the embedded brain — no binary, no tmux pane. The one
     // seam for every caller (scheduler, mission engine, session routes); task states flow identically.
-    if (input.spec.program === 'orca') {
-      if (!this.d.brainWorker) throw new Error('orca exec engine not available (brain not configured)');
-      if (input.rawPrompt) throw new Error('orca exec engine does not support pilot/overseer raw prompts');
-      this.d.agents.upsert({ project_id: input.projectId, name: input.agentName, program: 'orca', model: input.spec.model });
+    if (input.spec.program === 'elowen') {
+      if (!this.d.brainWorker) throw new Error('elowen exec engine not available (brain not configured)');
+      if (input.rawPrompt) throw new Error('elowen exec engine does not support pilot/overseer raw prompts');
+      this.d.agents.upsert({ project_id: input.projectId, name: input.agentName, program: 'elowen', model: input.spec.model });
       return this.d.brainWorker.launch(input);
     }
     this.d.agents.upsert({ project_id: input.projectId, name: input.agentName, program: input.spec.program, model: input.spec.model });
-    const session = `orca-${input.agentName}`;
-    const orca = this.d.orca;
-    // The agent reaches the daemon through the resolved orca CLI (`orca` globally, or `node <path>`
+    const session = `elowen-${input.agentName}`;
+    const elowen = this.d.elowen;
+    // The agent reaches the daemon through the resolved elowen CLI (`elowen` globally, or `node <path>`
     // in a checkout). Shared by the close commands and the worker preamble's read-only verbs.
-    const cli = orca ? orca.cli : undefined;
-    const closeCommand = orca ? `${orca.cli} close ${input.taskId}` : undefined;
-    // Merge any caller-supplied env (e.g. ORCA_PLAN_JOB / ORCA_MISSION for reasoning agents) on top
-    // of the daemon-reach env. ORCA_TASK lets a worker run `orca ask` without passing its own id;
-    // reasoning agents ignore it. extraEnv alone still flows through when no orca config is present.
-    const env = orca ? { ORCA_URL: orca.url, ORCA_TOKEN: orca.token, ORCA_TASK: input.taskId, ...input.extraEnv } : input.extraEnv;
+    const cli = elowen ? elowen.cli : undefined;
+    const closeCommand = elowen ? `${elowen.cli} close ${input.taskId}` : undefined;
+    // Merge any caller-supplied env (e.g. ELOWEN_PLAN_JOB / ELOWEN_MISSION for reasoning agents) on top
+    // of the daemon-reach env. ELOWEN_TASK lets a worker run `elowen ask` without passing its own id;
+    // reasoning agents ignore it. extraEnv alone still flows through when no elowen config is present.
+    // ORCA_TASK is emitted as a backward-compat alias so a still-legacy workflow skill guard
+    // (`[ -n "$ORCA_TASK" ]`) keeps working until it is rebranded to ELOWEN_TASK.
+    const env = elowen ? { ELOWEN_URL: elowen.url, ELOWEN_TOKEN: elowen.token, ELOWEN_TASK: input.taskId, ORCA_TASK: input.taskId, ...input.extraEnv } : input.extraEnv;
     const provider = this.d.providers?.(input.spec.program);
     // Resume only when the recorded session is for THIS spawn's program (the operator may have
     // switched the task's exec since) and the provider hasn't disabled resume. Otherwise cold start.

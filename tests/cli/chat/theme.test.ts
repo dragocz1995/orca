@@ -9,8 +9,8 @@ describe('chat theme', () => {
     expect(out).toContain('hi');
   });
 
-  it('exposes the Orca brand glyphs', () => {
-    expect(glyph.whale).toBe('orca');
+  it('exposes the Elowen brand glyphs', () => {
+    expect(glyph.whale).toBe('elowen');
     expect(glyph.tool).toBe('*');
   });
 
@@ -30,7 +30,7 @@ describe('chat theme', () => {
     expect(theme.name).toBe('custom');
     expect(theme.text).toBe('38;2;16;17;18');
     expect(theme.accent).toBe('38;2;34;204;187');
-    expect(theme.error).toBe(setChatTheme('orca').error); // invalid hex → Orca default for that slot
+    expect(theme.error).toBe(setChatTheme('elowen').error); // invalid hex → Elowen default for that slot
     expect(theme.inputBg).toBe('48;2;14;14;14');          // background lifted so layers stay readable
     if (isChatThemeName(before)) setChatTheme(before);
   });

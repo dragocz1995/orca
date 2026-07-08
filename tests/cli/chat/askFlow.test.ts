@@ -7,7 +7,7 @@ import type { AskQuestion } from '../../../src/brain/events.js';
 const stripAnsi = (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, '');
 
 const question = (multiSelect = true): AskQuestion => ({
-  question: 'What should Orca do next?',
+  question: 'What should Elowen do next?',
   header: 'Next',
   multiSelect,
   options: [
@@ -40,7 +40,7 @@ describe('AskChoiceDock', () => {
   });
 
   it('wraps a long question across rows instead of truncating it', () => {
-    const long = 'Should Orca deploy the new build to production now, or wait for the remaining review agents to finish and merge their branches first?';
+    const long = 'Should Elowen deploy the new build to production now, or wait for the remaining review agents to finish and merge their branches first?';
     const dock = new AskChoiceDock({
       tui: fakeTui(),
       question: { ...question(), question: long },

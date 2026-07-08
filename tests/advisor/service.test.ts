@@ -16,8 +16,8 @@ function makeAdvisor(opts: { allowed: string[] }) {
   const spawn = {
     launch: async (input: { agentName: string; projectPath: string; extraEnv?: Record<string, string>; rawPrompt?: string; mcpUrl?: string }) => {
       spawnCalls.push({ agentName: input.agentName, extraEnv: input.extraEnv, rawPrompt: input.rawPrompt, mcpUrl: input.mcpUrl });
-      await tmux.spawn(`orca-${input.agentName}`, { cwd: input.projectPath, command: '' });
-      return { session: `orca-${input.agentName}` };
+      await tmux.spawn(`elowen-${input.agentName}`, { cwd: input.projectPath, command: '' });
+      return { session: `elowen-${input.agentName}` };
     },
   };
   const svc = new AdvisorService({
@@ -31,14 +31,14 @@ function makeAdvisor(opts: { allowed: string[] }) {
 }
 
 describe('AdvisorService', () => {
-  it('start spawns orca-advisor-<id>, persists exec, is idempotent', async () => {
+  it('start spawns elowen-advisor-<id>, persists exec, is idempotent', async () => {
     const { svc, spawnCalls, users, u } = makeAdvisor({ allowed: ['sonnet'] });
     const r = await svc.start(u.id, 'sonnet');
-    expect(r.session).toBe(`orca-advisor-${u.id}`);
+    expect(r.session).toBe(`elowen-advisor-${u.id}`);
     expect(users.get(u.id)?.advisor_exec).toBe('sonnet');
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0].agentName).toBe(`advisor-${u.id}`);
-    expect(spawnCalls[0].extraEnv?.ORCA_TOKEN).toBeTruthy(); // full advisor token injected
+    expect(spawnCalls[0].extraEnv?.ELOWEN_TOKEN).toBeTruthy(); // full advisor token injected
     expect(spawnCalls[0].mcpUrl).toBe('http://localhost:4400/mcp'); // MCP server URL passed for codex `-c` wiring
     await svc.start(u.id, 'sonnet'); // already live
     expect(spawnCalls).toHaveLength(1); // not respawned
@@ -62,7 +62,7 @@ describe('AdvisorService', () => {
     const { svc, u } = makeAdvisor({ allowed: ['sonnet'] });
     expect(await svc.status(u.id)).toEqual({ running: false, exec: '', session: null, autostart: true });
     await svc.start(u.id, 'sonnet');
-    expect(await svc.status(u.id)).toEqual({ running: true, exec: 'sonnet', session: `orca-advisor-${u.id}`, autostart: true });
+    expect(await svc.status(u.id)).toEqual({ running: true, exec: 'sonnet', session: `elowen-advisor-${u.id}`, autostart: true });
   });
 
   it('stop kills the session, keeps the exec, and turns autostart OFF (stays off)', async () => {

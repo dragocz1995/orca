@@ -47,11 +47,11 @@ function seedMission(tasks: TaskStore, missions: MissionStore, epicId: string, p
 describe('GET /missions/:id/changed-files', () => {
   it('aggregates and dedupes changed_files across phases, sorted by churn desc', async () => {
     const { app, tasks, missions, bobTok } = setup();
-    seedMission(tasks, missions, 'orca-E', 1, [
+    seedMission(tasks, missions, 'elowen-E', 1, [
       [{ path: 'a.ts', added: 5, deleted: 2 }, { path: 'shared.ts', added: 1, deleted: 1 }],
       [{ path: 'shared.ts', added: 10, deleted: 3 }, { path: 'b.ts', added: 2, deleted: 0 }],
     ]);
-    const res = await app.request('/missions/m-orca-E/changed-files', auth(bobTok));
+    const res = await app.request('/missions/m-elowen-E/changed-files', auth(bobTok));
     expect(res.status).toBe(200);
     const body = await res.json() as CommitFileChange[];
     // shared.ts summed across both phases (11/4 → 15 churn) leads; then a.ts (7); then b.ts (2).
@@ -64,8 +64,8 @@ describe('GET /missions/:id/changed-files', () => {
 
   it('returns [] when the mission phases have no changes', async () => {
     const { app, tasks, missions, bobTok } = setup();
-    seedMission(tasks, missions, 'orca-empty', 1, [[], []]);
-    const res = await app.request('/missions/m-orca-empty/changed-files', auth(bobTok));
+    seedMission(tasks, missions, 'elowen-empty', 1, [[], []]);
+    const res = await app.request('/missions/m-elowen-empty/changed-files', auth(bobTok));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
   });
@@ -78,7 +78,7 @@ describe('GET /missions/:id/changed-files', () => {
   it('403s when the caller cannot access the mission project', async () => {
     const { app, tasks, missions, bobTok } = setup();
     // Epic lives in project 2; bob is only assigned project 1.
-    seedMission(tasks, missions, 'orca-foreign', 2, [[{ path: 'x.ts', added: 1, deleted: 0 }]]);
-    expect((await app.request('/missions/m-orca-foreign/changed-files', auth(bobTok))).status).toBe(403);
+    seedMission(tasks, missions, 'elowen-foreign', 2, [[{ path: 'x.ts', added: 1, deleted: 0 }]]);
+    expect((await app.request('/missions/m-elowen-foreign/changed-files', auth(bobTok))).status).toBe(403);
   });
 });

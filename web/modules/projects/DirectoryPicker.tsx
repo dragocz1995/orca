@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Folder, FolderUp, Check } from 'lucide-react';
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import { useTranslation } from '../../lib/i18n';
 
 /** Server-side directory browser for picking a new project's path. Drills into sub-directories on click,
@@ -13,7 +13,7 @@ import { useTranslation } from '../../lib/i18n';
 export function DirectoryPicker({ initialPath, onSelect, onClose }: { initialPath?: string; onSelect: (path: string) => void; onClose: () => void }) {
   const { t } = useTranslation();
   const [path, setPath] = useState<string | undefined>(initialPath?.trim() || undefined);
-  const listing = useQuery({ queryKey: ['fs-dirs', path ?? ''], queryFn: () => orcaClient.browseDirs(path) });
+  const listing = useQuery({ queryKey: ['fs-dirs', path ?? ''], queryFn: () => elowenClient.browseDirs(path) });
   const data = listing.data;
 
   return (

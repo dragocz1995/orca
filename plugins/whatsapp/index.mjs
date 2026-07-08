@@ -1,7 +1,7 @@
 // WhatsApp platform plugin: a Baileys (WhatsApp Web multi-device) client. The bot answers when a
 // mapped sender writes to it (direct chat always; in groups on @mention or reply, unless configured to
 // answer freely). Each sender — a phone number, a JID, or a whole group JID — resolves via this plugin's
-// own senderPolicies config to the Orca projects they may touch plus an optional role prompt. Unmapped
+// own senderPolicies config to the Elowen projects they may touch plus an optional role prompt. Unmapped
 // senders are ignored.
 //
 // On top of plain chat it provides: text commands (/model, /thinking, /new, /help, /stop, /status,

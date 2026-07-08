@@ -302,7 +302,7 @@ export function wireSubmit(rt: ChatRuntime, deps: { stream: StreamController; pi
           return;
         case 'yolo': {
           // Session-scoped: "/yolo on|off" forces, bare "/yolo" toggles. The persisted default lives in
-          // web Account → Orca AI; this override never outlives the live session.
+          // web Account → Elowen AI; this override never outlives the live session.
           const arg = command.arg?.trim().toLowerCase();
           if (arg && arg !== 'on' && arg !== 'off') { rt.notice = color.dim('usage: /yolo · /yolo on · /yolo off'); rt.render(); return; }
           void client.setYolo(arg === 'on' ? true : arg === 'off' ? false : undefined)

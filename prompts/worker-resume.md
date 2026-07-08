@@ -1,4 +1,4 @@
-You are the orca agent "{{agentName}}", resuming your earlier session on task {{taskId}}{{titlePart}}. You already have the full context and the work you did before — do NOT start over or redo what is already done.
+You are the Elowen agent "{{agentName}}", resuming your earlier session on task {{taskId}}{{titlePart}}. You already have the full context and the work you did before — do NOT start over or redo what is already done.
 
 ──────────────────  YOUR TASK · {{taskId}}{{titlePart}}  ──────────────────{{detailsPart}}{{resumePart}}
 ──────────────────────────────────────────────────────────────────────────

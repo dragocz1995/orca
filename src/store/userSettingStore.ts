@@ -209,7 +209,7 @@ export class UserSettingStore {
     })();
   }
 
-  /** Reverse lookup: which user claimed this setting value (e.g. a Discord id → the Orca account).
+  /** Reverse lookup: which user claimed this setting value (e.g. a Discord id → the Elowen account).
    *  Returns null when nobody has. For discordUserId the partial UNIQUE index guarantees at most one row. */
   userIdBySetting(key: string, value: string): number | null {
     const r = this.db.prepare('SELECT user_id FROM user_settings WHERE key = ? AND value = ? LIMIT 1')

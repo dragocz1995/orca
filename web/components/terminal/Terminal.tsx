@@ -4,7 +4,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useSessionStream } from '../../lib/useSessionStream';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import { useTheme } from '../../lib/useTheme';
 import { useTerminalPrefs } from '../../lib/useTerminalPrefs';
 import { composeFrame } from './frame';
@@ -51,7 +51,7 @@ export function Terminal({ name, interactive = false }: { name: string; interact
     // Interactive mode (advisor dock): forward EVERY keystroke verbatim. xterm `onData` yields the
     // exact terminal bytes (printable chars, control codes, ESC sequences); the daemon replays them
     // with `send-keys -l`, so arrows/Ctrl/Enter all reach the agent like in a real terminal.
-    const dataSub = interactive ? term.onData((data) => { void orcaClient.sessionInput(name, data).catch(() => {}); }) : null;
+    const dataSub = interactive ? term.onData((data) => { void elowenClient.sessionInput(name, data).catch(() => {}); }) : null;
 
     // Push xterm's fitted dimensions to the tmux pane so the running agent — especially
     // full-screen TUIs like opencode — redraws at exactly our width instead of wrapping.
@@ -62,7 +62,7 @@ export function Terminal({ name, interactive = false }: { name: string; interact
       if (key === lastSize.current) return;
       lastSize.current = key;
       if (resizeTimer.current) clearTimeout(resizeTimer.current);
-      resizeTimer.current = setTimeout(() => { orcaClient.resizeSession(name, t.cols, t.rows).catch(() => {}); }, 150);
+      resizeTimer.current = setTimeout(() => { elowenClient.resizeSession(name, t.cols, t.rows).catch(() => {}); }, 150);
     };
 
     // Defer first fit to next animation frame so the modal/container has

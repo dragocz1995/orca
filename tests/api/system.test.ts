@@ -11,7 +11,7 @@ import { FakeClock } from '../../src/shared/clock.js';
 import { ConfigStore } from '../../src/store/configStore.js';
 
 function makeApp(over: { latestVersion?: () => Promise<string | null>; startUpdate?: () => void; startRestart?: (target: 'daemon' | 'web') => void; autoUpdate?: boolean; skillService?: any; withUsers?: boolean } = {}) {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const config = new ConfigStore(db);
   if (over.autoUpdate) config.update({ autoUpdate: true });
   const missions = new MissionStore(db);

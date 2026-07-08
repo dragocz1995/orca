@@ -26,17 +26,17 @@ export interface ChannelSendOpts {
   promptAppend?: string[];
   /** Sender holds the operator's admin role: elevates the channel session to `trusted-channel`
    *  (all-project Policy + full plugin toolset) — but it is STILL a shared channel, never owner-chat,
-   *  so it never receives orca_* tools or the owner API token. */
+   *  so it never receives elowen_* tools or the owner API token. */
   trusted?: boolean;
   model?: { provider?: string; model?: string };
   thinkingLevel?: string;
   /** The sender's effective tool access for THIS turn (see ToolPolicy). Sourced by the orchestrator
-   *  from the linked Orca account (deny-list) or the platform role (allow-list). Enforced at
+   *  from the linked Elowen account (deny-list) or the platform role (allow-list). Enforced at
    *  execute time by the plugin-tool gate. Undefined → no restriction. */
   toolPolicy?: ToolPolicy;
   images?: { data: string; mimeType: string }[];
   identity?: TurnIdentity;
-  /** The Orca account the sender is verified as (linked platform id). When set, that user's memory is
+  /** The Elowen account the sender is verified as (linked platform id). When set, that user's memory is
    *  recalled under their message and post-turn facts are saved to it — each gated by their own
    *  Account → Memory toggles. Unset (unlinked sender) → no memory at all (shared-space privacy). */
   writerUserId?: number;
@@ -79,7 +79,7 @@ export interface ChannelServiceDeps {
 }
 
 /** Platform channel conversations (Discord threads, …): one session per channel — keyed by the
- *  channel, NOT the Orca user — run with the caller-resolved Policy (role → projects) plus optional
+ *  channel, NOT the Elowen user — run with the caller-resolved Policy (role → projects) plus optional
  *  role prompt fragments. Persisted like any brain conversation (`brain-ch-<id>`), owned by
  *  `ownerUserId` (whose token drives the tools). */
 export class ChannelSessionService {
@@ -137,8 +137,8 @@ export class ChannelSessionService {
           selection: opts.model ?? {},
           policy: opts.policy,
           extraAppend: opts.promptAppend,
-          channel: true, // a shared platform channel is NEVER owner-chat — no orca_* tools, no owner token
-          trustedChannel: opts.trusted, // admin-role sender → trusted-channel (all projects + full plugin toolset), still no orca_*
+          channel: true, // a shared platform channel is NEVER owner-chat — no elowen_* tools, no owner token
+          trustedChannel: opts.trusted, // admin-role sender → trusted-channel (all projects + full plugin toolset), still no elowen_*
           thinkingLevel: opts.thinkingLevel,
           // Channels are the shared, owner-anchored Discord surface — the personality chunk always resolves
           // the OWNER's 'discord' active profile (never the per-sender id: that persona would leak to the
@@ -163,7 +163,7 @@ export class ChannelSessionService {
       }
       // Verified-sender memory recall: prepend THIS writer's most relevant durable memories, framed as
       // untrusted context, riding ONLY the live prompt (ephemeral, never persisted — same as owner chat).
-      // Keyed on their linked Orca account and gated by their autoRecall toggle; an unlinked sender has
+      // Keyed on their linked Elowen account and gated by their autoRecall toggle; an unlinked sender has
       // no writerUserId → no recall (a shared channel never leaks one member's memory to another).
       let memoryBlock = '';
       if (opts.writerUserId && this.d.memoryService && this.d.userSettings?.(opts.writerUserId)?.autoRecall !== false) {
@@ -289,6 +289,6 @@ export class ChannelSessionService {
     return `You are talking on ${platform} in #${src.channelName}.${topic}\n`
       + `This is a shared channel: each user message is prefixed with the sender's name in [brackets]. `
       + `Address each sender by their bracketed name — the person talking to you is usually NOT ${ownerName}, `
-      + `whose Orca instance you run on. Never assume the sender is ${ownerName} unless the prefix says so.`;
+      + `whose Elowen instance you run on. Never assume the sender is ${ownerName} unless the prefix says so.`;
   }
 }

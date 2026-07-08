@@ -78,7 +78,7 @@ describe('BrainService', () => {
     expect(svc.status(1).running).toBe(true);
     expect(d.store.getSession('brain-1')).toBeDefined();
     expect(d.createSession).toHaveBeenCalledTimes(1);
-    expect(d.prompts.render).toHaveBeenCalledWith('advisor', { userName: 'Filip', personality: personalityText(''), agentName: 'Orca' }, 1);
+    expect(d.prompts.render).toHaveBeenCalledWith('advisor', { userName: 'Filip', personality: personalityText(''), agentName: 'Elowen' }, 1);
   });
 
   it('composes plugin tools and appends plugin fragments to the persona', async () => {
@@ -99,7 +99,7 @@ describe('BrainService', () => {
     await svc.start(1);
     const opts = (d.createSession as unknown as { mock: { calls: [{ customTools: { name: string }[] }][] } }).mock.calls[0][0];
     expect(opts.customTools.map((t) => t.name)).toContain('demo_echo');
-    expect(opts.customTools.map((t) => t.name)).toContain('orca_list_tasks');
+    expect(opts.customTools.map((t) => t.name)).toContain('elowen_list_tasks');
     expect(seenAppend).toContain('Follow house style.');
   });
 
@@ -112,7 +112,7 @@ describe('BrainService', () => {
       description: 'Use when deploying to production.',
       filePath: '/plugins/skills/skills/deploy-checklist.md',
       baseDir: '/plugins/skills/skills',
-      sourceInfo: { path: '/plugins/skills/skills/deploy-checklist.md', source: 'orca-plugin:skills', scope: 'user', origin: 'package' },
+      sourceInfo: { path: '/plugins/skills/skills/deploy-checklist.md', source: 'elowen-plugin:skills', scope: 'user', origin: 'package' },
       disableModelInvocation: false,
     });
     (d as unknown as { plugins: unknown }).plugins = new PluginRegistryProvider(async () => reg);
@@ -440,9 +440,9 @@ describe('BrainService', () => {
     await svc.send(1, 'plan it first', undefined, 'plan');
 
     const activeTools = d.session.setActiveToolsByName.mock.calls.at(-1)?.[0] ?? d.session.__active;
-    expect(activeTools).toContain('orca_list_tasks');
-    expect(activeTools).not.toContain('orca_create_task');
-    expect(activeTools).not.toContain('orca_plan');
+    expect(activeTools).toContain('elowen_list_tasks');
+    expect(activeTools).not.toContain('elowen_create_task');
+    expect(activeTools).not.toContain('elowen_plan');
   });
 
   it('plan mode keeps planning/checklist tools but hides unsafe plugin tools', async () => {
@@ -492,8 +492,8 @@ describe('BrainService', () => {
     // …and tool visibility IS tightened: setActiveToolsByName takes effect on the next round-trip within
     // the running turn (PI "turn" = one model round-trip), so unsafe tools are hidden for the rest of it.
     const activeTools = d.session.setActiveToolsByName.mock.calls.at(-1)?.[0];
-    expect(activeTools).toContain('orca_list_tasks');
-    expect(activeTools).not.toContain('orca_create_task');
+    expect(activeTools).toContain('elowen_list_tasks');
+    expect(activeTools).not.toContain('elowen_create_task');
   });
 
   it('mid-run BUILD/plain steer does NOT change tool visibility (never re-enables unsafe tools mid-turn)', async () => {
@@ -624,16 +624,16 @@ describe('BrainService', () => {
     expect(list.find((s) => s.id === first.sessionId)?.title).toBe('první konverzace');
   });
 
-  it('channel sessions get NO orca_* control-plane tools (the owner token stays unreachable)', async () => {
+  it('channel sessions get NO elowen_* control-plane tools (the owner token stays unreachable)', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     const policy = { allowedProjectIds: new Set([1]), allowedPaths: () => ['/repo/a'] };
     await svc.channelSend({ channelId: 'c-sec', ownerUserId: 1, policy }, 'ahoj');
     const opts = (d.createSession as unknown as { mock: { calls: [{ customTools: { name: string }[] }][] } }).mock.calls[0][0];
-    expect(opts.customTools.filter((t) => t.name.startsWith('orca_'))).toHaveLength(0);
+    expect(opts.customTools.filter((t) => t.name.startsWith('elowen_'))).toHaveLength(0);
   });
 
-  it('an admin-role channel session gets NO orca_* tools, and a later non-admin in the same channel rides that clean session', async () => {
+  it('an admin-role channel session gets NO elowen_* tools, and a later non-admin in the same channel rides that clean session', async () => {
     const d = fakeDeps();
     const reg = new PluginRegistry();
     const ctx = reg.contextFor('discord', {}, { info() {}, warn() {}, error() {} });
@@ -645,24 +645,24 @@ describe('BrainService', () => {
       (ids) => ({ allowedProjectIds: new Set(ids), allowedPaths: () => [] });
     const svc = new BrainService(d as never);
     await svc.startPlatforms();
-    // Every orca_* tool composed into ANY spawned session so far — must always be empty for a channel.
-    const orcaNames = () => (d.createSession as unknown as { mock: { calls: [{ customTools: { name: string }[] }][] } })
-      .mock.calls.flatMap((c) => c[0].customTools.map((t) => t.name)).filter((n) => n.startsWith('orca_'));
+    // Every elowen_* tool composed into ANY spawned session so far — must always be empty for a channel.
+    const elowenNames = () => (d.createSession as unknown as { mock: { calls: [{ customTools: { name: string }[] }][] } })
+      .mock.calls.flatMap((c) => c[0].customTools.map((t) => t.name)).filter((n) => n.startsWith('elowen_'));
 
     // 1) An admin-role sender opens the shared channel. Even with admin:true it must resolve to
-    //    trusted-channel, NEVER owner-chat — so the owner's orca_* control-plane tools / API token are
+    //    trusted-channel, NEVER owner-chat — so the owner's elowen_* control-plane tools / API token are
     //    never composed in.
     await handler!({ platform: 'discord', userId: 'admin', roleIds: ['r-admin'], channelId: 'c-shared',
       access: { admin: true, projectIds: [1], prompt: 'Admin.' } }, 'hi');
     expect(d.createSession).toHaveBeenCalledTimes(1);
-    expect(orcaNames()).toHaveLength(0);
+    expect(elowenNames()).toHaveLength(0);
 
     // 2) A later NON-admin sender in the SAME channel rides the same channel-keyed session (no respawn),
-    //    which is already free of the owner toolset — the admin role can't leak orca_* to the next sender.
+    //    which is already free of the owner toolset — the admin role can't leak elowen_* to the next sender.
     await handler!({ platform: 'discord', userId: 'guest', roleIds: ['r-guest'], channelId: 'c-shared',
       access: { admin: false, projectIds: [2], prompt: 'Guest.' } }, 'hello');
     expect(d.createSession).toHaveBeenCalledTimes(1); // reused, not respawned
-    expect(orcaNames()).toHaveLength(0);
+    expect(elowenNames()).toHaveLength(0);
   });
 
   it('serializes concurrent channelSend calls on one channel (single spawn, ordered turns)', async () => {
@@ -1345,7 +1345,7 @@ describe('per-client session binding (multi-instance CLI)', () => {
   const userTexts = (d: ReturnType<typeof fakeDeps>, id: string) =>
     d.store.getMessages(id).filter((m) => m.role === 'user').map((m) => JSON.parse(m.content).content as string);
   let dirs: string[] = [];
-  const tmpDir = (tag: string): string => { const p = mkdtempSync(join(tmpdir(), `orca-${tag}-`)); dirs.push(p); return p; };
+  const tmpDir = (tag: string): string => { const p = mkdtempSync(join(tmpdir(), `elowen-${tag}-`)); dirs.push(p); return p; };
   afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true }); dirs = []; });
 
   it('default starts in different cwds resolve to DIFFERENT conversations, each stamped with its work_dir', async () => {

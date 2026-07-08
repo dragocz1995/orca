@@ -15,8 +15,8 @@ describe('taskAgentName', () => {
 });
 
 describe('taskSessionName', () => {
-  it('builds the orca-<agent> tmux session name', () => {
-    expect(taskSessionName(task({ labels: ['agent:nova'] }))).toBe('orca-nova');
+  it('builds the elowen-<agent> tmux session name', () => {
+    expect(taskSessionName(task({ labels: ['agent:nova'] }))).toBe('elowen-nova');
   });
   it('returns null without an agent label', () => {
     expect(taskSessionName(task())).toBeNull();
@@ -24,9 +24,9 @@ describe('taskSessionName', () => {
 });
 
 describe('agentDisplayName', () => {
-  it('strips the orca- prefix to the friendly agent name', () => {
-    expect(agentDisplayName('orca-Iris')).toBe('Iris');
-    expect(agentDisplayName('orca-Nova')).toBe('Nova');
+  it('strips the elowen- prefix to the friendly agent name', () => {
+    expect(agentDisplayName('elowen-Iris')).toBe('Iris');
+    expect(agentDisplayName('elowen-Nova')).toBe('Nova');
   });
   it('falls back to the raw id when there is no prefix', () => {
     expect(agentDisplayName('weird')).toBe('weird');
@@ -129,8 +129,8 @@ describe('liveState', () => {
 
 describe('needsInputSessions', () => {
   it('keeps only sessions whose signal is needs_input', () => {
-    const signals = { 'orca-a': { type: 'working' as const }, 'orca-b': { type: 'needs_input' as const, question: '?' } };
-    expect(needsInputSessions(['orca-a', 'orca-b', 'orca-c'], signals)).toEqual(['orca-b']);
+    const signals = { 'elowen-a': { type: 'working' as const }, 'elowen-b': { type: 'needs_input' as const, question: '?' } };
+    expect(needsInputSessions(['elowen-a', 'elowen-b', 'elowen-c'], signals)).toEqual(['elowen-b']);
   });
 });
 
@@ -150,16 +150,16 @@ describe('taskForSession', () => {
   it('prefers the in_progress task when an agent name is reused', () => {
     const oldClosed = task({ id: 'old', status: 'closed', labels: ['agent:nova'], created_at: '2026-06-18 10:00:00' });
     const running = task({ id: 'run', status: 'in_progress', labels: ['agent:nova'], created_at: '2026-06-19 08:00:00' });
-    expect(taskForSession([oldClosed, running], 'orca-nova')?.id).toBe('run');
+    expect(taskForSession([oldClosed, running], 'elowen-nova')?.id).toBe('run');
   });
   it('falls back to the most recently created match', () => {
     const a = task({ id: 'a', status: 'closed', labels: ['agent:nova'], created_at: '2026-06-18 10:00:00' });
     const b = task({ id: 'b', status: 'closed', labels: ['agent:nova'], created_at: '2026-06-19 08:00:00' });
-    expect(taskForSession([a, b], 'orca-nova')?.id).toBe('b');
+    expect(taskForSession([a, b], 'elowen-nova')?.id).toBe('b');
   });
-  it('returns undefined for non-orca names or no match', () => {
+  it('returns undefined for non-elowen names or no match', () => {
     expect(taskForSession([task({ labels: ['agent:nova'] })], 'tmux-x')).toBeUndefined();
-    expect(taskForSession([task({ labels: ['agent:atlas'] })], 'orca-nova')).toBeUndefined();
+    expect(taskForSession([task({ labels: ['agent:atlas'] })], 'elowen-nova')).toBeUndefined();
   });
 });
 

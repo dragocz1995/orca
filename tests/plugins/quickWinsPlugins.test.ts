@@ -12,7 +12,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const pluginsDir = join(repoRoot, 'plugins');
 const ADMIN: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
 const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text: string }).text;
-const freshDataRoot = () => mkdtempSync(join(tmpdir(), 'orca-qw-'));
+const freshDataRoot = () => mkdtempSync(join(tmpdir(), 'elowen-qw-'));
 
 describe('runtime-context plugin', () => {
   it('registers a turn-context provider that emits the current date/time', async () => {

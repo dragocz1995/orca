@@ -5,7 +5,7 @@ import { PluginHookBus } from '../../plugins/hookBus.js';
 import { logger } from '../../shared/logger.js';
 import type { BrainRuntimeConfig } from '../providers.js';
 import { buildBrainRegistry, resolveBrainModel } from '../providers.js';
-import { buildOrcaTools, buildMemoryTools, BUILTIN_TOOL_ICONS } from '../tools/index.js';
+import { buildElowenTools, buildMemoryTools, BUILTIN_TOOL_ICONS } from '../tools/index.js';
 import { makeToolIconResolver } from '../toolIcons.js';
 import { composeSessionTools } from '../session/capabilities.js';
 import { personalityText } from '../personality.js';
@@ -73,11 +73,11 @@ export class LiveSessionSpawner {
     // Policy at call time via AsyncLocalStorage (set around each prompt), no per-session construction.
     const plugins = await this.d.plugins();
     // The security invariant (a SHARED platform channel — trusted OR foreign — never gets the owner's
-    // orca_* control-plane tools or owner API token) lives in composeSessionTools; the token is minted
+    // elowen_* control-plane tools or owner API token) lives in composeSessionTools; the token is minted
     // lazily so it never exists for them. An admin-role Discord sender lands on 'trusted-channel', NOT
     // 'owner-chat', so the channel-keyed session can't leak the owner toolset to a later non-admin
     // sender in the same channel. Memory tools ride every interactive session but key per-user on the
-    // acting orcaUserId (each caller reaches only their own memory). Built lazily; wired when deps exist.
+    // acting elowenUserId (each caller reaches only their own memory). Built lazily; wired when deps exist.
     const memStore = this.d.memoryStore;
     const memService = this.d.memoryService;
     const memCats = this.d.memoryCategoryStore;
@@ -93,7 +93,7 @@ export class LiveSessionSpawner {
       : undefined;
     const allTools = composeSessionTools({
       kind: opts.channel ? (opts.trustedChannel ? 'trusted-channel' : 'foreign-channel') : 'owner-chat',
-      orcaTools: () => buildOrcaTools({ url: this.d.url, token: this.d.users.ensureAdvisorToken(ownerUserId) }),
+      elowenTools: () => buildElowenTools({ url: this.d.url, token: this.d.users.ensureAdvisorToken(ownerUserId) }),
       memoryTools: memStore && memService && memCats && memCategorizer
         ? () => buildMemoryTools({ store: memStore, service: memService, categories: memCats, categorizer: memCategorizer })
         : undefined,
@@ -112,12 +112,12 @@ export class LiveSessionSpawner {
     const persoAppend = this.d.activePersonality?.(ownerUserId, opts.platform ?? 'web');
     const append = [skillsBlock, ...fragments, ...(opts.extraAppend ?? []), persoAppend ?? ''].filter((s) => s.length > 0);
 
-    // Orca identity: the editable `advisor` prompt (per-user override aware) becomes the system prompt,
-    // so the brain knows it is Orca — not the underlying model's default persona.
+    // Elowen identity: the editable `advisor` prompt (per-user override aware) becomes the system prompt,
+    // so the brain knows it is Elowen — not the underlying model's default persona.
     const u = this.d.users.get(ownerUserId);
     const userName = u?.name || u?.username || 'Filip';
     const personality = personalityText(this.d.userSettings?.(ownerUserId)?.advisorStyle ?? '');
-    const agentName = this.d.agentName?.() || 'Orca';
+    const agentName = this.d.agentName?.() || 'Elowen';
     // Shared platform channels get their own persona: the senders are OTHER people, so the owner's
     // "personal advisor" prompt (owner-name identity, terminal/control-plane framing) would misaddress
     // everyone in the room. The channel prompt keeps the agent identity and speaks to bracketed senders.

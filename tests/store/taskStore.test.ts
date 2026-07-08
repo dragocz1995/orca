@@ -5,30 +5,30 @@ import { TaskStore } from '../../src/store/taskStore.js';
 
 let db: Db;
 let store: TaskStore;
-beforeEach(() => { db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/var/www/orca')").run(); store = new TaskStore(db); });
+beforeEach(() => { db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/var/www/elowen')").run(); store = new TaskStore(db); });
 
 describe('TaskStore', () => {
   it('creates and reads a task with parsed labels', () => {
-    const t = store.create({ id: 'orca-1', project_id: 1, title: 'A', labels: ['exec:sonnet'] });
+    const t = store.create({ id: 'elowen-1', project_id: 1, title: 'A', labels: ['exec:sonnet'] });
     expect(t.title).toBe('A');
-    expect(store.get('orca-1')?.labels).toEqual(['exec:sonnet']);
+    expect(store.get('elowen-1')?.labels).toEqual(['exec:sonnet']);
   });
   it('persists created_by (owner) and defaults it to null', () => {
-    store.create({ id: 'orca-1', project_id: 1, title: 'A', created_by: 7 });
-    store.create({ id: 'orca-2', project_id: 1, title: 'B' });
-    expect(store.get('orca-1')?.created_by).toBe(7);
-    expect(store.get('orca-2')?.created_by).toBeNull();
+    store.create({ id: 'elowen-1', project_id: 1, title: 'A', created_by: 7 });
+    store.create({ id: 'elowen-2', project_id: 1, title: 'B' });
+    expect(store.get('elowen-1')?.created_by).toBe(7);
+    expect(store.get('elowen-2')?.created_by).toBeNull();
   });
   it('setStatus updates status', () => {
-    store.create({ id: 'orca-1', project_id: 1, title: 'A' });
-    store.setStatus('orca-1', 'closed');
-    expect(store.get('orca-1')?.status).toBe('closed');
+    store.create({ id: 'elowen-1', project_id: 1, title: 'A' });
+    store.setStatus('elowen-1', 'closed');
+    expect(store.get('elowen-1')?.status).toBe('closed');
   });
 
   it('close stamps status, summary, outcome and closed_at', () => {
-    store.create({ id: 'orca-1', project_id: 1, title: 'A' });
-    store.close('orca-1', { summary: 'Built the thing', outcome: 'ok' });
-    const t = store.get('orca-1')!;
+    store.create({ id: 'elowen-1', project_id: 1, title: 'A' });
+    store.close('elowen-1', { summary: 'Built the thing', outcome: 'ok' });
+    const t = store.get('elowen-1')!;
     expect(t.status).toBe('closed');
     expect(t.result_summary).toBe('Built the thing');
     expect(t.outcome).toBe('ok');
@@ -36,9 +36,9 @@ describe('TaskStore', () => {
   });
 
   it('close without a summary leaves result fields null', () => {
-    store.create({ id: 'orca-2', project_id: 1, title: 'B' });
-    store.close('orca-2');
-    const t = store.get('orca-2')!;
+    store.create({ id: 'elowen-2', project_id: 1, title: 'B' });
+    store.close('elowen-2');
+    const t = store.get('elowen-2')!;
     expect(t.status).toBe('closed');
     expect(t.result_summary).toBeNull();
     expect(t.outcome).toBeNull();
@@ -179,7 +179,7 @@ describe('TaskStore', () => {
     store.create({ id: 'b', project_id: 1, title: 'B', parent_id: 'epic' });
     store.addDep('b', 'a');
     db.prepare("INSERT INTO missions (id,epic_id,autonomy,state) VALUES ('m1','epic','L3','active')").run();
-    db.prepare("INSERT INTO mission_pr (mission_id,branch,worktree) VALUES ('m1','orca/x','/wt/m1')").run();
+    db.prepare("INSERT INTO mission_pr (mission_id,branch,worktree) VALUES ('m1','elowen/x','/wt/m1')").run();
     store.create({ id: 'other', project_id: 1, title: 'Other' }); // unrelated, must survive
 
     const removed = store.deleteEpic('epic');

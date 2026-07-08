@@ -4,7 +4,7 @@ import { Brain, Pencil, Trash2, RotateCcw, Check, Hash, Gauge, Clock, Activity }
 import type { Memory } from '../../lib/types';
 import { useMemory, useMemoryCategories } from '../../lib/queries';
 import { useUpdateMemory, useSetMemoryCategory, useDeleteMemory, useRestoreMemory } from '../../lib/mutations';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 import { useToast } from '../../components/ui/Toast';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';

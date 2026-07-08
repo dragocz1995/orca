@@ -30,8 +30,8 @@ describe('KeybindsEditor — interactive flow', () => {
   let onClose: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    // Isolate cli-prefs.json under a throwaway HOME (dataDir → $HOME/.config/orca).
-    home = mkdtempSync(join(tmpdir(), 'orca-kb-'));
+    // Isolate cli-prefs.json under a throwaway HOME (dataDir → $HOME/.config/elowen).
+    home = mkdtempSync(join(tmpdir(), 'elowen-kb-'));
     prevHome = process.env.HOME;
     process.env.HOME = home;
     initKeymap({}); // start every case from the stock keymap

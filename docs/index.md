@@ -1,13 +1,13 @@
-# Orca Documentation
+# Elowen Documentation
 
-Welcome to the Orca documentation. Orca is your **personal AI agent** — it
+Welcome to the Elowen documentation. Elowen is your **personal AI agent** — it
 orchestrates autonomous coding agents, runs a built-in brain for chat and
 automation, supports plugins (Discord, cron, skills, and more), and gives you
 a web UI and CLI to control everything.
 
 ## User docs
 
-Start here if you're new to Orca:
+Start here if you're new to Elowen:
 
 | # | Section | Description |
 |---|---------|-------------|
@@ -41,6 +41,6 @@ For contributors and advanced users:
 
 ## Quick links
 
-- **GitHub:** [github.com/dragocz1995/orca](https://github.com/dragocz1995/orca)
-- **npm:** [www.npmjs.com/package/orcasynth](https://www.npmjs.com/package/orcasynth)
-- **Issues:** [github.com/dragocz1995/orca/issues](https://github.com/dragocz1995/orca/issues)
+- **GitHub:** [github.com/dragocz1995/elowen](https://github.com/dragocz1995/elowen)
+- **npm:** [www.npmjs.com/package/elowen](https://www.npmjs.com/package/elowen)
+- **Issues:** [github.com/dragocz1995/elowen/issues](https://github.com/dragocz1995/elowen/issues)

@@ -32,7 +32,7 @@ function fakeBrain() {
 
 function setup() {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   users.create('admin', 'pw');
   const amy = users.create('amy', 'pw');
@@ -107,7 +107,7 @@ describe('brain routes', () => {
 describe('GET /brain/models allow-list', () => {
   function setupWithProviders() {
     const db = openDb(':memory:');
-    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const users = new UserStore(db);
     const admin = users.create('admin', 'pw');
     const amy = users.create('amy', 'pw');
@@ -125,10 +125,10 @@ describe('GET /brain/models allow-list', () => {
     return { app, db, users, config, adminTok: users.issueToken(admin.id), amy, amyTok: users.issueToken(amy.id) };
   }
 
-  it('every item carries its orca exec spec; admin sees everything', async () => {
+  it('every item carries its elowen exec spec; admin sees everything', async () => {
     const { app, adminTok } = setupWithProviders();
     const models = await (await app.request('/brain/models', auth(adminTok))).json() as { exec: string }[];
-    expect(models.map((m) => m.exec)).toEqual(['orca:relay/kimi', 'orca:relay/glm']);
+    expect(models.map((m) => m.exec)).toEqual(['elowen:relay/kimi', 'elowen:relay/glm']);
   });
 
   it('a non-admin sees every configured brain model (not global-bounded), narrowed only by their personal list', async () => {
@@ -136,18 +136,18 @@ describe('GET /brain/models allow-list', () => {
     // Brain execs aren't bounded by allowedExecs (CLI-only) — an empty personal list = every configured
     // brain model. (The bug this guards against: a non-admin getting an EMPTY model picker.)
     let models = await (await app.request('/brain/models', auth(amyTok))).json() as { exec: string }[];
-    expect(models.map((m) => m.exec)).toEqual(['orca:relay/kimi', 'orca:relay/glm']);
+    expect(models.map((m) => m.exec)).toEqual(['elowen:relay/kimi', 'elowen:relay/glm']);
     // A personal whitelist narrows further.
-    users.setAllowedExecs(amy.id, ['orca:relay/glm']);
+    users.setAllowedExecs(amy.id, ['elowen:relay/glm']);
     models = await (await app.request('/brain/models', auth(amyTok))).json() as { exec: string }[];
-    expect(models.map((m) => m.exec)).toEqual(['orca:relay/glm']);
+    expect(models.map((m) => m.exec)).toEqual(['elowen:relay/glm']);
   });
 });
 
 describe('LSP status + toggle routes', () => {
   function setupLsp() {
     const db = openDb(':memory:');
-    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const users = new UserStore(db);
     const admin = users.create('admin', 'pw');
     const amy = users.create('amy', 'pw');

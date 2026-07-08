@@ -25,14 +25,14 @@ describe('install/proxy.detectProxy', () => {
 
 describe('install/proxy vhost renderers', () => {
   it('nginx vhost proxies the domain to the web port and disables buffering for SSE', () => {
-    const v = nginxVhost('orca.example.com', 4500, 4400);
-    expect(v).toContain('server_name orca.example.com;');
+    const v = nginxVhost('elowen.example.com', 4500, 4400);
+    expect(v).toContain('server_name elowen.example.com;');
     expect(v).toContain('proxy_pass http://127.0.0.1:4500;');
     expect(v).toMatch(/proxy_buffering off;/);
     expect(v).toMatch(/listen 80;/);
   });
   it('nginx vhost adds a /ws/ location upgrading to the daemon for the terminal stream', () => {
-    const v = nginxVhost('orca.example.com', 4500, 4400);
+    const v = nginxVhost('elowen.example.com', 4500, 4400);
     expect(v).toContain('location /ws/ {');
     expect(v).toContain('proxy_pass http://127.0.0.1:4400;'); // daemon, not web
     expect(v).toContain('proxy_set_header Connection "upgrade";');
@@ -40,15 +40,15 @@ describe('install/proxy vhost renderers', () => {
     expect(v.indexOf('location /ws/ {')).toBeLessThan(v.indexOf('location / {'));
   });
   it('nginx vhost forces no-cache on /sw.js (exact match) so the service worker never goes stale', () => {
-    const v = nginxVhost('orca.example.com', 4500, 4400);
+    const v = nginxVhost('elowen.example.com', 4500, 4400);
     expect(v).toContain('location = /sw.js {');
     expect(v).toMatch(/Cache-Control "no-cache, no-store, must-revalidate"/);
     // The exact /sw.js match must precede the catch-all / so it wins.
     expect(v.indexOf('location = /sw.js {')).toBeLessThan(v.indexOf('location / {'));
   });
   it('apache vhost reverse-proxies with preserved host', () => {
-    const v = apacheVhost('orca.example.com', 4500);
-    expect(v).toContain('ServerName orca.example.com');
+    const v = apacheVhost('elowen.example.com', 4500);
+    expect(v).toContain('ServerName elowen.example.com');
     expect(v).toContain('ProxyPass / http://127.0.0.1:4500/');
     expect(v).toContain('ProxyPreserveHost On');
   });
@@ -56,12 +56,12 @@ describe('install/proxy vhost renderers', () => {
 
 describe('install/proxy.certbotCommand', () => {
   it('uses the nginx plugin with redirect and a registered email', () => {
-    const { cmd, args } = certbotCommand('nginx', 'orca.example.com', 'me@x.com');
+    const { cmd, args } = certbotCommand('nginx', 'elowen.example.com', 'me@x.com');
     expect(cmd).toBe('certbot');
-    expect(args).toEqual(expect.arrayContaining(['--nginx', '-d', 'orca.example.com', '--redirect', '-m', 'me@x.com', '--agree-tos', '--non-interactive']));
+    expect(args).toEqual(expect.arrayContaining(['--nginx', '-d', 'elowen.example.com', '--redirect', '-m', 'me@x.com', '--agree-tos', '--non-interactive']));
   });
   it('falls back to no-email registration when none is given', () => {
-    const { args } = certbotCommand('apache', 'orca.example.com');
+    const { args } = certbotCommand('apache', 'elowen.example.com');
     expect(args).toContain('--apache');
     expect(args).toContain('--register-unsafely-without-email');
   });

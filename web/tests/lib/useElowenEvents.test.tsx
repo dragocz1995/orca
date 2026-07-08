@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { useOrcaEvents } from '../../lib/useOrcaEvents';
+import { useElowenEvents } from '../../lib/useElowenEvents';
 
 class FakeES {
   static readonly CLOSED = 2;
@@ -32,11 +32,11 @@ function wrap() {
   return { client, spy, wrapper };
 }
 
-describe('useOrcaEvents', () => {
+describe('useElowenEvents', () => {
   it('invalidates tasks on a task event and ignores malformed payloads', () => {
     const { spy, wrapper } = wrap();
-    renderHook(() => useOrcaEvents(), { wrapper });
-    FakeES.last.emit({ type: 'task', taskId: 'orca-1', status: 'closed' });
+    renderHook(() => useElowenEvents(), { wrapper });
+    FakeES.last.emit({ type: 'task', taskId: 'elowen-1', status: 'closed' });
     expect(spy).toHaveBeenCalledWith({ queryKey: ['tasks'] });
     // malformed payload — must not throw, must be silently skipped
     FakeES.last.addEventListener('task', () => { /* no-op listener to ensure no throw */ });
@@ -47,16 +47,16 @@ describe('useOrcaEvents', () => {
   it('invalidates caches and forwards the verdict on a review event', () => {
     const { spy, wrapper } = wrap();
     const onReview = vi.fn();
-    renderHook(() => useOrcaEvents({ onReview }), { wrapper });
-    FakeES.last.emit({ type: 'review', missionId: 'm-1', taskId: 'orca-9', approve: false, rationale: 'scope creep' });
+    renderHook(() => useElowenEvents({ onReview }), { wrapper });
+    FakeES.last.emit({ type: 'review', missionId: 'm-1', taskId: 'elowen-9', approve: false, rationale: 'scope creep' });
     expect(spy).toHaveBeenCalledWith({ queryKey: ['tasks'] });
-    expect(onReview).toHaveBeenCalledWith({ missionId: 'm-1', taskId: 'orca-9', approve: false, rationale: 'scope creep' });
+    expect(onReview).toHaveBeenCalledWith({ missionId: 'm-1', taskId: 'elowen-9', approve: false, rationale: 'scope creep' });
   });
 
   it('does not reopen the SSE connection when only the onReview identity changes', () => {
     const { wrapper } = wrap();
     const first = vi.fn();
-    const { rerender } = renderHook(({ cb }) => useOrcaEvents({ onReview: cb }), { wrapper, initialProps: { cb: first } });
+    const { rerender } = renderHook(({ cb }) => useElowenEvents({ onReview: cb }), { wrapper, initialProps: { cb: first } });
     const es = FakeES.last;
     // EventBridge passes a fresh inline arrow on every render (a toast re-renders it). The SSE
     // lifecycle must not depend on that identity — else each toast tears down and reopens the stream.
@@ -73,17 +73,17 @@ describe('useOrcaEvents', () => {
   it('keeps the Pilot sessionName across a later planning SSE update (poll carries it, events do not)', () => {
     const { client, wrapper } = wrap();
     // The GET poll seeds the live-preview session…
-    client.setQueryData(['plan-job', 'pj-1'], { id: 'pj-1', goal: 'g', epicId: null, status: 'planning', phases: [], sessionName: 'orca-pilot-Nova' });
-    renderHook(() => useOrcaEvents(), { wrapper });
+    client.setQueryData(['plan-job', 'pj-1'], { id: 'pj-1', goal: 'g', epicId: null, status: 'planning', phases: [], sessionName: 'elowen-pilot-Nova' });
+    renderHook(() => useElowenEvents(), { wrapper });
     // …a subsequent `planning` SSE event (which carries no session) must NOT blank out the pane.
     FakeES.last.emit({ type: 'plan', jobId: 'pj-1', status: 'planning' });
     const job = client.getQueryData(['plan-job', 'pj-1']) as { sessionName?: string };
-    expect(job.sessionName).toBe('orca-pilot-Nova');
+    expect(job.sessionName).toBe('elowen-pilot-Nova');
   });
 
   it('closes the source on unmount', () => {
     const { wrapper } = wrap();
-    const { unmount } = renderHook(() => useOrcaEvents(), { wrapper });
+    const { unmount } = renderHook(() => useElowenEvents(), { wrapper });
     const es = FakeES.last; unmount();
     expect(es.closed).toBe(true);
   });
@@ -93,7 +93,7 @@ describe('useOrcaEvents', () => {
   // logged users out spuriously. Real auth expiry is handled by the regular request path.
   it('closes the source on a CLOSED error', () => {
     const { wrapper } = wrap();
-    renderHook(() => useOrcaEvents(), { wrapper });
+    renderHook(() => useElowenEvents(), { wrapper });
     const es = FakeES.last;
     es.readyState = FakeES.CLOSED;
     es.onerror?.();
@@ -101,7 +101,7 @@ describe('useOrcaEvents', () => {
   });
   it('leaves the source open on a transient (non-CLOSED) error', () => {
     const { wrapper } = wrap();
-    renderHook(() => useOrcaEvents(), { wrapper });
+    renderHook(() => useElowenEvents(), { wrapper });
     const es = FakeES.last;
     es.readyState = 0; // CONNECTING — browser will retry on its own
     es.onerror?.();

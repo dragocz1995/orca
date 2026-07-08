@@ -25,7 +25,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
   const subagentStates = (): SubagentPanelEntry[] => {
     const seen = new Map<string, SubagentPanelEntry>();
     for (const turn of rt.view.turns) {
-      if (turn.role !== 'orca') continue;
+      if (turn.role !== 'elowen') continue;
       for (const seg of turn.segments) {
         if (seg.kind !== 'tools') continue;
         for (const item of seg.items) {
@@ -100,7 +100,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
         // instead of leaving the user to flip modes and phrase the follow-up themselves.
         if (rt.workMode === 'plan' && !rt.childView) {
           const last = rt.view.turns[rt.view.turns.length - 1];
-          const text = last?.role === 'orca' ? last.segments.filter((s) => s.kind === 'text').map((s) => (s as { text: string }).text).join('') : '';
+          const text = last?.role === 'elowen' ? last.segments.filter((s) => s.kind === 'text').map((s) => (s as { text: string }).text).join('') : '';
           if (/<proposed_plan>/i.test(text)) flows.openPlanDecision();
         }
       }

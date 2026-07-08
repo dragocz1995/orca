@@ -6,7 +6,7 @@ import { ContextMenu, type ContextMenuState } from '../../components/ui/ContextM
 import { useUpdateTask } from '../../lib/mutations';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
-import { apiErrorMessage } from '../../lib/orcaClient';
+import { apiErrorMessage } from '../../lib/elowenClient';
 
 /** Whether `dragged` may be dropped onto `target` at all — independent of which action (reparent
  *  vs. dependency) is eventually chosen. The single source of truth both views use, for the

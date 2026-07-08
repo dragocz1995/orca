@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 
 /** A labelled row of single-select pills (accent when active), mirroring the app's pill styling.
- *  Shared by the account sections (Personality's style picker, Orca AI's thinking level). */
+ *  Shared by the account sections (Personality's style picker, Elowen AI's thinking level). */
 export function PillGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-2">

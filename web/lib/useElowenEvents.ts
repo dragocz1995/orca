@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from './queries';
-import { BASE } from './orcaClient';
+import { BASE } from './elowenClient';
 import type { DerivedSignal, PlanJob } from './types';
 
 export interface ReviewEvent { missionId: string; taskId: string; approve: boolean; rationale: string }
@@ -10,7 +10,7 @@ export interface ReviewEvent { missionId: string; taskId: string; approve: boole
 /** Subscribe to the daemon SSE bus and keep the React Query cache fresh. `onReview` fires for every
  *  post-done review verdict (approve or escalate) — the caller (EventBridge) turns escalations into a
  *  toast. Kept as a callback so the data hook stays testable without a ToastProvider in scope. */
-export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): void {
+export function useElowenEvents(opts?: { onReview?: (e: ReviewEvent) => void }): void {
   const qc = useQueryClient();
   // Hold the latest onReview in a ref so the SSE effect can call it WITHOUT listing it as a dependency.
   // The caller (EventBridge) passes a fresh inline arrow on every render — a toast re-renders it — and
@@ -78,7 +78,7 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
       qc.invalidateQueries({ queryKey: ['activity'] });
       if (data.taskId) qc.invalidateQueries({ queryKey: ['task-activity', data.taskId] });
     };
-    // A free-text turn in the worker↔autopilot conversation (`orca ask`) — refresh the affected task's
+    // A free-text turn in the worker↔autopilot conversation (`elowen ask`) — refresh the affected task's
     // conversation feed so the new question/reply bubble appears live (scoped by taskId).
     const messageHandler = (e: MessageEvent) => {
       let data: { taskId?: string };
@@ -86,7 +86,7 @@ export function useOrcaEvents(opts?: { onReview?: (e: ReviewEvent) => void }): v
       qc.invalidateQueries({ queryKey: ['activity'] });
       if (data.taskId) qc.invalidateQueries({ queryKey: ['task-activity', data.taskId] });
     };
-    // A worker's `orca ask` was escalated to a human, or just got answered — refresh the Escalations inbox.
+    // A worker's `elowen ask` was escalated to a human, or just got answered — refresh the Escalations inbox.
     const askHandler = () => qc.invalidateQueries({ queryKey: ['pending-asks'] });
     // A new commit landed in a running task's checkout — refresh its live git history and any open
     // per-commit file diff so the conversation feed updates live without a reload.

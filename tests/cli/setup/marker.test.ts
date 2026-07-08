@@ -7,7 +7,7 @@ import { readMarker, writeMarker, clearMarker, isOnboarded, markerPath } from '.
 let home: string;
 let env: NodeJS.ProcessEnv;
 
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'orca-marker-')); env = { HOME: home }; });
+beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'elowen-marker-')); env = { HOME: home }; });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 describe('cli/setup.marker', () => {
@@ -23,7 +23,7 @@ describe('cli/setup.marker', () => {
   });
 
   it('reads null on malformed JSON (never throws)', () => {
-    mkdirSync(join(home, '.config', 'orca'), { recursive: true });
+    mkdirSync(join(home, '.config', 'elowen'), { recursive: true });
     writeFileSync(markerPath(env), '{ not json', 'utf8');
     expect(readMarker(env)).toBeNull();
     expect(isOnboarded(env)).toBe(false);

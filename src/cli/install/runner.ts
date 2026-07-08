@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { writeFile, access } from 'node:fs/promises';
 
-/** The single seam between `orca install`'s logic and the real system. Every apt/systemctl/certbot
+/** The single seam between `elowen install`'s logic and the real system. Every apt/systemctl/certbot
  *  call, every file write and every `command -v` goes through here, so the install modules are
  *  unit-tested with a fake Runner and never touch the host. */
 export interface ExecResult { code: number; stdout: string; stderr: string }

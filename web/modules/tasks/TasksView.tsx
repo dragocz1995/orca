@@ -49,15 +49,15 @@ export function TasksView() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = usePersistentState<Filter>('orca.tasks.filter', 'in_progress', FILTER_VALUES);
+  const [filter, setFilter] = usePersistentState<Filter>('elowen.tasks.filter', 'in_progress', FILTER_VALUES);
   // Date-range window, persisted as one serialized slot. Defaults to the last 7 days; older work is
   // reached by widening the range (or paging through). Applied caller-side only — the shared /tasks
   // fetch stays unfiltered so Kanban/Timeline/Sidebar keep their full cache.
-  const [rangeRaw, setRangeRaw] = usePersistentState('orca.tasks.range', serializeRange(DEFAULT_RANGE), isStoredRange);
+  const [rangeRaw, setRangeRaw] = usePersistentState('elowen.tasks.range', serializeRange(DEFAULT_RANGE), isStoredRange);
   const range = useMemo(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
   // Selected project pill — 'all' shows every accessible project; a number narrows the list
   // (server-side via /tasks?project_id=N). Persisted + stale-id-clamped by the shared hook.
-  const { selectedProject, setProject } = useProjectFilter('orca.tasks.project');
+  const { selectedProject, setProject } = useProjectFilter('elowen.tasks.project');
   const tasks = useTasks(selectedProject === 'all' ? undefined : selectedProject);
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());

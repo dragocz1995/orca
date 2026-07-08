@@ -20,7 +20,7 @@ import { PROVIDERS } from '../../modules/settings/providers';
 import { Segmented } from '../../components/ui/Segmented';
 import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
 import { allModels } from '../../lib/execPresets';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import type { CliStatus as CliStatusType } from '../../lib/types';
 import type { LocaleDict } from '../../lib/i18n/types';
 
@@ -140,7 +140,7 @@ export default function OnboardingPage() {
     // Setup mode = the daemon still reports needsSetup (no admin yet); this user becomes the bootstrap
     // admin. Derived from the daemon's own status, not a client token (which no longer exists).
     let firstRun = false;
-    try { firstRun = (await orcaClient.setupStatus()).needsSetup; } catch { /* assume not first-run */ }
+    try { firstRun = (await elowenClient.setupStatus()).needsSetup; } catch { /* assume not first-run */ }
     createUser.mutate(
       { username, password },
       {
@@ -150,7 +150,7 @@ export default function OnboardingPage() {
           // Log that admin in immediately (the proxy sets the httpOnly cookie) so the app unlocks
           // seamlessly instead of bouncing to login.
           if (firstRun) {
-            try { await orcaClient.login(username, password); } catch { /* fall back to manual login */ }
+            try { await elowenClient.login(username, password); } catch { /* fall back to manual login */ }
           }
         },
         onError: (e) => toast(t.onboarding.userCreateError + ': ' + String(e), 'error'),
@@ -175,7 +175,7 @@ export default function OnboardingPage() {
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         {/* Header */}
         <div className="flex flex-col items-center gap-3 py-8 text-center">
-          <img src="/orca-logo.png" alt="Orca" className="h-12 w-auto" />
+          <img src="/elowen-logo.png" alt="Elowen" className="h-12 w-auto" />
           <h1 className="text-display font-bold tracking-tight text-text">{t.onboarding.title}</h1>
           <p className="max-w-md text-sm text-text-muted">{t.onboarding.subtitle}</p>
         </div>

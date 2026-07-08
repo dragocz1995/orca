@@ -42,7 +42,7 @@ function makeService(opts: { providers?: Provider[]; reply?: string | Error } = 
     url: 'http://x',
     // A real (throwaway) temp dir — smokeTest builds its OWN DefaultResourceLoader directly (unlike the
     // normal session path) so there's no injection seam for it; give it an empty, harmless cwd.
-    cwd: mkdtempSync(join(tmpdir(), 'orca-smoketest-')),
+    cwd: mkdtempSync(join(tmpdir(), 'elowen-smoketest-')),
     createSession: createSession as unknown as BrainDeps['createSession'],
   };
   const svc = new BrainService(deps);

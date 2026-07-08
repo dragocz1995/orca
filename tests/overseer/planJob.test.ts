@@ -4,10 +4,10 @@ import { PlanJobStore } from '../../src/overseer/planJob.js';
 describe('PlanJobStore', () => {
   it('creates a planning job and reads it back', () => {
     const s = new PlanJobStore();
-    const j = s.create({ goal: 'add export', projectId: 1, epicId: 'orca-ep', dryRun: false });
+    const j = s.create({ goal: 'add export', projectId: 1, epicId: 'elowen-ep', dryRun: false });
     expect(j.status).toBe('planning');
     expect(j.phases).toEqual([]);
-    expect(s.get(j.id)).toMatchObject({ goal: 'add export', epicId: 'orca-ep' });
+    expect(s.get(j.id)).toMatchObject({ goal: 'add export', epicId: 'elowen-ep' });
   });
   it('setPhases marks the job done', () => {
     const s = new PlanJobStore();
@@ -30,8 +30,8 @@ describe('PlanJobStore', () => {
     const s = new PlanJobStore();
     const j = s.create({ goal: 'g', projectId: 1, epicId: null, dryRun: false });
     expect(s.get(j.id)!.sessionName).toBeUndefined();
-    s.setSession(j.id, 'orca-pilot-Nova');
-    expect(s.get(j.id)!.sessionName).toBe('orca-pilot-Nova');
+    s.setSession(j.id, 'elowen-pilot-Nova');
+    expect(s.get(j.id)!.sessionName).toBe('elowen-pilot-Nova');
   });
 
   it('prunes settled jobs older than the TTL on the next create, but keeps in-flight ones (O27)', () => {

@@ -11,13 +11,13 @@ describe('push message builders', () => {
   });
 
   it('needs_input gives allow/reject for a permission prompt (no options)', () => {
-    const p = buildNeedsInput({ session: 'orca-a', question: 'Run rm?', hasOptions: false });
+    const p = buildNeedsInput({ session: 'elowen-a', question: 'Run rm?', hasOptions: false });
     expect(p.actions.map((a) => a.action)).toEqual(['allow', 'reject']);
-    expect(p.session).toBe('orca-a');
+    expect(p.session).toBe('elowen-a');
   });
 
   it('needs_input is tap-to-open for a multiple-choice question (has options)', () => {
-    const p = buildNeedsInput({ session: 'orca-a', question: 'Pick one', hasOptions: true });
+    const p = buildNeedsInput({ session: 'elowen-a', question: 'Pick one', hasOptions: true });
     expect(p.actions).toEqual([]);
   });
 

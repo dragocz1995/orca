@@ -15,7 +15,7 @@ import { composeSessionTools } from '../session/capabilities.js';
 import { PluginHookBus } from '../../plugins/hookBus.js';
 import { runWithPolicy } from '../../plugins/policyContext.js';
 import type { PluginRegistryProvider } from '../../plugins/pluginsProvider.js';
-import { callOrcaApi } from '../../shared/apiClient.js';
+import { callElowenApi } from '../../shared/apiClient.js';
 import { renderPromptFor } from '../../prompts/index.js';
 import type { PromptService } from '../../prompts/promptService.js';
 import type { TokenUsage } from '../../integrations/usage/types.js';
@@ -108,10 +108,10 @@ function sessionUsage(session: AgentSession): TokenUsage {
 }
 
 /**
- * Runs `orca:` tasks on the embedded brain: an in-process PI session scoped to the task's checkout
+ * Runs `elowen:` tasks on the embedded brain: an in-process PI session scoped to the task's checkout
  * (Policy-guarded plugin tools + one baked-in close tool) instead of a tmux-spawned CLI. Task states
  * flow exactly as with CLI workers — the scheduler set in_progress before calling launch, and the
- * REST close route (driven by the orca_close_task tool) runs the same ReviewService pipeline.
+ * REST close route (driven by the elowen_close_task tool) runs the same ReviewService pipeline.
  */
 export class BrainWorkerService {
   private live = new Map<string, LiveWorker>();
@@ -123,7 +123,7 @@ export class BrainWorkerService {
     this.factory = new BrainSessionFactory({ store: d.store, createSession: d.createSession, resourceLoaderFactory: d.resourceLoaderFactory });
   }
 
-  /** tmux-style session names (`orca-<agentName>`) for the stuck detector's composite lister. */
+  /** tmux-style session names (`elowen-<agentName>`) for the stuck detector's composite lister. */
   liveSessionNames(): string[] { return [...this.live.keys()]; }
   isLive(sessionName: string): boolean { return this.live.has(sessionName); }
 
@@ -131,8 +131,8 @@ export class BrainWorkerService {
 
   async launch(input: BrainWorkerLaunchInput): Promise<{ session: string }> {
     const cfg = this.d.config();
-    if (!cfg) throw new Error('orca exec engine: no brain provider configured');
-    const sessionName = `orca-${input.agentName}`;
+    if (!cfg) throw new Error('elowen exec engine: no brain provider configured');
+    const sessionName = `elowen-${input.agentName}`;
     if (this.live.has(sessionName)) return { session: sessionName }; // idempotent re-launch
 
     const registry = buildBrainRegistry(cfg, this.d.authStorage);
@@ -142,7 +142,7 @@ export class BrainWorkerService {
 
     const cwd = input.projectPath;
     const plugins = await this.d.plugins?.get();
-    // Run plugin tools through the shared composer so the "a task worker never gets the owner's orca_*
+    // Run plugin tools through the shared composer so the "a task worker never gets the owner's elowen_*
     // control-plane tools" invariant is actually enforced here (not just true by construction) — the
     // worker's own close tool is added separately below.
     // Same `tools.call.after` fan-out as chat sessions (awaited by the tool gate, fail-open), so e.g.
@@ -159,21 +159,21 @@ export class BrainWorkerService {
     const append = [skills.length ? formatSkillsForPrompt(skills) : '', ...(plugins?.promptFragments ?? [])].filter((s) => s.length > 0);
 
     // The one control-plane capability a worker gets: closing ITS OWN task (id baked in) through the
-    // REST route, so ReviewService/mission advancement fire exactly as for a CLI worker's `orca close`.
+    // REST route, so ReviewService/mission advancement fire exactly as for a CLI worker's `elowen close`.
     const closeTool = defineTool({
-      name: 'orca_close_task', label: 'Close task',
+      name: 'elowen_close_task', label: 'Close task',
       description: 'Close YOUR task when the work is finished. Call exactly once, at the end.',
       parameters: Type.Object({
         summary: Type.String({ description: 'What you did and the result' }),
         outcome: Type.Union([Type.Literal('ok'), Type.Literal('fail')], { description: "'ok' when done, 'fail' when you could not complete it" }),
       }),
       execute: async (_id: string, p: { summary: string; outcome: 'ok' | 'fail' }) => {
-        const r = await callOrcaApi('PATCH', `/tasks/${input.taskId}`, { status: 'closed', result_summary: p.summary, outcome: p.outcome }, { url: this.d.url, token: this.d.token, fetchImpl: this.d.fetchImpl });
+        const r = await callElowenApi('PATCH', `/tasks/${input.taskId}`, { status: 'closed', result_summary: p.summary, outcome: p.outcome }, { url: this.d.url, token: this.d.token, fetchImpl: this.d.fetchImpl });
         if (r.ok) {
           const w = this.live.get(sessionName);
           if (w) { w.closed = true; this.recordUsage(w); }
         }
-        return { content: [{ type: 'text' as const, text: r.ok ? 'Task closed.' : `Orca API error HTTP ${r.status}: ${r.text}` }], details: {} };
+        return { content: [{ type: 'text' as const, text: r.ok ? 'Task closed.' : `Elowen API error HTTP ${r.status}: ${r.text}` }], details: {} };
       },
     });
 
@@ -205,7 +205,7 @@ export class BrainWorkerService {
     // The worker's file/terminal tools are confined to the task's checkout for the whole run.
     const policy = { allowedProjectIds: new Set([input.projectId]), allowedPaths: () => [cwd] };
     const kickoff = resumed
-      ? 'You were interrupted and relaunched on the same task. Re-check the current state (git status, build/tests), fold in any new input from the brief, finish the work and call orca_close_task.'
+      ? 'You were interrupted and relaunched on the same task. Re-check the current state (git status, build/tests), fold in any new input from the brief, finish the work and call elowen_close_task.'
       : 'Start working on the task now.';
     projectUserTurn(this.d.store, sessionId, kickoff);
     // Fire-and-forget: launch() returns like a tmux spawn; the run settles through the close tool.
@@ -219,7 +219,7 @@ export class BrainWorkerService {
         this.teardown(worker, 'error');
       });
 
-    log.info(`launched brain worker ${sessionName} (orca:${input.spec.model}) for task ${input.taskId}`);
+    log.info(`launched brain worker ${sessionName} (elowen:${input.spec.model}) for task ${input.taskId}`);
     return { session: sessionName };
   }
 
@@ -231,7 +231,7 @@ export class BrainWorkerService {
     if (!task || task.status !== 'in_progress') { this.dispose(worker); return; }
     if (!worker.nudged) {
       worker.nudged = true;
-      const nudge = 'You ended your turn without closing the task. If the work is complete, call orca_close_task now with a summary; otherwise finish the remaining work first, then close.';
+      const nudge = 'You ended your turn without closing the task. If the work is complete, call elowen_close_task now with a summary; otherwise finish the remaining work first, then close.';
       projectUserTurn(this.d.store, worker.sessionId, nudge);
       try {
         await runWithMeter(worker.meter, () => runWithPolicy(policy, () => worker.session.prompt(nudge), { workDir: worker.cwd }));
@@ -316,7 +316,7 @@ export class BrainWorkerService {
       } else {
         usage.costSource = 'unavailable';
       }
-      if (usage.total > 0) this.d.taskUsage.record(worker.taskId, worker.projectId, `orca:${worker.model}`, usage);
+      if (usage.total > 0) this.d.taskUsage.record(worker.taskId, worker.projectId, `elowen:${worker.model}`, usage);
     } catch { /* usage is best-effort */ }
   }
 }

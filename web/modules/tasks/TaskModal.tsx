@@ -6,7 +6,7 @@ import { useConfig, useTasks, usePlanJob, useProjects } from '../../lib/queries'
 import { useCreateTask, useUpdateTask, useSpawn, useSetTaskExec, usePlanTask } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
 import { taskExec } from '../../lib/agentUtils';
-import { OrcaApiError, orcaClient } from '../../lib/orcaClient';
+import { ElowenApiError, elowenClient } from '../../lib/elowenClient';
 import { Modal, ModalBody } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -87,7 +87,7 @@ export function TaskModal({ task, onClose, initialSchedule, initialMode, initial
   useEffect(() => {
     if (!task) return;
     let alive = true;
-    orcaClient.taskDeps(task.id).then((d) => { if (alive) setDeps(d); }).catch(() => {});
+    elowenClient.taskDeps(task.id).then((d) => { if (alive) setDeps(d); }).catch(() => {});
     return () => { alive = false; };
   }, [task]);
   const toggleDep = (id: string) => setDeps((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
@@ -177,7 +177,7 @@ export function TaskModal({ task, onClose, initialSchedule, initialMode, initial
       if ('jobId' in r) setPlanJobId(r.jobId);
       else finishSync(r);
     } catch (e) {
-      if (e instanceof OrcaApiError && e.code === 'autopilot_key_missing') {
+      if (e instanceof ElowenApiError && e.code === 'autopilot_key_missing') {
         setManual(true);
         toast(t.tasks.autopilotKeyMissing, 'error');
       } else { toast(String(e), 'error'); }

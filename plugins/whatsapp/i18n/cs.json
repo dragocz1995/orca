@@ -1,5 +1,5 @@
 {
-  "description": "WhatsApp bot (Baileys): napište mu a odpoví z Orca AI. Textové příkazy (/model, /new, /help), výběr modelu pro každý chat (číslované textové menu, odpovíte číslem), živé streamované odpovědi (úprava zprávy za běhu se stopou nástrojů), stavové reakce a proaktivní cron/tick oznámení. Skupinové nástroje (admin session): výpis a info o skupinách, vytvoření skupiny, přidání/odebrání členů a poslání zprávy do libovolného chatu (provozovatel). Každý odesílatel (telefonní číslo, JID nebo celá skupina) se mapuje na povolené projekty Orcy a prompt role. Párování naskenováním QR kódu nebo pomocí párovacího kódu.",
+  "description": "WhatsApp bot (Baileys): napište mu a odpoví z Elowen AI. Textové příkazy (/model, /new, /help), výběr modelu pro každý chat (číslované textové menu, odpovíte číslem), živé streamované odpovědi (úprava zprávy za běhu se stopou nástrojů), stavové reakce a proaktivní cron/tick oznámení. Skupinové nástroje (admin session): výpis a info o skupinách, vytvoření skupiny, přidání/odebrání členů a poslání zprávy do libovolného chatu (provozovatel). Každý odesílatel (telefonní číslo, JID nebo celá skupina) se mapuje na povolené projekty Elowen a prompt role. Párování naskenováním QR kódu nebo pomocí párovacího kódu.",
   "fields": {
     "sec_connection": {
       "label": "Připojení",

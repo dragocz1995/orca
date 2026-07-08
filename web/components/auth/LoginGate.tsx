@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { AUTH_CLEARED_EVENT } from '../../lib/token';
-import { orcaClient, OrcaApiError } from '../../lib/orcaClient';
+import { elowenClient, ElowenApiError } from '../../lib/elowenClient';
 import { EventBridge } from '../../app/providers';
 import { LoginForm } from './LoginForm';
 
@@ -25,13 +25,13 @@ export function LoginGate({ children }: { children: ReactNode }) {
     // A 401 means no/invalid session → a brand-new install (no users yet) shows onboarding without a
     // login, otherwise the login form. A transient/network error is treated as "not authed" so we show
     // login rather than a blank gate.
-    orcaClient.me()
+    elowenClient.me()
       .then(() => { if (alive) setGate('open'); })
       .catch((err: unknown) => {
         if (!alive) return;
-        const status = err instanceof OrcaApiError ? err.status : undefined;
+        const status = err instanceof ElowenApiError ? err.status : undefined;
         if (status !== 401) { setGate('login'); return; }
-        orcaClient.setupStatus()
+        elowenClient.setupStatus()
           .then((s) => {
             if (!alive) return;
             if (s.needsSetup) { setGate('open'); if (pathname !== '/onboarding') router.replace('/onboarding'); }

@@ -25,7 +25,7 @@ describe('install/agentClis', () => {
   });
   it('detects which CLIs are installed for the service user', async () => {
     const r = runner({ which: async (cmd) => (cmd === 'claude' ? '/u/bin/claude' : null) });
-    const found = await detectAgentClis(r, 'orca');
+    const found = await detectAgentClis(r, 'elowen');
     expect(found.find((c) => c.id === 'claude')!.installed).toBe(true);
     expect(found.find((c) => c.id === 'opencode')!.installed).toBe(false);
   });
@@ -110,18 +110,18 @@ describe('install/isIpAddress (no Let’s Encrypt for IPs)', () => {
     for (const ip of ['188.130.140.172', '127.0.0.1', '10.0.0.1', '::1', '2001:db8::1']) expect(isIpAddress(ip)).toBe(true);
   });
   it('treats domain names as non-IP', () => {
-    for (const d of ['orca.example.com', 'example.com', 'my-host.dev']) expect(isIpAddress(d)).toBe(false);
+    for (const d of ['elowen.example.com', 'example.com', 'my-host.dev']) expect(isIpAddress(d)).toBe(false);
   });
 });
 
 describe('install/serviceUser', () => {
-  const passwd = (home: string): ExecResult => ({ code: 0, stdout: `orca:x:998:998::${home}:/bin/bash\n`, stderr: '' });
+  const passwd = (home: string): ExecResult => ({ code: 0, stdout: `elowen:x:998:998::${home}:/bin/bash\n`, stderr: '' });
 
   it('reads HOME from getent passwd, null when the user is absent', async () => {
-    const present = runner({ exec: async () => passwd('/var/lib/orca') });
+    const present = runner({ exec: async () => passwd('/var/lib/elowen') });
     const absent = runner({ exec: async () => ({ code: 2, stdout: '', stderr: '' }) });
-    expect(await userHome(present, 'orca')).toBe('/var/lib/orca');
-    expect(await userHome(absent, 'orca')).toBeNull();
+    expect(await userHome(present, 'elowen')).toBe('/var/lib/elowen');
+    expect(await userHome(absent, 'elowen')).toBeNull();
   });
 
   it('mode=existing returns the resolved HOME and never calls useradd', async () => {
@@ -146,9 +146,9 @@ describe('install/serviceUser', () => {
         return { code: 0, stdout: '', stderr: '' };
       },
     });
-    const res = await ensureServiceUser(r, { mode: 'create', username: 'orca' });
-    expect(res).toEqual({ username: 'orca', home: '/var/lib/orca' });
+    const res = await ensureServiceUser(r, { mode: 'create', username: 'elowen' });
+    expect(res).toEqual({ username: 'elowen', home: '/var/lib/elowen' });
     expect(useraddArgs).toContain('--system');
-    expect(useraddArgs).toContain('orca');
+    expect(useraddArgs).toContain('elowen');
   });
 });

@@ -72,7 +72,7 @@ export function openDb(path: string): Db {
   // after its task is deleted (events outlive tasks). Empty for signal/plan and unknown tasks.
   addColumn(db, 'events', 'label', "TEXT NOT NULL DEFAULT ''");
   // PR feedback loop budget: how many auto fix rounds a mission's PR has already consumed. Bounds the
-  // Codex↔Orca review ping-pong before escalating to a human. Additive — old DBs default to 0.
+  // Codex↔Elowen review ping-pong before escalating to a human. Additive — old DBs default to 0.
   addColumn(db, 'mission_pr', 'fix_rounds', 'INTEGER NOT NULL DEFAULT 0');
   // The aggregated PR-review feedback the planner is currently fixing — surfaced in the UI so a fix
   // round is explained ("these phases address PR review X"). Cleared on merge/close. Old DBs default null.

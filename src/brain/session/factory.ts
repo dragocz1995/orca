@@ -4,12 +4,12 @@ import type { Model, Api } from '@earendil-works/pi-ai';
 import type { BrainStore } from '../../store/brainStore.js';
 import { projectEvent, rehydrate } from '../persistence.js';
 
-/** Everything one PI brain session needs, composed by the caller: the chat brain renders the Orca
- *  persona and gates orca_* tools by session kind; the task worker bakes in its close tool and the
+/** Everything one PI brain session needs, composed by the caller: the chat brain renders the Elowen
+ *  persona and gates elowen_* tools by session kind; the task worker bakes in its close tool and the
  *  worker-brain prompt. The factory only assembles. */
 export interface SessionSpec {
   sessionId: string;
-  /** The Orca user the store row belongs to (0 for ownerless task sessions). */
+  /** The Elowen user the store row belongs to (0 for ownerless task sessions). */
   ownerUserId: number;
   registry: ModelRegistry;
   model: Model<Api>;
@@ -57,7 +57,7 @@ function defaultResourceLoaderFactory(o: { cwd: string; systemPrompt: string; ap
   });
 }
 
-/** The shared session assembly behind both the chat brain (`spawnLive`) and the orca-exec task
+/** The shared session assembly behind both the chat brain (`spawnLive`) and the elowen-exec task
  *  workers: store row → history rehydration → resource loader → PI session → persistence
  *  subscription. One implementation, so the reload gotcha below can never drift out of sync. */
 export class BrainSessionFactory {

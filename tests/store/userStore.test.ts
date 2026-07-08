@@ -91,7 +91,7 @@ describe('UserStore', () => {
     const store = new UserStore(db);
     const u = store.create('a', 'x');
     const t = store.issueToken(u.id);
-    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/var/www/orca')").run();
+    db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/var/www/elowen')").run();
     db.prepare('INSERT INTO user_projects (user_id, project_id) VALUES (?, 1)').run(u.id);
     store.delete(u.id);
     expect(store.count()).toBe(0);

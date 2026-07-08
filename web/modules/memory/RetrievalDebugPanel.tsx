@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Sparkles, TriangleAlert, Check } from 'lucide-react';
 import type { RetrievalResult, RetrievalScore } from '../../lib/types';
-import { orcaClient, apiErrorMessage } from '../../lib/orcaClient';
+import { elowenClient, apiErrorMessage } from '../../lib/elowenClient';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
@@ -20,7 +20,7 @@ export function RetrievalDebugPanel() {
   // retrieve() marks candidates used (bumps use_count / last_used_at), so refresh the list, the touched
   // details and their usage events to reflect the new counters.
   const run = useMutation<RetrievalResult, unknown, string>({
-    mutationFn: (q: string) => orcaClient.retrievalDebug(q),
+    mutationFn: (q: string) => elowenClient.retrievalDebug(q),
     onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: ['memories'] });
       void qc.invalidateQueries({ queryKey: ['memory-events'] });

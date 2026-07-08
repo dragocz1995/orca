@@ -10,9 +10,9 @@ function resolver(pluginIcons: Record<string, string> = {}) {
 }
 
 describe('makeToolIconResolver — the single tool→icon source', () => {
-  it('resolves built-in tools by prefix (orca_*, memory_*)', () => {
+  it('resolves built-in tools by prefix (elowen_*, memory_*)', () => {
     const r = resolver();
-    expect(r('orca_list_tasks')).toBe('🐋');
+    expect(r('elowen_list_tasks')).toBe('🐋');
     expect(r('memory_search')).toBe('🧠');
   });
 
@@ -29,8 +29,8 @@ describe('makeToolIconResolver — the single tool→icon source', () => {
   });
 
   it('a plugin entry overrides a built-in for the same key', () => {
-    const r = resolver({ 'orca_*': '🎯' });
-    expect(r('orca_plan')).toBe('🎯');
+    const r = resolver({ 'elowen_*': '🎯' });
+    expect(r('elowen_plan')).toBe('🎯');
   });
 
   it('returns undefined for an unknown tool (client applies its own generic glyph)', () => {

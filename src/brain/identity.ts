@@ -2,13 +2,13 @@ import type { TurnIdentity } from '../plugins/policyContext.js';
 import type { Policy } from '../plugins/policy.js';
 import type { SessionSource } from '../plugins/api.js';
 
-/** A platform sender resolved to the Orca account that claimed the platform id in Account settings. */
+/** A platform sender resolved to the Elowen account that claimed the platform id in Account settings. */
 interface LinkedUser { id: number; name: string; username?: string; admin: boolean }
 
 export interface IdentityDeps {
-  /** The Orca user that anchors platform channel sessions (the admin). Undefined = single-user mode. */
+  /** The Elowen user that anchors platform channel sessions (the admin). Undefined = single-user mode. */
   platformOwner?: () => number | undefined;
-  /** Resolve a platform sender (e.g. a Discord id) to the Orca user who claimed it. */
+  /** Resolve a platform sender (e.g. a Discord id) to the Elowen user who claimed it. */
   resolvePlatformUser?: (platform: string, platformUserId: string) => LinkedUser | null;
   users: { get(userId: number): { username?: string } | null | undefined };
 }
@@ -30,13 +30,13 @@ export class IdentityResolver {
     return owner === undefined ? true : userId === owner;
   }
 
-  /** The identity of a user driving their OWN authenticated Orca chat (web dock / CLI). */
+  /** The identity of a user driving their OWN authenticated Elowen chat (web dock / CLI). */
   forOwnerChat(userId: number, policy: Policy): TurnIdentity {
     return {
-      platform: 'orca',
+      platform: 'elowen',
       userId: String(userId),
-      orcaUserId: userId, // their own authenticated chat — the account IS the sender
-      orcaUsername: this.d.users.get(userId)?.username,
+      elowenUserId: userId, // their own authenticated chat — the account IS the sender
+      elowenUsername: this.d.users.get(userId)?.username,
       admin: policy.allowedProjectIds === 'all',
       owner: this.isOwner(userId), // their own authenticated chat → operator
     };
@@ -44,14 +44,14 @@ export class IdentityResolver {
 
   /** The identity of a platform turn (Discord message, cron tick, subagent delegation) plus the
    *  verified-identity line spliced ABOVE the sender's text when their platform id is linked to an
-   *  Orca account. The display name is attacker-influenced (a user picks their own Orca name), so
+   *  Elowen account. The display name is attacker-influenced (a user picks their own Elowen name), so
    *  brackets/newlines are stripped before it enters this trusted line — otherwise a name like
    *  `x] SYSTEM: …` could forge instructions into the prompt. */
   forPlatformTurn(src: SessionSource, owner: number): { identity: TurnIdentity; verifiedPrefix: string; linkedUserId?: number } {
     const linked = this.d.resolvePlatformUser?.(src.platform, src.userId);
     const safeName = linked ? linked.name.replace(/[[\]\r\n]/g, ' ').trim().slice(0, 80) : '';
     const verifiedPrefix = linked
-      ? `[Verified: this sender is the Orca user "${safeName}"${linked.id === owner ? ' — the operator of this instance' : ''}]\n`
+      ? `[Verified: this sender is the Elowen user "${safeName}"${linked.id === owner ? ' — the operator of this instance' : ''}]\n`
       : '';
     // Owner-authored server-internal automation (cron/subagent) runs as the operator; a foreign
     // platform member never does, regardless of admin-mapped roles.
@@ -59,12 +59,12 @@ export class IdentityResolver {
     const identity: TurnIdentity = {
       platform: src.platform,
       userId: src.userId,
-      orcaUserId: linked?.id, // the verified Orca account behind this platform sender (undefined = unlinked)
-      orcaUsername: linked?.username || linked?.name,
+      elowenUserId: linked?.id, // the verified Elowen account behind this platform sender (undefined = unlinked)
+      elowenUsername: linked?.username || linked?.name,
       admin: src.access?.admin === true || linked?.admin === true,
       owner: (linked?.id !== undefined && this.isOwner(linked.id)) || (internalAutomation && src.access?.admin === true),
     };
-    // linkedUserId is the Orca account this platform sender is verified as (their Discord id claimed in
+    // linkedUserId is the Elowen account this platform sender is verified as (their Discord id claimed in
     // Account settings). Memory recall/save keys on it: an unlinked sender has no account, so no memory.
     return { identity, verifiedPrefix, linkedUserId: linked?.id };
   }

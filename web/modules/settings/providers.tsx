@@ -1,11 +1,11 @@
-export interface ProviderMeta { id: string; label: string; color: string; binHint: string; argsHint: string; icon: string; /** Provider has no skip-permissions command-line flag (its tools either run without confirmation or auto-approval is set in the tool's own config), so the toggle is a no-op and hidden. */ noBypassFlag?: boolean; /** Runs inside the Orca daemon (embedded brain) — no binary/args to configure. */ embedded?: boolean }
+export interface ProviderMeta { id: string; label: string; color: string; binHint: string; argsHint: string; icon: string; /** Provider has no skip-permissions command-line flag (its tools either run without confirmation or auto-approval is set in the tool's own config), so the toggle is a no-op and hidden. */ noBypassFlag?: boolean; /** Runs inside the Elowen daemon (embedded brain) — no binary/args to configure. */ embedded?: boolean }
 
 export const PROVIDERS: ProviderMeta[] = [
   { id: 'claude-code', label: 'Claude Code', color: '#d97757', binHint: 'claude', argsHint: '--permission-mode acceptEdits', icon: '/providers/anthropic.png' },
   { id: 'opencode', label: 'OpenCode', color: '#7c8cff', binHint: 'opencode', argsHint: '--pure', icon: '/providers/opencode.png' },
   { id: 'codex', label: 'Codex', color: '#ededed', binHint: 'codex', argsHint: '--full-auto', icon: '/providers/openai.svg' },
   { id: 'kilo', label: 'Kilo Code', color: '#c2e812', binHint: 'kilo', argsHint: '', icon: '/providers/kilo.svg', noBypassFlag: true },
-  { id: 'orca', label: 'Orca AI', color: '#3b82f6', binHint: '', argsHint: '', icon: '/orca-icon.png', embedded: true },
+  { id: 'elowen', label: 'Elowen AI', color: '#3b82f6', binHint: '', argsHint: '', icon: '/elowen-icon.png', embedded: true },
 ];
 
 export function ProviderLogo({ meta, alt, size = 36 }: { meta: ProviderMeta; alt?: string; size?: number }) {

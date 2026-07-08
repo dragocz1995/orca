@@ -20,7 +20,7 @@ function parseGhAccount(output: string): string | null {
   return m ? (m[1] ?? null) : null;
 }
 
-/** Probe the local GitHub auth posture. `tokenSet` is whether an Orca-stored token exists (its value is
+/** Probe the local GitHub auth posture. `tokenSet` is whether an Elowen-stored token exists (its value is
  *  never needed here). Runs as the daemon's service user, so it reflects exactly what a push would use.
  *  Pure of config: detection only — callers combine it with `ready`/`method` to drive UX. */
 export function detectGithubAuth(tokenSet: boolean): GithubAuthStatus {

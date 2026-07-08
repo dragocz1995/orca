@@ -9,7 +9,7 @@ import { ProjectPill } from '../../components/ui/ProjectPill';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useToast } from '../../components/ui/Toast';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 import { useDeleteMission, useEngage, usePauseMission, useResumeMission, useDisengage, useOpenMissionPr, useMergeMissionPr } from '../../lib/mutations';
 import { useSessions, useSessionSignals, useMissions, useConfig } from '../../lib/queries';
 import { TaskCard } from './TaskCard';
@@ -68,7 +68,7 @@ export function EpicGroup({ epic, phases, effectiveStatus, expanded, onToggle, o
   const usage = useQueries({
     queries: phases.map((p) => ({
       queryKey: ['task-usage', p.id],
-      queryFn: () => orcaClient.taskUsage(p.id),
+      queryFn: () => elowenClient.taskUsage(p.id),
       staleTime: 5 * 60 * 1000,
     })),
   });

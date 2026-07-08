@@ -10,7 +10,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useMyCliSettings } from '../../lib/queries';
 import { useSaveMyCliSettings } from '../../lib/mutations';
 
-/** Account → Memory: per-user memory automation for the embedded brain across web chat, `orca chat`,
+/** Account → Memory: per-user memory automation for the embedded brain across web chat, `elowen chat`,
  *  and the user's own verified Discord messages. autoRecall injects the user's most relevant durable
  *  memories under their message before the reply; autoSave lets the post-turn curator persist new
  *  facts to their account. Both default on; read fresh each turn so a flip applies immediately. */

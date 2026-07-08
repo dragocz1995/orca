@@ -32,9 +32,9 @@ const server = setupServer(
   http.get('*/api/config', () => HttpResponse.json(config)),
   http.get('*/api/tasks', () => HttpResponse.json([])),
   // Autopilot planning now returns 202 with a job id (async).
-  http.post('*/api/tasks/plan', () => HttpResponse.json({ jobId: lastJob, epicId: 'orca-ep' }, { status: 202 })),
+  http.post('*/api/tasks/plan', () => HttpResponse.json({ jobId: lastJob, epicId: 'elowen-ep' }, { status: 202 })),
   // The job resolves to done with its phases.
-  http.get('*/api/plan/:jobId', ({ params }) => HttpResponse.json({ id: params.jobId, epicId: 'orca-ep', goal: 'g', status: 'done', phases: [{ title: 'Phase A', type: 'task' }, { title: 'Phase B', type: 'feature' }] })),
+  http.get('*/api/plan/:jobId', ({ params }) => HttpResponse.json({ id: params.jobId, epicId: 'elowen-ep', goal: 'g', status: 'done', phases: [{ title: 'Phase A', type: 'task' }, { title: 'Phase B', type: 'feature' }] })),
 );
 beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
 
@@ -57,8 +57,8 @@ describe('async autopilot planning in TaskModal', () => {
     // Agent-mode planning stays `planning` and exposes the Pilot's tmux session; the modal should
     // render a live preview of that pane under the loader until the plan resolves.
     server.use(
-      http.get('*/api/plan/:jobId', ({ params }) => HttpResponse.json({ id: params.jobId, epicId: null, goal: 'g', status: 'planning', phases: [], sessionName: 'orca-pilot-Nova' })),
-      http.get('*/api/sessions/orca-pilot-Nova/pane', () => HttpResponse.json({ pane: 'reading the repo…' })),
+      http.get('*/api/plan/:jobId', ({ params }) => HttpResponse.json({ id: params.jobId, epicId: null, goal: 'g', status: 'planning', phases: [], sessionName: 'elowen-pilot-Nova' })),
+      http.get('*/api/sessions/elowen-pilot-Nova/pane', () => HttpResponse.json({ pane: 'reading the repo…' })),
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><TaskModal onClose={() => {}} /></ToastProvider></Wrapper>);
@@ -75,10 +75,10 @@ describe('async autopilot planning in TaskModal', () => {
 
   it('expands the planner preview into the full terminal modal on click', async () => {
     server.use(
-      http.get('*/api/plan/:jobId', ({ params }) => HttpResponse.json({ id: params.jobId, epicId: null, goal: 'g', status: 'planning', phases: [], sessionName: 'orca-pilot-Nova' })),
-      http.get('*/api/sessions/orca-pilot-Nova/pane', () => HttpResponse.json({ pane: 'reading the repo…' })),
+      http.get('*/api/plan/:jobId', ({ params }) => HttpResponse.json({ id: params.jobId, epicId: null, goal: 'g', status: 'planning', phases: [], sessionName: 'elowen-pilot-Nova' })),
+      http.get('*/api/sessions/elowen-pilot-Nova/pane', () => HttpResponse.json({ pane: 'reading the repo…' })),
       // Both useSessionInfos (modal title) and useCloseOnAgentDone (keep-open) read this list.
-      http.get('*/api/sessions', () => HttpResponse.json([{ name: 'orca-pilot-Nova', role: 'pilot', agent: 'Nova' }])),
+      http.get('*/api/sessions', () => HttpResponse.json([{ name: 'elowen-pilot-Nova', role: 'pilot', agent: 'Nova' }])),
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><TaskModal onClose={() => {}} /></ToastProvider></Wrapper>);

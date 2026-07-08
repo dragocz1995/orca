@@ -9,7 +9,7 @@ function pkgJsonPath(metaUrl: string): string {
 }
 
 /** Read this package's version from its package.json, defaulting to '0.0.0' if unreadable. Single source
- *  for the CLI (`orca --version`) and the daemon (`ORCA_VERSION` on /health); pass `import.meta.url`. */
+ *  for the CLI (`elowen --version`) and the daemon (`ELOWEN_VERSION` on /health); pass `import.meta.url`. */
 export function readPkgVersion(metaUrl: string): string {
   try {
     return (JSON.parse(readFileSync(pkgJsonPath(metaUrl), 'utf8')) as { version?: string }).version ?? '0.0.0';
@@ -20,7 +20,7 @@ export function readPkgVersion(metaUrl: string): string {
 
 /** Last-install timestamp (ISO) from the mtime of this package's package.json — i.e. when the package
  *  files were last written. Reflects any (re)install, including a manual `npm install -g`, not just
- *  `orca update`. Null if unreadable. Surfaced on /system as "last updated". */
+ *  `elowen update`. Null if unreadable. Surfaced on /system as "last updated". */
 export function readPkgInstalledAt(metaUrl: string): string | null {
   try {
     return statSync(pkgJsonPath(metaUrl)).mtime.toISOString();

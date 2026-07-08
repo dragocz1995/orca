@@ -5,7 +5,7 @@
 type Monaco = { editor: { defineTheme: (n: string, t: unknown) => void } };
 
 export function defineEditorThemes(monaco: Monaco) {
-  monaco.editor.defineTheme('orca-oled', {
+  monaco.editor.defineTheme('elowen-oled', {
     base: 'vs-dark', inherit: true,
     rules: [
       { token: '', foreground: 'f5f5f5' },
@@ -38,7 +38,7 @@ export function defineEditorThemes(monaco: Monaco) {
       'diffEditor.removedLineBackground': '#ef444414',
     },
   });
-  monaco.editor.defineTheme('orca-light', {
+  monaco.editor.defineTheme('elowen-light', {
     base: 'vs', inherit: true,
     rules: [
       { token: '', foreground: '232323' },

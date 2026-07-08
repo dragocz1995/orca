@@ -11,8 +11,8 @@
 ## Setup
 
 ```bash
-git clone https://github.com/dragocz1995/orca.git
-cd orca
+git clone https://github.com/dragocz1995/elowen.git
+cd elowen
 npm install
 npm run build
 ```
@@ -36,7 +36,7 @@ node dist/cli/index.js chat
 node dist/cli/index.js close <taskId>
 ```
 
-Or `npm link` then `orca ls`.
+Or `npm link` then `elowen ls`.
 
 ### Web frontend
 
@@ -191,7 +191,7 @@ Passwords use scrypt with random 16-byte salt. Tokens are 32-byte hex strings.
 ## Adding a new endpoint
 
 1. Add handler in `src/api/server.ts`
-2. Add method in `web/lib/orcaClient.ts`
+2. Add method in `web/lib/elowenClient.ts`
 3. Add query/mutation hooks in `web/lib/queries.ts` / `web/lib/mutations.ts`
 4. Add types in `web/lib/types.ts`
 5. Wire dependencies in `src/daemon/bootstrap.ts`
@@ -199,5 +199,5 @@ Passwords use scrypt with random 16-byte salt. Tokens are 32-byte hex strings.
 7. Add i18n keys in both `cs.ts` and `en.ts`
 8. If agent-reachable, add to `agentAllowed()` in `server.ts`
 
-The `orca api` CLI verb and MCP `orca_request` tool both delegate to
-`callOrcaApi`, so new endpoints work with zero CLI/MCP edits.
+The `elowen api` CLI verb and MCP `elowen_request` tool both delegate to
+`callElowenApi`, so new endpoints work with zero CLI/MCP edits.

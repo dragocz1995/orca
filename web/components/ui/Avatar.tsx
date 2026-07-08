@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { orcaClient } from '../../lib/orcaClient';
+import { elowenClient } from '../../lib/elowenClient';
 
 // Deterministic monogram colour so a given user always gets the same chip.
 const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
@@ -16,7 +16,7 @@ export function Avatar({ user, size = 36 }: { user: { id: number; username: stri
   useEffect(() => {
     if (!user.avatar) { setSrc(null); return; }
     let live = true;
-    orcaClient.avatarUrl(user.id).then((u) => { if (live) setSrc(u); }).catch(() => { if (live) setSrc(null); });
+    elowenClient.avatarUrl(user.id).then((u) => { if (live) setSrc(u); }).catch(() => { if (live) setSrc(null); });
     return () => { live = false; };
   }, [user.id, user.avatar]);
   if (user.avatar && src) {

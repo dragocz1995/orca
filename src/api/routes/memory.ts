@@ -7,7 +7,7 @@ import {
   memoryPurgeSchema, memoryCategoryCreateSchema, memoryCategoryPatchSchema, memoryCategorySetSchema,
   memoryCategorySuggestIconSchema, categorizationUpdateSchema, memoryReclassifySchema,
 } from '../schemas/memory.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** How many pending memories one self-service /memory/reindex pass will re-embed. Bounded so a big
  *  backlog can't turn a single request into a long-running provider hammer — the rest drains via the
@@ -26,7 +26,7 @@ function isUniqueViolation(err: unknown): boolean {
  *  (`c.get('user')`), never a body/param field, so a user can only read or mutate their OWN memories
  *  (the store is user_id-scoped and no-ops / 404s on a foreign id). Provider (embedding) settings are
  *  workspace-level and admin-gated. Degrades to 400 when the store isn't wired. */
-export function registerMemoryRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   const store = d.memoryStore;
 
@@ -68,7 +68,7 @@ export function registerMemoryRoutes(app: OrcaApp, ctx: RouteContext): void {
     const cfg = toEmbeddingConfig(d.config.embeddingConfig());
     if (!isEmbeddingConfigured(cfg)) return c.json({ ok: false, error: 'embeddings not configured' }, 400);
     try {
-      const vec = await d.embeddings.embed(cfg, 'orca memory embedding probe');
+      const vec = await d.embeddings.embed(cfg, 'elowen memory embedding probe');
       return c.json({ ok: true, dimensions: vec.length, provider: cfg.providerId ?? cfg.baseUrl ?? null, model: cfg.model });
     } catch (err) {
       return c.json({ ok: false, error: String(err) });

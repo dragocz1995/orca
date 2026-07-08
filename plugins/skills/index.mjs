@@ -17,8 +17,8 @@ export function register(ctx) {
   const userDir = ctx.dataDir(); // instance-local skills created at runtime
   let count = 0;
   for (const { dir, source } of [
-    { dir: join(here, 'skills'), source: 'orca-plugin:skills' },
-    { dir: userDir, source: 'orca-user:skills' },
+    { dir: join(here, 'skills'), source: 'elowen-plugin:skills' },
+    { dir: userDir, source: 'elowen-user:skills' },
   ]) {
     if (!existsSync(dir)) continue;
     const { skills } = loadSkillsFromDir({ dir, source });

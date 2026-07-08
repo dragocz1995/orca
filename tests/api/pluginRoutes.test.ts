@@ -29,8 +29,8 @@ function makePlugin(root: string, name: string, extra: Record<string, unknown> =
 }
 
 function setup() {
-  const root = mkdtempSync(join(tmpdir(), 'orca-plugroutes-'));
-  const dataRoot = mkdtempSync(join(tmpdir(), 'orca-plugdata-'));
+  const root = mkdtempSync(join(tmpdir(), 'elowen-plugroutes-'));
+  const dataRoot = mkdtempSync(join(tmpdir(), 'elowen-plugdata-'));
   makePlugin(root, 'skills');
   makePlugin(root, 'files');
   makePlugin(root, 'discord', {
@@ -42,7 +42,7 @@ function setup() {
     ],
   });
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw');
   const amy = users.create('amy', 'pw');
@@ -144,7 +144,7 @@ describe('plugin routes', () => {
   });
 
   it('GET /plugins/:name surfaces declared capabilities ({} when the manifest omits them)', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'orca-plugcaps-'));
+    const root = mkdtempSync(join(tmpdir(), 'elowen-plugcaps-'));
     makePlugin(root, 'enricher', { capabilities: { hooks: ['brain.turn.contextBuilt'], mutates: ['turnContext'], network: true } });
     makePlugin(root, 'plain');
     const db = openDb(':memory:');
@@ -171,7 +171,7 @@ describe('plugin routes', () => {
   });
 
   it('exposes MCP server state and reconnect actions from the live MCP plugin module', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'orca-mcproutes-'));
+    const root = mkdtempSync(join(tmpdir(), 'elowen-mcproutes-'));
     const dir = join(root, 'mcp');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'orca-plugin.json'), JSON.stringify({

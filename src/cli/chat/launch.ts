@@ -3,17 +3,17 @@ import { resolveToken, NeedsLogin, login } from './token.js';
 import { runChat } from './app.js';
 
 /** Raised when the interactive login can't proceed: the user pressed esc, or there is no TTY to
- *  render the Orca modals into. Carries an actionable, user-facing message. */
+ *  render the Elowen modals into. Carries an actionable, user-facing message. */
 function loginCancelled(): Error {
   return new Error(
-    'Login requires an interactive terminal. Run `orca login` from a terminal, '
-    + 'or set the ORCA_TOKEN environment variable to a valid token.',
+    'Login requires an interactive terminal. Run `elowen login` from a terminal, '
+    + 'or set the ELOWEN_TOKEN environment variable to a valid token.',
   );
 }
 
-/** Interactive login → cache a full-scope token, returning it. Used by `orca login` and as the
+/** Interactive login → cache a full-scope token, returning it. Used by `elowen login` and as the
  *  fallback when chat finds no token in the env or cache. Credentials are collected through the
- *  Orca modal prompts (framed, masked password). Wrong credentials let the user retry; pressing esc
+ *  Elowen modal prompts (framed, masked password). Wrong credentials let the user retry; pressing esc
  *  or running without a TTY aborts with an actionable error instead of hanging or looping. */
 export async function interactiveLogin(base: string, env: NodeJS.ProcessEnv): Promise<string> {
   for (;;) {
@@ -31,8 +31,8 @@ export async function interactiveLogin(base: string, env: NodeJS.ProcessEnv): Pr
   }
 }
 
-/** Resolve a token (env → cache → interactive login) and open the interactive Orca chat TUI. The single
- *  entry point shared by the `orca chat` command and the launcher menu's "Talk to Orca" item. */
+/** Resolve a token (env → cache → interactive login) and open the interactive Elowen chat TUI. The single
+ *  entry point shared by the `elowen chat` command and the launcher menu's "Talk to Elowen" item. */
 export async function launchChat(
   base: string, env: NodeJS.ProcessEnv,
   opts: { model?: string; session?: string; fresh?: boolean } = {},

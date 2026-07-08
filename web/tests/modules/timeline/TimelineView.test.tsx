@@ -15,22 +15,22 @@ function fixture() {
     id: 10 + i,
     ts: new Date(now - 30 * min + i * 5_000).toISOString(),
     type: 'signal',
-    target: 'orca-Juno',
+    target: 'elowen-Juno',
     detail: 'working',
     project_id: null,
   }));
   return [
-    { id: 4, ts: new Date(now - 2 * min).toISOString(), type: 'review', target: 'orca-x', detail: 'escalated: missing tests', project_id: 5 },
-    { id: 3, ts: new Date(now - 5 * min).toISOString(), type: 'task', target: 'orca-x', detail: 'closed', project_id: 5 },
+    { id: 4, ts: new Date(now - 2 * min).toISOString(), type: 'review', target: 'elowen-x', detail: 'escalated: missing tests', project_id: 5 },
+    { id: 3, ts: new Date(now - 5 * min).toISOString(), type: 'task', target: 'elowen-x', detail: 'closed', project_id: 5 },
     { id: 2, ts: new Date(now - 20 * min).toISOString(), type: 'mission', target: 'm-ep1', detail: 'active', project_id: null },
     ...flood,
   ];
 }
 
 const TASKS = [
-  { id: 'orca-x', title: 'Refactor the parser', status: 'closed', labels: [], project_id: 5 },
+  { id: 'elowen-x', title: 'Refactor the parser', status: 'closed', labels: [], project_id: 5 },
   { id: 'ep1', title: 'Big epic goal', status: 'in_progress', labels: [], project_id: 5 },
-  { id: 'orca-w', title: 'Worker task', status: 'in_progress', labels: ['agent:Juno'], project_id: 5 },
+  { id: 'elowen-w', title: 'Worker task', status: 'in_progress', labels: ['agent:Juno'], project_id: 5 },
 ];
 
 const server = setupServer(
@@ -71,21 +71,21 @@ describe('TimelineView', () => {
     fireEvent.click(reviewDot!);
     // Drawer shows the verdict rationale…
     expect((await screen.findAllByText(/missing tests/)).length).toBeGreaterThanOrEqual(1);
-    // …the friendly task title (not the raw orca-id)…
+    // …the friendly task title (not the raw elowen-id)…
     expect((await screen.findAllByText('Refactor the parser')).length).toBeGreaterThanOrEqual(1);
     // …and pulls the project's working diff (project_id = 5 on the event).
     expect(await screen.findByText(/\+new line here/)).toBeTruthy();
   });
 
-  it('labels an agent (signal) marker with its name, not the raw orca- session', async () => {
+  it('labels an agent (signal) marker with its name, not the raw elowen- session', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><TimelineView /></Wrapper>);
     const dots = await screen.findAllByTestId('axis-dot');
     const agentDot = dots.find((d) => d.getAttribute('aria-label')?.includes('working'));
     fireEvent.click(agentDot!);
-    // The detail header shows the agent name "Juno", never "orca-Juno".
+    // The detail header shows the agent name "Juno", never "elowen-Juno".
     expect((await screen.findAllByText('Juno')).length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByText('orca-Juno')).toBeNull();
+    expect(screen.queryByText('elowen-Juno')).toBeNull();
   });
 
   it('shows summary stats for the window', async () => {
@@ -103,13 +103,13 @@ describe('TimelineView', () => {
     server.use(
       http.get('*/api/activity', () =>
         HttpResponse.json([
-          { id: 30, ts: tenDaysAgo, type: 'task', target: 'orca-x', detail: 'closed', project_id: 5 },
-          { id: 31, ts: tenDaysAgo, type: 'review', target: 'orca-x', detail: 'escalated: old review', project_id: 5 },
+          { id: 30, ts: tenDaysAgo, type: 'task', target: 'elowen-x', detail: 'closed', project_id: 5 },
+          { id: 31, ts: tenDaysAgo, type: 'review', target: 'elowen-x', detail: 'escalated: old review', project_id: 5 },
         ]),
       ),
     );
     // Pre-seed localStorage so usePersistentState hydrates with 30d instead of the 7d default.
-    localStorage.setItem('orca.timeline.range', '30d');
+    localStorage.setItem('elowen.timeline.range', '30d');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><TimelineView /></Wrapper>);
 
@@ -134,11 +134,11 @@ describe('TimelineView', () => {
       http.get('*/api/activity', () =>
         HttpResponse.json([
           { id: 40, ts: thirtyOneDaysAgo, type: 'mission', target: 'm-ep1', detail: 'active', project_id: null },
-          { id: 41, ts: thirtyOneDaysAgo, type: 'task', target: 'orca-x', detail: 'closed', project_id: 5 },
+          { id: 41, ts: thirtyOneDaysAgo, type: 'task', target: 'elowen-x', detail: 'closed', project_id: 5 },
         ]),
       ),
     );
-    localStorage.setItem('orca.timeline.range', 'all');
+    localStorage.setItem('elowen.timeline.range', 'all');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><TimelineView /></Wrapper>);
 
@@ -153,7 +153,7 @@ describe('TimelineView', () => {
   it('project filter pills are hidden when the workspace has fewer than 2 projects', async () => {
     server.use(
       http.get('*/api/projects', () => HttpResponse.json([
-        { id: 5, slug: 'orca', path: '/o', notes: '', icon: '', pr_enabled: null },
+        { id: 5, slug: 'elowen', path: '/o', notes: '', icon: '', pr_enabled: null },
       ])),
     );
     const { wrapper: Wrapper } = createWrapper();
@@ -166,7 +166,7 @@ describe('TimelineView', () => {
   it('project filter pills appear when the workspace has 2 or more projects', async () => {
     server.use(
       http.get('*/api/projects', () => HttpResponse.json([
-        { id: 5, slug: 'orca', path: '/o', notes: '', icon: '', pr_enabled: null },
+        { id: 5, slug: 'elowen', path: '/o', notes: '', icon: '', pr_enabled: null },
         { id: 7, slug: 'other', path: '/p2', notes: '', icon: '', pr_enabled: null },
       ])),
     );
@@ -181,16 +181,16 @@ describe('TimelineView', () => {
     const min = 60 * 1000;
     server.use(
       http.get('*/api/projects', () => HttpResponse.json([
-        { id: 5, slug: 'orca', path: '/o', notes: '', icon: '', pr_enabled: null },
+        { id: 5, slug: 'elowen', path: '/o', notes: '', icon: '', pr_enabled: null },
         { id: 7, slug: 'other', path: '/p2', notes: '', icon: '', pr_enabled: null },
       ])),
       http.get('*/api/activity', () => HttpResponse.json([
-        { id: 50, ts: new Date(now - 2 * min).toISOString(), type: 'task', target: 'orca-x', detail: 'proj-five', project_id: 5 },
-        { id: 51, ts: new Date(now - 3 * min).toISOString(), type: 'task', target: 'orca-y', detail: 'proj-seven', project_id: 7 },
+        { id: 50, ts: new Date(now - 2 * min).toISOString(), type: 'task', target: 'elowen-x', detail: 'proj-five', project_id: 5 },
+        { id: 51, ts: new Date(now - 3 * min).toISOString(), type: 'task', target: 'elowen-y', detail: 'proj-seven', project_id: 7 },
       ])),
     );
     // Pre-seed the filter so only project 5 events pass.
-    localStorage.setItem('orca.timeline.project', '5');
+    localStorage.setItem('elowen.timeline.project', '5');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><TimelineView /></Wrapper>);
     const dots = await screen.findAllByTestId('axis-dot');

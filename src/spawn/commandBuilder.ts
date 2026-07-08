@@ -18,35 +18,35 @@ export interface SpawnCtx {
    *  rendered as its own block in the prompt so the agent addresses it (distinct from the static task
    *  details). Empty/unset on a clean first run. */
   resumeNote?: string;
-  /** Shell command the agent runs to close its task when done. Defaults to `orca close <id>`. */
+  /** Shell command the agent runs to close its task when done. Defaults to `elowen close <id>`. */
   closeCommand?: string;
   /** The parent epic's id, when this task is a mission phase. Frames the preamble as one phase of a
    *  mission; the epic-close instructions themselves live in the on-demand `{{cli}} help` guide. */
   epicId?: string;
-  /** Env vars exported before the agent starts (e.g. ORCA_URL/ORCA_TOKEN so the close command reaches the daemon). */
+  /** Env vars exported before the agent starts (e.g. ELOWEN_URL/ELOWEN_TOKEN so the close command reaches the daemon). */
   env?: Record<string, string>;
   /** Override the provider binary (e.g. an absolute path); defaults to the program's conventional name. */
   bin?: string;
   /** Extra CLI args inserted after the model flag (configured per provider in Settings). */
   extraArgs?: string;
   /** Whether to bypass the agent's interactive permission prompts (Settings → Providers, default on).
-   *  Undefined means "use the built-in default" (bypass). orca agents run unattended in a tmux pane,
+   *  Undefined means "use the built-in default" (bypass). elowen agents run unattended in a tmux pane,
    *  so a prompt would hang the mission; the overseer enforces autonomy above the agent. */
   skipPermissions?: boolean;
   /** When set, used verbatim as the agent prompt instead of the assembled worker preamble. Used by
    *  reasoning agents (Pilot/Overseer) that own their own instructions and close nothing. */
   rawPrompt?: string;
-  /** How the agent invokes the orca CLI for read-only verbs (e.g. `orca ls`) — the global `orca`
-   *  command in production, or `node <dist/cli/index.js>` in a source checkout. Defaults to `orca`. */
+  /** How the agent invokes the elowen CLI for read-only verbs (e.g. `elowen ls`) — the global `elowen`
+   *  command in production, or `node <dist/cli/index.js>` in a source checkout. Defaults to `elowen`. */
   cli?: string;
   /** Resume a prior CLI session for this task instead of cold-starting: the agent reattaches to its
    *  previous conversation (full context) and continues. Set by the spawn layer once it has confirmed
    *  the session's program still matches and the provider allows resume. When present, the prompt is a
    *  short continuation (worker-resume) rather than the full worker preamble. */
   resume?: PendingResume;
-  /** When set, the spawned CLI is wired to Orca's MCP server at this URL. claude/opencode are wired by
+  /** When set, the spawned CLI is wired to Elowen's MCP server at this URL. claude/opencode are wired by
    *  the config file `writeMcpConfig` drops into cwd; codex (which ignores project-local config) gets
-   *  `-c mcp_servers.orca.*` launch flags here. Set only for the advisor spawn; unset for workers. */
+   *  `-c mcp_servers.elowen.*` launch flags here. Set only for the advisor spawn; unset for workers. */
   mcpUrl?: string;
 }
 
@@ -58,7 +58,7 @@ export function buildAgentCommand(spec: AgentSpec, ctx: SpawnCtx, renderPrompt: 
   if (ctx.rawPrompt !== undefined) {
     return buildLaunchCommand(spec, ctx, ctx.rawPrompt);
   }
-  const closeCommand = ctx.closeCommand ?? `orca close ${ctx.taskId}`;
+  const closeCommand = ctx.closeCommand ?? `elowen close ${ctx.taskId}`;
   const titlePart = ctx.taskTitle ? `: ${ctx.taskTitle}` : '';
   const detailsPart = ctx.taskDescription && ctx.taskDescription.trim() ? `\n\nDetails:\n${ctx.taskDescription.trim()}` : '';
   // A relaunch carries fresh input the agent must address (review feedback, a stuck/manual restart
@@ -75,10 +75,10 @@ export function buildAgentCommand(spec: AgentSpec, ctx: SpawnCtx, renderPrompt: 
   // autopilot, handoff notes, epic close). That guide is rendered on demand by the daemon from the
   // task's live state, so the tutorial lives in ONE place instead of being copied into every preamble.
   const prompt = ctx.resume
-    ? renderPrompt('worker-resume', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand, cli: ctx.cli ?? 'orca' })
+    ? renderPrompt('worker-resume', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand, cli: ctx.cli ?? 'elowen' })
     : ctx.epicId
-      ? renderPrompt('worker-phase', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, epicId: ctx.epicId, closeCommand, cli: ctx.cli ?? 'orca' })
-      : renderPrompt('worker', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand, cli: ctx.cli ?? 'orca' });
+      ? renderPrompt('worker-phase', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, epicId: ctx.epicId, closeCommand, cli: ctx.cli ?? 'elowen' })
+      : renderPrompt('worker', { agentName: ctx.agentName, taskId: ctx.taskId, titlePart, detailsPart, resumePart, closeCommand, cli: ctx.cli ?? 'elowen' });
   return buildLaunchCommand(spec, ctx, prompt);
 }
 
@@ -87,7 +87,7 @@ export function buildAgentCommand(spec: AgentSpec, ctx: SpawnCtx, renderPrompt: 
 function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): string {
   const cd = `cd ${esc(ctx.projectPath)}`;
   // Values are single-quote-escaped; KEYS are interpolated raw, so a malformed key would break the
-  // shell. They're always our own literals (ORCA_*) or caller extraEnv, but guard the invariant
+  // shell. They're always our own literals (ELOWEN_*) or caller extraEnv, but guard the invariant
   // explicitly rather than trust every future caller — a bad key is a programming error, not input.
   const envExport = ctx.env && Object.keys(ctx.env).length > 0
     ? Object.entries(ctx.env).map(([k, v]) => {
@@ -123,8 +123,8 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     const bin = ctx.bin || 'codex';
     // Positional prompt + autonomous approval bypass (codex's skip-permissions equivalent).
     const bypass = skip ? ' --dangerously-bypass-approvals-and-sandbox' : '';
-    // Codex ignores any project-local config, so its orca MCP server is injected via `-c` overrides
-    // (token read from the exported ORCA_TOKEN env, not the command line). codexMcpArgs alternates
+    // Codex ignores any project-local config, so its elowen MCP server is injected via `-c` overrides
+    // (token read from the exported ELOWEN_TOKEN env, not the command line). codexMcpArgs alternates
     // [flag, value, …]; the `-c` flags are our own literals, only the values are dynamic — quote just
     // those (mirrors `--model ${esc(model)}`), so an odd-charactered URL can't break the shell.
     const mcp = ctx.mcpUrl ? ' ' + codexMcpArgs(spec.program, ctx.mcpUrl).map((a, i) => i % 2 === 0 ? a : esc(a)).join(' ') : '';
@@ -155,7 +155,7 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     return `${cd} && ${envExport}${bin}${resumeBefore}${bypass}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
   }
   const bin = ctx.bin || 'claude';
-  // Autonomous approval bypass: orca-spawned agents run unattended in a tmux pane, so an
+  // Autonomous approval bypass: elowen-spawned agents run unattended in a tmux pane, so an
   // interactive permission prompt would hang the whole mission.
   const bypass = skip ? ' --dangerously-skip-permissions' : '';
   return `${cd} && ${envExport}${bin}${resumeBefore}${bypass}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;

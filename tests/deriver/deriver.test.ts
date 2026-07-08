@@ -8,16 +8,16 @@ import { AgentStore } from '../../src/store/agentStore.js';
 const OC_DIALOG = `△ Permission required\n Allow once   Allow always   Reject  ⇆ select  enter confirm`;
 
 function setup(autonomy: string | null = null, decideApproval?: DeriverDecider, missionFor?: (session: string) => string | null) {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db); const agents = new AgentStore(db);
-  tasks.create({ id: 'orca-1', project_id: 1, title: 'T' }); tasks.setStatus('orca-1', 'in_progress');
+  tasks.create({ id: 'elowen-1', project_id: 1, title: 'T' }); tasks.setStatus('elowen-1', 'in_progress');
   agents.upsert({ project_id: 1, name: 'TestAgent', program: 'opencode', model: 'ollama-cloud/deepseek-v4-flash' });
-  const tmux = new FakeTmuxDriver(); tmux.setPane('orca-TestAgent', OC_DIALOG);
+  const tmux = new FakeTmuxDriver(); tmux.setPane('elowen-TestAgent', OC_DIALOG);
   const emitted: { s: string; sig: { type: string } }[] = [];
   const deriver = new Deriver({
     tmux, agents, tasks,
     sink: { emit: (s, sig) => emitted.push({ s, sig }) },
-    sessionTaskId: () => 'orca-1',
+    sessionTaskId: () => 'elowen-1',
     autonomyFor: () => autonomy,
     missionFor,
     decideApproval,
@@ -30,36 +30,36 @@ describe('Deriver permission handling', () => {
   it('L3 / manual: sends Enter once and emits working (dedup on repeat)', async () => {
     const { tmux, deriver, emitted } = setup('L3');
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Enter']]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([['Enter']]);
     expect(emitted.at(-1)!.sig.type).toBe('working');
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Enter']]); // no second Enter
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([['Enter']]); // no second Enter
   });
 
   it('mission-less (autonomy null) also auto-clears', async () => {
     const { tmux, deriver } = setup(null);
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Enter']]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([['Enter']]);
   });
 
   it('L0: never auto-clears — escalates even when an (approving) overseer is wired', async () => {
     const { tmux, deriver, emitted } = setup('L0', async () => ({ approve: true }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]); // L0 = recommend only, nothing runs
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]); // L0 = recommend only, nothing runs
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
   });
 
   it('L1: routes the prompt through the overseer and clears it when approved', async () => {
     const { tmux, deriver, emitted } = setup('L1', async () => ({ approve: true }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Enter']]); // Assist auto-runs clearly-safe steps
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([['Enter']]); // Assist auto-runs clearly-safe steps
     expect(emitted.at(-1)!.sig.type).toBe('working');
   });
 
   it('L1: escalates when the overseer declines (e.g. below the stricter threshold)', async () => {
     const { tmux, deriver, emitted } = setup('L1', async () => ({ approve: false }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]);
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
   });
 
@@ -73,49 +73,49 @@ describe('Deriver permission handling', () => {
   it('L3 with overseer: approves a safe prompt (presses Enter)', async () => {
     const { tmux, deriver, emitted } = setup('L3', async () => ({ approve: true }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Enter']]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([['Enter']]);
     expect(emitted.at(-1)!.sig.type).toBe('working');
   });
 
   it('L3 with overseer: escalates when the overseer declines instead of pressing Enter', async () => {
     const { tmux, deriver, emitted } = setup('L3', async () => ({ approve: false }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]); // reject → no auto-press
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]); // reject → no auto-press
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
   });
 
   it('claude workspace-trust gate: auto-accepts under autonomy WITHOUT consulting the overseer', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db); const agents = new AgentStore(db);
-    tasks.create({ id: 'orca-1', project_id: 1, title: 'T' }); tasks.setStatus('orca-1', 'in_progress');
+    tasks.create({ id: 'elowen-1', project_id: 1, title: 'T' }); tasks.setStatus('elowen-1', 'in_progress');
     agents.upsert({ project_id: 1, name: 'Nova', program: 'claude-code', model: 'sonnet' });
     const tmux = new FakeTmuxDriver();
-    tmux.setPane('orca-Nova', ' Accessing workspace:\n ❯ 1. Yes, I trust this folder\n   2. No, exit');
+    tmux.setPane('elowen-Nova', ' Accessing workspace:\n ❯ 1. Yes, I trust this folder\n   2. No, exit');
     let consulted = false;
     const deriver = new Deriver({
-      tmux, agents, tasks, sink: { emit: () => {} }, sessionTaskId: () => 'orca-1',
+      tmux, agents, tasks, sink: { emit: () => {} }, sessionTaskId: () => 'elowen-1',
       autonomyFor: () => 'L3',
       decideApproval: async () => { consulted = true; return { approve: false }; },
     });
     await deriver.tick();
-    expect(tmux.sentKeys('orca-Nova')).toEqual([['Enter']]); // cleared despite a reject verdict
+    expect(tmux.sentKeys('elowen-Nova')).toEqual([['Enter']]); // cleared despite a reject verdict
     expect(consulted).toBe(false); // overseer never asked — trust is environmental
   });
 
   it('L0: claude trust gate still escalates (autonomy gate precedes auto-accept)', async () => {
-    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const tasks = new TaskStore(db); const agents = new AgentStore(db);
-    tasks.create({ id: 'orca-1', project_id: 1, title: 'T' }); tasks.setStatus('orca-1', 'in_progress');
+    tasks.create({ id: 'elowen-1', project_id: 1, title: 'T' }); tasks.setStatus('elowen-1', 'in_progress');
     agents.upsert({ project_id: 1, name: 'Nova', program: 'claude-code', model: 'sonnet' });
     const tmux = new FakeTmuxDriver();
-    tmux.setPane('orca-Nova', ' Accessing workspace:\n ❯ 1. Yes, I trust this folder\n   2. No, exit');
+    tmux.setPane('elowen-Nova', ' Accessing workspace:\n ❯ 1. Yes, I trust this folder\n   2. No, exit');
     const emitted: { sig: { type: string } }[] = [];
     const deriver = new Deriver({
       tmux, agents, tasks, sink: { emit: (_s, sig) => emitted.push({ sig }) },
-      sessionTaskId: () => 'orca-1', autonomyFor: () => 'L0',
+      sessionTaskId: () => 'elowen-1', autonomyFor: () => 'L0',
     });
     await deriver.tick();
-    expect(tmux.sentKeys('orca-Nova')).toEqual([]);
+    expect(tmux.sentKeys('elowen-Nova')).toEqual([]);
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
   });
 
@@ -130,14 +130,14 @@ describe('Deriver permission handling', () => {
     let seen = 'unset';
     const { deriver } = setup('L3', async (input) => { seen = input.taskId; return { approve: true }; }, () => 'm-ep');
     await deriver.tick();
-    expect(seen).toBe('orca-1');
+    expect(seen).toBe('elowen-1');
   });
 
   it('a thrown overseer decision escalates instead of breaking the tick', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { tmux, deriver, emitted } = setup('L3', async () => { throw new Error('relay down'); });
     await expect(deriver.tick()).resolves.toBeUndefined();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]); // never auto-clears on a failed decision
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]); // never auto-clears on a failed decision
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
     err.mockRestore();
   });
@@ -164,15 +164,15 @@ const OC_QUESTION = `  ┃  # Questions
 type QDecider = (input: { question: string; context: string; options: { id: string; label: string }[]; autonomy: string; missionId: string | null; taskId: string }) => Promise<{ choiceId: string | null }>;
 
 function setupQuestion(autonomy: string | null, decideQuestion?: QDecider, missionFor?: (s: string) => string | null) {
-  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/o')").run();
+  const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db); const agents = new AgentStore(db);
-  tasks.create({ id: 'orca-1', project_id: 1, title: 'T' }); tasks.setStatus('orca-1', 'in_progress');
+  tasks.create({ id: 'elowen-1', project_id: 1, title: 'T' }); tasks.setStatus('elowen-1', 'in_progress');
   agents.upsert({ project_id: 1, name: 'TestAgent', program: 'opencode', model: 'ollama-cloud/deepseek-v4-flash' });
-  const tmux = new FakeTmuxDriver(); tmux.setPane('orca-TestAgent', OC_QUESTION);
+  const tmux = new FakeTmuxDriver(); tmux.setPane('elowen-TestAgent', OC_QUESTION);
   const emitted: { s: string; sig: { type: string } }[] = [];
   const deriver = new Deriver({
     tmux, agents, tasks, sink: { emit: (s, sig) => emitted.push({ s, sig }) },
-    sessionTaskId: () => 'orca-1', autonomyFor: () => autonomy, missionFor, decideQuestion,
+    sessionTaskId: () => 'elowen-1', autonomyFor: () => autonomy, missionFor, decideQuestion,
   });
   return { tmux, deriver, emitted };
 }
@@ -181,20 +181,20 @@ describe('Deriver question handling (the agent asks the user to pick an option)'
   it('navigates to the overseer-picked option (Down × position-1) then accepts, and emits working', async () => {
     const { tmux, deriver, emitted } = setupQuestion('L3', async () => ({ choiceId: '2' }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Down', 'Enter']]); // option 2 = one step down
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([['Down', 'Enter']]); // option 2 = one step down
     expect(emitted.at(-1)!.sig.type).toBe('working');
   });
 
   it('option 1 needs no navigation — just accept', async () => {
     const { tmux, deriver } = setupQuestion('L3', async () => ({ choiceId: '1' }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([['Enter']]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([['Enter']]);
   });
 
   it('escalates to a human when the overseer returns no choice (null)', async () => {
     const { tmux, deriver, emitted } = setupQuestion('L3', async () => ({ choiceId: null }));
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]); // nothing pressed
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]); // nothing pressed
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
   });
 
@@ -203,7 +203,7 @@ describe('Deriver question handling (the agent asks the user to pick an option)'
     const { tmux, deriver, emitted } = setupQuestion('L0', async () => { consulted = true; return { choiceId: '1' }; });
     await deriver.tick();
     expect(consulted).toBe(false);
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]);
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
   });
 
@@ -211,7 +211,7 @@ describe('Deriver question handling (the agent asks the user to pick an option)'
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { tmux, deriver, emitted } = setupQuestion('L3', async () => { throw new Error('relay down'); });
     await expect(deriver.tick()).resolves.toBeUndefined();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]);
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
     err.mockRestore();
   });
@@ -219,7 +219,7 @@ describe('Deriver question handling (the agent asks the user to pick an option)'
   it('with no decider wired at all, escalates (no blind navigation)', async () => {
     const { tmux, deriver, emitted } = setupQuestion('L3');
     await deriver.tick();
-    expect(tmux.sentKeys('orca-TestAgent')).toEqual([]);
+    expect(tmux.sentKeys('elowen-TestAgent')).toEqual([]);
     expect(emitted.at(-1)!.sig.type).toBe('needs_input');
   });
 

@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { UserCog, Mail, Cpu, Upload, ShieldCheck, User as UserIcon, KeyRound, ZoomIn, Bell, Sparkles, AtSign, Brain, MessageCircle, SquareTerminal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { OrcaApiError } from '../../lib/orcaClient';
+import { ElowenApiError } from '../../lib/elowenClient';
 import { useMe, useConfig, useMyCliSettings, useBrainModels } from '../../lib/queries';
 import { useUpdateMe, useUploadAvatar, useChangePassword, useSaveMyCliSettings } from '../../lib/mutations';
 import { allModels } from '../../lib/execPresets';
@@ -105,16 +105,16 @@ export function AccountView() {
   const fileRef = useRef<HTMLInputElement>(null);
   const scalePct = Math.round(scale * 100);
   const [section, setSection] = usePersistentState<'profile' | 'security' | 'notifications' | 'personality' | 'cli' | 'terminal' | 'memory'>(
-    'orca.account.section', 'profile', ['profile', 'security', 'notifications', 'personality', 'cli', 'terminal', 'memory']);
+    'elowen.account.section', 'profile', ['profile', 'security', 'notifications', 'personality', 'cli', 'terminal', 'memory']);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [defaultExec, setDefaultExec] = useState('');
-  // The user's default Orca AI chat model, kept as `provider::model` ('' = server default). Lives in
+  // The user's default Elowen AI chat model, kept as `provider::model` ('' = server default). Lives in
   // cliSettings (not on the User) — seeded once, then this local state drives the picker highlight.
-  const [orcaSel, setOrcaSel] = useState('');
-  const [orcaSeeded, setOrcaSeeded] = useState(false);
-  // Discord / WhatsApp account links live in cliSettings; seeded alongside the Orca-AI default, autosaved.
+  const [elowenSel, setElowenSel] = useState('');
+  const [elowenSeeded, setElowenSeeded] = useState(false);
+  // Discord / WhatsApp account links live in cliSettings; seeded alongside the Elowen-AI default, autosaved.
   const [discordUserId, setDiscordUserId] = useState('');
   const [whatsappNumber, setWhatsappNumber] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -142,32 +142,32 @@ export function AccountView() {
   );
   useAutoSave([name, email, defaultExec], saveProfile, { ready: formSeeded });
 
-  // Seed the Orca-AI default once cliSettings load; thereafter local state is the source of truth.
+  // Seed the Elowen-AI default once cliSettings load; thereafter local state is the source of truth.
   useEffect(() => {
-    if (cli.data && !orcaSeeded) {
-      setOrcaSel(cli.data.model ? `${cli.data.modelProvider ?? ''}::${cli.data.model}` : '');
+    if (cli.data && !elowenSeeded) {
+      setElowenSel(cli.data.model ? `${cli.data.modelProvider ?? ''}::${cli.data.model}` : '');
       setDiscordUserId(cli.data.discordUserId ?? '');
       setWhatsappNumber(cli.data.whatsappNumber ?? '');
-      setOrcaSeeded(true);
+      setElowenSeeded(true);
     }
-  }, [cli.data, orcaSeeded]);
+  }, [cli.data, elowenSeeded]);
   // Autosave the Discord / WhatsApp links (cli-settings PATCH merges, so the model picks stay untouched).
-  useAutoSave([discordUserId], () => saveCli.mutate({ discordUserId }), { ready: orcaSeeded });
-  useAutoSave([whatsappNumber], () => saveCli.mutate({ whatsappNumber }), { ready: orcaSeeded });
+  useAutoSave([discordUserId], () => saveCli.mutate({ discordUserId }), { ready: elowenSeeded });
+  useAutoSave([whatsappNumber], () => saveCli.mutate({ whatsappNumber }), { ready: elowenSeeded });
 
-  // Picking an Orca AI model writes ONLY model+modelProvider (the cli-settings PATCH merges, so
+  // Picking an Elowen AI model writes ONLY model+modelProvider (the cli-settings PATCH merges, so
   // CliSection's other fields are untouched) and the daemon restarts a running brain on the new model.
   // The picker hands back a `provider::model` key ('' = clear to the server default).
-  const applyOrca = (key: string) => {
-    const prev = orcaSel;
-    setOrcaSel(key);
+  const applyElowen = (key: string) => {
+    const prev = elowenSel;
+    setElowenSel(key);
     const sep = key.indexOf('::');
     const provider = sep > -1 ? key.slice(0, sep) : '';
     const model = sep > -1 ? key.slice(sep + 2) : '';
     saveCli.mutate(
       { model: key ? model : '', modelProvider: key ? provider : '' },
       // Revert the optimistic highlight if the server rejects the pick, so it can't drift from state.
-      { onError: () => { setOrcaSel(prev); toast(t.account.saveError, 'error'); } },
+      { onError: () => { setElowenSel(prev); toast(t.account.saveError, 'error'); } },
     );
   };
 
@@ -213,12 +213,12 @@ export function AccountView() {
   const pickable = restricted ? u.allowed_execs : (config?.allowedExecs ?? []);
   const labelOf = (exec: string) => allModels(custom).find((m) => m.exec === exec)?.label ?? exec;
 
-  // Split the pickable execs into worker engines (set default_exec) vs the embedded Orca AI brain (set
+  // Split the pickable execs into worker engines (set default_exec) vs the embedded Elowen AI brain (set
   // the cli-settings chat model) — the two defaults live apart, each its own single-select picker.
-  const workerExecs = pickable.filter((e) => execProvider(e) !== 'orca');
-  // Orca AI chat models: honour a user's personal allow-list even as admin (mirrors the worker rail +
+  const workerExecs = pickable.filter((e) => execProvider(e) !== 'elowen');
+  // Elowen AI chat models: honour a user's personal allow-list even as admin (mirrors the worker rail +
   // the Discord /model fix) — brainModels is already per-user-scoped server-side for non-admins.
-  const orcaModels = (brainModels.data ?? []).filter((m) => !restricted || u.allowed_execs.includes(m.exec));
+  const elowenModels = (brainModels.data ?? []).filter((m) => !restricted || u.allowed_execs.includes(m.exec));
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -234,7 +234,7 @@ export function AccountView() {
         onSuccess: () => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); toast(t.account.passwordChanged); },
         // A wrong current password comes back as 403 (not a session failure); show the specific
         // translated message, falling back to the generic one for anything else.
-        onError: (e) => toast(e instanceof OrcaApiError && e.status === 403 ? t.account.passwordWrong : t.account.passwordError, 'error'),
+        onError: (e) => toast(e instanceof ElowenApiError && e.status === 403 ? t.account.passwordWrong : t.account.passwordError, 'error'),
       },
     );
   };
@@ -263,7 +263,7 @@ export function AccountView() {
       >
       {section === 'memory' ? <AccountMemorySection /> : section === 'personality' ? <PersonalitySection /> : section === 'terminal' ? <TerminalSection /> : null}
 
-      {/* Orca AI — every per-user AI knob in one place: the default models (right rail) plus the
+      {/* Elowen AI — every per-user AI knob in one place: the default models (right rail) plus the
           runtime settings (thinking level, vision fallback, auto-compact) from CliSection. */}
       {section === 'cli' ? (
       <div className="@container">
@@ -272,7 +272,7 @@ export function AccountView() {
         <CliSection />
       </div>
 
-      {/* Right rail: the models you may run — the default worker and the default Orca AI chat model,
+      {/* Right rail: the models you may run — the default worker and the default Elowen AI chat model,
           each grouped by provider. Tapping a card makes it that default (they are separate settings). */}
       <div className="flex shrink-0 flex-col gap-4 @3xl:w-72">
         <span className="flex items-center gap-2 text-sm font-medium text-text">
@@ -280,7 +280,7 @@ export function AccountView() {
           <HelpTip align="right">{restricted ? t.account.restrictedHint : t.account.defaultModelHint}</HelpTip>
         </span>
 
-        {workerExecs.length === 0 && orcaModels.length === 0 ? (
+        {workerExecs.length === 0 && elowenModels.length === 0 ? (
           <p className="text-xs italic text-text-muted">{t.account.noModelLimit}</p>
         ) : null}
 
@@ -301,20 +301,20 @@ export function AccountView() {
           </div>
         ) : null}
 
-        {/* Default Orca AI model — the embedded brain used by BOTH the web chat and the orca chat
+        {/* Default Elowen AI model — the embedded brain used by BOTH the web chat and the elowen chat
             CLI (cliSettings.model), not just chat. */}
-        {orcaModels.length > 0 ? (
+        {elowenModels.length > 0 ? (
           <div className="flex flex-col gap-2.5">
             <span className="flex items-center gap-1.5 text-tiny font-semibold uppercase tracking-wide text-text-muted">
-              {t.account.defaultOrcaAi}<HelpTip align="right">{t.account.defaultOrcaAiHint}</HelpTip>
+              {t.account.defaultElowenAi}<HelpTip align="right">{t.account.defaultElowenAiHint}</HelpTip>
             </span>
             <BrainModelField
-              value={orcaSel}
-              onChange={applyOrca}
-              models={orcaModels}
-              title={t.account.defaultOrcaAi}
-              subtitle={t.account.defaultOrcaAiHint}
-              defaultLabel={t.account.defaultOrcaAiNone}
+              value={elowenSel}
+              onChange={applyElowen}
+              models={elowenModels}
+              title={t.account.defaultElowenAi}
+              subtitle={t.account.defaultElowenAiHint}
+              defaultLabel={t.account.defaultElowenAiNone}
               keyOf={(m) => `${m.provider}::${m.model}`}
             />
           </div>
@@ -360,12 +360,12 @@ export function AccountView() {
           </div>
         </SettingCard>
 
-        {/* Discord account link — maps your Discord user to this Orca account (owner persona on Discord). */}
+        {/* Discord account link — maps your Discord user to this Elowen account (owner persona on Discord). */}
         <SettingCard title={t.account.discordId} icon={AtSign} description={t.help.accountDiscordId}>
           <Input value={discordUserId} onChange={(e) => setDiscordUserId(e.target.value)} placeholder="123456789012345678" className="max-w-xs font-mono" aria-label={t.account.discordId} />
         </SettingCard>
 
-        {/* WhatsApp account link — maps your WhatsApp number to this Orca account (owner persona on WhatsApp). */}
+        {/* WhatsApp account link — maps your WhatsApp number to this Elowen account (owner persona on WhatsApp). */}
         <SettingCard title={t.account.whatsappNumber} icon={MessageCircle} description={t.help.accountWhatsappNumber}>
           <Input value={whatsappNumber} onChange={(e) => setWhatsappNumber(e.target.value)} placeholder="420778433908" className="max-w-xs font-mono" aria-label={t.account.whatsappNumber} />
         </SettingCard>

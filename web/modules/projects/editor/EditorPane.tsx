@@ -17,7 +17,7 @@ export function EditorPane({ path, value, onChange, onSave, wordWrap }: {
     <MonacoEditor
       key={path}
       height="100%"
-      theme={resolvedTheme === 'light' ? 'orca-light' : 'orca-oled'}
+      theme={resolvedTheme === 'light' ? 'elowen-light' : 'elowen-oled'}
       beforeMount={defineEditorThemes}
       onMount={(editor, monaco) => { editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current()); }}
       language={langOf(path)}

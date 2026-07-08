@@ -14,7 +14,7 @@ import { IconButton } from '../../components/ui/IconButton';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { taskTypeLabel, taskTypeMeta, TASK_TYPES } from './taskMeta';
-import { OrcaApiError } from '../../lib/orcaClient';
+import { ElowenApiError } from '../../lib/elowenClient';
 
 type Mode = 'manual' | 'replan';
 interface ManualPhase { title: string; type: string; details: string }
@@ -49,7 +49,7 @@ export function AddPhaseModal({ epicId, onClose }: { epicId: string; onClose: ()
       toast(t.missions.addPhaseInserted.replace('{count}', String(r.phases.length)).replace('{s}', r.phases.length === 1 ? '' : 's').replace('{epicId}', epicId));
       onClose();
     } catch (e) {
-      if (e instanceof OrcaApiError && e.code === 'autopilot_key_missing') toast(t.tasks.autopilotKeyMissing, 'error');
+      if (e instanceof ElowenApiError && e.code === 'autopilot_key_missing') toast(t.tasks.autopilotKeyMissing, 'error');
       else toast(String(e), 'error');
     }
   }

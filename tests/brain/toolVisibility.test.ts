@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { visibleToolNames, applyToolVisibility, type ToolVisibilityTarget } from '../../src/brain/session/capabilities.js';
 
-const ALL = ['orca_create_task', 'memory_search', 'read_file', 'run_command', 'discord_api'];
+const ALL = ['elowen_create_task', 'memory_search', 'read_file', 'run_command', 'discord_api'];
 const PLUGINS = new Set(['read_file', 'run_command', 'discord_api']); // files/terminal/discord plugin tools
 
 describe('visibleToolNames', () => {
@@ -9,16 +9,16 @@ describe('visibleToolNames', () => {
     expect(visibleToolNames(ALL, PLUGINS, undefined)).toEqual(ALL);
   });
 
-  it("a role allow-list narrows ONLY plugin tools; built-in orca_/memory_ stay visible", () => {
+  it("a role allow-list narrows ONLY plugin tools; built-in elowen_/memory_ stay visible", () => {
     const tp = { allow: new Set(['read_file']) };
     // read_file passes the allow-list; run_command + discord_api are plugin tools NOT allowed → hidden.
-    // orca_create_task + memory_search are non-plugin → always visible regardless of the allow-list.
-    expect(visibleToolNames(ALL, PLUGINS, tp)).toEqual(['orca_create_task', 'memory_search', 'read_file']);
+    // elowen_create_task + memory_search are non-plugin → always visible regardless of the allow-list.
+    expect(visibleToolNames(ALL, PLUGINS, tp)).toEqual(['elowen_create_task', 'memory_search', 'read_file']);
   });
 
   it('a user deny-list can hide ANY tool it names, plugin or not', () => {
     const tp = { deny: new Set(['discord_api', 'memory_search']) };
-    expect(visibleToolNames(ALL, PLUGINS, tp)).toEqual(['orca_create_task', 'read_file', 'run_command']);
+    expect(visibleToolNames(ALL, PLUGINS, tp)).toEqual(['elowen_create_task', 'read_file', 'run_command']);
   });
 });
 
@@ -38,7 +38,7 @@ describe('applyToolVisibility', () => {
     const s = fakeSession(ALL);
     applyToolVisibility(s, PLUGINS, { deny: new Set(['discord_api']) });
     expect(s.calls).toHaveLength(1);
-    expect(s.calls[0]).toEqual(['orca_create_task', 'memory_search', 'read_file', 'run_command']);
+    expect(s.calls[0]).toEqual(['elowen_create_task', 'memory_search', 'read_file', 'run_command']);
   });
 
   it('is a no-op (keeps the prompt cache warm) when the active set already matches', () => {

@@ -15,7 +15,7 @@ import {
 
 const dirs: string[] = [];
 const makeEnv = (): NodeJS.ProcessEnv => {
-  const home = mkdtempSync(join(tmpdir(), 'orca-history-'));
+  const home = mkdtempSync(join(tmpdir(), 'elowen-history-'));
   dirs.push(home);
   return { HOME: home };
 };
@@ -54,7 +54,7 @@ describe('prompt history persistence (per project)', () => {
     const env = makeEnv();
     appendPromptHistory('/p', '   ', env); // blank → no write at all
     expect(loadPromptHistory('/p', env)).toEqual([]);
-    const file = join(env.HOME!, '.config', 'orca', 'cli-history.json');
+    const file = join(env.HOME!, '.config', 'elowen', 'cli-history.json');
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, 'not json{', 'utf-8');
     expect(loadPromptHistory('/p', env)).toEqual([]);
@@ -65,7 +65,7 @@ describe('prompt history persistence (per project)', () => {
 
   it('drops non-string junk from a tampered file instead of recalling it', () => {
     const env = makeEnv();
-    const file = join(env.HOME!, '.config', 'orca', 'cli-history.json');
+    const file = join(env.HOME!, '.config', 'elowen', 'cli-history.json');
     appendPromptHistory('/p', 'real', env);
     writeFileSync(file, JSON.stringify({ '/p': ['real', 42, null, ''] }), 'utf-8');
     expect(loadPromptHistory('/p', env)).toEqual(['real']);

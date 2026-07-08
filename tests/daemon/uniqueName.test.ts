@@ -17,19 +17,19 @@ describe('freeAgentName', () => {
 
   it('skips a name whose live tmux session already exists (worker prefix)', async () => {
     const queue = ['Nova', 'Atlas'];
-    const name = await freeAgentName(() => queue.shift()!, async () => ['orca-Nova']);
-    expect(name).toBe('Atlas'); // orca-Nova is live → rolled to the next free name
+    const name = await freeAgentName(() => queue.shift()!, async () => ['elowen-Nova']);
+    expect(name).toBe('Atlas'); // elowen-Nova is live → rolled to the next free name
   });
 
   it('honours the session prefix when checking liveness (pilot)', async () => {
     const queue = ['Nova', 'Atlas'];
-    const name = await freeAgentName(() => queue.shift()!, async () => ['orca-pilot-Nova'], 'pilot-');
-    expect(name).toBe('Atlas'); // orca-pilot-Nova is live → skip Nova
+    const name = await freeAgentName(() => queue.shift()!, async () => ['elowen-pilot-Nova'], 'pilot-');
+    expect(name).toBe('Atlas'); // elowen-pilot-Nova is live → skip Nova
   });
 
   it('falls back to a unique suffix when every candidate name is taken', async () => {
     // make always yields the same taken name → liveness can never be satisfied by re-rolling.
-    const name = await freeAgentName(() => 'Nova', async () => ['orca-Nova']);
+    const name = await freeAgentName(() => 'Nova', async () => ['elowen-Nova']);
     expect(name).not.toBe('Nova');
     expect(name.startsWith('Nova-')).toBe(true); // friendly base kept, uniqueness appended
   });

@@ -1,6 +1,6 @@
 // Discord platform plugin: a dependency-free gateway client (Node's global WebSocket + fetch).
 // The bot answers when mentioned in a server; the sender's Discord roles resolve — via this plugin's
-// own rolePolicies config — to the Orca projects they may touch plus an extra role prompt (a per-role
+// own rolePolicies config — to the Elowen projects they may touch plus an extra role prompt (a per-role
 // instructions pattern). Unmapped senders (and DMs, which carry no roles) are ignored.
 //
 // On top of plain chat it provides: slash commands (/model, /new, /help), a per-channel model picker

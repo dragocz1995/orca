@@ -17,7 +17,7 @@ export interface BrainProviderEntry {
    *  see {@link openAiApiFor}. */
   api?: BrainProviderApi;
   /** How this entry authenticates — drives the picker's provenance badge (OAuth account vs API key vs
-   *  the autopilot relay fallback). Set by `brainConfigFromOrca`; absent reads as 'api-key'. */
+   *  the autopilot relay fallback). Set by `brainConfigFromElowen`; absent reads as 'api-key'. */
   origin?: 'api-key' | 'oauth' | 'relay';
 }
 
@@ -81,9 +81,9 @@ const windowFor = (cfg: BrainRuntimeConfig, providerId: string, model: string): 
   cfg.contextWindows?.[`${providerId}/${model}`];
 
 /** The registry provider name a config entry registers/reads under. Custom endpoints get a stable
- *  `orca-<id>` namespace; OAuth entries resolve to the built-in provider. */
+ *  `elowen-<id>` namespace; OAuth entries resolve to the built-in provider. */
 export function registryProviderName(p: BrainProviderEntry): string {
-  return OAUTH_BUILTIN[p.type] ?? `orca-${p.id}`;
+  return OAUTH_BUILTIN[p.type] ?? `elowen-${p.id}`;
 }
 
 /** Build the brain's ModelRegistry from the configured providers. Custom endpoints are registered with

@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for Orcasynth
+about: Suggest an idea for Elowen
 title: "[feat] "
 labels: enhancement
 ---

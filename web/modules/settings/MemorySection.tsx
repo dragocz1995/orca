@@ -15,7 +15,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useConfig, useEmbeddingSettings, useCategorizationSettings, useBrainModels } from '../../lib/queries';
 import { useSaveEmbeddingSettings, useReindexMemories, useSaveCategorizationSettings, useReclassifyMemories } from '../../lib/mutations';
 import { useAutoSave } from '../../lib/useAutoSave';
-import { orcaClient, OrcaApiError } from '../../lib/orcaClient';
+import { elowenClient, ElowenApiError } from '../../lib/elowenClient';
 import type { BrainModelOption } from '../../lib/types';
 
 /** Deduped model ids from the brain catalog, scoped to the chosen provider (or all when none picked).
@@ -30,7 +30,7 @@ function useProviderCatalog(brainModels: BrainModelOption[] | undefined, provide
 
 /** Settings → Memory: the two workspace-level models that power memory — the embedding model (memories
  *  → vectors for semantic recall) and the categorization model (sorts memories into categories). Both
- *  inherit their API key + endpoint from the referenced brain provider (Settings → Orca AI); there is
+ *  inherit their API key + endpoint from the referenced brain provider (Settings → Elowen AI); there is
  *  no separate base URL. Admin-only (the Settings config group is already admin-gated). */
 export function MemorySection() {
   const { t } = useTranslation();
@@ -105,13 +105,13 @@ export function MemorySection() {
 
   const onTest = () => {
     setTesting(true);
-    void orcaClient.testEmbedding()
+    void elowenClient.testEmbedding()
       .then((r) => {
         if (r.ok) toast(t.memory.embeddingTestOk.replace('{dimensions}', String(r.dimensions)));
         else toast(t.memory.embeddingTestFail.replace('{error}', r.error), 'error');
       })
-      // A 400 (unconfigured) throws OrcaApiError; anything else is an unexpected transport failure.
-      .catch((e) => toast(e instanceof OrcaApiError ? t.memory.embeddingUnconfiguredError : String(e), 'error'))
+      // A 400 (unconfigured) throws ElowenApiError; anything else is an unexpected transport failure.
+      .catch((e) => toast(e instanceof ElowenApiError ? t.memory.embeddingUnconfiguredError : String(e), 'error'))
       .finally(() => setTesting(false));
   };
 

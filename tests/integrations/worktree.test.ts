@@ -9,10 +9,10 @@ let repo: string;
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 beforeEach(() => {
-  repo = mkdtempSync(join(tmpdir(), 'orca-wt-'));
+  repo = mkdtempSync(join(tmpdir(), 'elowen-wt-'));
   git(repo, 'init', '-q', '-b', 'main');
-  git(repo, 'config', 'user.email', 'test@orca.dev');
-  git(repo, 'config', 'user.name', 'Orca Test');
+  git(repo, 'config', 'user.email', 'test@elowen.dev');
+  git(repo, 'config', 'user.name', 'Elowen Test');
   writeFileSync(join(repo, 'README.md'), '# repo\n');
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'init');
@@ -22,15 +22,15 @@ afterEach(() => { rmSync(repo, { recursive: true, force: true }); });
 describe('worktree', () => {
   it('creates a worktree on a new branch off the base', async () => {
     const dir = join(repo, '..', `wt-${Date.now()}`);
-    await createMissionWorktree(repo, 'orca/feat-1', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-1', 'main', dir);
     expect(existsSync(join(dir, 'README.md'))).toBe(true);          // checked out base content
-    expect(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('orca/feat-1');
+    expect(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('elowen/feat-1');
     rmSync(dir, { recursive: true, force: true });
   });
 
   it('commitAll commits staged changes and returns true', async () => {
     const dir = join(repo, '..', `wt-${Date.now()}-c`);
-    await createMissionWorktree(repo, 'orca/feat-2', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-2', 'main', dir);
     writeFileSync(join(dir, 'new.txt'), 'hello\n');
     const made = await commitAll(dir, 'add new.txt');
     expect(made).toBe(true);
@@ -40,7 +40,7 @@ describe('worktree', () => {
 
   it('commitAll is a no-op (returns false) when nothing changed', async () => {
     const dir = join(repo, '..', `wt-${Date.now()}-e`);
-    await createMissionWorktree(repo, 'orca/feat-3', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-3', 'main', dir);
     const made = await commitAll(dir, 'nothing');
     expect(made).toBe(false);
     rmSync(dir, { recursive: true, force: true });
@@ -48,7 +48,7 @@ describe('worktree', () => {
 
   it('commitAll also commits new untracked files', async () => {
     const dir = join(repo, '..', `wt-${Date.now()}-u`);
-    await createMissionWorktree(repo, 'orca/feat-4', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-4', 'main', dir);
     mkdirSync(join(dir, 'sub'));
     writeFileSync(join(dir, 'sub', 'a.txt'), 'a\n');
     expect(await commitAll(dir, 'add sub/a.txt')).toBe(true);
@@ -58,12 +58,12 @@ describe('worktree', () => {
 
   it('removeWorktree detaches the worktree but keeps the branch', async () => {
     const dir = join(repo, '..', `wt-${Date.now()}-r`);
-    await createMissionWorktree(repo, 'orca/feat-5', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-5', 'main', dir);
     writeFileSync(join(dir, 'x.txt'), 'x\n');
     await commitAll(dir, 'work');
     await removeWorktree(repo, dir);
     expect(existsSync(dir)).toBe(false);                            // worktree gone
-    expect(git(repo, 'branch', '--list', 'orca/feat-5').trim()).toContain('orca/feat-5'); // branch survives
+    expect(git(repo, 'branch', '--list', 'elowen/feat-5').trim()).toContain('elowen/feat-5'); // branch survives
   });
 
   it('detectBaseBranch falls back to the current branch without a remote', async () => {
@@ -85,7 +85,7 @@ describe('worktree', () => {
 describe('pushBranch', () => {
   let remote: string;
   beforeEach(() => {
-    remote = mkdtempSync(join(tmpdir(), 'orca-remote-'));
+    remote = mkdtempSync(join(tmpdir(), 'elowen-remote-'));
     execFileSync('git', ['init', '-q', '--bare', remote]);
     git(repo, 'remote', 'add', 'origin', remote);
   });
@@ -93,30 +93,30 @@ describe('pushBranch', () => {
 
   it('re-pushes additional commits to an already-pushed branch (lease stays valid)', async () => {
     const dir = join(repo, '..', `wt-${Date.now()}-p`);
-    await createMissionWorktree(repo, 'orca/feat-push', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-push', 'main', dir);
     writeFileSync(join(dir, 'a.txt'), 'one\n'); await commitAll(dir, 'first');
-    expect(await pushBranch(dir, 'orca/feat-push', '')).toBe(true);   // initial push
+    expect(await pushBranch(dir, 'elowen/feat-push', '')).toBe(true);   // initial push
     writeFileSync(join(dir, 'b.txt'), 'two\n'); await commitAll(dir, 'second');
-    expect(await pushBranch(dir, 'orca/feat-push', '')).toBe(true);   // re-push must NOT 'stale info'
-    expect(git(remote, 'log', '--oneline', 'orca/feat-push')).toContain('second');
+    expect(await pushBranch(dir, 'elowen/feat-push', '')).toBe(true);   // re-push must NOT 'stale info'
+    expect(git(remote, 'log', '--oneline', 'elowen/feat-push')).toContain('second');
     rmSync(dir, { recursive: true, force: true });
   });
 
   it('returns false when the repo has no origin remote', async () => {
     git(repo, 'remote', 'remove', 'origin');
     const dir = join(repo, '..', `wt-${Date.now()}-n`);
-    await createMissionWorktree(repo, 'orca/feat-noremote', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-noremote', 'main', dir);
     writeFileSync(join(dir, 'a.txt'), 'x\n'); await commitAll(dir, 'work');
-    expect(await pushBranch(dir, 'orca/feat-noremote', '')).toBe(false);
+    expect(await pushBranch(dir, 'elowen/feat-noremote', '')).toBe(false);
     rmSync(dir, { recursive: true, force: true });
   });
 
   it('pushes with a configured token without persisting it to the repo config', async () => {
     const dir = join(repo, '..', `wt-${Date.now()}-t`);
-    await createMissionWorktree(repo, 'orca/feat-token', 'main', dir);
+    await createMissionWorktree(repo, 'elowen/feat-token', 'main', dir);
     writeFileSync(join(dir, 'a.txt'), 'x\n'); await commitAll(dir, 'work');
-    expect(await pushBranch(dir, 'orca/feat-token', 'ghs_faketoken123')).toBe(true);
-    expect(git(remote, 'log', '--oneline', 'orca/feat-token')).toContain('work');
+    expect(await pushBranch(dir, 'elowen/feat-token', 'ghs_faketoken123')).toBe(true);
+    expect(git(remote, 'log', '--oneline', 'elowen/feat-token')).toContain('work');
     // The one-shot `-c http.extraHeader` is command-scoped — the token must never land in config.
     expect(git(dir, 'config', '--local', '--list')).not.toContain('ghs_faketoken123');
     rmSync(dir, { recursive: true, force: true });

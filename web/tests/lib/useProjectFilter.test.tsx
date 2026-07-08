@@ -9,7 +9,7 @@ import { createWrapper } from '../test-utils';
 // The project list loads asynchronously (GET /projects) — useProjects is undefined on first render.
 const server = setupServer(
   http.get('*/api/projects', () => HttpResponse.json([
-    { id: 1, slug: 'orca', path: '/o', notes: '', icon: '', pr_enabled: null },
+    { id: 1, slug: 'elowen', path: '/o', notes: '', icon: '', pr_enabled: null },
     { id: 2, slug: 'other', path: '/p2', notes: '', icon: '', pr_enabled: null },
   ])),
 );
@@ -18,25 +18,25 @@ beforeEach(() => localStorage.clear());
 
 describe('useProjectFilter', () => {
   it('restores the stored project id even though the project list loads asynchronously', async () => {
-    localStorage.setItem('orca.tasks.project', '2');
+    localStorage.setItem('elowen.tasks.project', '2');
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useProjectFilter('orca.tasks.project'), { wrapper });
+    const { result } = renderHook(() => useProjectFilter('elowen.tasks.project'), { wrapper });
     // The bug: with an async-derived allow-list the stored id was rejected on mount and the filter
     // silently fell back to 'all'. A static key check restores it regardless of load timing.
     await waitFor(() => expect(result.current.selectedProject).toBe(2));
   });
 
   it('clamps to all when the stored project no longer exists', async () => {
-    localStorage.setItem('orca.tasks.project', '999'); // a deleted/foreign project id
+    localStorage.setItem('elowen.tasks.project', '999'); // a deleted/foreign project id
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useProjectFilter('orca.tasks.project'), { wrapper });
+    const { result } = renderHook(() => useProjectFilter('elowen.tasks.project'), { wrapper });
     // Wait for the project list to load, then the unknown id must clamp to 'all' (no invisible filter).
     await waitFor(() => expect(result.current.selectedProject).toBe('all'));
   });
 
   it('defaults to all when nothing is stored', async () => {
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useProjectFilter('orca.tasks.project'), { wrapper });
+    const { result } = renderHook(() => useProjectFilter('elowen.tasks.project'), { wrapper });
     expect(result.current.selectedProject).toBe('all');
   });
 });

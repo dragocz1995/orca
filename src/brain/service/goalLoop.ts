@@ -15,10 +15,10 @@ interface GoalLoopDeps {
   start(userId: number): Promise<{ sessionId: string }>;
   /** BrainService.send — goal kickoff and continuation turns run through the normal turn pipeline. */
   send(userId: number, text: string, images: undefined, mode: 'build' | 'plan', internal: { goalKickoff?: boolean; goalContinue?: boolean }, clientCwd: undefined, session?: string): Promise<void>;
-  /** Operator default for a new goal's per-window turn budget (Orca AI → Limits). */
+  /** Operator default for a new goal's per-window turn budget (Elowen AI → Limits). */
   defaultTurnBudget(): number;
   /** Absolute safety ceiling on autonomous turns: even in YOLO the loop pauses here so a runaway goal
-   *  can't burn tokens forever (Orca AI → Limits). */
+   *  can't burn tokens forever (Elowen AI → Limits). */
   goalMaxTurns(): number;
   /** Whether this conversation runs in YOLO — the EFFECTIVE yolo (a session `/yolo` override over the
    *  persisted permission default), matching how tool approvals resolve it, so `/yolo off` supervises the

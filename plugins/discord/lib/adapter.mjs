@@ -26,7 +26,7 @@ function cfgNum(cfg, key, def, min, max) {
 }
 
 /** Split a message's attachments into vision-ready images (downloaded + base64, capped) and textual
- *  notes for everything else (audio/video/documents — Orca has no STT, the agent just learns a file
+ *  notes for everything else (audio/video/documents — Elowen has no STT, the agent just learns a file
  *  arrived). Attachment URLs are public CDN links; no auth header is needed. */
 async function collectAttachments(list, maxImageBytes, maxImages) {
   const images = [];
@@ -126,8 +126,8 @@ export class DiscordAdapter {
       { name: 'stop', description: 'Stop the running agent in this channel', type: 1 },
       { name: 'status', description: 'Show the model, context and usage for this channel', type: 1 },
       { name: 'compact', description: 'Summarize the conversation to free up context', type: 1 },
-      { name: 'restart', description: 'Restart the Orca daemon (admin only)', type: 1 },
-      { name: 'help', description: 'What can Orca do here?', type: 1 },
+      { name: 'restart', description: 'Restart the Elowen daemon (admin only)', type: 1 },
+      { name: 'help', description: 'What can Elowen do here?', type: 1 },
     ];
     const globalPath = `/applications/${this.appId}/commands`;
     const path = this.cfg.guildId ? `/applications/${this.appId}/guilds/${this.cfg.guildId}/commands` : globalPath;
@@ -171,7 +171,7 @@ export class DiscordAdapter {
         this.send({ op: 1, d: this.seq });
       }, frame.d.heartbeat_interval);
       if (this.sessionId) this.send({ op: 6, d: { token: this.cfg.botToken, session_id: this.sessionId, seq: this.seq } });
-      else this.send({ op: 2, d: { token: this.cfg.botToken, intents: INTENTS, properties: { os: 'linux', browser: 'orca', device: 'orca' } } });
+      else this.send({ op: 2, d: { token: this.cfg.botToken, intents: INTENTS, properties: { os: 'linux', browser: 'elowen', device: 'elowen' } } });
       return;
     }
     if (frame.op === 11) { this.awaitingAck = false; return; }
@@ -212,7 +212,7 @@ export class DiscordAdapter {
       roleIds,
       access: {
         // admin:true = the operator's admin role — full project scope + the full plugin toolset
-        // (trusted-channel). It does NOT grant the owner's orca_* control-plane tools or API token:
+        // (trusted-channel). It does NOT grant the owner's elowen_* control-plane tools or API token:
         // a shared channel is never the verified owner's own chat, whatever role the sender holds.
         admin: match.admin === true,
         projectIds: (match.projectIds ?? []).map(Number),
@@ -388,7 +388,7 @@ export class DiscordAdapter {
     // ACK-and-respond for slash commands (type 2) and component interactions (type 3).
     if (i.type === 2) {
       const name = i.data?.name;
-      if (name === 'help') return this.respond(i, 4, { content: this.msg.help(this.cfg.agentName || 'Orca'), flags: 64 });
+      if (name === 'help') return this.respond(i, 4, { content: this.msg.help(this.cfg.agentName || 'Elowen'), flags: 64 });
       if (name === 'new') {
         const gen = (this.state.get(i.channel_id).gen ?? 0) + 1;
         this.state.patch(i.channel_id, { gen });
@@ -513,7 +513,7 @@ export class DiscordAdapter {
    *  buildAskComponents). Registers a pending entry the interaction/text handlers resolve. */
   async postAsk(channelId, replyToId, askerId, id, questions) {
     const cs = this.cfg.language === 'cs';
-    const title = `❓ ${this.cfg.agentName || 'Orca'} ${cs ? 'potřebuje tvůj vstup' : 'needs your input'}`;
+    const title = `❓ ${this.cfg.agentName || 'Elowen'} ${cs ? 'potřebuje tvůj vstup' : 'needs your input'}`;
     const desc = questions.map((q) => `**${q.header}** — ${q.question}`).join('\n\n');
     const res = await this.rest('POST', `/channels/${channelId}/messages`, {
       ...(replyToId ? { message_reference: { message_id: replyToId, fail_if_not_exists: false } } : {}),

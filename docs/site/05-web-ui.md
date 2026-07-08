@@ -7,11 +7,11 @@ eyebrow: Guide
 
 # Web UI
 
-Orca is a personal AI agent you chat with — it reasons, calls tools, edits files, runs commands, and works across Discord, WhatsApp, and the web. The web UI is where you **watch and steer** that agent. It is not the product; it is your window into the agent and your controls for it.
+Elowen is a personal AI agent you chat with — it reasons, calls tools, edits files, runs commands, and works across Discord, WhatsApp, and the web. The web UI is where you **watch and steer** that agent. It is not the product; it is your window into the agent and your controls for it.
 
 Everything here is built around the clarity pillar: a clean, uncluttered surface where you can always see what the agent is doing, and step in the moment you want to. The modules split into two groups — **Operate** (watch and drive live work) and **Config** (set the agent up) — mirrored exactly in the left sidebar.
 
-![The Orca dashboard: a single-agent bento — right now, decisions, spend, activity, today](images/web-ui-dashboard.png)
+![The Elowen dashboard: a single-agent bento — right now, decisions, spend, activity, today](images/web-ui-dashboard.png)
 
 ## Watch and steer the agent
 
@@ -121,7 +121,7 @@ The inbox self-clears once each item is resolved. This is the low-friction way t
 
 ## Settings
 
-`/settings` — the Config hub, admin-only. Everything the agent may do is set here, and every capability is an add/remove-able plugin — Orca is modular to the core. The ten categories, in order:
+`/settings` — the Config hub, admin-only. Everything the agent may do is set here, and every capability is an add/remove-able plugin — Elowen is modular to the core. The ten categories, in order:
 
 | Category | What it controls |
 |----------|------------------|
@@ -140,7 +140,7 @@ For depth, see [Configuration](configuration) and [Plugins](plugins).
 
 ## Users (RBAC & per-user tools)
 
-`/users` — full role-based access control, admin-only. This is a headline of Orca: **each user can have a different set of tools and permissions.**
+`/users` — full role-based access control, admin-only. This is a headline of Elowen: **each user can have a different set of tools and permissions.**
 
 ![The Users module: roles, per-user tools, and project scoping](images/users-rbac.png)
 

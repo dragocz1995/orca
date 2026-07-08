@@ -19,18 +19,18 @@ export type SubagentEmitter = (update: SubagentUpdate) => void;
 export interface TurnModel { provider?: string; model: string }
 
 /** Who is driving the current prompt turn. Plugins that persist per-user state (long-term memory)
- *  key it on this: a linked platform sender resolves to their Orca username, an unknown sender to
+ *  key it on this: a linked platform sender resolves to their Elowen username, an unknown sender to
  *  `<platform>:<platformUserId>`, the owner to whatever identity the plugin's config anchors. */
 export interface TurnIdentity {
   platform: string;
   userId: string;
-  /** The Orca ACCOUNT id behind this turn, when there is one: the user themselves in their own chat, or
+  /** The Elowen ACCOUNT id behind this turn, when there is one: the user themselves in their own chat, or
    *  the linked account a platform sender is verified as. Undefined for an unlinked/anonymous sender.
    *  Distinct from `userId`, which for a platform turn is the raw platform id (e.g. a Discord id) — so
    *  per-account state (private long-term memory) keys on THIS, never on the ambiguous `userId`. */
-  orcaUserId?: number;
-  /** Set when the sender is (or linked to) a registered Orca account. */
-  orcaUsername?: string;
+  elowenUserId?: number;
+  /** Set when the sender is (or linked to) a registered Elowen account. */
+  elowenUsername?: string;
   /** Full-access (all-access policy) turn — unlocks project-scoped power tools. NOT sufficient for
    *  owner-only surfaces: a foreign platform member mapped to an admin role also lands here. */
   admin: boolean;
@@ -40,7 +40,7 @@ export interface TurnIdentity {
   owner: boolean;
 }
 
-/** Per-turn tool access — the SINGLE abstraction both sources (a user's Orca account and a platform
+/** Per-turn tool access — the SINGLE abstraction both sources (a user's Elowen account and a platform
  *  role policy) resolve into, so tool gating has one shape everywhere. `allow` (when set) is an
  *  allow-list: only those plugin tools are permitted (a role's tool allowlist for an unlinked sender).
  *  `deny` is a deny-list: those plugin tools are withheld (a user's own `disabled_tools`). Both may be

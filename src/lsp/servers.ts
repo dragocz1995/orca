@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { lspPrefixDir } from './install.js';
 
-/** Language detection + the registry of language servers Orca knows how to drive. Each entry maps a
+/** Language detection + the registry of language servers Elowen knows how to drive. Each entry maps a
  *  language id to the command that starts its server over stdio. The command is only spawned if it's
  *  actually on PATH (checked at spawn time), so an entry for a server the box doesn't have is a graceful
  *  no-op rather than an error — "LSP for all languages" degrades to "for every language whose server is
@@ -17,9 +17,9 @@ export interface LanguageServerSpec {
   /** Human label for menus/logs. */
   label: string;
   /** Global npm package(s) that provide the binary — set only where npm IS the canonical install
-   *  (Orca can then install it itself: setup wizard, /lsp modal ctrl+i, POST /brain/lsp/install). */
+   *  (Elowen can then install it itself: setup wizard, /lsp modal ctrl+i, POST /brain/lsp/install). */
   npmPackages?: string[];
-  /** Human install command for servers Orca can't install itself (they ship with their toolchains). */
+  /** Human install command for servers Elowen can't install itself (they ship with their toolchains). */
   installHint: string;
 }
 
@@ -66,7 +66,7 @@ const SERVER_ALIAS: Record<string, string> = {
   shellscript: 'bash',
 };
 
-/** Resolve `command` to a runnable binary path: Orca's own LSP install prefix (`<data dir>/lsp/bin`,
+/** Resolve `command` to a runnable binary path: Elowen's own LSP install prefix (`<data dir>/lsp/bin`,
  *  where ctrl+i / the setup wizard install servers — the daemon user can't write the system npm prefix)
  *  wins over PATH lookup. Returns null when the server isn't installed anywhere — checked UP FRONT
  *  because `child_process.spawn` reports a missing binary only via an async 'error' event, so a missing
@@ -82,7 +82,7 @@ export function resolveServerCommand(command: string, env: NodeJS.ProcessEnv = p
   return null;
 }
 
-/** Whether `command` resolves to an executable (Orca's LSP prefix or PATH). */
+/** Whether `command` resolves to an executable (Elowen's LSP prefix or PATH). */
 export function commandExists(command: string, env: NodeJS.ProcessEnv = process.env): boolean {
   return resolveServerCommand(command, env) !== null;
 }
@@ -100,7 +100,7 @@ export function serverForLanguage(language: string): LanguageServerSpec | null {
 }
 
 /** Every registered server, one entry per BINARY (clangd covers c and cpp but is one server). Feeds the
- *  status surfaces — which servers Orca can drive, whether each is installed/running. */
+ *  status surfaces — which servers Elowen can drive, whether each is installed/running. */
 export function listServers(): LanguageServerSpec[] {
   const seen = new Set<string>();
   return SERVERS.filter((s) => {

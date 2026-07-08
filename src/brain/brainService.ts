@@ -55,7 +55,7 @@ export class BrainService {
    *  queue up instead of corrupting turn state). */
   private sessions = new LiveSessionRegistry<LiveBrain>();
   /** Shared session assembly (store row + rehydrate + resource loader + PI session) — the same
-   *  factory the orca-exec brain workers use. */
+   *  factory the elowen-exec brain workers use. */
   private factory: BrainSessionFactory;
   /** The ONE place turn identities (and the owner check) are minted. */
   private identity: IdentityResolver;
@@ -69,7 +69,7 @@ export class BrainService {
   private titler: ConversationTitler;
   /** Parked `ask_user_question` calls, shared by owner chat and channel sessions so `/brain/answer`
    *  (web/CLI) and Discord interactions resolve through one registry. */
-  /** Operator-tuned brain limits, read live (Settings → Orca AI → Limits); the built-in defaults when a
+  /** Operator-tuned brain limits, read live (Settings → Elowen AI → Limits); the built-in defaults when a
    *  minimal/test wiring omits the accessor. */
   private limits(): typeof DEFAULT_BRAIN_LIMITS { return this.d.brainLimits?.() ?? DEFAULT_BRAIN_LIMITS; }
   private elicitation = new ElicitationRegistry(() => this.limits().elicitationTimeoutMs);
@@ -190,7 +190,7 @@ export class BrainService {
       plugins: () => this.resolvePlugins(),
       platformOwner: d.platformOwner,
       policyForProjects: d.policyForProjects,
-      // A linked platform sender runs fully through their Orca account: reuse the SAME per-user policy
+      // A linked platform sender runs fully through their Elowen account: reuse the SAME per-user policy
       // resolver the owner web chat uses, plus their own tool deny-list.
       policyForUser: d.policy,
       disabledToolsFor: (userId) => d.users.get(userId)?.disabled_tools ?? [],
@@ -466,7 +466,7 @@ export class BrainService {
   /** Invalidate the shared plugin registry and restart every live session — called when the admin flips
    *  a plugin on/off so the change applies without a daemon restart. Channel sessions are simply dropped;
    *  the next inbound message re-opens them with the fresh registry. The shared invalidation also covers
-   *  the orca-exec brain workers — their next launch composes from the fresh registry. */
+   *  the elowen-exec brain workers — their next launch composes from the fresh registry. */
   async reloadPlugins(): Promise<void> {
     // Serialized: two rapid plugin toggles must not interleave stopAll()/startAll() and leave
     // duplicate connected adapters (a distinct lock key from any session, so it never blocks a turn).

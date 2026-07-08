@@ -1,6 +1,6 @@
 import type { Db } from './db.js';
 
-/** A named prompt profile that shapes how Orca behaves on a given surface ('web'/'discord'/'cli', …).
+/** A named prompt profile that shapes how Elowen behaves on a given surface ('web'/'discord'/'cli', …).
  *  Scoped per (user, platform); a user may keep several named profiles per platform and pin one active
  *  in personality_active_profiles. `enabled` is stored as 1/0 but exposed as a boolean. */
 export interface PersonalityProfile {

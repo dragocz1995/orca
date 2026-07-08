@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { ZodError } from 'zod';
 import type { User, TokenScope } from '../store/userStore.js';
-import { createRouteContext, type OrcaApp } from './context.js';
+import { createRouteContext, type ElowenApp } from './context.js';
 import { registerRoutes } from './routes/index.js';
 import { formatZodError } from './validation.js';
 import type { ServerDeps } from './deps.js';
-import { ORCA_VERSION } from './version.js';
+import { ELOWEN_VERSION } from './version.js';
 
 export type { ServerDeps };
 
@@ -17,7 +17,7 @@ export type { ServerDeps };
 export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }> {
   const ctx = createRouteContext(d);
   const { log } = ctx;
-  const app: OrcaApp = new Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }>();
+  const app: ElowenApp = new Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }>();
   app.use('*', cors());
   // Single source of truth for malformed-body handling: most POST/PATCH routes call `c.req.json()`
   // without a per-route catch, and Hono throws a SyntaxError on invalid JSON. Convert that to a clean
@@ -29,7 +29,7 @@ export function createServer(d: ServerDeps): Hono<{ Variables: { user: User; tok
     log.error('unhandled route error', err);
     return c.json({ error: 'internal error' }, 500);
   });
-  app.get('/health', c => c.json({ ok: true, version: ORCA_VERSION }));
+  app.get('/health', c => c.json({ ok: true, version: ELOWEN_VERSION }));
   // Public: lets the web decide whether to show onboarding (no users yet) or the login form.
   app.get('/setup', c => c.json({ needsSetup: d.users ? d.users.count() === 0 : false }));
 

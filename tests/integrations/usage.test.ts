@@ -45,7 +45,7 @@ const writeOcDb = (sessions: OcSession[]) => {
   db.close();
 };
 
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'orca-usage-')); });
+beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'elowen-usage-')); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 const OC_MODEL = 'deepseek/deepseek-v4-flash';

@@ -13,7 +13,7 @@ const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const userPolicy = (roots: string[]): Policy => ({ allowedProjectIds: new Set([1]), allowedPaths: () => roots });
 const adminPolicy: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
-const owner: TurnIdentity = { platform: 'orca', userId: '1', admin: true, owner: true };
+const owner: TurnIdentity = { platform: 'elowen', userId: '1', admin: true, owner: true };
 const scoped: TurnIdentity = { platform: 'discord', userId: '999', admin: true, owner: false };
 
 const runTool = (reg: PluginRegistry, name: string, params: Record<string, unknown>) => {
@@ -27,7 +27,7 @@ describe('terminal plugin', () => {
   let dir: string;
   beforeAll(async () => {
     reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log });
-    dir = mkdtempSync(join(tmpdir(), 'orca-term-'));
+    dir = mkdtempSync(join(tmpdir(), 'elowen-term-'));
   });
 
   it('registers run_command + background process tools', () => {
@@ -83,7 +83,7 @@ describe('terminal plugin', () => {
 
 describe('terminal plugin — configurable outputCap', () => {
   let dir: string;
-  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'orca-term-cap-')); });
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'elowen-term-cap-')); });
   const bigOutput = (n: number) => `node -e "process.stdout.write('a'.repeat(${n}))"`;
   // Body length between the "(cwd: …)\n" prefix and the truncation marker == the applied cap.
   const cappedBodyLength = (text: string): number => {
@@ -137,7 +137,7 @@ describe('terminal plugin — configurable outputCap', () => {
 // case needing a full real 120s to prove the constant wasn't shrunk.
 describe('terminal plugin — configurable commandTimeoutMs', () => {
   let dir: string;
-  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'orca-term-timeout-')); });
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'elowen-term-timeout-')); });
 
   it('a configured commandTimeoutMs (min-clamped 30000) kills a command sooner than the default', async () => {
     const reg = await loadPlugins({

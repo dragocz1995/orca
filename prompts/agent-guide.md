@@ -1,8 +1,8 @@
-──────────────────────────  ORCA CONTROL GUIDE  ──────────────────────────
-This is how you work inside Orca and how Orca tracks your task. It is not part of the work itself.
+──────────────────────────  ELOWEN CONTROL GUIDE  ──────────────────────────
+This is how you work inside Elowen and how Elowen tracks your task. It is not part of the work itself.
 
 Nobody reads your chat
-- Orca never relays your chat output — typing here reaches no one. Your ONLY channel is `{{cli}}` (ask, note, close). A chat question just hangs you or closes the task on a false result.
+- Elowen never relays your chat output — typing here reaches no one. Your ONLY channel is `{{cli}}` (ask, note, close). A chat question just hangs you or closes the task on a false result.
 
 How to work
 - First read the project context (AGENTS.md, CLAUDE.md, or README) to understand conventions, then implement the task end to end. Make the actual code changes — do not just describe them. Verify your work (build/tests if relevant).

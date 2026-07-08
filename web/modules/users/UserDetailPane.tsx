@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { FolderGit2, Cpu, Wrench, ShieldCheck } from 'lucide-react';
 import { useUserProjects } from '../../lib/queries';
 import { useAssignProject, useUpdateUser } from '../../lib/mutations';
-import type { Project, User as OrcaUser } from '../../lib/types';
+import type { Project, User as ElowenUser } from '../../lib/types';
 import { allModels } from '../../lib/execPresets';
 import { execProvider, type ProviderId } from '../../lib/modelProvider';
 import { PROVIDERS, providerMeta } from '../settings/providers';
@@ -92,7 +92,7 @@ function ProjectChips({ userId, projects }: { userId: number; projects: Project[
 
 /** Admin-only: restrict which models a user may run on tasks. Empty selection → no restriction.
  *  Summary shows the effective allowance; the manage modal groups the global allow-list by provider. */
-function ModelChips({ user, globalExecs, custom }: { user: OrcaUser; globalExecs: string[]; custom: { label: string; exec: string }[] }) {
+function ModelChips({ user, globalExecs, custom }: { user: ElowenUser; globalExecs: string[]; custom: { label: string; exec: string }[] }) {
   const { t } = useTranslation();
   const update = useUpdateUser();
   const { toast } = useToast();
@@ -100,8 +100,8 @@ function ModelChips({ user, globalExecs, custom }: { user: OrcaUser; globalExecs
   if (globalExecs.length === 0) return <p className="text-xs italic text-text-muted">—</p>;
 
   const labelOf = (exec: string) => allModels(custom).find((m) => m.exec === exec)?.label
-    ?? (exec.startsWith('orca:') ? exec.slice(exec.indexOf('/') + 1) : exec);
-  const iconNameOf = (exec: string) => (exec.startsWith('orca:') ? exec.slice(exec.indexOf('/') + 1) : exec);
+    ?? (exec.startsWith('elowen:') ? exec.slice(exec.indexOf('/') + 1) : exec);
+  const iconNameOf = (exec: string) => (exec.startsWith('elowen:') ? exec.slice(exec.indexOf('/') + 1) : exec);
 
   // Order execs by the settings' provider order so the modal groups follow the executor picker.
   const providerOrder = (id: ProviderId) => {
@@ -186,7 +186,7 @@ function Block({ icon: Icon, title, hint, children }: { icon: typeof FolderGit2;
  *  sessions / top model) beside the name, then full-width admin access controls — projects, allowed
  *  models, and the effective tool set (whose plugin tools toggle on/off per user). */
 export function UserDetailPane({ user, projects, globalExecs, customModels }: {
-  user: OrcaUser;
+  user: ElowenUser;
   projects: Project[];
   globalExecs: string[];
   customModels: { label: string; exec: string }[];

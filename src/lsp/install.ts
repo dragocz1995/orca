@@ -3,12 +3,13 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-/** The npm prefix Orca installs language servers into: `<data dir>/lsp`, owned by whichever user runs
- *  Orca. Installing into the SYSTEM global prefix (`npm -g`) needs root and fails under systemd
- *  (the daemon runs as a service user whose npm prefix is /usr) — so Orca keeps its own prefix and
+/** The npm prefix Elowen installs language servers into: `<data dir>/lsp`, owned by whichever user runs
+ *  Elowen. Installing into the SYSTEM global prefix (`npm -g`) needs root and fails under systemd
+ *  (the daemon runs as a service user whose npm prefix is /usr) — so Elowen keeps its own prefix and
  *  resolves server binaries from `<prefix>/bin` first (see resolveServerCommand). */
 export function lspPrefixDir(): string {
-  const base = process.env.ORCA_DB ? dirname(process.env.ORCA_DB) : join(homedir(), '.config', 'orca');
+  const dbPathEnv = process.env.ELOWEN_DB ?? process.env.ORCA_DB;
+  const base = dbPathEnv ? dirname(dbPathEnv) : join(homedir(), '.config', 'elowen');
   return join(base, 'lsp');
 }
 
@@ -22,7 +23,7 @@ export function npmInstallGlobal(packages: string[], prefix = lspPrefixDir()): P
   return runNpm(['install', '-g', '--prefix', prefix, ...packages], 'installed');
 }
 
-/** Remove packages from Orca's LSP prefix (the /lsp modal's ctrl+u). Only touches Orca's own prefix —
+/** Remove packages from Elowen's LSP prefix (the /lsp modal's ctrl+u). Only touches Elowen's own prefix —
  *  a system-installed copy of the same server is never uninstalled from here. */
 export function npmUninstallGlobal(packages: string[], prefix = lspPrefixDir()): Promise<{ ok: boolean; detail: string }> {
   return runNpm(['uninstall', '-g', '--prefix', prefix, ...packages], 'uninstalled');

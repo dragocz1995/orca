@@ -82,8 +82,8 @@ describe('SettingsPage', () => {
 
   it('renders the section selected by the persisted category key', async () => {
     // The category picker now lives in the main sidebar; the page reads the active section from the
-    // persisted `orca.settings.category` key (and the `?cat=` deep-link). Setting it selects the section.
-    localStorage.setItem('orca.settings.category', 'autopilot');
+    // persisted `elowen.settings.category` key (and the `?cat=` deep-link). Setting it selects the section.
+    localStorage.setItem('elowen.settings.category', 'autopilot');
     const { wrapper: Wrapper } = createWrapper();
     const { unmount } = render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByText('How autopilot reasons')).toBeTruthy());
@@ -91,14 +91,14 @@ describe('SettingsPage', () => {
 
     // The default executor / autonomy / max-sessions cards moved under Autopilot (they are the
     // pilot's run defaults), so the Executor card now renders in the autopilot section.
-    localStorage.setItem('orca.settings.category', 'autopilot');
+    localStorage.setItem('elowen.settings.category', 'autopilot');
     const { wrapper: Wrapper2 } = createWrapper();
     render(<Wrapper2><ToastProvider><SettingsPage /></ToastProvider></Wrapper2>);
     await waitFor(() => expect(screen.getByText('Executor')).toBeTruthy());
   });
 
   it('defaults to Relay mode and saves relay fields (execs cleared)', async () => {
-    localStorage.setItem('orca.settings.category', 'autopilot');
+    localStorage.setItem('elowen.settings.category', 'autopilot');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByText('How autopilot reasons')).toBeTruthy());
@@ -116,7 +116,7 @@ describe('SettingsPage', () => {
   });
 
   it('switching to CLI Tools saves agent execs (same role labels in both modes)', async () => {
-    localStorage.setItem('orca.settings.category', 'autopilot');
+    localStorage.setItem('elowen.settings.category', 'autopilot');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByText('How autopilot reasons')).toBeTruthy());
@@ -134,7 +134,7 @@ describe('SettingsPage', () => {
   });
 
   it('saves the GitHub PR-native fields from the GitHub section', async () => {
-    localStorage.setItem('orca.settings.category', 'github');
+    localStorage.setItem('elowen.settings.category', 'github');
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByText('Verify command')).toBeTruthy());
@@ -181,14 +181,14 @@ describe('Settings depth', () => {
     unmount();
 
     // Autopilot section — the notes textarea seeded from config.
-    localStorage.setItem('orca.settings.category', 'autopilot');
+    localStorage.setItem('elowen.settings.category', 'autopilot');
     const { wrapper: WrapperAp } = createWrapper();
     const ap = render(<WrapperAp><ToastProvider><SettingsPage /></ToastProvider></WrapperAp>);
     await waitFor(() => expect(screen.getByDisplayValue('mind the guardrails')).toBeTruthy()); // notes textarea
     ap.unmount();
 
     // Autopilot section — the backend-mode + autonomy segmented controls (run defaults moved here).
-    localStorage.setItem('orca.settings.category', 'autopilot');
+    localStorage.setItem('elowen.settings.category', 'autopilot');
     const { wrapper: WrapperDef } = createWrapper();
     render(<WrapperDef><ToastProvider><SettingsPage /></ToastProvider></WrapperDef>);
     await waitFor(() => expect(screen.getAllByRole('radiogroup').length).toBeGreaterThan(0)); // autonomy/backend segmented

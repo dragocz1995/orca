@@ -40,7 +40,7 @@ export function CalendarView({ tasks, onSelect, onCreateDay, onReschedule }: { t
     onDrop: (e: DragEvent) => { e.preventDefault(); setDragDay(null); const id = e.dataTransfer.getData('application/x-task'); if (id) onReschedule(id, d); },
   } : {};
   const WD = [t.calendar.shortMon, t.calendar.shortTue, t.calendar.shortWed, t.calendar.shortThu, t.calendar.shortFri, t.calendar.shortSat, t.calendar.shortSun];
-  const [range, setRange] = usePersistentState<CalRange>('orca.calendar.range', 'week', ['day', 'week', 'month']);
+  const [range, setRange] = usePersistentState<CalRange>('elowen.calendar.range', 'week', ['day', 'week', 'month']);
   const [ref, setRef] = useState<Date>(() => new Date());
   const byDay = tasksByDay(tasks);
   const unscheduled = countUnscheduled(tasks);

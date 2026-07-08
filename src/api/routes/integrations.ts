@@ -1,9 +1,9 @@
 import { detectClis } from '../../integrations/cliDetection.js';
 import { detectGithubAuth } from '../../integrations/github/auth.js';
-import type { OrcaApp, RouteContext } from '../context.js';
+import type { ElowenApp, RouteContext } from '../context.js';
 
 /** External-integration status surface: CLI detection and GitHub auth posture. */
-export function registerIntegrationRoutes(app: OrcaApp, ctx: RouteContext): void {
+export function registerIntegrationRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
   app.get('/integrations/cli-status', async c => {
     const cfg = d.config.get();

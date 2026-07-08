@@ -1,5 +1,5 @@
-/** What a brain session may touch. Admin → 'all'; a user → their assigned Orca projects' repo paths.
- *  The single source of truth is Orca's per-user project access, so file/terminal tools (later plugins)
+/** What a brain session may touch. Admin → 'all'; a user → their assigned Elowen projects' repo paths.
+ *  The single source of truth is Elowen's per-user project access, so file/terminal tools (later plugins)
  *  never invent a parallel allow-list — they consult `allowedPaths()`. */
 export interface Policy {
   allowedProjectIds: Set<number> | 'all';
@@ -13,7 +13,7 @@ export interface PolicyDeps {
   projects: { get(id: number): { path: string } | null | undefined };
 }
 
-/** Resolve the repo-access policy for a user from Orca's existing project assignments. */
+/** Resolve the repo-access policy for a user from Elowen's existing project assignments. */
 export function resolvePolicy(deps: PolicyDeps, userId: number): Policy {
   if (deps.userProjects.isAdmin(userId)) {
     return { allowedProjectIds: 'all', allowedPaths: () => [] };

@@ -1,4 +1,4 @@
-// Cronjob plugin: recurring prompts for the brain, sized for Orca.
+// Cronjob plugin: recurring prompts for the brain, sized for Elowen.
 // Jobs persist in the plugin's data dir; a lightweight scheduler (platform adapter) ticks every 30 s
 // and feeds due prompts back into the brain via the host's channel handler — with `admin: true`,
 // because only an admin session can create jobs in the first place.
@@ -330,7 +330,7 @@ export function register(ctx) {
         // Channel/cron-originated schedules (session id `brain-ch-…`/`brain-task-…`, or no session at
         // all) keep no origin and deliver through the notification channel as before.
         const sid = ctx.currentSessionId();
-        const uid = ctx.currentIdentity()?.orcaUserId;
+        const uid = ctx.currentIdentity()?.elowenUserId;
         const origin = sid && uid != null && !sid.startsWith('brain-ch-') && !sid.startsWith('brain-task-')
           ? { originSessionId: sid, originUserId: uid } : undefined;
         jobs.push({ id, name: p.name, schedule: p.when, prompt: p.prompt, runAt: new Date(runAt).toISOString(), createdAt: new Date().toISOString(), ...origin });

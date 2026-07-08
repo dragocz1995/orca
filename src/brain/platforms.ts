@@ -8,11 +8,11 @@ import type { ChannelSessionService } from './channels.js';
 export interface PlatformOrchestratorDeps {
   /** The daemon-wide plugin registry resolver (undefined when plugins aren't wired). */
   plugins: () => Promise<PluginRegistry | undefined>;
-  /** The Orca user that anchors platform channel sessions (the admin). */
+  /** The Elowen user that anchors platform channel sessions (the admin). */
   platformOwner?: () => number | undefined;
   /** Build a Policy from an explicit project-id set (platform role mappings resolve through this). */
   policyForProjects?: (projectIds: number[]) => Policy;
-  /** A LINKED platform sender runs fully through their Orca account: this resolves that account's own
+  /** A LINKED platform sender runs fully through their Elowen account: this resolves that account's own
    *  project Policy (same as their web chat). Absent → falls back to the role policy. */
   policyForUser?: (userId: number) => Policy;
   /** A linked user's own tool deny-list (their Account → disabled tools), applied for their platform turns. */
@@ -68,11 +68,11 @@ export class PlatformOrchestrator {
           // against prompt injection through display names) — minted by the IdentityResolver, the
           // one auditable place `owner` vs `admin` semantics live.
           const { identity, verifiedPrefix, linkedUserId } = this.d.identity.forPlatformTurn(src, owner);
-          // ONE unified access decision. A LINKED sender runs fully through their Orca account — their
+          // ONE unified access decision. A LINKED sender runs fully through their Elowen account — their
           // own project Policy AND their own tool deny-list — exactly as in their web chat (the role
           // policy is bypassed for them). An UNLINKED sender falls back to the Role-ID policy: all-project
           // for an admin role, else the role's projects, plus the role's tool allowlist. Neither ever gets
-          // the owner's orca_* API tools/token — a shared channel is never the verified owner's own chat.
+          // the owner's elowen_* API tools/token — a shared channel is never the verified owner's own chat.
           let policy: Policy;
           let toolPolicy: ToolPolicy | undefined;
           if (linkedUserId != null && this.d.policyForUser) {
@@ -103,7 +103,7 @@ export class PlatformOrchestrator {
             toolPolicy,
             images: src.images,
             identity,
-            // The Orca account this sender is verified as — memory recall/save keys on it. Unlinked
+            // The Elowen account this sender is verified as — memory recall/save keys on it. Unlinked
             // senders have no linkedUserId, so the channel turn gets no memory (shared-space privacy).
             writerUserId: linkedUserId,
             history: src.history,

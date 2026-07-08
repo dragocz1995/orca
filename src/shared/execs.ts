@@ -8,9 +8,9 @@
  * now import from here so adding/changing an executor is a one-line edit. See audit #43/S21/O22.
  */
 
-/** Agent program ids understood by spawn() / resolveExecutor. `orca` is the embedded brain —
- *  it runs in-process on an Orca AI provider instead of spawning an external CLI. */
-export type Program = 'claude-code' | 'opencode' | 'codex' | 'kilo' | 'pi' | 'omp' | 'orca';
+/** Agent program ids understood by spawn() / resolveExecutor. `elowen` is the embedded brain —
+ *  it runs in-process on an Elowen AI provider instead of spawning an external CLI. */
+export type Program = 'claude-code' | 'opencode' | 'codex' | 'kilo' | 'pi' | 'omp' | 'elowen';
 
 /** Explicit `<prefix>:<model>` spec prefixes, in match order, mapped to their program. */
 export const PROGRAM_PREFIXES: Readonly<Record<string, Program>> = {
@@ -20,7 +20,7 @@ export const PROGRAM_PREFIXES: Readonly<Record<string, Program>> = {
   'kilo:': 'kilo',
   'pi:': 'pi',
   'omp:': 'omp',
-  'orca:': 'orca',
+  'elowen:': 'elowen',
 };
 
 /** Program a bare (prefix-less) spec routes to depending on whether it looks like `provider/model`. */
@@ -38,25 +38,25 @@ export const DEFAULT_BINS: Readonly<Record<Program, string>> = {
   'kilo': 'kilo',
   'pi': 'pi',
   'omp': 'omp',
-  'orca': '', // embedded brain — no binary is spawned
+  'elowen': '', // embedded brain — no binary is spawned
 };
 
 /**
- * Brain-model exec spec: `orca:<provider>/<model>`. The provider id never contains a slash, so we
- * split on the FIRST one — the model part may carry more (e.g. `orca:relay/ollama/kimi-k2.7-code`).
- * Returns null for anything that isn't a well-formed orca exec.
+ * Brain-model exec spec: `elowen:<provider>/<model>`. The provider id never contains a slash, so we
+ * split on the FIRST one — the model part may carry more (e.g. `elowen:relay/ollama/kimi-k2.7-code`).
+ * Returns null for anything that isn't a well-formed elowen exec.
  */
-export function parseOrcaExec(spec: string): { provider: string; model: string } | null {
-  if (!spec.startsWith('orca:')) return null;
-  const rest = spec.slice('orca:'.length);
+export function parseElowenExec(spec: string): { provider: string; model: string } | null {
+  if (!spec.startsWith('elowen:')) return null;
+  const rest = spec.slice('elowen:'.length);
   const slash = rest.indexOf('/');
   if (slash <= 0 || slash === rest.length - 1) return null;
   return { provider: rest.slice(0, slash), model: rest.slice(slash + 1) };
 }
 
 /** Compose the exec spec for a brain model (the single place the format is produced). */
-export function orcaExec(provider: string, model: string): string {
-  return `orca:${provider}/${model}`;
+export function elowenExec(provider: string, model: string): string {
+  return `elowen:${provider}/${model}`;
 }
 
 /**
@@ -70,11 +70,11 @@ export function isExecAllowedForUser(
   exec: string,
 ): boolean {
   if (!user || user.is_admin) return true;
-  // `orca:<provider>/<model>` brain execs are bounded by the configured brain PROVIDERS (the model list
+  // `elowen:<provider>/<model>` brain execs are bounded by the configured brain PROVIDERS (the model list
   // is built only from them), NOT by `KNOWN_EXECS`/allowedExecs, which cover CLI-agent specs only. So a
   // brain exec skips the global bound — else non-admins get an empty brain-model picker. Only the
   // per-user allow-list still narrows it. CLI execs keep the global bound.
-  if (!exec.startsWith('orca:') && !globalExecs.includes(exec)) return false;
+  if (!exec.startsWith('elowen:') && !globalExecs.includes(exec)) return false;
   return user.allowed_execs.length === 0 || user.allowed_execs.includes(exec);
 }
 
@@ -89,8 +89,8 @@ export function isModelVisibleForUser(
   globalExecs: readonly string[],
   exec: string,
 ): boolean {
-  // Brain execs (orca:…) are bounded by configured providers, not KNOWN_EXECS — see isExecAllowedForUser.
-  if (!exec.startsWith('orca:') && !globalExecs.includes(exec)) return false;
+  // Brain execs (elowen:…) are bounded by configured providers, not KNOWN_EXECS — see isExecAllowedForUser.
+  if (!exec.startsWith('elowen:') && !globalExecs.includes(exec)) return false;
   if (!user) return true;
   return user.allowed_execs.length === 0 || user.allowed_execs.includes(exec);
 }

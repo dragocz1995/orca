@@ -8,10 +8,10 @@ import type { PromptService } from '../prompts/promptService.js';
 import { resolveExecutor } from './routing.js';
 
 /** The parked overseer's loop prompt: poll for a decision, judge it, answer, repeat. It reasons but
- *  never edits the repo — its only side effects are the two orca CLI verbs. */
-export function overseerPrompt(missionId: string, cli: string = 'orca', renderPrompt: RenderPrompt = render): string {
-  // `cli` is the resolved orca invocation (the global `orca` command in production, or
-  // `node <path-to-dist/cli/index.js>` in a source checkout) — see bootstrap's ORCA_CLI handling.
+ *  never edits the repo — its only side effects are the two elowen CLI verbs. */
+export function overseerPrompt(missionId: string, cli: string = 'elowen', renderPrompt: RenderPrompt = render): string {
+  // `cli` is the resolved elowen invocation (the global `elowen` command in production, or
+  // `node <path-to-dist/cli/index.js>` in a source checkout) — see bootstrap's ELOWEN_CLI handling.
   // The code-review criteria live in their own template (separately editable per user) and are
   // injected into the overseer's review handling via the `{{codeReview}}` placeholder.
   const codeReview = renderPrompt('code-review', {});
@@ -40,7 +40,7 @@ export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; conf
     // mission, leave it — re-launching would make `tmux new-session` throw "duplicate session" and
     // crash the caller. engage and resume call this unconditionally (the overseer can already be
     // parked from a prior engage), so the guard must be here, not only in ensure.
-    if ((await deps.tmux.list()).includes(`orca-overseer-${missionId}`)) return;
+    if ((await deps.tmux.list()).includes(`elowen-overseer-${missionId}`)) return;
     const spec = resolveExecutor([`exec:${exec}`], { program: 'claude-code', model: 'sonnet' });
     // Park the overseer in the mission's worktree when PR-native (else the project checkout). The
     // overseer judges a phase by running read-only `git diff HEAD` itself — and the agent's work lives
@@ -53,7 +53,7 @@ export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; conf
     const renderPrompt: RenderPrompt = prompts ? (name, vars) => prompts.render(name, vars, ownerId) : render;
     await deps.spawn.launch({
       projectId, projectPath: cwd, taskId: `overseer-${missionId}`, agentName: `overseer-${missionId}`, spec,
-      rawPrompt: overseerPrompt(missionId, deps.cli, renderPrompt), extraEnv: { ORCA_MISSION: missionId }, ownerId,
+      rawPrompt: overseerPrompt(missionId, deps.cli, renderPrompt), extraEnv: { ELOWEN_MISSION: missionId }, ownerId,
     });
   };
   return {
@@ -62,7 +62,7 @@ export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; conf
     // session is live and when overseerExec is empty), so ensure is just a semantic alias for it.
     ensure: park,
     async stop(missionId) {
-      await deps.tmux.kill(`orca-overseer-${missionId}`).catch(() => { /* already gone — fine */ });
+      await deps.tmux.kill(`elowen-overseer-${missionId}`).catch(() => { /* already gone — fine */ });
       deps.queue.drain(missionId); // escalate any awaiting decisions so nothing hangs
     },
   };

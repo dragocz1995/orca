@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestApp } from '../helpers/testApp.js';
-import type { OrcaEvent } from '../../src/api/sse.js';
+import type { ElowenEvent } from '../../src/api/sse.js';
 
 const enableReview = async (app: ReturnType<typeof makeTestApp> extends Promise<infer T> ? T : never, token: string) =>
   app.app.request('/config', { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ autopilot: { overseerExec: 'claude:opus', reviewOnDone: true } }) });
@@ -13,7 +13,7 @@ describe('review escalation + self-heal', () => {
     const t = await makeTestApp({});
     await enableReview(t, t.token);
     const { missionId, childId } = t.deps.seedMissionWithChain();
-    const events: OrcaEvent[] = [];
+    const events: ElowenEvent[] = [];
     t.deps.bus.subscribe((e) => events.push(e));
     const poll = t.deps.decisionQueue.next(missionId, 2000);
     await closePhase(t, t.token, childId);
@@ -48,7 +48,7 @@ describe('review escalation + self-heal', () => {
     const t = await makeTestApp({});
     await enableReview(t, t.token);
     const { missionId, childId } = t.deps.seedMissionWithChain('L2'); // L2 → no self-heal, pure escalation
-    const events: OrcaEvent[] = [];
+    const events: ElowenEvent[] = [];
     t.deps.bus.subscribe((e) => events.push(e));
     const poll = t.deps.decisionQueue.next(missionId, 2000);
     await closePhase(t, t.token, childId);

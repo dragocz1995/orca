@@ -14,7 +14,7 @@ describe('brain providers', () => {
     const reg = buildBrainRegistry(cfg);
     const m = resolveBrainModel(reg, cfg);
     expect(m.id).toBe('gpt-x');
-    expect(m.provider).toBe('orca-relay');
+    expect(m.provider).toBe('elowen-relay');
   });
 
   it('resolves an explicit provider + model selection', () => {
@@ -35,7 +35,7 @@ describe('brain providers', () => {
     const reg = buildBrainRegistry(cfg);
     const m = resolveBrainModel(reg, cfg, { provider: 'relay', model: 'brand/new-model' });
     expect(m.id).toBe('brand/new-model');
-    expect(m.provider).toBe('orca-relay');
+    expect(m.provider).toBe('elowen-relay');
   });
 
   it('keeps the /v1 segment in the openai base url (client appends /chat/completions)', () => {
@@ -53,7 +53,7 @@ describe('brain providers', () => {
     expect(openAiApiFor({ baseUrl: 'https://ai.example/v1', api: 'openai-responses' })).toBe('openai-responses');
     // …and the registry actually registers the model under that API.
     const reg = buildBrainRegistry({ providers: [{ id: 'oa', label: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', models: ['gpt-x'], apiKey: 'k' }] });
-    expect(reg.find('orca-oa', 'gpt-x')?.api).toBe('openai-responses');
+    expect(reg.find('elowen-oa', 'gpt-x')?.api).toBe('openai-responses');
   });
 
   it('throws a clear error with no providers configured', () => {

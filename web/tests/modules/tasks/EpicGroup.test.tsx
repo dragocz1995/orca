@@ -7,15 +7,15 @@ import { ToastProvider } from '../../../components/ui/Toast';
 import { createWrapper } from '../../test-utils';
 import type { Task } from '../../../lib/types';
 
-const epic: Task = { id: 'orca-epic', title: 'Ship feature', status: 'in_progress', type: 'epic', project_id: 1 };
+const epic: Task = { id: 'elowen-epic', title: 'Ship feature', status: 'in_progress', type: 'epic', project_id: 1 };
 const phases: Task[] = [
-  { id: 'orca-p1', title: 'Phase One', status: 'closed', parent_id: 'orca-epic' },
-  { id: 'orca-p2', title: 'Phase Two', status: 'open', parent_id: 'orca-epic' },
+  { id: 'elowen-p1', title: 'Phase One', status: 'closed', parent_id: 'elowen-epic' },
+  { id: 'elowen-p2', title: 'Phase Two', status: 'open', parent_id: 'elowen-epic' },
 ];
 
 const server = setupServer(
   http.get('*/api/sessions', () => HttpResponse.json([])),
-  http.get('*/api/projects', () => HttpResponse.json([{ id: 1, slug: 'orca', path: '/var/www/orca', notes: '', icon: '', pr_enabled: null }])),
+  http.get('*/api/projects', () => HttpResponse.json([{ id: 1, slug: 'elowen', path: '/var/www/elowen', notes: '', icon: '', pr_enabled: null }])),
   // EpicGroup now drives the mission lifecycle + rolled-up cost, so it reads these too.
   http.get('*/api/missions', () => HttpResponse.json([])),
   http.get('*/api/config', () => HttpResponse.json({})),
@@ -70,7 +70,7 @@ describe('EpicGroup — delete mission', () => {
     const confirm = screen.getAllByRole('button', { name: /delete mission/i }).find((b) => !b.hasAttribute('aria-haspopup'));
     fireEvent.click(confirm!);
 
-    await waitFor(() => expect(deleted).toEqual({ id: 'orca-epic', subtree: '1' }));
+    await waitFor(() => expect(deleted).toEqual({ id: 'elowen-epic', subtree: '1' }));
   });
 
   it('cancelling the confirm dialog does not delete', async () => {
@@ -90,10 +90,10 @@ describe('EpicGroup — delete mission', () => {
 });
 
 describe('EpicGroup — PR-native surface', () => {
-  const mission = (pr: unknown) => ({ id: 'm-orca-epic', epic_id: 'orca-epic', autonomy: 'L3', max_sessions: 1, state: 'disengaged', pr });
+  const mission = (pr: unknown) => ({ id: 'm-elowen-epic', epic_id: 'elowen-epic', autonomy: 'L3', max_sessions: 1, state: 'disengaged', pr });
 
   it('links out to the open PR when one exists', async () => {
-    server.use(http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'orca/x', prNumber: 42, prUrl: 'https://github.com/o/r/pull/42', prState: 'open' })])));
+    server.use(http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'elowen/x', prNumber: 42, prUrl: 'https://github.com/o/r/pull/42', prState: 'open' })])));
     renderEpic();
     const link = await screen.findByTitle(/view pull request/i);
     expect(link).toHaveAttribute('href', 'https://github.com/o/r/pull/42');
@@ -103,26 +103,26 @@ describe('EpicGroup — PR-native surface', () => {
   it('offers "Open PR" (POST /missions/:id/pr) only once the mission is ready', async () => {
     let opened: string | null = null;
     server.use(
-      http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'orca/x', prNumber: null, prUrl: null, prState: 'ready' })])),
+      http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'elowen/x', prNumber: null, prUrl: null, prState: 'ready' })])),
       http.post('*/api/missions/:id/pr', ({ params }) => { opened = params.id as string; return HttpResponse.json({ url: 'https://github.com/o/r/pull/9', number: 9 }); }),
     );
     renderEpic();
     const btn = await screen.findByRole('button', { name: /open pr/i });
     fireEvent.click(btn);
-    await waitFor(() => expect(opened).toBe('m-orca-epic'));
+    await waitFor(() => expect(opened).toBe('m-elowen-epic'));
   });
 
   it('does NOT offer "Open PR" mid-mission (worktree provisioned but no phases done yet)', async () => {
     // The regression guard: prState null means the mission just engaged / is still running — the
     // affordance must stay hidden so a partial PR can't be opened after only the first phase.
-    server.use(http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'orca/x', prNumber: null, prUrl: null, prState: null })])));
+    server.use(http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'elowen/x', prNumber: null, prUrl: null, prState: null })])));
     renderEpic();
     await screen.findByText('Ship feature'); // rendered
     expect(screen.queryByRole('button', { name: /open pr/i })).toBeNull();
   });
 
   it('shows neither link nor button when the verify gate failed', async () => {
-    server.use(http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'orca/x', prNumber: null, prUrl: null, prState: 'verify_failed' })])));
+    server.use(http.get('*/api/missions', () => HttpResponse.json([mission({ branch: 'elowen/x', prNumber: null, prUrl: null, prState: 'verify_failed' })])));
     renderEpic();
     await screen.findByText('Ship feature'); // rendered
     expect(screen.queryByRole('link', { name: /view pull request/i })).toBeNull();
@@ -138,7 +138,7 @@ describe('EpicGroup — drag a task card onto the group header', () => {
   it('routes a card-onto-header drop to onDropTask (the mission-attach gesture)', () => {
     const onDropTask = vi.fn((e: React.DragEvent) => e.preventDefault());
     renderEpic({ onDropTask, dropTargetValid: true });
-    fireEvent.drop(screen.getByText('Ship feature'), makeDrop('orca-other'));
+    fireEvent.drop(screen.getByText('Ship feature'), makeDrop('elowen-other'));
     expect(onDropTask).toHaveBeenCalledTimes(1);
   });
 
@@ -146,10 +146,10 @@ describe('EpicGroup — drag a task card onto the group header', () => {
     const onDropTask = vi.fn((e: React.DragEvent) => e.preventDefault());
     renderEpic({ onDropTask, dropTargetValid: true });
     const header = screen.getByText('Ship feature');
-    fireEvent.dragEnter(header, makeDrop('orca-other'));
+    fireEvent.dragEnter(header, makeDrop('elowen-other'));
     const card = header.closest('.group\\/epic')!;
     expect(card.className).toMatch(/ring-accent/);
-    fireEvent.drop(header, makeDrop('orca-other'));
+    fireEvent.drop(header, makeDrop('elowen-other'));
     expect(card.className).not.toMatch(/ring-accent/);
   });
 });

@@ -41,7 +41,7 @@ export class ProjectStore {
   /** Remove a project from the registry and everything scoped to it: its tasks (+ their deps and any
    *  missions driving them), its agents, and every user's access grant. The schema has no FK cascade,
    *  so the order is explicit and the whole thing runs in one transaction. The on-disk files at
-   *  `project.path` are NEVER touched — this only detaches the project from orca. */
+   *  `project.path` are NEVER touched — this only detaches the project from elowen. */
   remove(id: number): boolean {
     if (!this.get(id)) return false;
     this.db.transaction(() => {

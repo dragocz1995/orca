@@ -22,7 +22,7 @@ function Stat({ icon: Icon, value, label }: { icon: typeof FileCode2; value: str
   );
 }
 
-/** The 2×2 focal tile: what Orca is doing *right now*. Picks the primary live agent (a working one, or
+/** The 2×2 focal tile: what Elowen is doing *right now*. Picks the primary live agent (a working one, or
  *  the first), the task it's on, and — when that task is a mission phase — the mission's progress and
  *  churn. Shows a live terminal line, a working pill with elapsed time + equalizer, a phase progress
  *  bar, and file/line stats. Falls back to a calm "resting" state with a CTA when no agent runs. */

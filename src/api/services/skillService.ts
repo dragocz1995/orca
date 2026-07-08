@@ -7,7 +7,7 @@ import { logger } from '../../shared/logger.js';
 
 const log = logger('skills');
 
-/** The agent CLIs Orca spawns, each reading `skills/<name>/SKILL.md` under its config dir. Verified on
+/** The agent CLIs Elowen spawns, each reading `skills/<name>/SKILL.md` under its config dir. Verified on
  *  a live box: all three share the same SKILL.md format, so one master file installs natively into all
  *  of them. `configDir` resolves that dir from the provider's own env override (so a box that relocates
  *  its config is honoured) and falls back to the conventional HOME-relative default. */
@@ -17,7 +17,7 @@ const PROVIDERS: ReadonlyArray<{ id: string; configDir: (home: string, env: Node
   { id: 'opencode', configDir: (home, env) => join(env.XDG_CONFIG_HOME || join(home, '.config'), 'opencode') },
 ];
 
-const SKILL_NAME = 'orca-workflow';
+const SKILL_NAME = 'elowen-workflow';
 const MASTER_REL = `skills/${SKILL_NAME}/SKILL.md`;
 
 interface SkillStatus {
@@ -25,7 +25,7 @@ interface SkillStatus {
   provider: string;
   /** The provider's config root exists under HOME — i.e. the provider is actually used on this box. */
   present: boolean;
-  /** Our `orca-workflow` SKILL.md exists in the provider's skills dir. */
+  /** Our `elowen-workflow` SKILL.md exists in the provider's skills dir. */
   installed: boolean;
   /** Version parsed from the installed file's frontmatter (null when not installed/parseable). */
   version: number | null;
@@ -46,7 +46,7 @@ interface InstallResult {
 export interface SkillService {
   /** Per-provider install/version status for the System panel. */
   status(): SkillStatus[];
-  /** Install (or refresh) the bundled `orca-workflow` skill into every present provider. Idempotent;
+  /** Install (or refresh) the bundled `elowen-workflow` skill into every present provider. Idempotent;
    *  atomic per file (temp + rename); other skills are never touched. */
   installAll(): InstallResult[];
 }

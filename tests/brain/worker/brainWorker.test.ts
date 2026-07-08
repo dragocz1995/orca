@@ -25,7 +25,7 @@ function fakeSession() {
 
 function setup(opts: { idleMs?: number } = {}) {
   const db = openDb(':memory:');
-  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'orca','/repo')").run();
+  db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/repo')").run();
   const tasks = new TaskStore(db);
   tasks.create({ id: 'T-1', project_id: 1, title: 'Fix bug' });
   tasks.setStatus('T-1', 'in_progress');
@@ -48,7 +48,7 @@ function setup(opts: { idleMs?: number } = {}) {
     fetchImpl: fetchImpl as never,
     resourceLoaderFactory: () => undefined,
   });
-  const launchInput = { projectId: 1, projectPath: '/repo', taskId: 'T-1', agentName: 'a1', spec: { program: 'orca', model: 'relay/kimi' } };
+  const launchInput = { projectId: 1, projectPath: '/repo', taskId: 'T-1', agentName: 'a1', spec: { program: 'elowen', model: 'relay/kimi' } };
   return { svc, tasks, session, workDirs, release, fetchImpl, recorded, published, launchInput, advance: (ms: number) => { now += ms; }, db };
 }
 
@@ -58,9 +58,9 @@ describe('BrainWorkerService', () => {
   it('launch returns the tmux-style session name and reports it live', async () => {
     const { svc, launchInput } = setup();
     const { session } = await svc.launch(launchInput);
-    expect(session).toBe('orca-a1');
-    expect(svc.isLive('orca-a1')).toBe(true);
-    expect(svc.liveSessionNames()).toEqual(['orca-a1']);
+    expect(session).toBe('elowen-a1');
+    expect(svc.isLive('elowen-a1')).toBe(true);
+    expect(svc.liveSessionNames()).toEqual(['elowen-a1']);
   });
 
   it('persists the transcript under brain-task-<id> and scopes tools to the close tool', async () => {
@@ -76,7 +76,7 @@ describe('BrainWorkerService', () => {
     const createSession = (svc as unknown as { d: { createSession: { mock: { calls: [{ customTools: { name: string; execute: (id: string, p: unknown) => Promise<unknown> }[] }][] } } } }).d.createSession;
     await svc.launch(launchInput);
     const tools = createSession.mock.calls[0][0].customTools;
-    const close = tools.find((t) => t.name === 'orca_close_task')!;
+    const close = tools.find((t) => t.name === 'elowen_close_task')!;
     await close.execute('c1', { summary: 'done', outcome: 'ok' });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = (fetchImpl as { mock: { calls: [string | URL, RequestInit][] } }).mock.calls[0];
@@ -86,7 +86,7 @@ describe('BrainWorkerService', () => {
     expect(recorded).toHaveLength(1);
     // No OpenRouter fetch ran in this test, so the meter reports nothing — pi-ai's price-sheet cost
     // (0.02) is kept but flagged as a calculated estimate, not provider-reported.
-    expect(recorded[0]).toEqual(['T-1', 1, 'orca:kimi', { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, reasoning: 0, costUsd: 0.02, currency: 'USD', costSource: 'calculated' }]);
+    expect(recorded[0]).toEqual(['T-1', 1, 'elowen:kimi', { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, reasoning: 0, costUsd: 0.02, currency: 'USD', costSource: 'calculated' }]);
   });
 
   it('every run is bound to the task checkout: kickoff and nudge both carry workDir = projectPath', async () => {
@@ -103,12 +103,12 @@ describe('BrainWorkerService', () => {
     expect(session.prompt).toHaveBeenCalledTimes(1);
     release(); await settle(); // kickoff settles unclosed → nudge
     expect(session.prompt).toHaveBeenCalledTimes(2);
-    expect(String(session.prompt.mock.calls[1][0])).toContain('orca_close_task');
+    expect(String(session.prompt.mock.calls[1][0])).toContain('elowen_close_task');
     release(); await settle(); await settle(); // nudge also settles unclosed → teardown
     const t = tasks.get('T-1')!;
     expect(t.status).toBe('open');
     expect(t.resume_note).toContain('previous run stalled');
-    expect(svc.isLive('orca-a1')).toBe(false);
+    expect(svc.isLive('elowen-a1')).toBe(false);
     expect(published.some((e) => (e as { type?: string; status?: string }).type === 'task' && (e as { status?: string }).status === 'open')).toBe(true);
   });
 
@@ -119,7 +119,7 @@ describe('BrainWorkerService', () => {
     release(); await settle();
     expect(tasks.get('T-1')!.status).toBe('closed');
     expect(session.prompt).toHaveBeenCalledTimes(1); // no nudge for a closed task
-    expect(svc.isLive('orca-a1')).toBe(false);
+    expect(svc.isLive('elowen-a1')).toBe(false);
   });
 
   it('the idle watchdog reaps a wedged worker and re-opens its task', async () => {
@@ -128,7 +128,7 @@ describe('BrainWorkerService', () => {
     advance(2000);
     svc.sweepIdle();
     expect(tasks.get('T-1')!.status).toBe('open');
-    expect(svc.isLive('orca-a1')).toBe(false);
+    expect(svc.isLive('elowen-a1')).toBe(false);
   });
 
   it('a relaunch on an existing transcript rehydrates and sends the resume kickoff', async () => {
@@ -151,7 +151,7 @@ describe('BrainWorkerService', () => {
   it('abort disposes the live session without touching the task row', async () => {
     const { svc, launchInput, tasks, session } = setup();
     await svc.launch(launchInput);
-    await svc.abort('orca-a1');
+    await svc.abort('elowen-a1');
     expect(session.abort).toHaveBeenCalled();
     expect(session.dispose).toHaveBeenCalled();
     expect(tasks.get('T-1')!.status).toBe('in_progress'); // caller owns the task state

@@ -27,7 +27,7 @@ describe('terminalWsHandler', () => {
 
   it('closes with unsupported when node-pty is unavailable', async () => {
     const tickets = createTicketStore();
-    const id = tickets.issue({ session: 'orca-advisor-1', userId: 1 });
+    const id = tickets.issue({ session: 'elowen-advisor-1', userId: 1 });
     const events = await terminalWsHandler({ tickets, loadPty: async () => null })(ctx(`http://x/ws/terminal?ticket=${id}`));
     const w = fakeWs();
     events.onOpen?.(new Event('open'), w.ws);
@@ -36,7 +36,7 @@ describe('terminalWsHandler', () => {
 
   it('attaches the ticket session and disposes on close', async () => {
     const tickets = createTicketStore();
-    const id = tickets.issue({ session: 'orca-advisor-7', userId: 7 });
+    const id = tickets.issue({ session: 'elowen-advisor-7', userId: 7 });
     const attached: unknown[] = [];
     let killed = false;
     const attach = ((_mod: PtyModule, opts: unknown) => {
@@ -46,7 +46,7 @@ describe('terminalWsHandler', () => {
     const events = await terminalWsHandler({ tickets, loadPty: async () => okPty, attach })(ctx(`http://x/ws/terminal?ticket=${id}`));
     const w = fakeWs();
     events.onOpen?.(new Event('open'), w.ws);
-    expect(attached[0]).toMatchObject({ session: 'orca-advisor-7' });
+    expect(attached[0]).toMatchObject({ session: 'elowen-advisor-7' });
     expect(w.closed).toBeNull(); // happy path: not closed
     events.onClose?.({} as CloseEvent, w.ws);
     expect(killed).toBe(true);
@@ -54,7 +54,7 @@ describe('terminalWsHandler', () => {
 
   it('forwards a resize frame to resizeWindow with the ticket session', async () => {
     const tickets = createTicketStore();
-    const id = tickets.issue({ session: 'orca-advisor-9', userId: 9 });
+    const id = tickets.issue({ session: 'elowen-advisor-9', userId: 9 });
     const resized: unknown[] = [];
     const attach = ((_mod: PtyModule) =>
       ({ onData: () => {}, write: () => {}, resize: () => {}, kill: () => {} })) as typeof import('../../src/terminal/ptySession.js').attachPty;
@@ -63,12 +63,12 @@ describe('terminalWsHandler', () => {
     const w = fakeWs();
     events.onOpen?.(new Event('open'), w.ws);
     events.onMessage?.({ data: JSON.stringify({ type: 'resize', cols: 100, rows: 30 }) } as MessageEvent, w.ws);
-    expect(resized).toEqual([['orca-advisor-9', 100, 30]]);
+    expect(resized).toEqual([['elowen-advisor-9', 100, 30]]);
   });
 
   it('consumes the ticket exactly once', async () => {
     const tickets = createTicketStore();
-    const id = tickets.issue({ session: 'orca-advisor-1', userId: 1 });
+    const id = tickets.issue({ session: 'elowen-advisor-1', userId: 1 });
     await terminalWsHandler({ tickets, loadPty: async () => okPty })(ctx(`http://x/ws/terminal?ticket=${id}`));
     expect(tickets.consume(id)).toBeNull(); // already consumed at upgrade
   });

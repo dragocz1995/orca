@@ -1,16 +1,16 @@
-// Headless end-to-end smoke for the chat CLI's client layer (the exact BrainClient `orca chat` uses).
-// Assumes a running daemon at ORCA_URL (default http://127.0.0.1:4400) with an admin/pw user and a
+// Headless end-to-end smoke for the chat CLI's client layer (the exact BrainClient `elowen chat` uses).
+// Assumes a running daemon at ELOWEN_URL (default http://127.0.0.1:4400) with an admin/pw user and a
 // configured brain provider. Drives start → send → stream → history without a TTY, so it verifies the
 // SSE parsing, streaming, tool round-trip and history reload that the interactive TUI sits on top of.
 //
-//   ORCA_URL=http://127.0.0.1:44xx node scripts/smoke-chat.mjs
+//   ELOWEN_URL=http://127.0.0.1:44xx node scripts/smoke-chat.mjs
 //
 import { BrainClient } from '../dist/cli/chat/brainClient.js';
 
-const base = process.env.ORCA_URL ?? 'http://127.0.0.1:4400';
+const base = process.env.ELOWEN_URL ?? process.env.ORCA_URL ?? 'http://127.0.0.1:4400';
 const login = await fetch(`${base}/auth/login`, {
   method: 'POST', headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ username: process.env.ORCA_USER ?? 'admin', password: process.env.ORCA_PASS ?? 'pw' }),
+  body: JSON.stringify({ username: process.env.ELOWEN_USER ?? process.env.ORCA_USER ?? 'admin', password: process.env.ELOWEN_PASS ?? process.env.ORCA_PASS ?? 'pw' }),
 });
 const { token } = await login.json();
 const auth = { authorization: `Bearer ${token}` };

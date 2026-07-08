@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 // (Next 16's renamed middleware) runs on every matched request and reliably overrides the header.
 //
 // `no-cache` still allows efficient 304 revalidation via ETag. The matcher excludes /_next/* (the
-// content-hashed static assets keep their immutable long-lived cache) and /orca-api/* (proxied to the
+// content-hashed static assets keep their immutable long-lived cache) and /elowen-api/* (proxied to the
 // daemon, which sets its own headers).
 export function proxy() {
   const res = NextResponse.next();
@@ -16,5 +16,5 @@ export function proxy() {
 }
 
 export const config = {
-  matcher: ['/((?!_next/|orca-api/).*)'],
+  matcher: ['/((?!_next/|elowen-api/).*)'],
 };

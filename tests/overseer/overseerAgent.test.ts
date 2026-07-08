@@ -5,14 +5,14 @@ import { DecisionQueue } from '../../src/overseer/decisionQueue.js';
 describe('overseerPrompt', () => {
   it('tells the agent to loop poll → decide', () => {
     const p = overseerPrompt('m1');
-    expect(p).toContain('orca overseer poll');
-    expect(p).toContain('orca overseer decide');
+    expect(p).toContain('elowen overseer poll');
+    expect(p).toContain('elowen overseer decide');
   });
   it('uses the provided cli invocation verbatim (e.g. node <path> in a checkout)', () => {
     const p = overseerPrompt('m1', 'node /d/cli/index.js');
     expect(p).toContain('node /d/cli/index.js overseer poll');
     expect(p).toContain('node /d/cli/index.js overseer decide');
-    expect(p).not.toMatch(/`orca overseer poll`/); // not the bare default when an explicit cli is given
+    expect(p).not.toMatch(/`elowen overseer poll`/); // not the bare default when an explicit cli is given
   });
   it('explains each decision kind so the overseer judges them differently (O19)', () => {
     const p = overseerPrompt('m1');
@@ -21,7 +21,7 @@ describe('overseerPrompt', () => {
     expect(p).toContain('"review"');
     expect(p.toLowerCase()).toContain('blocks its dependents'); // review semantics spelled out
   });
-  it('explains the "message" kind and its free-text answer command (orca ask)', () => {
+  it('explains the "message" kind and its free-text answer command (elowen ask)', () => {
     const p = overseerPrompt('m1');
     expect(p).toContain('"message"'); // the free-text agent question kind
     expect(p).toContain('overseer decide --id <id> --message'); // how to answer it
@@ -39,7 +39,7 @@ describe('overseerPrompt', () => {
     // overseerPrompt asks its renderer for BOTH 'overseer' and 'code-review' — a custom renderer
     // (the per-user override path) must be consulted for the criteria too, not just the loop prompt.
     const renderPrompt = vi.fn((name: string, vars: Record<string, string>) => name === 'code-review' ? 'CR-CRITERIA' : `loop: ${vars.codeReview}`);
-    const p = overseerPrompt('m1', 'orca', renderPrompt);
+    const p = overseerPrompt('m1', 'elowen', renderPrompt);
     expect(renderPrompt).toHaveBeenCalledWith('code-review', {});
     expect(p).toContain('CR-CRITERIA');
   });
@@ -48,13 +48,13 @@ describe('overseerPrompt', () => {
 describe('makeOverseer', () => {
   const cfg = (overseerExec: string) => ({ get: () => ({ autopilot: { overseerExec } }) }) as never;
 
-  it('start() spawns a parked agent named overseer-<id> with ORCA_MISSION', async () => {
-    const launch = vi.fn().mockResolvedValue({ session: 'orca-overseer-m1' });
+  it('start() spawns a parked agent named overseer-<id> with ELOWEN_MISSION', async () => {
+    const launch = vi.fn().mockResolvedValue({ session: 'elowen-overseer-m1' });
     const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list: vi.fn().mockResolvedValue([]) } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue(), cli: 'node /d/cli/index.js' });
     await ctl.start('m1', 1, '/repo');
     const arg = launch.mock.calls[0]![0];
     expect(arg.agentName).toBe('overseer-m1');
-    expect(arg.extraEnv).toEqual({ ORCA_MISSION: 'm1' });
+    expect(arg.extraEnv).toEqual({ ELOWEN_MISSION: 'm1' });
     expect(arg.spec).toEqual({ program: 'opencode', model: 'deepseek/deepseek-v4-flash' });
     expect(arg.rawPrompt).toContain('node /d/cli/index.js overseer poll'); // daemon CLI by absolute path
   });
@@ -63,8 +63,8 @@ describe('makeOverseer', () => {
     // engage and resume both call start() unconditionally, and the overseer can already be parked from
     // a prior engage. Without the in-park guard, `tmux new-session` throws "duplicate session" and
     // crashes the caller (the route handler), which is exactly what livelocked the mission.
-    const launch = vi.fn().mockResolvedValue({ session: 'orca-overseer-m1' });
-    const list = vi.fn().mockResolvedValue(['orca-overseer-m1']); // already parked
+    const launch = vi.fn().mockResolvedValue({ session: 'elowen-overseer-m1' });
+    const list = vi.fn().mockResolvedValue(['elowen-overseer-m1']); // already parked
     const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue() });
     await ctl.start('m1', 1, '/repo');
     expect(launch).not.toHaveBeenCalled();
@@ -78,7 +78,7 @@ describe('makeOverseer', () => {
   });
 
   it('ensure() re-parks the agent when its session has died', async () => {
-    const launch = vi.fn().mockResolvedValue({ session: 'orca-overseer-m1' });
+    const launch = vi.fn().mockResolvedValue({ session: 'elowen-overseer-m1' });
     const list = vi.fn().mockResolvedValue([]); // session gone
     const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue(), cli: 'node /d/cli/index.js' });
     await ctl.ensure('m1', 1, '/repo');
@@ -87,8 +87,8 @@ describe('makeOverseer', () => {
   });
 
   it('ensure() does not double-spawn when the overseer is already parked', async () => {
-    const launch = vi.fn().mockResolvedValue({ session: 'orca-overseer-m1' });
-    const list = vi.fn().mockResolvedValue(['orca-overseer-m1', 'orca-AgentX']); // still alive
+    const launch = vi.fn().mockResolvedValue({ session: 'elowen-overseer-m1' });
+    const list = vi.fn().mockResolvedValue(['elowen-overseer-m1', 'elowen-AgentX']); // still alive
     const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue() });
     await ctl.ensure('m1', 1, '/repo');
     expect(launch).not.toHaveBeenCalled();
@@ -105,7 +105,7 @@ describe('makeOverseer', () => {
     // The overseer judges a phase by running `git diff HEAD` itself. In PR-native mode the agent's work
     // lives in the mission's worktree, not the main checkout — park it there or every phase false-rejects
     // as "fabricated" (the main checkout shows zero changes) and the mission loops forever.
-    const launch = vi.fn().mockResolvedValue({ session: 'orca-overseer-m1' });
+    const launch = vi.fn().mockResolvedValue({ session: 'elowen-overseer-m1' });
     const missionGit = { worktreeFor: vi.fn().mockReturnValue('/wt/m1') };
     const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list: vi.fn().mockResolvedValue([]) } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue(), missionGit });
     await ctl.start('m1', 1, '/repo');
@@ -143,7 +143,7 @@ describe('makeOverseer', () => {
     const ctl = makeOverseer({ spawn: { launch: vi.fn().mockResolvedValue({ session: 'x' }) } as never, tmux: { kill, list: vi.fn().mockResolvedValue([]) } as never, config: cfg('claude:opus'), queue });
     await ctl.start('m3', 1, '/repo');
     await ctl.stop('m3');
-    expect(kill).toHaveBeenCalledWith('orca-overseer-m3');
+    expect(kill).toHaveBeenCalledWith('elowen-overseer-m3');
     expect(drain).toHaveBeenCalledWith('m3');
   });
 });

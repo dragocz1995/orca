@@ -79,7 +79,7 @@ describe('mcp plugin — helpers', () => {
 
 describe('mcp plugin — end-to-end connection + process-group cleanup', () => {
   it('connects a stdio MCP server, bridges its tool, and reaps the process group on reload', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-mcp-'));
+    const dir = mkdtempSync(join(tmpdir(), 'elowen-mcp-'));
     const pidFile = join(dir, 'grandchild.pid');
     const ctx = fakeCtx({
       servers: [{
