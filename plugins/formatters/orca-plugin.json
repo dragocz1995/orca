@@ -11,6 +11,7 @@
       "key": "enabled",
       "label": "Automatic formatting",
       "type": "boolean",
+      "default": true,
       "hint": "Run the project's formatter right after write_file/edit_file succeeds. Formatting is on by default; switch this off to disable it entirely."
     },
     {
@@ -45,6 +46,7 @@
       "max": 60000,
       "step": 1000,
       "placeholder": "10000",
+      "default": 10000,
       "hint": "How long a formatter subprocess may run before it's killed. Effective ceiling is ~12s: the formatter runs inside the tools.call.after hook's budget, so a timeout at or above ~12s gets cut off by that budget before it can fire."
     },
     {
@@ -55,6 +57,7 @@
       "max": 10485760,
       "step": 262144,
       "placeholder": "1048576",
+      "default": 1048576,
       "hint": "Files larger than this are never formatted (skipped)."
     }
   ]

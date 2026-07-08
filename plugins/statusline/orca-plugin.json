@@ -6,9 +6,9 @@
   "entry": "index.mjs",
   "provides": {},
   "configSchema": [
-    { "key": "showModel", "label": "Model", "type": "boolean", "hint": "Show the active model name." },
-    { "key": "showContext", "label": "Context usage", "type": "boolean", "hint": "Show how full the context window is (percent + tokens)." },
-    { "key": "showTokens", "label": "Total tokens", "type": "boolean", "hint": "Show the conversation's cumulative token count." },
-    { "key": "showCost", "label": "Cost", "type": "boolean", "hint": "Show the conversation's cumulative cost (API-key providers report it; subscriptions show $0)." }
+    { "key": "showModel", "label": "Model", "type": "boolean", "hint": "Show the active model name.", "default": false },
+    { "key": "showContext", "label": "Context usage", "type": "boolean", "hint": "Show how full the context window is (percent + tokens).", "default": false },
+    { "key": "showTokens", "label": "Total tokens", "type": "boolean", "hint": "Show the conversation's cumulative token count.", "default": false },
+    { "key": "showCost", "label": "Cost", "type": "boolean", "hint": "Show the conversation's cumulative cost (API-key providers report it; subscriptions show $0).", "default": false }
   ]
 }

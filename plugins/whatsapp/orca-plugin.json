@@ -56,36 +56,42 @@
       "key": "respondWithoutMention",
       "label": "Respond without mention",
       "type": "boolean",
+      "default": true,
       "hint": "On: in groups the bot answers every message from a mapped sender. Off: in groups it only answers when @mentioned or when its message is replied to. Direct chats always get an answer."
     },
     {
       "key": "streaming",
       "label": "Live streaming replies",
       "type": "boolean",
+      "default": true,
       "hint": "Edit the reply in place as it streams (tool calls + text). Off = one message at the end."
     },
     {
       "key": "reactions",
       "label": "Status reactions",
       "type": "boolean",
+      "default": true,
       "hint": "React 👀 while thinking, ✅/❌ when done."
     },
     {
       "key": "runtimeFooter",
       "label": "Runtime footer",
       "type": "boolean",
+      "default": true,
       "hint": "Append a small \"model · context %\" line under the final reply."
     },
     {
       "key": "showReasoning",
       "label": "Show reasoning",
       "type": "boolean",
+      "default": false,
       "hint": "Stream the model's reasoning into the progress message (extended-thinking models). Off by default — it's usually noise."
     },
     {
       "key": "language",
       "label": "Service language",
       "type": "string",
+      "default": "en",
       "hint": "Language of the bot's own service messages (/new, /model, placeholders): en (default) or cs."
     },
     {
@@ -114,6 +120,7 @@
       "max": 20971520,
       "step": 1048576,
       "placeholder": "5242880",
+      "default": 5242880,
       "hint": "Largest image attachment (bytes) the bot downloads for vision; bigger ones are noted instead."
     },
     {
@@ -124,6 +131,7 @@
       "max": 10,
       "step": 1,
       "placeholder": "4",
+      "default": 4,
       "hint": "How many image attachments in a single incoming message the bot sends to the vision model."
     },
     {
@@ -134,6 +142,7 @@
       "max": 10,
       "step": 1,
       "placeholder": "4",
+      "default": 4,
       "hint": "How many generated images the bot attaches to a single outgoing reply."
     },
     {
@@ -144,6 +153,7 @@
       "max": 1800000,
       "step": 30000,
       "placeholder": "360000",
+      "default": 360000,
       "hint": "How long a pending ask_user_question stays open for a numbered reply or free text before it's dropped as stale."
     },
     {

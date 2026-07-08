@@ -31,6 +31,7 @@
       "max": 500000,
       "step": 5000,
       "placeholder": "100000",
+      "default": 100000,
       "hint": "Max characters read from a file and returned before truncation."
     },
     {
@@ -41,6 +42,7 @@
       "max": 1000,
       "step": 10,
       "placeholder": "200",
+      "default": 200,
       "hint": "Max number of matches search_files returns before truncating."
     }
   ]

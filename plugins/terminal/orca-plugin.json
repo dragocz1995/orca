@@ -21,6 +21,7 @@
       "max": 500000,
       "step": 1000,
       "placeholder": "60000",
+      "default": 60000,
       "hint": "How many characters of stdout/stderr are returned before truncation. Also caps the rolling output buffer kept for background processes."
     },
     {
@@ -31,6 +32,7 @@
       "max": 600000,
       "step": 5000,
       "placeholder": "120000",
+      "default": 120000,
       "hint": "How long a foreground command may run before it is killed."
     }
   ]

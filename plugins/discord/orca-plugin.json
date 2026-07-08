@@ -84,36 +84,42 @@
       "key": "respondWithoutMention",
       "label": "Respond without mention",
       "type": "boolean",
+      "default": true,
       "hint": "On: the bot answers every message in channels it can see (Iris-style). Off: it only answers when @mentioned."
     },
     {
       "key": "streaming",
       "label": "Live streaming replies",
       "type": "boolean",
+      "default": true,
       "hint": "Edit the reply in place as it streams (tool calls + text). Off = one message at the end."
     },
     {
       "key": "reactions",
       "label": "Status reactions",
       "type": "boolean",
+      "default": true,
       "hint": "React 👀 while thinking, ✅/❌ when done."
     },
     {
       "key": "runtimeFooter",
       "label": "Runtime footer",
       "type": "boolean",
+      "default": true,
       "hint": "Append a small \"model · context %\" line under the final reply."
     },
     {
       "key": "showReasoning",
       "label": "Show reasoning",
       "type": "boolean",
+      "default": false,
       "hint": "Stream the model's reasoning into the progress bubble (extended-thinking models). Off by default — it's usually noise on Discord."
     },
     {
       "key": "language",
       "label": "Service language",
       "type": "string",
+      "default": "en",
       "hint": "Language of the bot's own service messages (/new, /model, placeholders): en (default) or cs."
     },
     {
@@ -126,6 +132,7 @@
       "key": "historyLimit",
       "label": "Channel history backfill",
       "type": "number",
+      "default": 0,
       "hint": "How many recent channel messages a BRAND-NEW conversation loads as context (0 = off, max 100). Ongoing conversations never re-fetch."
     },
     {
@@ -148,6 +155,7 @@
       "max": 20971520,
       "step": 1048576,
       "placeholder": "5242880",
+      "default": 5242880,
       "hint": "Largest image attachment (bytes) the bot downloads for vision; bigger ones are noted instead."
     },
     {
@@ -158,6 +166,7 @@
       "max": 10,
       "step": 1,
       "placeholder": "4",
+      "default": 4,
       "hint": "How many image attachments in a single incoming message the bot sends to the vision model."
     },
     {
@@ -168,6 +177,7 @@
       "max": 10,
       "step": 1,
       "placeholder": "4",
+      "default": 4,
       "hint": "How many generated images the bot attaches to a single outgoing reply."
     },
     {
@@ -178,6 +188,7 @@
       "max": 1800000,
       "step": 30000,
       "placeholder": "360000",
+      "default": 360000,
       "hint": "How long a pending ask_user_question stays open for a button click or free-text reply before it's dropped as stale."
     },
     {
@@ -197,30 +208,35 @@
       "key": "stt",
       "label": "Transcribe voice messages",
       "type": "boolean",
+      "default": false,
       "hint": "Transcribe incoming voice messages / audio attachments with Whisper so the agent understands them. Needs the OpenAI API key."
     },
     {
       "key": "sttModel",
       "label": "Speech-to-text model",
       "type": "string",
+      "default": "whisper-1",
       "hint": "Whisper transcription model (default: whisper-1)."
     },
     {
       "key": "tts",
       "label": "Speak replies (default)",
       "type": "boolean",
+      "default": false,
       "hint": "Default for channels: attach a spoken-audio version of replies. Toggle live per channel with /voice. Needs the OpenAI API key."
     },
     {
       "key": "ttsModel",
       "label": "Text-to-speech model",
       "type": "string",
+      "default": "gpt-4o-mini-tts",
       "hint": "TTS model (default: gpt-4o-mini-tts)."
     },
     {
       "key": "ttsVoice",
       "label": "TTS voice",
       "type": "string",
+      "default": "alloy",
       "hint": "Voice: alloy, echo, fable, onyx, nova or shimmer (default: alloy)."
     },
     {

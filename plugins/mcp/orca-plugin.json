@@ -28,6 +28,7 @@
       "max": 60000,
       "step": 1000,
       "placeholder": "15000",
+      "default": 15000,
       "hint": "How long to wait for a server to connect and list its tools before giving up."
     },
     {
@@ -38,6 +39,7 @@
       "max": 300000,
       "step": 5000,
       "placeholder": "120000",
+      "default": 120000,
       "hint": "How long to wait for a bridged tool call to finish before giving up."
     }
   ]

@@ -21,6 +21,7 @@
       "max": 120000,
       "step": 5000,
       "placeholder": "30000",
+      "default": 30000,
       "hint": "How often due jobs are checked."
     },
     {
@@ -31,6 +32,7 @@
       "max": 5,
       "step": 1,
       "placeholder": "2",
+      "default": 2,
       "hint": "Attempts for a recurring job's turn on a transient request-time failure."
     },
     {
@@ -41,6 +43,7 @@
       "max": 30000,
       "step": 1000,
       "placeholder": "3000",
+      "default": 3000,
       "hint": "Pause before a retry so the transient condition can clear."
     },
     {
@@ -51,6 +54,7 @@
       "max": 300000,
       "step": 5000,
       "placeholder": "60000",
+      "default": 60000,
       "hint": "Timeout for a job's cheap guard `check` command."
     }
   ]

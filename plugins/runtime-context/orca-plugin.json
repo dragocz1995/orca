@@ -6,6 +6,6 @@
   "entry": "index.mjs",
   "provides": {},
   "configSchema": [
-    { "key": "timezone", "label": "Timezone", "type": "string", "hint": "IANA timezone, e.g. Europe/Prague (default). Used for the injected date/time." }
+    { "key": "timezone", "label": "Timezone", "type": "string", "default": "Europe/Prague", "hint": "IANA timezone, e.g. Europe/Prague (default). Used for the injected date/time." }
   ]
 }

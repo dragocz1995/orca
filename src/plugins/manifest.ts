@@ -40,6 +40,9 @@ interface PluginConfigField {
   max?: number;
   step?: number;
   placeholder?: string;
+  /** Out-of-box value the settings form pre-fills when nothing is stored yet. Must equal the plugin's
+   *  own runtime fallback for the key, so pre-filling never changes behavior. */
+  default?: string | number | boolean;
   /** For `provider` fields: restrict the picker to providers of this type (e.g. `openai`). */
   providerType?: string;
   /** Choices for `enum`/`multiSelect` fields. */
@@ -115,6 +118,7 @@ const ManifestSchema = Type.Object({
     max: Type.Optional(Type.Number()),
     step: Type.Optional(Type.Number()),
     placeholder: Type.Optional(Type.String()),
+    default: Type.Optional(Type.Union([Type.String(), Type.Number(), Type.Boolean()])),
     providerType: Type.Optional(Type.String()),
     options: Type.Optional(Type.Array(Type.Object({
       value: Type.String(),

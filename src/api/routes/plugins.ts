@@ -186,8 +186,15 @@ export function registerPluginRoutes(app: OrcaApp, ctx: RouteContext): void {
     const schema = manifest.configSchema ?? [];
     const stored = d.config.pluginConfig(name);
     const secretKeys = new Set(schema.filter((f) => f.type === 'secret').map((f) => f.key));
+    // Pre-fill unset fields from their declared `default` so a fresh install shows sensible values (the
+    // defaults mirror each plugin's runtime fallback, so this is display-only — nothing is persisted
+    // until the user saves). Secrets never carry a default and never leave the daemon.
     const config: Record<string, unknown> = {};
-    for (const f of schema) { if (!secretKeys.has(f.key) && stored[f.key] !== undefined) config[f.key] = stored[f.key]; }
+    for (const f of schema) {
+      if (secretKeys.has(f.key)) continue;
+      const val = stored[f.key] !== undefined ? stored[f.key] : f.default;
+      if (val !== undefined) config[f.key] = val;
+    }
     return c.json({
       ...item,
       configSchema: schema,

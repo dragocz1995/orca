@@ -37,6 +37,7 @@ function setup() {
     configSchema: [
       { key: 'botToken', label: 'Bot token', type: 'secret', required: true },
       { key: 'guildId', label: 'Guild ID', type: 'string' },
+      { key: 'historyLimit', label: 'History', type: 'number', default: 25 },
       { key: 'rolePolicies', label: 'Role policies', type: 'rolePolicies' },
     ],
   });
@@ -84,11 +85,23 @@ describe('plugin routes', () => {
     const res = await app.request('/plugins/discord', auth(adminTok));
     expect(res.status).toBe(200);
     const body = await res.json() as { config: Record<string, unknown>; secretsSet: string[]; configSchema: { key: string }[] };
-    expect(body.configSchema.map((f) => f.key)).toEqual(['botToken', 'guildId', 'rolePolicies']);
+    expect(body.configSchema.map((f) => f.key)).toEqual(['botToken', 'guildId', 'historyLimit', 'rolePolicies']);
     expect(body.config.guildId).toBe('g1');
     expect(body.config.botToken).toBeUndefined();
     expect(body.secretsSet).toEqual(['botToken']);
     expect(JSON.stringify(body)).not.toContain('tok-123');
+  });
+
+  it('GET /plugins/:name pre-fills an unset field from its declared default, and a stored value wins', async () => {
+    const { app, adminTok } = setup();
+    // Nothing stored yet → the form should arrive pre-filled with the field's `default`.
+    let body = await (await app.request('/plugins/discord', auth(adminTok))).json() as { config: Record<string, unknown> };
+    expect(body.config.historyLimit).toBe(25);
+    expect(body.config.guildId).toBeUndefined(); // no default declared → still absent
+    // Once the user stores a value, it takes precedence over the default (even 0, which is meaningful here).
+    await app.request('/plugins/discord/config', patch(adminTok, { values: { historyLimit: 0 } }));
+    body = await (await app.request('/plugins/discord', auth(adminTok))).json() as { config: Record<string, unknown> };
+    expect(body.config.historyLimit).toBe(0);
   });
 
   it('PATCH config keeps a stored secret when the field arrives empty', async () => {

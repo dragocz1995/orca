@@ -277,6 +277,9 @@ export interface PluginConfigField {
   max?: number;
   step?: number;
   placeholder?: string;
+  /** Out-of-box value the settings form pre-fills when nothing is stored yet (mirrors the plugin's
+   *  runtime fallback, so pre-filling never changes behavior). */
+  default?: string | number | boolean;
   /** For `provider` fields: restrict the picker to configured providers of this type (e.g. `openai`). */
   providerType?: string;
   /** Choices for `enum`/`multiSelect` fields. */
