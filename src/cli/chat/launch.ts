@@ -1,28 +1,34 @@
+import * as p from '../ui/prompts.js';
 import { resolveToken, NeedsLogin, login } from './token.js';
 import { runChat } from './app.js';
 
-/** Prompt for a line on the TTY. `mute` hides typed characters (for passwords) by swallowing the
- *  readline echo — the standard Node trick, since readline has no built-in masked input. The question
- *  itself is printed directly: readline renders it through the same `_writeToOutput` the mute swallows,
- *  so `rl.question(question)` under mute would show a blank line and the user would type blind. */
-async function promptLine(question: string, mute = false): Promise<string> {
-  const { createInterface } = await import('node:readline');
-  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  if (mute) {
-    const anyRl = rl as unknown as { _writeToOutput: (s: string) => void };
-    anyRl._writeToOutput = (s: string) => { if (s.includes('\n')) process.stdout.write('\n'); };
-    process.stdout.write(question);
-    return new Promise((resolve) => rl.question('', (a) => { rl.close(); resolve(a); }));
-  }
-  return new Promise((resolve) => rl.question(question, (a) => { rl.close(); resolve(a); }));
+/** Raised when the interactive login can't proceed: the user pressed esc, or there is no TTY to
+ *  render the Orca modals into. Carries an actionable, user-facing message. */
+function loginCancelled(): Error {
+  return new Error(
+    'Login requires an interactive terminal. Run `orca login` from a terminal, '
+    + 'or set the ORCA_TOKEN environment variable to a valid token.',
+  );
 }
 
 /** Interactive login → cache a full-scope token, returning it. Used by `orca login` and as the
- *  fallback when chat finds no token in the env or cache. */
+ *  fallback when chat finds no token in the env or cache. Credentials are collected through the
+ *  Orca modal prompts (framed, masked password). Wrong credentials let the user retry; pressing esc
+ *  or running without a TTY aborts with an actionable error instead of hanging or looping. */
 export async function interactiveLogin(base: string, env: NodeJS.ProcessEnv): Promise<string> {
-  const username = await promptLine('Username: ');
-  const password = await promptLine('Password: ', true);
-  return login(base, { username, password }, env);
+  for (;;) {
+    const username = await p.text({ message: 'Username' });
+    if (p.isCancel(username)) throw loginCancelled();
+    const password = await p.password({ message: 'Password' });
+    if (p.isCancel(password)) throw loginCancelled();
+    try {
+      return await login(base, { username, password }, env);
+    } catch (e) {
+      // Wrong credentials (or a transient login error) — surface it and let the user try again.
+      // esc on the next prompt aborts cleanly via `loginCancelled`, so this never spins on a non-TTY.
+      p.log.error(e instanceof Error ? e.message : String(e));
+    }
+  }
 }
 
 /** Resolve a token (env → cache → interactive login) and open the interactive Orca chat TUI. The single

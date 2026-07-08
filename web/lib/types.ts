@@ -477,6 +477,12 @@ export interface SystemInfo {
   lastUpdatedAt: string | null;
 }
 
+/** One first-run readiness row from GET /system/readiness — a subsystem the onboarding UI reports on
+ *  (chat/tasks/missions/memory/platforms/plugins). `ok=false` on `chat` means no provider resolves, so
+ *  the agent cannot answer. Admin-only endpoint. */
+interface ReadinessCheck { id: string; label: string; ok: boolean; detail: string; hint?: string }
+export interface SystemReadiness { checks: ReadinessCheck[] }
+
 /** Per-provider install status of the `orca-workflow` agent skill (Settings → System). The backend also
  *  returns a parsed `version`, but the panel renders only the derived state below, so it's omitted here. */
 interface SkillStatus {

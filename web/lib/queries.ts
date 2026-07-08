@@ -24,6 +24,7 @@ export const QUERY_KEYS = {
   sessionSignals: ['session-signals'] as const,
   advisorStatus: ['advisor-status'] as const,
   system: ['system'] as const,
+  systemReadiness: ['system-readiness'] as const,
   systemSkills: ['system-skills'] as const,
   usageByModel: ['usage-by-model'] as const,
   usageByDay: ['usage-by-day'] as const,
@@ -236,6 +237,11 @@ export const useProjectsCommits = (projectIds: number[], hours: number) =>
 
 export const useMe = () =>
   useQuery({ queryKey: ['me'], queryFn: orcaClient.me, staleTime: 5 * 60 * 1000 });
+
+/** First-run subsystem readiness (admin-only endpoint). Gated by `enabled` so non-admin surfaces never
+ *  fire the 403 request. Powers the dashboard "finish setup" nudge and the onboarding checklist. */
+export const useSystemReadiness = (enabled = true) =>
+  useQuery({ queryKey: QUERY_KEYS.systemReadiness, queryFn: orcaClient.systemReadiness, staleTime: 60_000, enabled });
 
 /** The current user's CLI/brain settings (model override + auto-compact). Edited in Account → CLI. */
 export const useMyCliSettings = () =>

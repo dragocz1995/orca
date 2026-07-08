@@ -22,8 +22,9 @@ USAGE
   orca                            open the interactive Orca chat (in a terminal)
   orca <command> [options]
 
-SETUP
-  setup                           run the onboarding wizard (account, project, AI provider, memory, LSP)
+SETUP                             (setup = this machine, local · install = a shared server, as root)
+  setup                           set up Orca on THIS machine: the onboarding wizard
+                                  (account, project, AI provider, memory, LSP)
                                     --reset                   start over from scratch
                                     --non-interactive         flag-driven setup (no prompts; for agents/CI)
                                       --admin-user --admin-password --project[-slug]|--no-project
@@ -33,7 +34,7 @@ SETUP
                                       secrets can come from env instead of argv (avoids ps/history leaks):
                                       ORCA_ADMIN_PASSWORD, ORCA_API_KEY, ORCA_OPENROUTER_KEY
   doctor                          readiness check: what works, and how to fix what doesn't
-  install                         provision orca as a service: systemd units, a reverse proxy
+  install                         provision Orca as a shared server: systemd units, a reverse proxy
                                   and the first admin (run as root). See \`orca install --help\`.
 
 SERVICE

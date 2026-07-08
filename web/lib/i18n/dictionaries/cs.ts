@@ -578,6 +578,12 @@ export const cs = {
       signal: 'Signál',
       needsInput: 'Čeká na vstup',
     },
+    finishSetup: {
+      title: 'Dokončete nastavení',
+      body: 'Agent zatím nemůže odpovídat — není připojený žádný poskytovatel AI. Připojte ho a můžete začít chatovat.',
+      cta: 'Připojit poskytovatele',
+      dismiss: 'Zavřít',
+    },
   },
   settings: {
     embeddedProviderLink: 'Poskytovatele a klíče spravujete v sekci Orca AI →',

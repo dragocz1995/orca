@@ -20,6 +20,7 @@ function server(opts: { sessions?: unknown[]; tasks?: unknown[]; jobs?: unknown[
     http.get('*/api/sessions', () => HttpResponse.json(opts.sessions ?? [{ name: 'orca-Iris', role: 'agent', agent: 'iris' }])),
     http.get('*/api/sessions/:name/pane', () => HttpResponse.json({ pane: '' })),
     http.get('*/api/missions', () => HttpResponse.json([])),
+    http.get('*/api/auth/me', () => HttpResponse.json({ user: { is_admin: false } })),
     http.get('*/api/asks/pending', () => HttpResponse.json([])),
     http.get('*/api/activity', ({ request }) => {
       const type = new URL(request.url).searchParams.get('type');

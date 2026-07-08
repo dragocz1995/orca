@@ -123,7 +123,7 @@ async function finish(env: NodeJS.ProcessEnv, ctx: WizardCtx, skipped: boolean, 
 
   const username = answers.account?.username || 'your admin account'; // '' (skipped account) must fall through
   const lines = [
-    `Open   ${webBaseUrl()}   (sign in as ${username})`,
+    `Open ${webBaseUrl()} and sign in as ${username}`,
     'Talk to it:  orca chat',
     'Connect Discord/WhatsApp:  Settings → Plugins',
   ];

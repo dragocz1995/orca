@@ -26,12 +26,19 @@ export async function runAiStep(ctx: WizardCtx): Promise<StepResult> {
   for (const pr of providers) if (pr.apiKeySet) reuse.push({ value: `reuse:${pr.id}`, label: `Reuse ${pr.label}`, hint: 'configured API key' });
   for (const ch of OAUTH_CHOICES) if (oauthStatus[ch.type]) reuse.push({ value: `reuse-oauth:${ch.type}`, label: `Reuse ${stripSignIn(ch.label)}`, hint: 'connected account' });
 
+  // OAuth sign-in is the zero-key path a layman should reach for first, so mark the best one Recommended
+  // and pre-highlight it. Prefer Codex / OpenAI; fall back to the first OAuth choice, or "Use an API key"
+  // if the OAuth list is somehow empty.
+  const recommendedOauth = OAUTH_CHOICES.find((c) => c.type === 'oauth-openai-codex') ?? OAUTH_CHOICES[0];
+  const recommendedValue = recommendedOauth ? recommendedOauth.type : 'apikey';
+
   const choice = guard(await p.select({
     message: 'Connect an AI provider',
+    initialValue: recommendedValue,
     options: [
       ...reuse,
-      ...OAUTH_CHOICES.map((c) => ({ value: c.type, label: c.label })),
-      { value: 'apikey', label: 'Use an API key' },
+      ...OAUTH_CHOICES.map((c) => ({ value: c.type, label: c === recommendedOauth ? `${c.label} (Recommended)` : c.label })),
+      { value: 'apikey', label: recommendedValue === 'apikey' ? 'Use an API key (Recommended)' : 'Use an API key' },
       { value: 'custom', label: 'Custom OpenAI-compatible endpoint' },
       { value: 'skip', label: 'Connect later', hint: 'set up in the web UI' },
       { value: 'back', label: '← Go back' },

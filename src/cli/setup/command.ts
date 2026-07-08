@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import * as p from '../ui/prompts.js';
 import { defaultLifecycleDeps, runLifecycle } from '../commands.js';
 import { readInstallInfo } from '../installInfo.js';
@@ -39,6 +40,8 @@ export async function runSetup(args: string[], env: NodeJS.ProcessEnv, base: str
   if (reset) clearMarker(env);
   else if (isOnboarded(env)) p.log.info('Orca is already set up — re-running the wizard (use `orca setup --reset` to start clean).');
 
+  warnMissingPrereqs();
+
   try { await bringUp(base, env, version); }
   catch (e) { console.error(`Couldn't start the Orca daemon: ${(e as Error).message}`); process.exit(1); }
 
@@ -64,6 +67,33 @@ export async function maybeOfferSetup(base: string, env: NodeJS.ProcessEnv, vers
   // must return to the menu like every other menu action, not crash the whole `orca` process.
   try { await runOnboarding(base, env, {}); }
   catch (e) { p.log.error((e as Error).message); }
+}
+
+/** Warn (never block) about missing prerequisites before the wizard runs. tmux is the real one — agents
+ *  run inside tmux, so tasks can't launch without it (mirrors the `orca install` preflight copy). Node is
+ *  already >=22 by the time this JS runs, so it needs no check here. We only inform + print the platform's
+ *  install hint and continue — setup usually runs as an unprivileged local user, so we don't offer to
+ *  apt-install like `orca install` does. */
+function warnMissingPrereqs(): void {
+  if (hasCommand('tmux')) return;
+  p.log.warn('tmux is required to run agents and is not installed — tasks will not run until it is.');
+  p.note(tmuxInstallHint(), 'Install tmux');
+}
+
+/** True when `cmd` resolves on PATH. Uses a login shell so it matches the same PATH agents get, like the
+ *  install runner's `which`. */
+function hasCommand(cmd: string): boolean {
+  try { execFileSync('bash', ['-lc', `command -v ${cmd}`], { stdio: 'ignore' }); return true; }
+  catch { return false; }
+}
+
+/** The exact install command for this platform, or a generic fallback when no known manager is present. */
+function tmuxInstallHint(): string {
+  if (process.platform === 'darwin') return 'brew install tmux';
+  if (hasCommand('apt-get')) return 'sudo apt install tmux';
+  if (hasCommand('dnf')) return 'sudo dnf install tmux';
+  if (hasCommand('pacman')) return 'sudo pacman -S tmux';
+  return 'install tmux with your system package manager';
 }
 
 /** Bring the daemon up the right way for this box: nothing if it's already healthy, else systemctl on an

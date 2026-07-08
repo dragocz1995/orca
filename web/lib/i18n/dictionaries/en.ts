@@ -578,6 +578,12 @@ export const en = {
       signal: 'Signal',
       needsInput: 'Needs input',
     },
+    finishSetup: {
+      title: 'Finish setting up',
+      body: 'Your agent cannot answer yet — no AI provider is connected. Connect one to start chatting.',
+      cta: 'Connect a provider',
+      dismiss: 'Dismiss',
+    },
   },
   settings: {
     embeddedProviderLink: 'Manage providers & keys in the Orca AI section →',

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Rocket, Plus } from 'lucide-react';
 import { useSessionInfos } from '../../lib/queries';
 import { NeedsInputBanner } from '../../components/ui/NeedsInputBanner';
+import { FinishSetupBanner } from '../../components/ui/FinishSetupBanner';
 import { HeroNowTile } from './HeroNowTile';
 import { DecisionsTile, SpendTile, AgentsTile, CronTile } from './SignalTiles';
 import { ActivityTile } from './ActivityTile';
@@ -40,6 +41,7 @@ export function DashboardView() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <FinishSetupBanner />
       <NeedsInputBanner />
 
       {/* Header: greeting + live clock + quick launch */}
