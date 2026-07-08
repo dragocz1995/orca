@@ -13,24 +13,29 @@ const THINKING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
 const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json';
 // GUILDS + GUILD_MESSAGES + MESSAGE_CONTENT
 const INTENTS = (1 << 0) | (1 << 9) | (1 << 15);
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // larger images are noted, not downloaded
-const MAX_IMAGES = 4;                    // vision cap per message
-const ASK_TTL_MS = 6 * 60_000;           // drop a pending ask_user_question after this (> the core 5-min timeout)
-const MAX_UPLOAD_IMAGES = 4;             // generated-image uploads per outgoing message
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger images are noted, not downloaded (cfg: maxImageBytes)
+const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
+const ASK_TTL_MS = 6 * 60_000;           // default: drop a pending ask_user_question after this (cfg: askTimeoutMs; > the core 5-min timeout)
+const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
+
+/** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
+function cfgNum(cfg, key, def, min, max) {
+  return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
+}
 
 /** Split a message's attachments into vision-ready images (downloaded + base64, capped) and textual
  *  notes for everything else (audio/video/documents — Orca has no STT, the agent just learns a file
  *  arrived). Attachment URLs are public CDN links; no auth header is needed. */
-async function collectAttachments(list) {
+async function collectAttachments(list, maxImageBytes, maxImages) {
   const images = [];
   const audio = [];
   const notes = [];
   for (const a of Array.isArray(list) ? list : []) {
     const type = String(a?.content_type ?? '');
     const note = `[Attachment: ${a?.filename ?? 'file'} (${type || 'unknown'})]`;
-    if (type.startsWith('image/') && (a.size ?? 0) <= MAX_IMAGE_BYTES && images.length < MAX_IMAGES) {
+    if (type.startsWith('image/') && (a.size ?? 0) <= maxImageBytes && images.length < maxImages) {
       try {
         const res = await fetch(a.url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -270,7 +275,7 @@ export class DiscordAdapter {
     // Free-text answer to a parked ask_user_question ("✏️ Other"): if this channel has a pending ask
     // awaiting text from THIS sender, consume the message as that answer — not as a new brain turn.
     for (const [id, pend] of this.pendingAsks) {
-      if (Date.now() - pend.createdAt > ASK_TTL_MS) { this.pendingAsks.delete(id); continue; } // stale (server-side timed out) → drop, never swallow a later message
+      if (Date.now() - pend.createdAt > cfgNum(this.cfg, 'askTimeoutMs', ASK_TTL_MS, 30000, 1800000)) { this.pendingAsks.delete(id); continue; } // stale (server-side timed out) → drop, never swallow a later message
       if (!pend.awaitingText || pend.channelId !== m.channel_id || pend.askerId !== m.author.id) continue;
       const other = String(m.content ?? '').trim();
       const q0 = pend.questions[0];
@@ -302,7 +307,11 @@ export class DiscordAdapter {
     const meta = await this.channelInfo(m.channel_id).catch(() => null);
     const channelNames = new Map([...this.channelMeta].map(([id, c]) => [id, c.name]).filter(([, n]) => n));
     text = resolveMentions(text, m.mentions ?? [], this.cfg.rolePolicies, channelNames);
-    const { images, audio, notes } = await collectAttachments(m.attachments);
+    const { images, audio, notes } = await collectAttachments(
+      m.attachments,
+      cfgNum(this.cfg, 'maxImageBytes', MAX_IMAGE_BYTES, 1048576, 20971520),
+      cfgNum(this.cfg, 'maxImages', MAX_IMAGES, 1, 10),
+    );
     if (notes.length) text = [text, ...notes].filter(Boolean).join('\n');
     // Voice messages / audio uploads: transcribe with Whisper when STT is enabled + keyed, else note.
     for (const clip of audio) {
@@ -564,11 +573,13 @@ export class DiscordAdapter {
     await postWithImages(this, channelId, text, replyToId);
   }
 
-  /** Load up to MAX_UPLOAD_IMAGES generated images by validated name from the image plugins' data
-   *  dirs. A missing/unreadable file is skipped silently — the text still goes out without it. */
+  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name
+   *  from the image plugins' data dirs. A missing/unreadable file is skipped silently — the text still
+   *  goes out without it. */
   resolveImageFiles(names) {
     const files = [];
-    for (const name of names.slice(0, MAX_UPLOAD_IMAGES)) {
+    const cap = cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10);
+    for (const name of names.slice(0, cap)) {
       for (const dir of this.imageDirs) {
         const p = join(dir, name);
         if (!existsSync(p)) continue;

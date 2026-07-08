@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlugins } from '../../src/plugins/loader.js';
@@ -422,5 +422,72 @@ describe('discord buildAskComponents (ask_user_question rendering)', () => {
     const { buildAskComponents } = await load();
     const rows = buildAskComponents('ID', Array.from({ length: 6 }, (_, i) => q({ question: `Q${i}` })));
     expect(rows.length).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('discord configurable media/timeout limits', () => {
+  const mkAdapter = async (extraCfg: Record<string, unknown> = {}) => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [{ roleId: 'R1', name: 'Dev', projectIds: [1] }], streaming: false, reactions: false, ...extraCfg } },
+    });
+    const adapter = reg.platforms[0] as unknown as {
+      botId: string | null;
+      pendingAsks: Map<string, { channelId: string; askerId: string; createdAt: number }>;
+      rest: (method: string, path: string, body?: unknown) => Promise<unknown>;
+      listen: (h: (src: Record<string, unknown>, text: string) => Promise<string | undefined>) => void;
+      onMessage: (m: unknown) => Promise<void>;
+    };
+    adapter.botId = 'BOT';
+    adapter.rest = async (_method: string, path: string) => {
+      if (path === '/channels/100') return { id: '100', name: 'general', topic: '', type: 0 };
+      return {};
+    };
+    return adapter;
+  };
+
+  it('maxImages unset reproduces the default cap (4): a 5th image attachment falls over it', async () => {
+    global.fetch = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as unknown as typeof fetch;
+    const adapter = await mkAdapter();
+    let seen: { src: Record<string, unknown> } | undefined;
+    adapter.listen(async (src) => { seen = { src }; return undefined; });
+    await adapter.onMessage({
+      type: 0, guild_id: 'G', channel_id: '100', id: 'MSG',
+      author: { id: 'U1', username: 'anna' }, member: { roles: ['R1'] },
+      content: 'look',
+      attachments: [0, 1, 2, 3, 4].map((i) => ({ filename: `i${i}.png`, content_type: 'image/png', size: 100, url: `http://cdn/${i}.png` })),
+    });
+    expect((seen!.src.images as unknown[])?.length).toBe(4);
+  });
+
+  it('a configured maxImages overrides the default, capping how many attachments become vision images', async () => {
+    global.fetch = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as unknown as typeof fetch;
+    const adapter = await mkAdapter({ maxImages: 2 });
+    let seen: { src: Record<string, unknown> } | undefined;
+    adapter.listen(async (src) => { seen = { src }; return undefined; });
+    await adapter.onMessage({
+      type: 0, guild_id: 'G', channel_id: '100', id: 'MSG',
+      author: { id: 'U1', username: 'anna' }, member: { roles: ['R1'] },
+      content: 'look',
+      attachments: [0, 1, 2].map((i) => ({ filename: `i${i}.png`, content_type: 'image/png', size: 100, url: `http://cdn/${i}.png` })),
+    });
+    expect((seen!.src.images as unknown[])?.length).toBe(2); // 3rd attachment fell over the configured cap
+  });
+
+  it('askTimeoutMs unset reproduces the default (~6 min): a 60s-old pending ask is NOT pruned', async () => {
+    const adapter = await mkAdapter();
+    adapter.listen(async () => undefined);
+    adapter.pendingAsks.set('ask1', { channelId: 'OTHER', askerId: 'U9', createdAt: Date.now() - 60_000 });
+    // An unrelated message (unmapped role → onMessage returns right after the prune loop) still runs the prune.
+    await adapter.onMessage({ type: 0, guild_id: 'G', channel_id: '999', id: 'M2', author: { id: 'U2', username: 'x' }, member: { roles: [] }, content: 'hi' });
+    expect(adapter.pendingAsks.has('ask1')).toBe(true);
+  });
+
+  it('a configured askTimeoutMs overrides the default, pruning a pending ask once it is older than the cap', async () => {
+    const adapter = await mkAdapter({ askTimeoutMs: 30000 }); // the allowed minimum (30s)
+    adapter.listen(async () => undefined);
+    adapter.pendingAsks.set('ask1', { channelId: 'OTHER', askerId: 'U9', createdAt: Date.now() - 60_000 }); // 60s old > 30s cap
+    await adapter.onMessage({ type: 0, guild_id: 'G', channel_id: '999', id: 'M2', author: { id: 'U2', username: 'x' }, member: { roles: [] }, content: 'hi' });
+    expect(adapter.pendingAsks.has('ask1')).toBe(false);
   });
 });

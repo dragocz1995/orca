@@ -271,4 +271,34 @@ describe('formatters plugin — tools.call.after hook flow', () => {
     await runWithPolicy(ADMIN, () => Promise.resolve(hook.run(writeResult(file)))); // no workDir bound
     expect(existsSync(`${file}.formatted`)).toBe(false);
   });
+
+  it('applies a configured maxFileBytes override (skips a file the 1MB default would still format)', async () => {
+    const { hook } = await loadHook({ maxFileBytes: 262144 }); // schema min
+    const dir = projectWithPrettier();
+    const file = join(dir, 'mid.ts');
+    writeFileSync(file, Buffer.alloc(300_000, 0x61)); // under the 1MB default, over the configured cap
+    await fire(hook, dir, writeResult(file));
+    expect(existsSync(`${file}.formatted`)).toBe(false);
+  });
+
+  it('applies a configured timeoutMs override (kills a subprocess the 10s default would let finish)', async () => {
+    const { hook, lines } = await loadHook({ timeoutMs: 5000 }); // schema min
+    const dir = mkdtempSync(join(tmpdir(), 'orca-fmt-timeout-'));
+    fakeBin(join(dir, 'node_modules/.bin/prettier'), '#!/bin/sh\nsleep 6\n');
+    const file = join(dir, 'a.ts');
+    writeFileSync(file, 'const x=1');
+    await fire(hook, dir, writeResult(file));
+    expect(lines.some((l) => l.includes('formatter prettier failed'))).toBe(true);
+  }, 10000);
+});
+
+describe('formatters plugin — configNumber (config override clamping)', () => {
+  it('falls back to the default when unset/invalid, passes through in-range overrides, and clamps out-of-range ones', async () => {
+    const mod = await import(join(pluginsDir, 'formatters/index.mjs')) as { configNumber: (v: unknown, def: number, min: number, max: number) => number };
+    expect(mod.configNumber(undefined, 10_000, 5000, 60_000)).toBe(10_000); // unset -> RUN_TIMEOUT_MS default
+    expect(mod.configNumber(20_000, 10_000, 5000, 60_000)).toBe(20_000); // in-range override
+    expect(mod.configNumber(1, 10_000, 5000, 60_000)).toBe(5000); // clamped to min
+    expect(mod.configNumber(999_999, 10_000, 5000, 60_000)).toBe(60_000); // clamped to max
+    expect(mod.configNumber(undefined, 1_048_576, 262_144, 10_485_760)).toBe(1_048_576); // unset -> MAX_FILE_BYTES default
+  });
 });

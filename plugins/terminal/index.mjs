@@ -8,15 +8,15 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { spawn } from 'node:child_process';
 
-const MAX = 60_000;              // output cap per foreground run / background buffer
-const TIMEOUT_MS = 120_000;      // foreground runs get killed after this
+const DEFAULT_MAX = 60_000;              // output cap per foreground run / background buffer
+const DEFAULT_TIMEOUT_MS = 120_000;      // foreground runs get killed after this
 const MAX_BG = 16;               // concurrent background processes
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
 /** One background child: rolling output buffer + exit state, addressable by a short id. */
 class BgProcess {
-  constructor(id, command, cwd) {
+  constructor(id, command, cwd, outputCap) {
     this.id = id;
     this.command = command;
     this.cwd = cwd;
@@ -27,8 +27,8 @@ class BgProcess {
     this.child = spawn(command, { cwd, shell: true, env: process.env, detached: false });
     const onData = (d) => {
       this.output += d.toString();
-      if (this.output.length > MAX) { // keep the tail; new-output reads follow the trim
-        const drop = this.output.length - MAX;
+      if (this.output.length > outputCap) { // keep the tail; new-output reads follow the trim
+        const drop = this.output.length - outputCap;
         this.output = this.output.slice(drop);
         this.readOffset = Math.max(0, this.readOffset - drop);
       }
@@ -42,18 +42,18 @@ class BgProcess {
   kill() { try { this.child.kill('SIGKILL'); } catch { /* already gone */ } }
 }
 
-function runForeground(command, cwd) {
+function runForeground(command, cwd, outputCap, timeoutMs) {
   return new Promise((done) => {
     const child = spawn(command, { cwd, shell: true, env: process.env });
     let out = '';
     let killed = false;
-    const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, TIMEOUT_MS);
-    const onData = (d) => { if (out.length < MAX) out += d.toString(); };
+    const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, timeoutMs);
+    const onData = (d) => { if (out.length < outputCap) out += d.toString(); };
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
     child.on('close', (code) => {
       clearTimeout(timer);
-      const body = out.length > MAX ? `${out.slice(0, MAX)}\n…[truncated]` : out;
+      const body = out.length > outputCap ? `${out.slice(0, outputCap)}\n…[truncated]` : out;
       done(`$ ${command}\n(cwd: ${cwd})\n${killed ? '[killed: timeout]\n' : ''}${body}[exit ${code}]`);
     });
     child.on('error', (e) => { clearTimeout(timer); done(`Error: ${e.message}`); });
@@ -62,6 +62,10 @@ function runForeground(command, cwd) {
 
 export function register(ctx) {
   const processes = new Map(); // id → BgProcess
+
+  // Also caps the rolling buffer kept for background processes (BgProcess.output trim above).
+  const outputCap = Math.min(Math.max(Number(ctx.config.outputCap) || DEFAULT_MAX, 10_000), 500_000);
+  const commandTimeoutMs = Math.min(Math.max(Number(ctx.config.commandTimeoutMs) || DEFAULT_TIMEOUT_MS, 30_000), 600_000);
 
   // Default cwd is host-resolved (ctx.defaultCwd): the session's bound project path when there is one,
   // re-established every run — an explicit `cwd` from one call never carries into the next.
@@ -90,12 +94,12 @@ export function register(ctx) {
       if (denied) return denied;
       try {
         const cwd = guardCwd(p.cwd);
-        if (!p.background) return ok(await runForeground(p.command, cwd));
+        if (!p.background) return ok(await runForeground(p.command, cwd, outputCap, commandTimeoutMs));
         // prune finished processes before the cap check so dead entries don't block new work
         for (const [id, bg] of processes) { if (!bg.running) processes.delete(id); }
         if (processes.size >= MAX_BG) return ok(`Error: too many background processes (${MAX_BG}); kill one first.`);
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-        processes.set(id, new BgProcess(id, p.command, cwd));
+        processes.set(id, new BgProcess(id, p.command, cwd, outputCap));
         return ok(`Started background process ${id}: ${p.command}\n(cwd: ${cwd})\nUse read_process_output("${id}") to check on it.`);
       } catch (e) { return fail(e); }
     },

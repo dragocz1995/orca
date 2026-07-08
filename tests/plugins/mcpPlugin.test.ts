@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 // The plugin is a plain ESM module (no build step) — import it directly.
 // @ts-expect-error - .mjs plugin has no type declarations
-import { register, killTree, sanitize, mapResult, DetachedStdioTransport } from '../../plugins/mcp/index.mjs';
+import { register, killTree, sanitize, mapResult, DetachedStdioTransport, configNumber } from '../../plugins/mcp/index.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MOCK_SERVER = join(here, '../fixtures/mock-mcp-server.mjs');
@@ -46,6 +46,14 @@ describe('mcp plugin — helpers', () => {
     killTree({ pid: 4242 });
     expect(spy).toHaveBeenCalledWith(-4242, 'SIGKILL');
     spy.mockRestore();
+  });
+
+  it('configNumber falls back to the default when unset/invalid, passes through in-range overrides, and clamps out-of-range ones', () => {
+    expect(configNumber(undefined, 15_000, 5000, 60_000)).toBe(15_000); // unset -> CONNECT_TIMEOUT_MS default
+    expect(configNumber(30_000, 15_000, 5000, 60_000)).toBe(30_000); // in-range override
+    expect(configNumber(1, 15_000, 5000, 60_000)).toBe(5000); // clamped to min
+    expect(configNumber(999_999, 15_000, 5000, 60_000)).toBe(60_000); // clamped to max
+    expect(configNumber(undefined, 120_000, 30_000, 300_000)).toBe(120_000); // unset -> CALL_TIMEOUT_MS default
   });
 
   it('DetachedStdioTransport frames messages by line', async () => {
@@ -103,4 +111,21 @@ describe('mcp plugin — end-to-end connection + process-group cleanup', () => {
     // No orphan: the grandchild (and its server) are gone.
     expect(await waitFor(() => !alive(grandchild))).toBe(true);
   }, 20000);
+
+  it('applies a configured connectTimeoutMs override (fails fast against a server that never speaks MCP, instead of waiting the 15s default)', async () => {
+    const ctx = fakeCtx({
+      connectTimeoutMs: 5000, // schema min
+      servers: [{
+        name: 'hung', enabled: true, transport: 'stdio',
+        // A process that never writes to stdout: client.connect() hangs until the timeout fires.
+        command: process.execPath, args: ['-e', 'setInterval(() => {}, 100000)'],
+      }],
+    });
+    const start = Date.now();
+    await register(ctx as never);
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(4900); // the 5s override, not an instant failure
+    expect(elapsed).toBeLessThan(10_000); // well under the unconfigured 15s default -> the override was used
+    expect(ctx.tools.find((t) => t.name.startsWith('mcp_hung_'))).toBeUndefined();
+  }, 15000);
 });

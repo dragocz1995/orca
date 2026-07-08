@@ -5,5 +5,33 @@
   "description": "Run shell commands (foreground or background) with the working directory confined to the user's accessible repositories. Background processes are managed with list/read/kill tools.",
   "entry": "index.mjs",
   "provides": { "tools": ["run_command", "list_processes", "read_process_output", "kill_process"] },
-  "icons": { "run_command": "💻", "list_processes": "💻", "read_process_output": "💻", "kill_process": "💻" }
+  "icons": { "run_command": "💻", "list_processes": "💻", "read_process_output": "💻", "kill_process": "💻" },
+  "configSchema": [
+    {
+      "key": "sec_limits",
+      "label": "Limits",
+      "type": "section",
+      "hint": "Output size and timeout caps for shell commands."
+    },
+    {
+      "key": "outputCap",
+      "label": "Output cap",
+      "type": "number",
+      "min": 10000,
+      "max": 500000,
+      "step": 1000,
+      "placeholder": "60000",
+      "hint": "How many characters of stdout/stderr are returned before truncation. Also caps the rolling output buffer kept for background processes."
+    },
+    {
+      "key": "commandTimeoutMs",
+      "label": "Command timeout (ms)",
+      "type": "number",
+      "min": 30000,
+      "max": 600000,
+      "step": 5000,
+      "placeholder": "120000",
+      "hint": "How long a foreground command may run before it is killed."
+    }
+  ]
 }

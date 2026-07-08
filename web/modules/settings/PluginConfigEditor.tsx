@@ -393,7 +393,7 @@ export function PluginConfigEditor({ name, detail, fieldLabel, fieldHint, riskTe
       case 'boolean':
         return <Toggle checked={values[f.key] === true} onChange={(v) => set(f.key, v)} label={f.label} />;
       case 'number':
-        return <Input type="number" value={String(values[f.key] ?? '')} onChange={(e) => set(f.key, e.target.value === '' ? undefined : Number(e.target.value))} />;
+        return <Input type="number" min={f.min} max={f.max} step={f.step} placeholder={f.placeholder} value={String(values[f.key] ?? '')} onChange={(e) => set(f.key, e.target.value === '' ? undefined : Number(e.target.value))} />;
       case 'textarea':
         return <textarea value={String(values[f.key] ?? '')} onChange={(e) => set(f.key, e.target.value)} rows={4} className={textareaClass} />;
       case 'secret':

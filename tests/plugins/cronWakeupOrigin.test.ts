@@ -18,14 +18,19 @@ const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text:
 
 function freshDataRoot(): string { return mkdtempSync(join(tmpdir(), 'orca-pdata-')); }
 
-/** The cron adapter's internals the tests drive directly (listen + a manual tick, no timers). */
+/** The cron adapter's internals the tests drive directly (listen + a manual tick, no timers), plus the
+ *  resolved scheduler limits (see plugins/cronjob/orca-plugin.json's "Scheduler" config section). */
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string, onEvent?: (e: { type: string; sessionId?: string }) => void) => Promise<string | undefined>): void;
   tick(): Promise<void>;
+  tickMs: number;
+  turnAttempts: number;
+  retryBackoffMs: number;
+  checkTimeoutMs: number;
 }
 
-async function loadCron(dataRoot: string, notify?: (text: string, channelId?: string) => Promise<void>) {
-  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, notify });
+async function loadCron(dataRoot: string, notify?: (text: string, channelId?: string) => Promise<void>, config?: Record<string, unknown>) {
+  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, notify, config: config ? { cronjob: config } : undefined });
   return { reg, adapter: reg.platforms[0] as unknown as CronAdapterUnderTest };
 }
 
@@ -273,5 +278,50 @@ describe('cron tick — reliability (re-entrancy guard + bounded retry)', () => 
     }
     expect(calls).toBe(2); // initial + one retry, then give up
     expect(delivered.some((d) => d.includes('Error: 400 persistent'))).toBe(true);
+  });
+});
+
+describe('cron scheduler config (user-configurable limits)', () => {
+  const dueJob = (extra: Record<string, unknown> = {}) => ({
+    id: 'r1', name: 'report', schedule: 'every 5m', prompt: 'do it',
+    lastRun: new Date(Date.now() - 10 * 60_000).toISOString(), createdAt: new Date().toISOString(), ...extra,
+  });
+  function writeJobs(dataRoot: string, jobs: Record<string, unknown>[]): void {
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    writeFileSync(jobsFile(dataRoot), JSON.stringify(jobs));
+  }
+
+  it('unset config reproduces today\'s exact hardcoded defaults', async () => {
+    const dataRoot = freshDataRoot();
+    const { adapter } = await loadCron(dataRoot);
+    expect(adapter.tickMs).toBe(30_000);
+    expect(adapter.turnAttempts).toBe(2);
+    expect(adapter.retryBackoffMs).toBe(3_000);
+    expect(adapter.checkTimeoutMs).toBe(60_000);
+  });
+
+  it('configured values are clamped into the declared min/max bounds', async () => {
+    const dataRoot = freshDataRoot();
+    const { adapter } = await loadCron(dataRoot, undefined, {
+      tickMs: 1, retryAttempts: 99, retryBackoffMs: 999_999, checkTimeoutMs: 1,
+    });
+    expect(adapter.tickMs).toBe(10_000); // clamped up to the min
+    expect(adapter.turnAttempts).toBe(5); // clamped down to the max
+    expect(adapter.retryBackoffMs).toBe(30_000); // clamped down to the max
+    expect(adapter.checkTimeoutMs).toBe(10_000); // clamped up to the min
+  });
+
+  it('a configured retryAttempts=1 disables the retry — the transient failure is delivered as-is, no backoff wait', async () => {
+    const dataRoot = freshDataRoot();
+    const delivered: string[] = [];
+    writeJobs(dataRoot, [dueJob()]);
+    const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); }, { retryAttempts: 1, checkTimeoutMs: 15_000 });
+    expect(adapter.turnAttempts).toBe(1);
+    expect(adapter.checkTimeoutMs).toBe(15_000);
+    let calls = 0;
+    adapter.listen(async () => { calls++; throw new Error('400 transient blip'); });
+    await adapter.tick(); // with attempts=1 there's no retry branch, so no fake-timer backoff wait is needed
+    expect(calls).toBe(1); // no retry, unlike the default attempts=2 behavior
+    expect(delivered.some((d) => d.includes('Error: 400 transient blip'))).toBe(true);
   });
 });

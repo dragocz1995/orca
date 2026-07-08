@@ -15,5 +15,33 @@
     "git_status"
   ]
   },
-  "icons": { "read_file": "file", "list_dir": "file", "write_file": "edit", "edit_file": "edit", "search_files": "search", "file_info": "file", "git_status": "git" }
+  "icons": { "read_file": "file", "list_dir": "file", "write_file": "edit", "edit_file": "edit", "search_files": "search", "file_info": "file", "git_status": "git" },
+  "configSchema": [
+    {
+      "key": "sec_limits",
+      "label": "Limits",
+      "type": "section",
+      "hint": "Output size caps for file reads and searches."
+    },
+    {
+      "key": "readCap",
+      "label": "Read cap",
+      "type": "number",
+      "min": 20000,
+      "max": 500000,
+      "step": 5000,
+      "placeholder": "100000",
+      "hint": "Max characters read from a file and returned before truncation."
+    },
+    {
+      "key": "searchMaxMatches",
+      "label": "Search max matches",
+      "type": "number",
+      "min": 50,
+      "max": 1000,
+      "step": 10,
+      "placeholder": "200",
+      "hint": "Max number of matches search_files returns before truncating."
+    }
+  ]
 }

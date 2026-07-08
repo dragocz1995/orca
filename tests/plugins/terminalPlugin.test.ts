@@ -80,3 +80,78 @@ describe('terminal plugin', () => {
     expect(res.content[0].text).toMatch(/only available to the operator/);
   });
 });
+
+describe('terminal plugin — configurable outputCap', () => {
+  let dir: string;
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'orca-term-cap-')); });
+  const bigOutput = (n: number) => `node -e "process.stdout.write('a'.repeat(${n}))"`;
+  // Body length between the "(cwd: …)\n" prefix and the truncation marker == the applied cap.
+  const cappedBodyLength = (text: string): number => {
+    const prefix = /^\$ .*\n\(cwd: .*\)\n/.exec(text);
+    if (!prefix) throw new Error('unexpected run_command output shape');
+    const idx = text.indexOf('\n…[truncated]');
+    if (idx < 0) throw new Error('not truncated');
+    return idx - prefix[0].length;
+  };
+
+  it('a configured outputCap (min-clamped 10000) truncates output that the default 60000 would not', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log,
+      config: { terminal: { outputCap: 10_000 } },
+    });
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: bigOutput(15_000) }), { identity: owner });
+    const text = res.content[0].text;
+    expect(text).toContain('…[truncated]');
+    expect(cappedBodyLength(text)).toBe(10_000);
+  });
+
+  it('unset outputCap reproduces the default 60000-char cap exactly', async () => {
+    const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log });
+    const under = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: bigOutput(15_000) }), { identity: owner });
+    expect(under.content[0].text).not.toContain('…[truncated]'); // below the 60000 default: untouched
+    const over = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: bigOutput(65_000) }), { identity: owner });
+    const text = over.content[0].text;
+    expect(text).toContain('…[truncated]');
+    expect(cappedBodyLength(text)).toBe(60_000);
+  });
+
+  it('outputCap also bounds the background process rolling buffer', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log,
+      config: { terminal: { outputCap: 10_000 } },
+    });
+    const started = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: bigOutput(15_000), background: true }), { identity: owner });
+    const id = /Started background process (\S+):/.exec(started.content[0].text)?.[1];
+    expect(id).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 500)); // let the short-lived child finish and flush its output
+    const out = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_process_output', { id, all: true }), { identity: owner });
+    expect(out.content[0].text.length).toBeLessThanOrEqual(10_000 + '\n[exited 0]'.length);
+  });
+});
+
+// commandTimeoutMs is clamped to a 30000ms floor, and a real child process's 'close' event does not
+// reliably fire under vi.useFakeTimers() (Node defers it past the fake clock), so these run in real
+// time at the clamp boundary — the fastest a genuine kill can be observed. Both share one `sleep 32`
+// duration: the override kills it at ~30s while the (much larger) default lets the same duration
+// finish normally, so the pair proves the override actually shortens the wait, without the default
+// case needing a full real 120s to prove the constant wasn't shrunk.
+describe('terminal plugin — configurable commandTimeoutMs', () => {
+  let dir: string;
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'orca-term-timeout-')); });
+
+  it('a configured commandTimeoutMs (min-clamped 30000) kills a command sooner than the default', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log,
+      config: { terminal: { commandTimeoutMs: 30_000 } },
+    });
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'sleep 32' }), { identity: owner });
+    expect(res.content[0].text).toContain('[killed: timeout]');
+  }, 40_000);
+
+  it('unset commandTimeoutMs keeps the (larger) default: the same duration finishes normally', async () => {
+    const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log });
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'sleep 32' }), { identity: owner });
+    expect(res.content[0].text).not.toContain('[killed: timeout]');
+    expect(res.content[0].text).toContain('[exit 0]');
+  }, 40_000);
+});

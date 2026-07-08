@@ -10,22 +10,27 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 
 const execFileAsync = promisify(execFile);
-const TICK_MS = 30_000;
-const CHECK_TIMEOUT_MS = 60_000; // a guard shell must finish fast; a hung check never blocks the tick loop
+// Scheduler defaults — user-overridable via configSchema (see register()); these are the values used
+// when a key is unset, and stay the source of truth the existing tests rely on.
+const DEFAULT_TICK_MS = 30_000;
+const DEFAULT_CHECK_TIMEOUT_MS = 60_000; // a guard shell must finish fast; a hung check never blocks the tick loop
 const CHECK_MAX_BUFFER = 1024 * 1024; // 1 MB of stdout is plenty of "what's new" to hand the brain
-const CRON_TURN_ATTEMPTS = 2; // one retry on a request-time failure (a transient relay/gateway/network blip)
-const CRON_RETRY_BACKOFF_MS = 3_000; // brief pause before the retry so the transient condition can clear
+const DEFAULT_CRON_TURN_ATTEMPTS = 2; // one retry on a request-time failure (a transient relay/gateway/network blip)
+const DEFAULT_CRON_RETRY_BACKOFF_MS = 3_000; // brief pause before the retry so the transient condition can clear
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Read a number config field, falling back to `def` when unset/invalid, then clamp to [min, max]. */
+const clampConfig = (value, def, min, max) => Math.min(Math.max(Number(value) || def, min), max);
 
 /** Run a job's optional cheap guard command and classify the outcome, so the scheduler can decide
  *  whether the (expensive) brain turn is even worth running. Admin-authored (jobs are admin-only), run
  *  through `/bin/sh -c` like the brain's own run_command. Returns:
  *   - { skip:true }  → nothing to do (empty stdout) or the check errored → DON'T spend an LLM turn.
  *   - { skip:false, output } → fresh data on stdout → run the brain turn and feed it this output. */
-export async function runCheck(command, logger) {
+export async function runCheck(command, logger, timeoutMs = DEFAULT_CHECK_TIMEOUT_MS) {
   try {
     const { stdout } = await execFileAsync('/bin/sh', ['-c', command], {
-      timeout: CHECK_TIMEOUT_MS, maxBuffer: CHECK_MAX_BUFFER, encoding: 'utf-8',
+      timeout: timeoutMs, maxBuffer: CHECK_MAX_BUFFER, encoding: 'utf-8',
     });
     const output = String(stdout ?? '').trim();
     if (!output) return { skip: true, reason: 'nothing new' };
@@ -130,10 +135,18 @@ class CronAdapter {
   // messages to every platform adapter exposing a `notify` method — if this adapter carried one,
   // the broadcast would call back into itself (host → cron → host → …) until the stack blew,
   // multiplying every cron echo into dozens of Discord messages.
-  constructor(store, logger, deliver) { this.store = store; this.log = logger; this.deliver = deliver; this.handler = null; this.running = false; }
+  constructor(store, logger, deliver, config = {}) {
+    this.store = store; this.log = logger; this.deliver = deliver; this.handler = null; this.running = false;
+    // Scheduler limits, resolved once from plugin config (see orca-plugin.json's "Scheduler" section) and
+    // clamped to sane bounds — unset config reproduces the previous hardcoded defaults exactly.
+    this.tickMs = clampConfig(config.tickMs, DEFAULT_TICK_MS, 10_000, 120_000);
+    this.turnAttempts = clampConfig(config.retryAttempts, DEFAULT_CRON_TURN_ATTEMPTS, 1, 5);
+    this.retryBackoffMs = clampConfig(config.retryBackoffMs, DEFAULT_CRON_RETRY_BACKOFF_MS, 1_000, 30_000);
+    this.checkTimeoutMs = clampConfig(config.checkTimeoutMs, DEFAULT_CHECK_TIMEOUT_MS, 10_000, 300_000);
+  }
   listen(onMessage) { this.handler = onMessage; }
   async connect() {
-    this.timer = setInterval(() => void this.tick().catch((e) => this.log.error(`tick failed: ${e?.message ?? e}`)), TICK_MS);
+    this.timer = setInterval(() => void this.tick().catch((e) => this.log.error(`tick failed: ${e?.message ?? e}`)), this.tickMs);
   }
   disconnect() { clearInterval(this.timer); }
   async send() { /* cron has no outbound channel; results land in the job's conversation */ }
@@ -161,7 +174,7 @@ class CronAdapter {
       // exec, not a model call. The guard's output is fed into the turn so the brain acts on real data.
       let checkOutput = null;
       if (typeof job.check === 'string' && job.check.trim()) {
-        const res = await runCheck(job.check, this.log);
+        const res = await runCheck(job.check, this.log, this.checkTimeoutMs);
         if (res.skip) {
           this.store.patch(job.id, { lastResult: `⏭️ ${res.reason}` });
           continue; // nothing new (or the guard errored) → skip the brain turn entirely
@@ -215,9 +228,9 @@ class CronAdapter {
         idle = null; deliveredTo = null; sawWork = false;
         try { reply = await this.handler(src, userText, onEvent); break; }
         catch (e) {
-          if (attempt < CRON_TURN_ATTEMPTS && !sawWork && !job.runAt) {
-            this.log.warn(`cron job ${job.id} attempt ${attempt} failed (${e?.message ?? e}) — retrying in ${CRON_RETRY_BACKOFF_MS}ms`);
-            await sleep(CRON_RETRY_BACKOFF_MS);
+          if (attempt < this.turnAttempts && !sawWork && !job.runAt) {
+            this.log.warn(`cron job ${job.id} attempt ${attempt} failed (${e?.message ?? e}) — retrying in ${this.retryBackoffMs}ms`);
+            await sleep(this.retryBackoffMs);
             continue;
           }
           reply = `Error: ${e?.message ?? e}`;
@@ -358,6 +371,6 @@ export function register(ctx) {
     },
   }));
 
-  ctx.registerPlatform(new CronAdapter(store, ctx.logger, ctx.notify));
+  ctx.registerPlatform(new CronAdapter(store, ctx.logger, ctx.notify, ctx.config));
   ctx.logger.info('cron tools + scheduler registered');
 }

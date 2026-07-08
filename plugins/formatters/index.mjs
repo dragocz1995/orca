@@ -9,8 +9,13 @@ import { basename, delimiter, extname, isAbsolute, join, resolve, sep } from 'no
 import { promisify } from 'node:util';
 
 const execFileP = promisify(execFile);
-const RUN_TIMEOUT_MS = 10_000;
-const MAX_FILE_BYTES = 1024 * 1024; // files above 1 MB are never formatted
+const RUN_TIMEOUT_MS = 10_000; // default formatter subprocess SIGKILL timeout; overridable via config.timeoutMs
+const MAX_FILE_BYTES = 1024 * 1024; // default: files above 1 MB are never formatted; overridable via config.maxFileBytes
+
+/** Read a numeric config override, clamped to [min, max]; falls back to `def` when unset/invalid. */
+function configNumber(value, def, min, max) {
+  return Math.min(Math.max(Number(value) || def, min), max);
+}
 /** The file-writing tools whose successful results trigger a format run. Terminal-side writes are out
  *  of scope — only the files plugin's structured write/edit results carry a reliable path. */
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
@@ -146,6 +151,8 @@ export async function formatToolResult(ctx, payload) {
 
     if (ctx.config.enabled === false) return; // master toggle (absent = on)
     const disabled = new Set(Array.isArray(ctx.config.disabled) ? ctx.config.disabled.filter((d) => typeof d === 'string') : []);
+    const timeoutMs = configNumber(ctx.config.timeoutMs, RUN_TIMEOUT_MS, 5000, 60000);
+    const maxFileBytes = configNumber(ctx.config.maxFileBytes, MAX_FILE_BYTES, 262144, 10485760);
 
     // Security: format only inside the current turn's project. Resolve + prefix-check so `..` segments
     // or a symlinked-in path string can't point the formatter at a file outside the work dir.
@@ -157,14 +164,14 @@ export async function formatToolResult(ctx, payload) {
 
     let size;
     try { size = statSync(file).size; } catch { return; /* vanished since the write */ }
-    if (size > MAX_FILE_BYTES) return;
+    if (size > maxFileBytes) return;
 
     const formatter = resolveFormatter(file, root, disabled);
     if (!formatter) return;
 
     const argv = buildCommand(formatter, root, file);
     try {
-      await execFileP(argv[0], argv.slice(1), { cwd: root, timeout: RUN_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 });
+      await execFileP(argv[0], argv.slice(1), { cwd: root, timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 });
       ctx.logger.info(`formatted ${file} with ${formatter.name}`);
       // Annotate the tool result so the note reaches the transcript: the tools.call.after observer is
       // awaited before the result travels onward, so appending to details.notes here is race-free
@@ -184,6 +191,8 @@ export async function formatToolResult(ctx, payload) {
     ctx.logger.warn(`formatting skipped: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
+
+export { configNumber };
 
 export function register(ctx) {
   ctx.registerHook({ name: 'tools.call.after', run: (payload) => formatToolResult(ctx, payload) });

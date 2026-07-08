@@ -15,11 +15,16 @@ import { LiveMessage } from './stream.mjs';
 
 // Reasoning-effort levels PI accepts for extended-thinking models (mirrors THINKING_LEVELS daemon-side).
 const THINKING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // larger inbound images are noted, not downloaded
-const MAX_IMAGES = 4;                    // vision cap per message
-const ASK_TTL_MS = 6 * 60_000;           // drop a pending ask/menu after this (> the core 5-min timeout)
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger inbound images are noted, not downloaded (cfg: maxImageBytes)
+const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
+const ASK_TTL_MS = 6 * 60_000;           // default: drop a pending ask after this (cfg: askTimeoutMs; > the core 5-min timeout)
 const MENU_TTL_MS = 6 * 60_000;          // a numbered-menu number-reply is valid this long
-const MAX_UPLOAD_IMAGES = 4;             // generated-image uploads per reply
+const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per reply (cfg: maxUploadImages)
+
+/** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
+function cfgNum(cfg, key, def, min, max) {
+  return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
+}
 
 /** A minimal pino-shaped logger Baileys accepts, forwarding only warn/error to Orca's logger (trace/
  *  debug/info are dropped — Baileys is extremely chatty). Baileys calls `child()` and pino-style
@@ -388,9 +393,11 @@ export class WhatsAppAdapter {
     const img = m.message?.imageMessage;
     if (img) {
       const size = Number(img.fileLength ?? 0);
-      if (size && size > MAX_IMAGE_BYTES) {
+      const maxImageBytes = cfgNum(this.cfg, 'maxImageBytes', MAX_IMAGE_BYTES, 1048576, 20971520);
+      const maxImages = cfgNum(this.cfg, 'maxImages', MAX_IMAGES, 1, 10);
+      if (size && size > maxImageBytes) {
         notes.push('[Attachment: image (too large to read)]');
-      } else if (images.length < MAX_IMAGES) {
+      } else if (images.length < maxImages) {
         try {
           const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: this.plog, reuploadRequest: this.sock.updateMediaMessage });
           images.push({ data: Buffer.from(buf).toString('base64'), mimeType: img.mimetype || 'image/jpeg' });
@@ -437,7 +444,7 @@ export class WhatsAppAdapter {
     const t = String(text ?? '').trim();
     // Parked ask_user_question from this sender.
     for (const [id, pend] of this.pendingAsks) {
-      if (Date.now() - pend.createdAt > ASK_TTL_MS) { this.pendingAsks.delete(id); continue; }
+      if (Date.now() - pend.createdAt > cfgNum(this.cfg, 'askTimeoutMs', ASK_TTL_MS, 30000, 1800000)) { this.pendingAsks.delete(id); continue; }
       if (pend.jid !== chatJid || !sameId(pend.askerJid, senderJid)) continue;
       if (/^submit$/i.test(t)) { await this.submitAsk(id, m); return true; }
       // A single-question ask answers from one reply: a number (or a comma list on multiSelect) picks
@@ -615,10 +622,12 @@ export class WhatsAppAdapter {
 
   react(key, emoji) { return this.sock.sendMessage(key.remoteJid, { react: { text: emoji, key } }); }
 
-  /** Load up to MAX_UPLOAD_IMAGES generated images by validated name from the image plugins' data dirs. */
+  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name
+   *  from the image plugins' data dirs. */
   resolveImageFiles(names) {
     const files = [];
-    for (const name of names.slice(0, MAX_UPLOAD_IMAGES)) {
+    const cap = cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10);
+    for (const name of names.slice(0, cap)) {
       for (const dir of this.imageDirs) {
         const p = join(dir, name);
         if (!existsSync(p)) continue;

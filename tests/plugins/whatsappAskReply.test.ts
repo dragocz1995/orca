@@ -43,3 +43,35 @@ describe('whatsapp parseAskReply (ask_user_question reply parsing)', () => {
     expect(parseAskReply('', single)).toBeNull();
   });
 });
+
+type WhatsAppAdapterCtor = new (
+  cfg: Record<string, unknown>, logger: unknown, state: unknown, listModels: unknown,
+  imageDirs: unknown[], authDir: string, qrPngPath: string, answerQuestion: () => boolean,
+) => {
+  pendingAsks: Map<string, { jid: string; askerJid: string; questions: unknown[]; selected: Record<number, string[]>; createdAt: number }>;
+  handleTextReply: (chatJid: string, senderJid: string, text: string, m: unknown) => Promise<boolean>;
+};
+
+const loadAdapter = async () => (await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs'))) as { WhatsAppAdapter: WhatsAppAdapterCtor };
+const noopLog = { info() {}, warn() {}, error() {} };
+const mkAdapter = async (cfg: Record<string, unknown> = {}) => {
+  const { WhatsAppAdapter } = await loadAdapter();
+  return new WhatsAppAdapter(cfg, noopLog, null, null, [], '', '', () => false);
+};
+
+describe('whatsapp configurable askTimeoutMs (pending ask_user_question TTL)', () => {
+  it('unset reproduces the default (~6 min): a 60s-old pending ask is NOT pruned', async () => {
+    const adapter = await mkAdapter();
+    adapter.pendingAsks.set('ask1', { jid: 'other', askerJid: 'other', questions: [], selected: {}, createdAt: Date.now() - 60_000 });
+    // A reply from an unrelated chat still runs the prune loop (it iterates every pending ask).
+    await adapter.handleTextReply('chat', 'sender', 'hi', {});
+    expect(adapter.pendingAsks.has('ask1')).toBe(true);
+  });
+
+  it('a configured askTimeoutMs overrides the default, pruning a pending ask once older than the cap', async () => {
+    const adapter = await mkAdapter({ askTimeoutMs: 30000 }); // the allowed minimum (30s)
+    adapter.pendingAsks.set('ask1', { jid: 'other', askerJid: 'other', questions: [], selected: {}, createdAt: Date.now() - 60_000 }); // 60s old > 30s cap
+    await adapter.handleTextReply('chat', 'sender', 'hi', {});
+    expect(adapter.pendingAsks.has('ask1')).toBe(false);
+  });
+});

@@ -15,8 +15,14 @@ const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`, {
   error: { message: e instanceof Error ? e.message : String(e) },
 });
 
-const CONNECT_TIMEOUT_MS = 15_000;
-const CALL_TIMEOUT_MS = 120_000;
+const CONNECT_TIMEOUT_MS = 15_000; // default; overridable via config.connectTimeoutMs (global, all servers)
+const CALL_TIMEOUT_MS = 120_000; // default; overridable via config.callTimeoutMs (global, all servers)
+
+/** Read a numeric config override, clamped to [min, max]; falls back to `def` when unset/invalid. */
+function configNumber(value, def, min, max) {
+  return Math.min(Math.max(Number(value) || def, min), max);
+}
+
 const state = {
   ctx: null,
   specs: [],
@@ -117,7 +123,8 @@ function registerBridgedTool(ctx, client, serverName, tool) {
     parameters: params,
     execute: async (_id, args) => {
       try {
-        const res = await withTimeout(client.callTool({ name: tool.name, arguments: args ?? {} }), CALL_TIMEOUT_MS, `mcp call ${tool.name}`);
+        const callTimeoutMs = configNumber(ctx.config?.callTimeoutMs, CALL_TIMEOUT_MS, 30000, 300000);
+        const res = await withTimeout(client.callTool({ name: tool.name, arguments: args ?? {} }), callTimeoutMs, `mcp call ${tool.name}`);
         return mapResult(res);
       } catch (e) { return fail(e); }
     },
@@ -132,9 +139,10 @@ async function connectServer(ctx, spec, live) {
   const client = new Client({ name: 'orca-mcp-bridge', version: '0.1.1' }, { capabilities: {} });
   const entry = { name: spec.name, client, transport, child };
   live.push(entry);
+  const connectTimeoutMs = configNumber(ctx.config?.connectTimeoutMs, CONNECT_TIMEOUT_MS, 5000, 60000);
   try {
-    await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `mcp connect ${spec.name}`);
-    const { tools } = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, `mcp listTools ${spec.name}`);
+    await withTimeout(client.connect(transport), connectTimeoutMs, `mcp connect ${spec.name}`);
+    const { tools } = await withTimeout(client.listTools(), connectTimeoutMs, `mcp listTools ${spec.name}`);
     for (const tool of tools ?? []) registerBridgedTool(ctx, client, spec.name, tool);
     setServerState(spec.name, {
       status: 'connected',
@@ -238,4 +246,4 @@ export async function reconnectMcpDisconnected() {
   return Promise.allSettled(targets.map((spec) => reconnectMcpServer(spec.name))).then(() => listMcpServers());
 }
 
-export { killTree, DetachedStdioTransport, sanitize, mapResult };
+export { killTree, DetachedStdioTransport, sanitize, mapResult, configNumber };

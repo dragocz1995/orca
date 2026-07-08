@@ -1,3 +1,25 @@
 {
-  "description": "Naplánované prompty: opakující se úlohy (\"every 30m\", \"daily 07:30\") a jednorázová probuzení (\"in 20m\", \"at 18:30\"), které běží jako vlastní konverzace mozku s plnou pravomocí vlastníka. Správa jen pro administrátory."
+  "description": "Naplánované prompty: opakující se úlohy (\"every 30m\", \"daily 07:30\") a jednorázová probuzení (\"in 20m\", \"at 18:30\"), které běží jako vlastní konverzace mozku s plnou pravomocí vlastníka. Správa jen pro administrátory.",
+  "fields": {
+    "sec_scheduler": {
+      "label": "Plánovač",
+      "hint": "Interval kontroly, chování opakování a timeout kontroly guardu."
+    },
+    "tickMs": {
+      "label": "Interval kontroly (ms)",
+      "hint": "Jak často se kontrolují splatné úlohy."
+    },
+    "retryAttempts": {
+      "label": "Počet pokusů",
+      "hint": "Kolikrát se zopakuje tah opakující se úlohy při dočasné chybě požadavku."
+    },
+    "retryBackoffMs": {
+      "label": "Prodleva před opakováním (ms)",
+      "hint": "Pauza před opakováním, aby dočasný problém mohl odeznít."
+    },
+    "checkTimeoutMs": {
+      "label": "Timeout kontroly (ms)",
+      "hint": "Timeout pro levný guard příkaz \"check\" u úlohy."
+    }
+  }
 }

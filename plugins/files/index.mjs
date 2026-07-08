@@ -8,8 +8,8 @@ import { execFile, execFileSync } from 'node:child_process';
 import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 
-const MAX = 100_000;
-const SEARCH_MAX_MATCHES = 200;
+const DEFAULT_MAX = 100_000;
+const DEFAULT_SEARCH_MAX_MATCHES = 200;
 const SEARCH_TIMEOUT_MS = 5_000;
 const DIFF_CONTEXT = 3;
 const DIFF_MAX_LINES = 200;
@@ -24,7 +24,7 @@ const fail = (tool, e, details = {}) => ok(tool, `Error: ${e instanceof Error ? 
   error: { message: e instanceof Error ? e.message : String(e) },
   ...details,
 });
-const truncate = (text, max = MAX) => {
+const truncate = (text, max = DEFAULT_MAX) => {
   if (text.length <= max) return { text, truncated: false };
   return { text: `${text.slice(0, max)}\n...[truncated]`, truncated: true };
 };
@@ -124,7 +124,7 @@ function walkFiles(root, limit = 5000) {
   return out;
 }
 
-async function rgSearch(abs, root, queryText, include, mode) {
+async function rgSearch(abs, root, queryText, include, mode, maxMatches) {
   const ignoreGlobs = [...SKIP_DIRS].map((d) => `!${d}/**`);
   if (mode === 'files') {
     const args = ['--files', ...ignoreGlobs.flatMap((g) => ['--glob', g]), ...(include ? ['--glob', include] : []), abs];
@@ -133,7 +133,7 @@ async function rgSearch(abs, root, queryText, include, mode) {
     return stdout.split('\n').filter(Boolean)
       .map((p) => relative(root, p.startsWith('/') ? p : join(root, p)) || p)
       .filter((p) => query.test(p))
-      .slice(0, SEARCH_MAX_MATCHES);
+      .slice(0, maxMatches);
   }
   const args = [
     '--line-number', '--with-filename', '--color', 'never', '--no-heading', '-i',
@@ -151,7 +151,7 @@ async function rgSearch(abs, root, queryText, include, mode) {
       const second = first >= 0 ? line.indexOf(':', first + 1) : -1;
       if (second < 0) return line;
       return `${relative(root, line.slice(0, first))}${line.slice(first)}`;
-    }).slice(0, SEARCH_MAX_MATCHES);
+    }).slice(0, maxMatches);
   } catch (e) {
     if (e && typeof e === 'object' && 'code' in e && e.code === 1) return [];
     throw e;
@@ -159,6 +159,9 @@ async function rgSearch(abs, root, queryText, include, mode) {
 }
 
 export function register(ctx) {
+  const readCap = Math.min(Math.max(Number(ctx.config.readCap) || DEFAULT_MAX, 20_000), 500_000);
+  const searchMaxMatches = Math.min(Math.max(Number(ctx.config.searchMaxMatches) || DEFAULT_SEARCH_MAX_MATCHES, 50), 1000);
+
   ctx.registerTool(defineTool({
     name: 'read_file', label: 'Read file',
     description: [
@@ -172,7 +175,7 @@ export function register(ctx) {
       try {
         const abs = ctx.assertPathAllowed(p.path);
         const body = readFileSync(abs, 'utf-8');
-        const out = truncate(body);
+        const out = truncate(body, readCap);
         return ok('read_file', out.text, { path: abs, bytes: Buffer.byteLength(body), truncated: out.truncated });
       } catch (e) { return fail('read_file', e); }
     },
@@ -272,7 +275,7 @@ export function register(ctx) {
         const include = globRegex(p.include);
         const lines = [];
         try {
-          lines.push(...await rgSearch(abs, root, queryText, p.include, mode));
+          lines.push(...await rgSearch(abs, root, queryText, p.include, mode, searchMaxMatches));
         } catch {
           // rg is optional on user machines. Fall back to a bounded JS walk when it is unavailable/errors.
         }
@@ -281,7 +284,7 @@ export function register(ctx) {
           if (include && !include.test(rel) && !include.test(rel.split('/').at(-1) ?? rel)) continue;
           if (mode === 'files') {
             if (query.test(rel)) lines.push(rel);
-            if (lines.length >= SEARCH_MAX_MATCHES) break;
+            if (lines.length >= searchMaxMatches) break;
             continue;
           }
           let body = '';
@@ -290,12 +293,12 @@ export function register(ctx) {
           for (let i = 0; i < fileLines.length; i++) {
             if (!query.test(fileLines[i])) continue;
             lines.push(`${rel}:${i + 1}: ${fileLines[i]}`);
-            if (lines.length >= SEARCH_MAX_MATCHES) break;
+            if (lines.length >= searchMaxMatches) break;
           }
-          if (lines.length >= SEARCH_MAX_MATCHES) break;
+          if (lines.length >= searchMaxMatches) break;
         }
         const formatted = lines.join('\n');
-        const truncated = lines.length >= SEARCH_MAX_MATCHES;
+        const truncated = lines.length >= searchMaxMatches;
         return ok('search_files', formatted || 'No matches found.', { path: abs, mode, matches: lines.length, truncated });
       } catch (e) { return fail('search_files', e); }
     },

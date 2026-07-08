@@ -53,6 +53,26 @@
       "label": "Vision model",
       "hint": "Model pro zprávy s obrázkovými přílohami (musí umět vision). Prázdné = běžný model chatu."
     },
+    "sec_media": {
+      "label": "Limity médií",
+      "hint": "Limity pro příchozí/odchozí obrázky a jak dlouho zůstává otevřená čekající otázka."
+    },
+    "maxImageBytes": {
+      "label": "Max. velikost příchozího obrázku",
+      "hint": "Největší obrázková příloha (v bajtech), kterou bot stáhne pro vision; větší jen poznamená."
+    },
+    "maxImages": {
+      "label": "Max. obrázků na zprávu",
+      "hint": "Kolik obrázkových příloh z jedné příchozí zprávy bot pošle vision modelu."
+    },
+    "maxUploadImages": {
+      "label": "Max. obrázků na odpověď",
+      "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi."
+    },
+    "askTimeoutMs": {
+      "label": "Timeout otázky (ms)",
+      "hint": "Jak dlouho zůstává čekající ask_user_question otevřená pro číselnou odpověď nebo volný text, než ji bot zahodí jako zastaralou."
+    },
     "sec_senders": {
       "label": "Pravidla odesílatelů",
       "hint": "Mapování WhatsApp odesílatelů na povolené projekty, prompt role a nástroje, které smí bot použít."

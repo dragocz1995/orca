@@ -13,6 +13,32 @@
       "label": "MCP servers",
       "type": "mcpServers",
       "help": "External MCP servers to connect and expose as tools. Choose a transport per server: stdio launches a local process (e.g. npx …); HTTP or SSE connect to a remote URL. stdio servers run in their own process group and are killed as a group on reload, so npx child processes are never orphaned."
+    },
+    {
+      "key": "sec_timeouts",
+      "label": "Timeouts",
+      "type": "section",
+      "hint": "Global connect and call timeouts, applied to every configured server."
+    },
+    {
+      "key": "connectTimeoutMs",
+      "label": "Connect timeout (ms)",
+      "type": "number",
+      "min": 5000,
+      "max": 60000,
+      "step": 1000,
+      "placeholder": "15000",
+      "hint": "How long to wait for a server to connect and list its tools before giving up."
+    },
+    {
+      "key": "callTimeoutMs",
+      "label": "Tool call timeout (ms)",
+      "type": "number",
+      "min": 30000,
+      "max": 300000,
+      "step": 5000,
+      "placeholder": "120000",
+      "hint": "How long to wait for a bridged tool call to finish before giving up."
     }
   ]
 }

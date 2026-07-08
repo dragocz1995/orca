@@ -272,6 +272,11 @@ export interface PluginConfigField {
     | 'section' | 'enum' | 'multiSelect' | 'code' | 'prompt' | 'json' | 'embeddingModel' | 'mcpServers';
   hint?: string;
   required?: boolean;
+  /** For `number` fields: input bounds and step; `placeholder` typically shows the default value. */
+  min?: number;
+  max?: number;
+  step?: number;
+  placeholder?: string;
   /** For `provider` fields: restrict the picker to configured providers of this type (e.g. `openai`). */
   providerType?: string;
   /** Choices for `enum`/`multiSelect` fields. */

@@ -5,5 +5,53 @@
   "description": "Scheduled prompts: recurring jobs (\"every 30m\", \"daily 07:30\") and one-shot wake-ups (\"in 20m\", \"at 18:30\") that run as the brain's own conversations with full owner powers. Admin-only management.",
   "entry": "index.mjs",
   "provides": { "tools": ["cron_add", "schedule_wakeup", "cron_list", "cron_remove"], "platforms": ["cron"] },
-  "icons": { "cron_*": "⏰", "schedule_wakeup": "⏰" }
+  "icons": { "cron_*": "⏰", "schedule_wakeup": "⏰" },
+  "configSchema": [
+    {
+      "key": "sec_scheduler",
+      "label": "Scheduler",
+      "type": "section",
+      "hint": "Tick interval, retry behavior and the guard check timeout."
+    },
+    {
+      "key": "tickMs",
+      "label": "Tick interval (ms)",
+      "type": "number",
+      "min": 10000,
+      "max": 120000,
+      "step": 5000,
+      "placeholder": "30000",
+      "hint": "How often due jobs are checked."
+    },
+    {
+      "key": "retryAttempts",
+      "label": "Retry attempts",
+      "type": "number",
+      "min": 1,
+      "max": 5,
+      "step": 1,
+      "placeholder": "2",
+      "hint": "Attempts for a recurring job's turn on a transient request-time failure."
+    },
+    {
+      "key": "retryBackoffMs",
+      "label": "Retry backoff (ms)",
+      "type": "number",
+      "min": 1000,
+      "max": 30000,
+      "step": 1000,
+      "placeholder": "3000",
+      "hint": "Pause before a retry so the transient condition can clear."
+    },
+    {
+      "key": "checkTimeoutMs",
+      "label": "Check timeout (ms)",
+      "type": "number",
+      "min": 10000,
+      "max": 300000,
+      "step": 5000,
+      "placeholder": "60000",
+      "hint": "Timeout for a job's cheap guard `check` command."
+    }
+  ]
 }

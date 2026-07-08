@@ -35,6 +35,11 @@ interface PluginConfigField {
     | 'section' | 'enum' | 'multiSelect' | 'code' | 'prompt' | 'json' | 'embeddingModel' | 'mcpServers';
   hint?: string;
   required?: boolean;
+  /** For `number` fields: the input bounds and step; `placeholder` typically shows the default value. */
+  min?: number;
+  max?: number;
+  step?: number;
+  placeholder?: string;
   /** For `provider` fields: restrict the picker to providers of this type (e.g. `openai`). */
   providerType?: string;
   /** Choices for `enum`/`multiSelect` fields. */
@@ -106,6 +111,10 @@ const ManifestSchema = Type.Object({
     ]),
     hint: Type.Optional(Type.String()),
     required: Type.Optional(Type.Boolean()),
+    min: Type.Optional(Type.Number()),
+    max: Type.Optional(Type.Number()),
+    step: Type.Optional(Type.Number()),
+    placeholder: Type.Optional(Type.String()),
     providerType: Type.Optional(Type.String()),
     options: Type.Optional(Type.Array(Type.Object({
       value: Type.String(),

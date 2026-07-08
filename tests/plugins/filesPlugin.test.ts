@@ -114,3 +114,62 @@ describe('files plugin', () => {
     expect((res as { details?: { dirtyFiles?: number } }).details?.dirtyFiles).toBe(1);
   });
 });
+
+describe('files plugin — configurable readCap', () => {
+  let dir: string;
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'orca-files-cap-')); });
+
+  it('a configured readCap (min-clamped 20000) truncates a read that the default 100000 would not', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log,
+      config: { files: { readCap: 20_000 } },
+    });
+    const f = join(dir, 'big1.txt');
+    writeFileSync(f, 'a'.repeat(30_000));
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f }));
+    const text = res.content[0].text;
+    expect(text).toContain('...[truncated]');
+    expect(text.replace('\n...[truncated]', '')).toHaveLength(20_000);
+  });
+
+  it('unset readCap reproduces the default 100000-char cap exactly', async () => {
+    const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log });
+    const under = join(dir, 'under.txt');
+    writeFileSync(under, 'a'.repeat(30_000));
+    const underRes = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: under }));
+    expect(underRes.content[0].text).not.toContain('...[truncated]'); // below the 100000 default: untouched
+
+    const over = join(dir, 'over.txt');
+    writeFileSync(over, 'a'.repeat(150_000));
+    const overRes = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: over }));
+    const text = overRes.content[0].text;
+    expect(text).toContain('...[truncated]');
+    expect(text.replace('\n...[truncated]', '')).toHaveLength(100_000);
+  });
+});
+
+describe('files plugin — configurable searchMaxMatches', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'orca-files-search-cap-'));
+    const lines = Array.from({ length: 250 }, (_, i) => `needle line ${i}`).join('\n');
+    writeFileSync(join(dir, 'haystack.txt'), lines);
+  });
+
+  it('a configured searchMaxMatches (min-clamped 50) truncates results sooner than the default 200', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log,
+      config: { files: { searchMaxMatches: 50 } },
+    });
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'search_files', { path: dir, query: 'needle' }));
+    expect((res as { details?: { matches?: number } }).details?.matches).toBe(50);
+    expect((res as { details?: { truncated?: boolean } }).details?.truncated).toBe(true);
+  });
+
+  it('unset searchMaxMatches reproduces the default 200-match cap exactly', async () => {
+    const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log });
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'search_files', { path: dir, query: 'needle' }));
+    expect((res as { details?: { matches?: number } }).details?.matches).toBe(200);
+    expect((res as { details?: { truncated?: boolean } }).details?.truncated).toBe(true);
+  });
+});
