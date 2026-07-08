@@ -154,6 +154,14 @@ export function buildApp(opts: BuildOpts) {
     log.warn('no users exist and no ELOWEN_BOOTSTRAP_USER/PASS set — login will be impossible until a user is seeded');
   }
   const projects = new ProjectStore(db);
+  const allProjects = projects.list();
+  const homeProject = allProjects.find((p) => p.path === opts.project.path)
+    ?? allProjects.find((p) => p.slug.toLowerCase() === opts.project.slug.toLowerCase())
+    ?? projects.get(opts.project.id)
+    ?? opts.project;
+  if (homeProject.id !== opts.project.id || homeProject.path !== opts.project.path) {
+    log.info(`home project resolved to ${homeProject.slug}#${homeProject.id} at ${homeProject.path}`);
+  }
   const userProjects = new UserProjectStore(db);
   const pushSubscriptions = new PushSubscriptionStore(db);
   const userPrompts = new UserPromptStore(db);
@@ -217,7 +225,7 @@ export function buildApp(opts: BuildOpts) {
   // usage endpoint does (mission worktree under PR-native, else the project checkout). The same
   // path + fallback also drive resume-session capture (shared with the stuck detector below).
   const usagePathFor = (task: { project_id: number; parent_id: string | null }) =>
-    usagePath(task, (pid) => projects.get(pid)?.path ?? opts.project.path, (id) => missionGit?.worktreeFor(id));
+    usagePath(task, (pid) => projects.get(pid)?.path ?? homeProject.path, (id) => missionGit?.worktreeFor(id));
   const resumeFallback = { program: 'claude-code', model: 'sonnet' };
   new UsageRecorder({ usage: taskUsage, tasks, fallback: resumeFallback, pathFor: usagePathFor }).subscribe(bus);
 
@@ -349,7 +357,7 @@ export function buildApp(opts: BuildOpts) {
   const mcpUrl = `${elowenCli.url}/mcp`; // the daemon hosts the MCP server on its own /mcp route
   const advisor = opts.dbPath === ':memory:' ? undefined : new AdvisorService({
     spawn, tmux, users, config, fallback: { program: 'claude-code', model: 'sonnet' },
-    projectId: opts.project.id, url: elowenCli.url, mcpUrl,
+    projectId: homeProject.id, url: elowenCli.url, mcpUrl,
     advisorDir: (id) => { const p = join(dirname(opts.dbPath), 'advisor', String(id)); mkdirSync(p, { recursive: true }); return p; },
     prepareMcp: (program, cwd, token) => writeMcpConfig(program, cwd, token, mcpUrl),
     prompts,
@@ -458,7 +466,7 @@ export function buildApp(opts: BuildOpts) {
         store: brainStore, users, config: brainConfig, prompts, url: elowenCli.url,
         authStorage: brainAuth,
         cwd: brainDir,
-        projectPath: () => opts.project.path,
+        projectPath: () => homeProject.path,
         plugins: pluginProvider,
         hookAudit,
         policy: (userId) => resolvePolicy({ userProjects, projects }, userId),
@@ -574,7 +582,7 @@ export function buildApp(opts: BuildOpts) {
   // same systemd path the web/CLI command uses. Built here (needs the units + marker), wired now.
   if (brain && restartDaemon) brain.restartHandler = restartDaemon;
 
-  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: opts.project, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, userSettings, pluginDirs, pluginDataRoot, brainOauth, brainAuth, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, restartDaemon, brainWorkers, brainStore, personalityStore, memoryStore, memoryCategoryStore, memoryCategorizer, embeddings, plugins: pluginProvider, marketplace, pluginLogs, hookAudit, tickets });
+  const app = createServer({ tasks, readiness, missions, engine, missionGit, gitLock, spawn, tmux, bus, events, notes, agents, project: homeProject, fallback: { program: 'claude-code', model: 'sonnet' }, cli, clock: new SystemClock(), config, users, projects, userProjects, pushSubscriptions, userPrompts, userSettings, pluginDirs, pluginDataRoot, brainOauth, brainAuth, prompts, taskUsage, git, avatarsDir, avatarSecret, planJobs, decisionQueue, pilot, advisor, brain, restartDaemon, brainWorkers, brainStore, personalityStore, memoryStore, memoryCategoryStore, memoryCategorizer, embeddings, plugins: pluginProvider, marketplace, pluginLogs, hookAudit, tickets });
 
   // Root-cause recovery: after a daemon crash/restart, tasks left 'in_progress' whose tmux
   // session is gone are zombies — revert them to 'open' so they can be picked up again. No grace
