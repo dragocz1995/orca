@@ -182,8 +182,6 @@ from Elowen AI, streams its work, and pushes to you proactively.
 
 ### Discord
 
-![The Discord plugin: streamed replies with a live todo checklist and status reactions](images/plugins-discord.png)
-
 A full Discord bot (no external client library — it uses Node's native
 WebSocket and fetch against the v10 Gateway). By default it answers every message
 in channels it can see; flip **Respond without mention** off and it only replies
@@ -206,8 +204,6 @@ The first matching role wins; members with no mapped role are silently ignored.
 Configure in **Settings → Plugins → discord**.
 
 ### WhatsApp
-
-![The WhatsApp plugin: edit-in-place streaming replies with the agent's tool trace](images/plugins-whatsapp.png)
 
 Talk to Elowen from WhatsApp, powered by Baileys. Write a message and it answers
 from Elowen AI.
@@ -297,8 +293,6 @@ You pick in the chat (CLI/web), via Discord buttons/selects, or with a numbered
 WhatsApp reply, and the turn resumes with your choice.
 
 ## Automation: cronjob
-
-![The cron plugin: recurring and one-shot prompts that run as brain conversations](images/plugins-cron.png)
 
 Scheduled work for the agent (admin-only). Cron jobs are prompts that run as the
 brain's *own* conversations — the agent wakes up, does the work, and reports.
