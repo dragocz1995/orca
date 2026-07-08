@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { Bot, SlidersHorizontal, Plus, X, Pencil, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
-import { ExecutorPicker } from '../../components/ui/ExecutorPicker';
+import { BackendPicker } from '../../components/ui/BackendPicker';
 import { ProviderPicker } from '../../components/ui/ProviderPicker';
 import { ModelCatalogField } from '../../components/ui/ModelCatalogField';
 import { ModelModal } from '../../modules/settings/ModelModal';
@@ -43,19 +43,6 @@ import '../../modules/settings/theme.css';
 import { useTranslation } from '../../lib/i18n';
 
 const inputClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text placeholder:text-text-muted transition-colors focus:border-accent';
-
-/** Per-role reasoning backend picker: "Relay (model via API)" by default, or a CLI agent model from
- *  the configured list. Mirrors the executor Select used elsewhere, with a live model badge. An
- *  empty value means relay (the role falls back to the planner/overseer relay model). */
-function BackendPicker({ value, onChange, models, relayLabel, allowRelay = true }: { value: string; onChange: (v: string) => void; models: { label: string; exec: string }[]; relayLabel: string; allowRelay?: boolean }) {
-  const { t } = useTranslation();
-  const known = new Set(models.map((m) => m.exec));
-  // Surface a saved-but-unknown model (e.g. a removed preset) as its own pill so it stays selectable.
-  const list = value && !known.has(value) ? [{ label: value, exec: value }, ...models] : models;
-  return (
-    <ExecutorPicker value={value} onChange={onChange} models={list} allowDefault={allowRelay} defaultLabel={relayLabel} moreLabel={t.tasks.moreModels} />
-  );
-}
 
 /** Relay-mode model field: a free-text model name with a live brand badge, mirroring
  *  BackendPicker's icon affordance so both autopilot modes look consistent. */
@@ -712,9 +699,9 @@ export default function SettingsPage() {
             <div className="@container">
             <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
               <SettingCard title={t.settings.executor} description={t.help.executor} icon={Cpu}>
-                {/* Same grouped picker the task modal uses (workers + Orca AI sections), so the
-                    default executor can also be a brain model. A saved value missing from the
-                    catalog still shows as its own pill. */}
+                {/* Same worker + Orca AI split the task picker uses, in the unified manage-selection
+                    modal, so the default executor can also be a brain model. A saved value missing
+                    from the catalog stays selectable as a pinned row. */}
                 <BackendPicker value={defExec} onChange={setDefExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
               </SettingCard>
               <SettingCard title={t.settings.autonomy} description={t.help.autonomy} icon={Gauge}>
