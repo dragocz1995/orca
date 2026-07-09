@@ -16,6 +16,7 @@ export const RECOMMENDED_EMBEDDING_MODEL = 'text-embedding-3-small';
  *  common providers users are likely to hold a key for — pick "Custom OpenAI-compatible endpoint" for
  *  anything else. */
 export const API_KEY_PROVIDERS: { key: string; label: string; type: BrainProviderType; base: string }[] = [
+  { key: 'coresynth', label: 'CoreSynth AI', type: 'openai', base: 'https://ai.coresynth.io/v1' },
   { key: 'openai', label: 'OpenAI', type: 'openai', base: OPENAI_BASE },
   { key: 'anthropic', label: 'Anthropic (Claude)', type: 'anthropic', base: ANTHROPIC_BASE },
   { key: 'openrouter', label: 'OpenRouter', type: 'openai', base: OPENROUTER_BASE },
