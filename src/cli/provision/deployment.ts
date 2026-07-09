@@ -11,7 +11,7 @@ import { aptInstall, must, step } from './exec.js';
  *   - domain:    nginx/apache vhost + (optional) Let's Encrypt; web bound to 127.0.0.1.
  *   - ip:        no reverse proxy — the web binds 0.0.0.0 and the browser hits http://<host>:<webPort>.
  *   - localhost: no reverse proxy, web bound to 127.0.0.1, reachable only on the box. */
-export type DeployMode = 'domain' | 'ip' | 'localhost';
+type DeployMode = 'domain' | 'ip' | 'localhost';
 
 export interface Deployment {
   mode: DeployMode;
@@ -107,7 +107,7 @@ export async function chooseDeployment(r: Runner, webPort: number): Promise<Depl
 // ── executors (system mutations) ─────────────────────────────────────────────
 
 /** Detect the installed reverse proxy, installing the preferred one when none is present. */
-export async function resolveProxy(r: Runner, preference: ProxyKind): Promise<ProxyKind> {
+async function resolveProxy(r: Runner, preference: ProxyKind): Promise<ProxyKind> {
   const existing = await detectProxy(r);
   if (existing) return existing;
   await aptInstall(r, preference === 'nginx' ? 'nginx' : 'apache2');
@@ -115,7 +115,7 @@ export async function resolveProxy(r: Runner, preference: ProxyKind): Promise<Pr
 }
 
 /** Render the vhost for the domain and make the proxy serve it. */
-export async function configureVhost(r: Runner, kind: ProxyKind, domain: string, ports: DeployPorts): Promise<void> {
+async function configureVhost(r: Runner, kind: ProxyKind, domain: string, ports: DeployPorts): Promise<void> {
   if (kind === 'nginx') {
     await r.writeFile('/etc/nginx/sites-available/elowen.conf', nginxVhost(domain, ports.web, ports.daemon));
     await must(r, 'ln', ['-sf', '/etc/nginx/sites-available/elowen.conf', '/etc/nginx/sites-enabled/elowen.conf']);
@@ -130,7 +130,7 @@ export async function configureVhost(r: Runner, kind: ProxyKind, domain: string,
 }
 
 /** Install certbot if needed and obtain + install a Let's Encrypt certificate. */
-export async function obtainTls(r: Runner, kind: ProxyKind, domain: string, email: string | null): Promise<void> {
+async function obtainTls(r: Runner, kind: ProxyKind, domain: string, email: string | null): Promise<void> {
   if (!(await r.which('certbot'))) {
     await aptInstall(r, 'certbot', kind === 'nginx' ? 'python3-certbot-nginx' : 'python3-certbot-apache');
   }

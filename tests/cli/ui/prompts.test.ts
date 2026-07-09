@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import { box, mascot, printableInput, editField, inputWindow, newFieldState, type FieldState } from '../../../src/cli/ui/prompts.js';
+import { box, printableInput, editField, inputWindow, newFieldState, type FieldState } from '../../../src/cli/ui/prompts.js';
 import { MASCOT_ART } from '../../../src/cli/chat/mascot.js';
 import { formatK, padAnsi } from '../../../src/cli/ui/text.js';
 

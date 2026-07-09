@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 /** One image attached to a queued message (base64 payload + mime type), carried through until the
  *  queued batch is delivered — never shipped to the UI snapshot. */
-export interface QueuedImage { data: string; mimeType: string }
+interface QueuedImage { data: string; mimeType: string }
 
 /** A message a user sent while a turn was already streaming. Instead of steering it into the running
  *  turn, it parks here and is delivered (combined with any siblings that share its mode) as ONE follow-up
@@ -37,7 +37,7 @@ export interface QueueStore {
  *  bounds each message to this many images). Combining queued messages must never exceed it, so a drained
  *  batch is split into consecutive groups each carrying at most this many images (no image is ever dropped
  *  — see {@link firstBatchSize}). */
-export const MAX_IMAGES_PER_TURN = 4;
+const MAX_IMAGES_PER_TURN = 4;
 
 /** Join the queued messages into ONE delivered prompt. Multiple messages are separated by a blank line
  *  so the model reads them as the user's consecutive messages; a single message passes through verbatim.
