@@ -184,6 +184,31 @@ executors that user may run and which tools are enabled for them. So even at L3,
 a mission can only ever act within the rights of the user who launched it —
 each user can have a different set of tools and permissions.
 
+## TDD mission mode
+
+An optional, daemon-wide mode that makes every autopilot worker follow strict
+test-driven development. When it is on, a short directive is appended to the
+worker's preamble instructing the agent to, for every behavioral change, write a
+test that captures the desired behavior and confirm it **fails for the right
+reason** first, implement the minimum code to make it pass, then re-run to
+confirm green and refactor only with tests passing. The agent is told never to
+weaken or delete a test to make it pass, and to note in its summary when a change
+(pure docs or config) has no runtime surface to test.
+
+The directive is appended at the spawn seam — after the prompt template renders —
+rather than through a template placeholder, so it reaches the worker even when a
+custom or wholesale prompt override is in effect, and it applies uniformly to
+both CLI-spawned workers and the embedded `elowen:` brain workers.
+
+Toggle it in two places:
+
+- **Web UI** — Settings → Autopilot → *TDD mission mode*.
+- **CLI** — `/tdd on` / `/tdd off` (bare `/tdd` reports the current state).
+  This is an admin-only command because it flips the daemon-wide
+  `autopilot.tddMode` config, affecting every worker the autopilot spawns.
+
+TDD mission mode is **off by default**.
+
 ## Mission completion
 
 When every phase closes, an LLM summarizer writes a short prose description of

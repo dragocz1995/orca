@@ -136,6 +136,11 @@ const dataDir = ctx.dataDir();
 const jobsPath = path.join(dataDir, 'jobs.json');
 ```
 
+A plugin owns everything under its `dataDir()` — a JSON file for light state, or a
+real `better-sqlite3` database for heavier, queryable state. The codebase plugin, for
+example, keeps its per-repo semantic index in a plugin-owned SQLite file at
+`ctx.dataDir()/index.db`, entirely separate from the user-scoped memory store.
+
 ### `ctx.config`
 
 Current plugin configuration values.
@@ -207,6 +212,32 @@ const provider = ctx.resolveProvider('openai');
 Useful for plugins that need to pick models dynamically (e.g. per-channel
 model selector in Discord).
 
+### `ctx.embeddings`
+
+The shared text→vector embedder. It is the SAME `EmbeddingService` and the SAME
+**Settings → Memory** embedding config the memory subsystem uses — a plugin never
+carries its own embedding provider or model, it inherits the operator's single
+configured model (single source of truth). Gated deny-by-default by a
+`reads: ["embeddings"]` capability in the manifest: without that capability
+`isConfigured()` is always `false` and `embed()` / `embedBatch()` reject, so an
+already-installed plugin gains nothing.
+
+```javascript
+if (!ctx.embeddings.isConfigured()) {
+  return 'No embedding model configured (Settings → Memory).';
+}
+const desc = ctx.embeddings.descriptor();
+// { provider, model, dimensions } — persist alongside stored vectors so you can
+// detect a model/dimension switch and re-embed.
+const vector = await ctx.embeddings.embed('some text');        // Float32Array
+const vectors = await ctx.embeddings.embedBatch(['a', 'b']);   // Float32Array[], input order
+```
+
+Always gate on `isConfigured()` first — `embed`/`embedBatch` reject when the
+capability is absent or no embedding model is configured. The bound config is applied
+host-side, so a plugin can never re-point the shared key at a different model or
+endpoint.
+
 ## Config schema
 
 The `configSchema` in `orca-plugin.json` uses JSON Schema format with some
@@ -222,6 +253,24 @@ extensions:
 | `object` | section | Nested config group |
 
 Schema-generated forms appear automatically in **Settings → Plugins**.
+
+## Tool output visibility (`showOutput`)
+
+A tool's successful output is **hidden from the transcript by default** — most tool
+results (file reads, directory listings, searches, structured control data) are noise.
+Opt a tool into surfacing its successful output by listing its name in the manifest's
+`showOutput` array:
+
+```json
+{
+  "showOutput": ["codebase_search", "codebase_status"]
+}
+```
+
+Entries are exact tool names or `prefix*` patterns, merged with the core defaults. A
+tool left off the list still surfaces its **failures** (warning/danger tone) and any
+hook-appended notes; hiding also lets the clients collapse repeated same-tool rows
+into a single `Read … ×N` line.
 
 ## Hook bus
 

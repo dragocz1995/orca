@@ -22,9 +22,10 @@ the codebase.
 ## Everything is a plugin
 
 Plugins register their capabilities with the brain (the embedded agent core you
-talk to — see [Brain & Chat](brain-chat)) at runtime. Elowen ships fourteen
+talk to — see [Brain & Chat](brain-chat)) at runtime. Elowen ships fifteen
 bundled plugins out of the box: the platforms **discord** and **whatsapp**; the
-tools **files**, **terminal**, **mcp**, **subagent** and **askuser**; automation
+tools **files**, **terminal**, **mcp**, **subagent**, **askuser** and the
+optional **codebase** (semantic code search, off by default); automation
 via **cronjob**; the surface extras **statusline** and **runtime-context**;
 **security-scan**; and the authoring/workflow set **skills**, **formatters** and
 **dev-commands**.
@@ -99,11 +100,20 @@ plugins/<name>/
 | `capabilities` | | What the plugin is allowed to do — deny-by-default (see below) |
 | `icon` | | Brand icon (SVG, defaults to `icon.svg`) shown on cards and the hero |
 | `icons` | | Per-tool emoji shown in the chat clients' tool-call lines |
+| `showOutput` | | Tool names (or `prefix*` patterns) whose *successful* output is shown in the transcript — output is hidden by default |
 
 `provides` is declarative — display and validation hints. The authoritative
 contributions come from `register(ctx)` at load time, so the detail page's Tools
 and Hooks panels show what actually went live, not just what the manifest
 promised.
+
+**Tool-output visibility.** A tool's successful output is hidden in the chat
+transcript by default — noise like file reads, directory listings and searches
+would otherwise bury the answer, and hiding it is what lets a client collapse
+repeated calls into one `Read … ×N` line. A plugin opts a tool *in* by listing
+its name in `showOutput`; the same allowlist is honoured by every client (CLI,
+web, Discord). A tool that stays hidden still surfaces its *failures* and any
+hook-appended note — only clean success output is suppressed.
 
 ### Config field types
 
@@ -189,7 +199,9 @@ when `@mentioned`.
 
 - Slash commands: `/model`, `/voice`, `/new`, `/stop`, `/status`, `/compact`, `/help`
 - Per-channel model picker (operator-gated)
-- Streamed replies with a live todo checklist and tool-call trace
+- Streamed replies in **two separate messages** — the answer streams live into
+  its own bubble (a real reply to your message), kept apart from the tool-call
+  trace bubble, so the answer is never buried under the tool steps
 - Status reactions (👀 → ✅ / ❌) and an optional runtime footer
 - Image attachments → vision input (with an optional dedicated vision model);
   optional Whisper transcription of voice messages and TTS spoken replies
@@ -223,7 +235,7 @@ for it. Pair the bot by scanning a **QR code** from the plugin logs, or set a
 `phoneNumber` to get an 8-character **pairing code** instead. Configure in
 **Settings → Plugins → whatsapp**.
 
-## Tools: files, terminal, mcp, subagent, askuser
+## Tools: files, terminal, mcp, subagent, askuser, codebase
 
 Tools are the verbs of your agent. Which ones a given user's agent may call is
 governed by RBAC — an admin can grant one user the terminal and files tools and
@@ -291,6 +303,36 @@ When the agent needs a decision from you, it asks — one or more questions with
 predefined options (single- or multi-select, with an optional free-text answer).
 You pick in the chat (CLI/web), via Discord buttons/selects, or with a numbered
 WhatsApp reply, and the turn resumes with your choice.
+
+### codebase
+
+Semantic code search over your accessible repositories — it finds code and docs
+by *meaning*, not literal text, so you can ask "where do we verify a JWT" and get
+the relevant code even without knowing the identifier. It complements the files
+plugin's literal `search_files`. **This plugin is off by default** — enable it in
+**Settings → Plugins**.
+
+| Tool | Purpose |
+|------|---------|
+| `codebase_search` | Rank the most relevant chunks for a natural-language query |
+| `codebase_reindex` | Refresh the index (incremental by default; `full` rebuilds) — admin only |
+| `codebase_status` | Report per-repo coverage: chunk/file counts, last-indexed time, and whether the index is stale |
+
+The plugin chunks each accessible repo and embeds every chunk with the **same
+embedding model your memory uses** (**Settings → Memory** is the single source of
+truth — there is no separate model to set here). Vectors live in a private,
+per-repo SQLite index in the plugin's own data directory
+(`<plugins-data>/codebase/index.db`); it never touches the user memory store.
+Search is confined to the session's repos, guard-checked on every returned path,
+so results never leak code from a repo you can't reach.
+
+Building or refreshing the index writes shared state and spends the embedding
+provider, so **`codebase_reindex` is admin-only**. With *Auto-reindex on search*
+on (the default), an admin's search lazily refreshes a stale repo in the
+background — so you rarely call reindex by hand. Search itself needs an embedding
+model configured; without one it tells you to set it in **Settings → Memory**.
+Include/exclude globs, chunk size, results per search, the relevance floor, and
+the per-pass embed budget are all tunable in **Settings → Plugins → codebase**.
 
 ## Automation: cronjob
 

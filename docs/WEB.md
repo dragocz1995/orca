@@ -17,6 +17,7 @@ Every page is a thin shell in `app/<route>/page.tsx` rendering a `*View` from
 | `/kanban` | `kanban/` | `KanbanBoard` + `CalendarView` | Operate |
 | `/sessions` | `sessions/` | `SessionsView` | Operate |
 | `/timeline` | `timeline/` | `TimelineView` | Operate |
+| `/memory` | `memory/` | `MemoryView` | Operate |
 | `/escalations` | `escalations/` | `EscalationsView` | Operate |
 | `/projects` | `projects/` | `ProjectsView` | Operate |
 | `/editor` | `editor/` | `ProjectEditor` | Config |
@@ -28,6 +29,12 @@ Every page is a thin shell in `app/<route>/page.tsx` rendering a `*View` from
 
 Module metadata (id, route, icon, group) in each `modules/<name>/meta.ts`,
 registered in `modules/registry.ts`.
+
+Each view mounts a `ModuleHeader`, which publishes its title (+ optional count
+and icon) into the always-visible top strip and sets `document.title` to
+`Elowen — <Page>`, so per-page titles follow the route from one place. Its
+actions/filters row renders below the bar on a single line that scrolls
+horizontally on overflow rather than wrapping.
 
 ## Auth
 
@@ -82,6 +89,11 @@ Axis (dot plot), Swimlanes (per-target), Feed (collapsible). Events within
 5 minutes collapse into `×N` groups. **ChangesOverTime** — commit stream,
 most active files, sparklines, clickable patches. Date range filter, project
 pills.
+
+### Memory `/memory`
+
+`MemoryView` — three tabs: List (search, category filter, create, merge, trash
+with restore/purge), Brain (map view), Retrieval (debug panel).
 
 ### Escalations `/escalations`
 
@@ -152,7 +164,10 @@ Events: `task`, `mission`, `signal`, `plan`, `review`.
 A resizable side panel (left or right) with two modes:
 
 - **Chat** — `BrainChat`, talking to the brain over SSE (`GET /brain/stream`).
-  Conversation picker, fulltext search, tool-call trace, statusline.
+  Conversation picker, fulltext search, statusline. Grouped tool-call pills fold
+  consecutive same-tool runs into one `name detail ×N`, a labelled divider marks
+  context compaction, and messages sent mid-turn park as removable queue chips
+  above the composer.
 - **Terminal** — each pane is a tmux-spawned assistant or a live session view.
 
 Dock state persisted in `localStorage`. Floating `AdvisorLauncher` when closed.
@@ -180,11 +195,16 @@ theme, flat (no gradients). UI scaled ~25% via `html { font-size: 125% }`.
 |-------|-------|-------|
 | `bg` | `#000000` | True black for OLED |
 | `surface` | `#0a0a0a` | Card/surface background |
-| `elevated` | `#131313` | Elevated surfaces |
-| `accent` | `oklch(0.62 0.19 256)` | Primary blue accent |
+| `elevated` | `#141414` | Elevated surfaces |
+| `accent` | `#ff5236` | Elowen-red brand accent |
 | `danger` | `oklch(0.55 0.20 25)` | Destructive red |
 | `success` | `#22c55e` | Success |
 | `warning` | `#f59e0b` | Warning |
+
+`accent` is the single brand hue across the whole UI — buttons, toggles, tabs,
+selected states, focus rings, the nav active line and links all read it. It sits
+at a mid lightness that stays legible on both black and white, so light theme
+overrides only the surface/text/border tokens and leaves the accent untouched.
 
 ### Typography
 

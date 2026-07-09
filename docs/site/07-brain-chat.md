@@ -90,6 +90,57 @@ The brain keeps distinct, resumable conversations:
 Conversations persist in SQLite (`~/.config/elowen/elowen.db`) and survive daemon
 restarts, so nothing is lost when you restart Elowen.
 
+### Send while it's working
+
+You don't have to wait for a reply to keep typing. A message you send **while a
+turn is still streaming** doesn't interrupt the running turn — it parks in a
+**durable per-session queue** and is delivered as a follow-up the moment the turn
+ends. Send several and they arrive combined into one follow-up message, in order.
+Batching respects the chat mode: a message is only combined with the ones ahead of
+it that share its mode, so a plan-mode note never rides a build-mode turn's tools.
+
+The queue is the same across every surface watching that session — a second
+terminal and the web dock render and edit the *same* pending list — and it's
+persisted, so an accepted-but-undelivered message survives a daemon restart and is
+delivered on the next turn.
+
+### Context compaction
+
+When a conversation grows near its context window, the brain **compacts** it:
+the older turns are summarized and only a clean, recent tail is kept. This happens
+automatically for long threads, and you can trigger it yourself with `/compact`
+(in chat, or as a platform slash command on Discord/WhatsApp).
+
+The shrink is **persisted**, not just applied in memory. A compaction divider
+marks the cut point, the kept tail keeps its original text and timestamps, and the
+summary is stored so the context can be rebuilt. So the savings **stick** across a
+daemon restart or a session eviction — the conversation doesn't quietly re-expand
+to its full length and re-compact on the next turn. In the transcript the divider
+renders as a subtle "context compacted" marker before the kept tail.
+
+### Idle rollover
+
+A **channel or cron conversation** that sits quiet for a while has a long-expired
+prompt cache, so continuing it would re-send the whole stale transcript at full
+price for no benefit. Past an idle window the next message instead **rolls the
+conversation over**: the old transcript (and its title) is archived under a fresh
+id — still browsable in the [Sessions](web-ui) view — and a new, empty session
+takes its place. Context isn't dropped, just set aside.
+
+The default window is 30 minutes (Discord and owner chat). Cron jobs can set their
+own idle-rollover window — shorter so a frequent job starts fresh, or disabled
+entirely for a job that must keep continuity across runs.
+
+## Usage & cost
+
+Brain-chat spend is metered like everything else. Every turn's token usage and
+cost are **attributed to the model that produced them** and folded into the
+**usage-by-model** and **usage-by-day** statistics alongside task spend, so a paid
+chat model shows up in the same dashboard tiles. Compaction doesn't lose track of
+it: the spend of the turns a compaction drops is rolled onto the compaction divider
+(in per-model buckets), so the totals stay accurate even after those older turns
+leave the transcript.
+
 ## Model catalog
 
 The model picker aggregates every model available to you from three sources:
@@ -220,6 +271,21 @@ Control how hard the model thinks before it answers:
 
 Set it per conversation in chat (the `/think` command), per channel on
 Discord/WhatsApp, or as a default in your [account settings](web-ui#account).
+
+## Tool output in the transcript
+
+The transcript shows every tool call the agent makes, but not every tool's
+*output* — that would drown the conversation in noise. Which tools' successful
+output is shown is a declarative **show-allowlist**: a tool's output is **hidden by
+default** and surfaces only when the tool opts in. Console/command tools always
+show their command line, and repeated hidden-output calls collapse into a single
+`Read … ×N` row.
+
+Two things always break through regardless of the allowlist: a tool **failure**
+(anything that exits non-zero or errors) and any note a plugin hook attaches to a
+result — so nothing important is ever swallowed. A [plugin](plugins) opts its own
+tools into the shown set through a `showOutput` field in its manifest, applied live
+without a daemon restart.
 
 ## Limits
 

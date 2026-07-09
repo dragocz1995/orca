@@ -32,7 +32,9 @@ it, read it, and reason about it.
 
 ## Requirements
 
-- **Node.js** ≥22 (Elowen is ESM-only)
+- **Node.js** ≥22 (Elowen is ESM-only) — the `elowen` launcher checks the
+  runtime version first and exits with a short message on anything older,
+  before any dependency loads
 - **tmux** ≥3.x — agents run inside tmux sessions
 - **npm**
 - A C toolchain for `node-pty` (**optional**: `python3`, `make`, `g++`). This
@@ -53,18 +55,23 @@ elowen setup          # guided onboarding wizard
 `elowen setup` brings the daemon up and walks you through five quick steps, each
 skippable and resumable:
 
-1. **Account** — create the first admin user (and sign in)
+1. **Account** — create the first admin on a fresh box, or, on a re-run, an
+   **escapable, bounded sign-in** (retries are capped and each failure lets you
+   try again, skip, or go back — a wrong password never traps you in a loop)
 2. **Project** — register a repository for agents to work in
-3. **AI provider** — connect a provider and pick a model, then run a **chat
-   smoke-test** (one small, real completion) to confirm the model actually
-   answers. The built-in task engine is wired to that model, so basic tasks run
-   with no external agent CLI installed.
+3. **AI provider** — connect a provider — **CoreSynth AI**, OpenAI, Anthropic,
+   OpenRouter and other presets, or a custom OpenAI-compatible endpoint — pick a
+   model, then run a **chat smoke-test** (one small, real completion) to confirm
+   the model actually answers. The built-in task engine is wired to that model,
+   so basic tasks run with no external agent CLI installed.
 4. **Memory** — optional embeddings for recall (reuse the provider's key or an
    OpenRouter key)
 5. **Code intelligence** — optionally install the TypeScript language server so
    agents can type-check their own edits
 
-It finishes with a readiness report and your next steps. Run `elowen doctor` any
+The flame mascot heads every step, and the run ends with a readiness report
+("What works now") followed by a dedicated **done screen** — held until you
+dismiss it — with your next steps. Run `elowen doctor` any
 time for the same report on demand: it covers chat, tasks, missions, memory,
 platforms, and plugins, each with a plain-language hint for whatever isn't
 configured yet.
@@ -111,14 +118,21 @@ It will:
    free Let's Encrypt HTTPS), the server's **IP on a port**, or **localhost
    only**
 4. Write and enable the systemd units — `elowen-daemon` (`:4400`) and `elowen-web`
-   (`:4500`) — plus the auto-update timer
+   (`:4500`) — plus the `elowen-update.timer` and a **sudoers drop-in** that lets
+   the unprivileged service user restart its own units and reinstall Elowen in
+   place for self-updates (see [Auto-update](#auto-update))
 5. Run the same onboarding as `elowen setup` to create the admin, connect a
    project, and wire the AI provider
 
-Add `--unattended` with flags (`--domain`, `--admin-user`, `--admin-pass`,
-`--agents`, …) for a hands-off provision; run `elowen install --help` for the full
-list. Manage the box afterwards with `elowen menu`, which drives the systemd units
-directly instead of spawning a second daemon.
+Provisioning progress paints into a single **framed installer panel** rather than
+scrolling past as bare lines, and the run finishes on its own **"Elowen is
+ready"** screen listing your URL and the `systemctl` / `journalctl` commands to
+manage the box.
+
+Add `--unattended` with flags (`--domain`, `--ip`, `--localhost`, `--admin-user`,
+`--admin-pass`, `--agents`, …) for a hands-off provision; run `elowen install
+--help` for the full list. Manage the box afterwards with `elowen menu`, which
+drives the systemd units directly instead of spawning a second daemon.
 
 ## Manual start (without systemd)
 
@@ -283,10 +297,17 @@ Run `elowen doctor` afterwards for the same readiness report on demand.
 
 ## Auto-update
 
-`elowen install` adds a systemd timer that checks for a new version hourly. It's
-**off by default** — the timer fires but does nothing until you turn auto-update
-on in **Settings → System**. Once enabled, updates are mission-aware: the agent
-won't restart itself while a mission is running, so work in flight is never
-interrupted.
+`elowen install` adds the `elowen-update.timer`, which fires an `elowen update
+--auto` check hourly (and once ~15 minutes after boot). It's **off by default** —
+the timer runs but the update no-ops until you turn auto-update on in **Settings →
+System**. Once enabled, updates are mission-aware: the agent won't restart itself
+while a mission is running, so work in flight is never interrupted.
+
+So the timer can take a new release live unattended, `elowen install` also writes
+a **sudoers drop-in** (`/etc/sudoers.d/elowen`, validated with `visudo` before it
+is trusted) granting the service user a narrow set of passwordless commands:
+restart and query its own units, and run the pinned self-reinstall. Both a manual `elowen update`
+and the auto-update timer rely on it; without it the services still run, only
+in-place self-updates lose the ability to restart the units on their own.
 
 [Next: Tasks & Missions](tasks-missions)

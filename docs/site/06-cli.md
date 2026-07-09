@@ -54,16 +54,24 @@ elowen chat --model <id>     # pick a model for this session
 Inside the chat, you're talking to the same [Brain](brain-chat) as the web dock,
 Discord and WhatsApp — same reasoning, same tools, same memory, just a different
 surface. The layout is an opencode-style TUI: a scrollable transcript on the left, a
-telemetry panel (context usage, project, branch, LSP status) on the right, and a
-status/hint bar along the bottom.
+telemetry panel (context usage, project, branch, LSP status — topped by a flame mascot
+that eases as you scroll) on the right, and a status/hint bar along the bottom.
+
+The chat runs as a full-screen TUI on the terminal's **alternate screen**, so it owns
+the whole display and scrolls in-app rather than through your terminal's native
+scrollback: `PageUp`/`PageDown` or the mouse wheel move the transcript, and while you're
+scrolled back a **History** chip shows how many lines up you are. Your shell and its
+scrollback are restored untouched on exit.
 
 ![The empty chat start screen — logo, model line and a rotating tip](../screenshots/cli/01-start.png)
 
 Tool calls render **dim** — they're secondary to the assistant's answer. A finished
 tool call with nothing more to show collapses to a single line (`$ <command> · done`,
 or a glyph + title for reads/edits/searches); one with output shows the command echo,
-a status line, and the body, with long output collapsible ("Click to expand"). File
-edits render as a git-style diff with a stable line-number gutter.
+a status line, and the body — framed under a bare `<` connector, indented one level
+beneath the tool row — with long output collapsible ("Click to expand"). Consecutive
+calls to the same tool (repeated `Read`, `List` or `Grep`) fold into a single row with
+a `×N` count. File edits render as a git-style diff with a stable line-number gutter.
 
 ![A command's console output, tone-coded by line — bookkeeping dim, results highlighted](../screenshots/cli/10-console-output.png)
 
@@ -95,6 +103,23 @@ truncated first line — click it to expand the full reasoning text.
 - `/reasoning show` toggles Thought rows on/off for this account. The setting is
   saved server-side (mirrored by **Account → Terminal**'s "Show reasoning in CLI"
   toggle), with a local fallback so it still works offline.
+
+### Message queue
+
+You can type and send while the agent is still streaming — the message doesn't
+interrupt the turn, it parks in a durable queue and rides the next one. Queued messages
+render as dim **QUEUED** chips above the composer, and when the current turn ends they
+combine into a single follow-up turn. `leader x` (the leader chord followed by `x`)
+removes the most recently queued message. The queue lives on the daemon, so it survives
+a reconnect and is shared across every client on the conversation.
+
+### Compaction
+
+When a conversation grows long, `/compact` summarizes it to reclaim context — and the
+same thing happens automatically once the context window fills. Either way the
+transcript collapses in place to a subtle `· · ·  context compacted  · · ·` divider
+standing in for the summarized-away history; everything the model still holds stays
+below it.
 
 ## Slash commands
 
@@ -146,7 +171,7 @@ menu never drifts from what's actually wired up.
 | `ctrl+s` | Stash the current draft; `ctrl+s` on an empty input pops the last one back |
 | `ctrl+o` | Cycle **main conversation → sub-agent 1 → sub-agent 2 → … → back to main** |
 | `ctrl+p` | Toggle the telemetry panel (context/project/branch/LSP) |
-| `ctrl+x` | **Leader** — then a letter opens a picker: `h` help · `t` theme · `m` model · `l` sessions |
+| `ctrl+x` | **Leader** — then a letter: `h` help · `t` theme · `m` model · `l` sessions pickers · `x` removes the last queued message |
 | `ctrl+c` | Quit |
 | `esc` | While streaming: interrupt the turn · inside a sub-agent view: close it, no server round-trip · inside a modal: closes/denies it · otherwise: clears the input |
 | `Tab` (in the slash overlay) | Complete the highlighted command into the input |

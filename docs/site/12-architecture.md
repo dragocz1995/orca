@@ -133,6 +133,34 @@ to spawning an external CLI in tmux. Task states flow through exactly as they do
 workers, and a watchdog recovers any that stall (one of the [timer loops](#timer-loops)
 below).
 
+### Session lifecycle
+
+Three mechanisms keep a long-running conversation cheap and durable without ever
+interrupting a turn in flight.
+
+- **Mid-turn message queue.** A message you send *while* a turn is still streaming does
+  not steer the running turn. It parks in a durable per-session queue and is delivered as
+  a follow-up user message when the turn ends — consecutive messages that share a mode are
+  combined into one prompt, split only on a mode change or the per-send image cap. The
+  queue is the single source of truth shared by every client on the session, so a second
+  terminal and the web dock render the same pending items, and an accepted-but-undelivered
+  message survives a daemon restart (it is re-seeded from the session status).
+- **Compaction persistence.** When a conversation's context grows past its auto-compact
+  threshold, the brain compacts it in place, replacing the older history with a summary.
+  That shrink is persisted: a compaction divider carrying the summary is written to the
+  store and the older rows are dropped, keeping the clean tail with its original
+  timestamps. Because the compacted log is what gets rehydrated after an eviction or
+  restart, the token savings stick instead of evaporating on the next reload. Owner chat
+  and chat-platform channels compact the same way, whether triggered automatically or by
+  `/compact`.
+- **Idle rollover.** A conversation that has sat idle past a cutoff — 30 minutes by
+  default — rolls over: the next message starts a fresh session instead of continuing the
+  old one. Past that window the provider's prompt cache has expired, so continuing would
+  re-send the whole stale context at full price for no benefit. The old transcript is
+  archived under a new id and stays browsable in the sessions view. A surface with a
+  different cache profile can set its own window — cron jobs pass a shorter one, or disable
+  rollover entirely for a job that must keep continuity across runs.
+
 ## Plugins and the hook bus
 
 Almost everything the brain can *do* — its tools, skills, prompt fragments, chat
@@ -163,6 +191,24 @@ only patch turn state (e.g. append turn context) if its plugin declared the matc
 `mutates` capability — every run is written to a mutation audit trail. This is what lets
 a plugin extend a live turn without any one plugin being able to quietly rewrite the
 prompt, the tool set or memory.
+
+A plugin that needs semantic search reuses the brain's own embedding model rather than
+wiring its own. A `reads: ['embeddings']` capability grants the plugin `ctx.embeddings`, a
+shared text-to-vector seam backed by the same `EmbeddingService` and Settings → Memory
+configuration the [memory engine](#memory-engine) uses. It is deny-by-default and rejects
+when the capability is absent or no embedding model is configured, so a plugin must gate on
+`isConfigured()` first. This single seam is what lets the optional `codebase`
+plugin index a repository through the operator's one embedding model, with no second
+provider or HTTP client to configure.
+
+Which tools' successful output appears in the chat transcript is a declarative
+show-allowlist, resolved exactly like tool icons. A tool's output is hidden by default and
+surfaces only when its name is on the allowlist — the brain's built-in tools declare theirs
+co-located with the tool, and a plugin declares its own via the manifest's `showOutput`.
+The daemon merges both and injects one policy into the shared renderer, so the live stream,
+the stored history and every client (CLI, web, Discord) key off the same rule; a failure or
+a hook-appended note always surfaces regardless. Keeping noisy Read/List/Grep output hidden
+is also what lets the renderers collapse repeated same-tool rows into one `Read … ×N` line.
 
 Built-in plugins cover the everyday tools (files, terminal, MCP, skills, ask-user,
 subagent delegation), the platform surfaces below, and utilities like formatters,
@@ -318,6 +364,7 @@ datastore to keep in sync (the single-source-of-truth principle, applied to stor
 | `events` | Activity timeline |
 | `notes` | Inter-agent handoff |
 | `brain_sessions` / `brain_messages` / `brain_goals` | Brain conversations, history and goals |
+| `brain_queue` | Durable mid-turn message queue, delivered between turns |
 | `personality_profiles` / `personality_active_profiles` | Personality profiles + active selection |
 | `memories` / `memory_embeddings` | Long-term memory facts + their vectors |
 | `memory_events` / `memory_categories` | Memory audit trail + categories |

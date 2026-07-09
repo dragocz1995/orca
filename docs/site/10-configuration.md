@@ -147,10 +147,13 @@ Providers come in two flavours. **OAuth accounts** connect a Claude, Codex, or
 Copilot login (no key stored — tokens live in the brain's own auth store) and
 after connecting you pick which of the account's models to expose. **API-key
 providers** point at an OpenAI-compatible or Anthropic endpoint with a base URL,
-a key, and a model list — Elowen live-probes the endpoint's `/models` so you click
-model pills instead of typing IDs, and for OpenAI-type entries you can pin the
-wire API (auto / Responses / Chat Completions). Keys are **write-only**: you set
-them here, the daemon never returns them in any response.
+a key, and a model list. A curated preset list prefills the endpoint for the
+common providers — **CoreSynth AI**, OpenAI, Anthropic (Claude), OpenRouter, and
+many more — or you pick a custom OpenAI-compatible endpoint for anything else.
+Elowen live-probes the endpoint's `/models` so you click model pills instead of
+typing IDs, and for OpenAI-type entries you can pin the wire API (auto /
+Responses / Chat Completions). Keys are **write-only**: you set them here, the
+daemon never returns them in any response.
 
 ## Memory
 
@@ -214,6 +217,7 @@ actually launches, in either mode:
 | Executor | `sonnet` | Default worker model (can be an Elowen AI model) |
 | Autonomy | `L3` | Default autonomy level |
 | Max sessions | `1` | Default parallel agents |
+| TDD mode | Off | When on, autopilot workers must write a failing test first, then implement, then verify (test-driven development). Applies in either backend mode |
 
 Autonomy levels L0–L3 control how much a worker may do without asking — see
 [Agents & Autonomy](agents-autonomy).
@@ -243,9 +247,10 @@ server-wide security knob.
 
 - A hero showing the current **Elowen version**, whether an update is available on
   npm, and an **Update now** button (blocked while a mission is running).
-- **Automatic updates** — an opt-in toggle (off by default). When on, a
-  background timer upgrades to the latest npm release and restarts the services,
-  but only while no mission is running.
+- **Automatic updates** — an opt-in toggle (off by default). When on, an hourly
+  systemd timer (`elowen-update.timer`, running `elowen update --auto`) upgrades
+  to the latest npm release and restarts the services — but it skips any tick
+  while a mission is running, deferring to the next hour.
 - **Service status** for the daemon (`:4400`) and web UI (`:4500`), each with a
   one-click restart.
 - **Login token validity** — how many days an issued auth token stays valid

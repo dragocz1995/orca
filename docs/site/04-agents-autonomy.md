@@ -96,6 +96,31 @@ never executes without your explicit approval** — the safest setting when you
 want to review everything first. You set the level per mission and can change it
 at any time from the Dashboard.
 
+## TDD mission mode
+
+An optional guardrail that makes every autonomous worker practice strict
+test-driven development. It is **off by default** and toggled globally — from
+**Settings → Autopilot**, or with the `/tdd` command (bare `/tdd` reports the
+current state, `/tdd on` / `/tdd off` flips it; changing it is admin-only).
+
+When on, Elowen appends a Test-Driven-Development directive to every worker
+preamble, so the agent must:
+
+1. Write a test that captures the desired behaviour and confirm it **fails for
+   the right reason** before writing any implementation.
+2. Implement the minimum code to make that test pass.
+3. Re-run the tests, confirm they pass, and refactor only while green.
+
+The agent may never weaken or delete a test to make it pass, and a change with
+no runtime surface (pure docs or config) is called out in its summary instead.
+
+The directive is appended at the spawn seam — outside the prompt template, not
+through a placeholder — so it reaches the worker even when you have saved a
+custom worker prompt, and it applies both to CLI-spawned workers and to the
+embedded Elowen AI brain worker. TDD mode is independent of the autonomy level
+and of the plan/build work modes: it is a single global toggle layered on top of
+whichever preamble and mode the worker runs in.
+
 ## Overseer (decision gate)
 
 The overseer is the gate that vets every agent action before it takes effect —

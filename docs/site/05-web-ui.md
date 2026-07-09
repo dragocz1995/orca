@@ -17,6 +17,15 @@ Everything here is built around the clarity pillar: a clean, uncluttered surface
 
 Think of the web UI as a mission-control view over one agent doing many things at once. The Operate group answers *"what is the agent doing right now, and is it going where I want?"* The Config group answers *"what may the agent do, with which models, and who can use it?"* You rarely need to memorize routes — the sidebar groups everything — but each module's URL is listed below so you can deep-link.
 
+## The shell
+
+Every module sits inside the same chrome, so the surface stays consistent as you move around:
+
+- **Top bar** — a sticky strip that always shows the current page's icon, title, and (where relevant) a live count, published by each module. That title also drives the browser tab — every route reads **Elowen — <Page>** — so a page is recognizable from its tab alone. Account controls (notifications, theme, language, avatar) sit on the right.
+- **Module toolbar** — each page's own filters and actions render on a single line directly under the top bar; on narrow screens the row scrolls sideways rather than wrapping, so the header never changes height.
+- **Chat dock** — a resizable side panel that follows you across every module, keeping the agent one click away. Open a brain conversation from anywhere (for example Sessions → open in chat) and it slides in here, carrying its own statusline (model, context %, tokens, and the session's running cost). See [Brain & Chat](brain-chat) for the dock's chat and terminal modes.
+- **One accent** — the whole UI reads a single Elowen red (matching the CLI accent). Buttons, toggles, tabs, focus rings, selected states, links, and the sidebar's active line all share it, so the app looks like one brand rather than a patchwork.
+
 ## Dashboard
 
 `/dash` — a single-agent home laid out as a bento grid, answering *what is my agent doing right now, what does it need from me, and what did it get done today.* The heavier mission control — the constellation and mission engage/pause — lives in [Tasks](tasks-missions) now, so the dashboard stays a calm at-a-glance surface.
@@ -128,7 +137,7 @@ The inbox self-clears once each item is resolved. This is the low-friction way t
 | **Models** | Enable/disable executor presets, add custom models, model descriptions for autopilot |
 | **Providers** | Binary paths, extra args, skip-permissions and resume toggles per coding-agent CLI |
 | **Defaults** | Default executor, autonomy, max sessions, token TTL |
-| **Brain** | Provider management and OAuth account connect for the embedded agent |
+| **Brain** | Provider management, OAuth account connect, and an **Edit limits** modal (tool-output caps, question timeout, memory recall, goal budgets, live channel-session cap) for the embedded agent |
 | **Memory** | Embedding provider and model, categorization model |
 | **Plugins** | Enable/disable plugins and edit each one's config; install/update/uninstall via the marketplace |
 | **Autopilot** | Automated planning/execution mode, model selectors, planner prompt |
