@@ -84,7 +84,9 @@ describe('chat layout components', () => {
       () => 72,
     );
     const rendered = viewport.render(72).join('\n');
-    expect(rendered).toContain('console output');
+    // The console block drops its "console output" label (bare `<` connector) — the `$ npm test` echo
+    // right below already identifies it.
+    expect(rendered).not.toContain('console output');
     expect(rendered).toContain('npm test');
     expect(rendered).toContain('Tests 4 passed');
     expect(rendered).not.toContain('run_command');

@@ -106,6 +106,25 @@ describe('toolOutputView', () => {
     const out = toolOutputView('read_file', { path: 'a.ts' }, { content: [{ type: 'text', text: '' }] });
     expect(out).toBeUndefined();
   });
+
+  it('strips the redundant `$ command` echo and `[exit N]` from a console body (renderer re-adds both)', () => {
+    // The terminal plugin frames its result verbatim as `$ <cmd>\n(cwd: …)\n<output>\n[exit N]`.
+    const framed = '$ rm -rf public/x && echo done\n(cwd: /var/www/wemx)\ndone\n[exit 0]';
+    const out = toolOutputView('run_command', { command: 'rm -rf public/x && echo done' }, { content: [{ type: 'text', text: framed }], details: { exitCode: 0 } });
+    expect(out?.command).toBe('rm -rf public/x && echo done'); // echoed once, from args
+    expect(out?.status).toBe('exit 0');                        // exit shown once, as the chip
+    expect(out?.text).not.toMatch(/^\$ /);                     // no leading command echo left in the body
+    expect(out?.text).not.toContain('[exit 0]');               // no trailing exit marker left in the body
+    expect(out?.text).toContain('(cwd: /var/www/wemx)');       // cwd + real output survive
+    expect(out?.text).toContain('done');
+  });
+
+  it('leaves genuine output that merely starts with `$ ` or ends in brackets intact', () => {
+    // No numeric exit and the first line is real output — nothing to strip.
+    const out = toolOutputView('bash', { command: 'cat prompt.txt' }, { content: [{ type: 'text', text: '$ enter value\n[done]' }] });
+    expect(out?.text).toContain('$ enter value');
+    expect(out?.text).toContain('[done]');
+  });
 });
 
 describe('toolOutputView — single-source show policy', () => {

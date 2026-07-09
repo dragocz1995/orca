@@ -342,7 +342,10 @@ const BLOCK_BODY_INDENT = '      ';
 
 function simpleBlock(title: string, lines: string[], width: number, footer?: string): string[] {
   const inner = Math.max(24, width - 8);
-  const out = [`${BLOCK_HEADER_INDENT}${color.faint('<')} ${color.text(title)}`];
+  // An empty title renders a bare `<` connector — the console block does this: the `$ command` line right
+  // below already says "shell output", so a "console output" label was just noise. Named blocks (diff,
+  // search result, browser observation) keep their label since it isn't otherwise obvious.
+  const out = [`${BLOCK_HEADER_INDENT}${title ? `${color.faint('<')} ${color.text(title)}` : color.faint('<')}`];
   for (const line of lines) out.push(`${BLOCK_BODY_INDENT}${truncateToWidth(line, inner, '…')}`);
   if (footer) out.push(`${BLOCK_BODY_INDENT}${color.faint(footer)}`);
   return out;
@@ -389,5 +392,7 @@ export function toolOutputBlock(output: ToolOutputView, width: number, expanded 
     lines.push('');
     lines.push(` ${color.faint(expanded ? 'Click to collapse' : 'Click to expand')}`);
   }
-  return simpleBlock(output.title, lines.map((line) => CODE_ROW(padAnsi(line, Math.max(1, width - 12)))), width);
+  // Console output drops its title (bare `<` connector) — the `$ command` echo already identifies it;
+  // other kinds (search result, browser observation, tool result) keep the label.
+  return simpleBlock(output.kind === 'console' ? '' : output.title, lines.map((line) => CODE_ROW(padAnsi(line, Math.max(1, width - 12)))), width);
 }

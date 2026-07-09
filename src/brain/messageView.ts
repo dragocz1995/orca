@@ -140,6 +140,21 @@ function resultNotes(details: Record<string, unknown> | undefined): string[] | u
   return notes.length > 0 ? notes : undefined;
 }
 
+/** Drop the console framing the transcript renderer re-creates elsewhere: the leading `$ <cmd>` echo (the
+ *  renderer prints the command from args on its own top line) and the trailing `[exit N]` marker (shown as
+ *  a status chip). The terminal plugin is the only producer that double-echoes, and it always frames output
+ *  as `$ <cmd>\n(cwd: …)\n…\n[exit N]`, so match that exact PAIR — a `$ ` line immediately followed by a
+ *  `(cwd: …)` line — rather than any lone `$ ` line, so genuine output that merely starts with `$ ` (or ends
+ *  in a bracketed word) is left intact. The `(cwd: …)` line and the real output survive. */
+function stripConsoleFraming(text: string, hasCommand: boolean): string {
+  if (!text || !hasCommand) return text;
+  const lines = text.split('\n');
+  if (!(lines[0]?.startsWith('$ ') && lines[1]?.startsWith('(cwd: '))) return text;
+  lines.shift();
+  if (/^\[exit \d+\]$/.test((lines[lines.length - 1] ?? '').trim())) lines.pop();
+  return lines.join('\n');
+}
+
 /** Return a compact, user-useful tool output preview. Most raw tool results stay hidden; command/test
  *  output, browser/search observations, warnings/errors — and hook-appended notes — are useful enough
  *  to show in the chat. */
@@ -153,8 +168,6 @@ export function toolOutputView(toolName: string, args: unknown, result: unknown,
   }
   const raw = textParts(r.content);
   const errorText = typeof r.error === 'string' ? r.error : '';
-  const joined = [raw, errorText].filter(Boolean).join('\n');
-  const text = compactOutput(joined);
   const kind = outputKind(toolName);
   const command = toolCommand(args);
   // A shell/console tool ALWAYS surfaces its command on the first line — even when it exited silently
@@ -167,6 +180,13 @@ export function toolOutputView(toolName: string, args: unknown, result: unknown,
   // `isError` off the PI event is authoritative when present (the persisted result may not repeat it);
   // fall back to the result object's own flag for the history path.
   const exitCode = (isError ?? r.isError) === true ? true : (r.details?.exitCode ?? r.details?.code ?? r.status);
+  // Console plugins frame their result as `$ <cmd>\n(cwd: …)\n<output>\n[exit N]` so the LLM reads full
+  // context — but the transcript renderer re-derives the command echo (from args) and the exit status
+  // (a chip) itself, so leaving them in the body renders each TWICE. Strip those two redundant framing
+  // lines at this single view seam (live + history + web all pass through here); the cwd line and the
+  // real output stay.
+  const joined = stripConsoleFraming([raw, errorText].filter(Boolean).join('\n'), consoleCommand);
+  const text = compactOutput(joined);
   const tone = outputTone(text, exitCode);
   // Single-source output visibility (see `toolOutput.ts`): output is HIDDEN by default — a tool NOT on
   // the show allowlist (Read/List/Grep/memory/cron/…) keeps its SUCCESSFUL output out of the transcript
