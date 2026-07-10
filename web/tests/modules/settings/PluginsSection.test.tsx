@@ -39,7 +39,7 @@ describe('PluginsSection catalog', () => {
     useMarketplace.mockReturnValue({ data: { plugins: [] }, isLoading: false });
   });
 
-  it('renders a card per installed plugin with the category filter', () => {
+  it('renders one compact row per installed plugin with the category filter', () => {
     usePlugins.mockReturnValue({ data: [plugin({ name: 'files' }), plugin({ name: 'discord', provides: { platforms: ['discord'] } })], isLoading: false });
     renderSection();
     expect(screen.getByText('files')).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe('PluginsSection catalog', () => {
     expect(screen.getByRole('radio', { name: en.plugins.catPlatforms })).toBeInTheDocument();
   });
 
-  it('filters the grid by the search query and shows the no-matches empty state', () => {
+  it('filters the list by the search query and shows the no-matches empty state', () => {
     usePlugins.mockReturnValue({ data: [plugin({ name: 'files' }), plugin({ name: 'discord', provides: { platforms: ['discord'] } })], isLoading: false });
     renderSection();
     fireEvent.change(screen.getByPlaceholderText(en.plugins.searchPlaceholder), { target: { value: 'disc' } });
