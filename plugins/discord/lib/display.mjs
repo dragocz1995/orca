@@ -1,0 +1,39 @@
+const TOOL_ACTIVITY = new Set(['off', 'status', 'live']);
+const ANSWER_MODES = new Set(['final', 'live']);
+const TOOL_OUTPUT = new Set(['hidden', 'summary', 'tail']);
+
+function pick(value, allowed, fallback) {
+  return typeof value === 'string' && allowed.has(value) ? value : fallback;
+}
+
+/** Resolve the Discord presentation policy for one channel. New enum settings win; old booleans remain
+ *  a read-only fallback so existing installations keep their behaviour until the operator saves the new
+ *  fields. A channel may override any axis independently through `/display`; absent axes inherit global. */
+export function resolveDisplaySettings(cfg = {}, channelState = {}) {
+  const channel = channelState?.display ?? {};
+  const hasLegacyAnswerConfig = Object.hasOwn(cfg, 'streaming') || Object.hasOwn(cfg, 'streamAnswer');
+  const legacyTools = cfg.streaming === false ? 'off' : 'status';
+  const legacyAnswer = hasLegacyAnswerConfig
+    ? (cfg.streaming === false || cfg.streamAnswer === false ? 'final' : 'live')
+    : 'final';
+  const globalTools = pick(cfg.toolActivity, TOOL_ACTIVITY, legacyTools);
+  const globalAnswer = pick(cfg.answerMode, ANSWER_MODES, legacyAnswer);
+  const globalOutput = pick(cfg.toolOutput, TOOL_OUTPUT, 'summary');
+  return {
+    toolActivity: pick(channel.toolActivity, TOOL_ACTIVITY, globalTools),
+    answerMode: pick(channel.answerMode, ANSWER_MODES, globalAnswer),
+    toolOutput: pick(channel.toolOutput, TOOL_OUTPUT, globalOutput),
+  };
+}
+
+/** Apply optional `/display` values. `default` clears only that channel override; omitted axes are kept. */
+export function updateDisplayOverrides(current = {}, values = {}) {
+  const next = { ...current };
+  for (const [key, allowed] of [['toolActivity', TOOL_ACTIVITY], ['answerMode', ANSWER_MODES], ['toolOutput', TOOL_OUTPUT]]) {
+    const value = values[key];
+    if (value === undefined) continue;
+    if (value === 'default') delete next[key];
+    else if (allowed.has(value)) next[key] = value;
+  }
+  return next;
+}

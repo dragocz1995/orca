@@ -20,6 +20,9 @@ export type BrainEvent =
    *  clients that ignore it lose only the note, never the diff. */
   | { type: 'diff'; diff: string; id?: string; output?: ToolOutputView }
   | { type: 'tool_output'; output: ToolOutputView; id?: string }
+  /** A tool completed without a displayable output block. This closes status-only renderers (Discord)
+   *  while transcript clients may safely ignore it; output/diff events already imply completion. */
+  | { type: 'tool_end'; id?: string; isError?: boolean }
   /** A structured display card a plugin pushed via `ctx.emitCard` — a live panel (CLI above the status
    *  bar, Discord in the streamed message, web in a cards region) keyed by `card.id` so a re-emit
    *  replaces it; an empty card (no items/body) removes it. Generalizes what the todo checklist used to
@@ -35,7 +38,7 @@ export type BrainEvent =
   | { type: 'tool_progress'; id: string; text: string }
   /** A tool produced a stored image (`/api/brain/images/…`) — channels attach it even when the
    *  model's final text forgets to repeat the markdown link. */
-  | { type: 'image'; ref: string }
+  | { type: 'image'; ref: string; id?: string }
   /** A transient runtime notice (rate-limit retry, context compaction) — so a stalled turn explains
    *  itself instead of just hanging on the spinner. `done` marks the end of that phase. */
   | { type: 'notice'; kind: 'retry' | 'compaction'; message: string; done?: boolean }
@@ -272,7 +275,7 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
       const parts = (anyE.result as { content?: { type?: string; text?: string }[] } | undefined)?.content;
       for (const part of Array.isArray(parts) ? parts : []) {
         const m = typeof part?.text === 'string' ? /\((\/api)?\/brain\/images\/([a-z0-9]+\.png)\)/.exec(part.text) : null;
-        if (m) return { type: 'image', ref: `/api/brain/images/${m[2]}` };
+        if (m) return { type: 'image', ref: `/api/brain/images/${m[2]}`, id: anyE.toolCallId };
       }
     }
     if (typeof anyE.toolName === 'string') {
@@ -280,6 +283,7 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
       // event-level `isError` flag IS authoritative here, so pass it through for a correct live tone.
       const output = toolOutputView(anyE.toolName, anyE.args, anyE.result, anyE.isError === true);
       if (output) return { type: 'tool_output', output, id: anyE.toolCallId };
+      return { type: 'tool_end', id: anyE.toolCallId, ...(anyE.isError === true ? { isError: true } : {}) };
     }
   }
   return null;

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
-/** Per-channel state: chosen model + a conversation "generation" (/new bumps it → fresh session). */
+/** Per-channel state: model, reasoning/voice/display overrides + conversation generation. */
 export class StateStore {
   constructor(file) { this.file = file; this.cache = null; }
   all() {

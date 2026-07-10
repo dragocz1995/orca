@@ -6,6 +6,7 @@ import { memberIsAdmin, displayNameOf, resolveMentions, buildReplyContext, parse
 import { buildAskComponents } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
+import { resolveDisplaySettings, updateDisplayOverrides } from './display.mjs';
 
 const API = 'https://discord.com/api/v10';
 // Reasoning-effort levels PI accepts for extended-thinking models (mirrors THINKING_LEVELS daemon-side).
@@ -120,6 +121,17 @@ export class DiscordAdapter {
       { name: 'voice', description: 'Toggle spoken audio replies in this channel', type: 1, options: [
         { name: 'state', description: 'on or off (omit to toggle)', type: 3, required: false, choices: [
           { name: 'on', value: 'on' }, { name: 'off', value: 'off' },
+        ] },
+      ] },
+      { name: 'display', description: 'Configure live tools and answer delivery in this channel', type: 1, options: [
+        { name: 'tools', description: 'Tool activity shown while the agent works', type: 3, required: false, choices: [
+          { name: 'global default', value: 'default' }, { name: 'off', value: 'off' }, { name: 'status', value: 'status' }, { name: 'live output', value: 'live' },
+        ] },
+        { name: 'answer', description: 'When the agent answer is posted', type: 3, required: false, choices: [
+          { name: 'global default', value: 'default' }, { name: 'final only', value: 'final' }, { name: 'stream live', value: 'live' },
+        ] },
+        { name: 'output', description: 'How much tool output is shown', type: 3, required: false, choices: [
+          { name: 'global default', value: 'default' }, { name: 'hidden', value: 'hidden' }, { name: 'summary', value: 'summary' }, { name: 'rolling tail', value: 'tail' },
         ] },
       ] },
       { name: 'new', description: 'Start a fresh conversation in this channel', type: 1 },
@@ -334,8 +346,9 @@ export class DiscordAdapter {
     const convoKey = `${m.channel_id}#${gen}`;
 
     const reactions = this.cfg.reactions !== false;
-    const streaming = this.cfg.streaming !== false;
-    const stream = streaming ? new LiveMessage(this, m.channel_id, m.id, m.author.id) : null;
+    const display = resolveDisplaySettings(this.cfg, this.state.get(m.channel_id));
+    const observesLiveEvents = display.toolActivity !== 'off' || display.answerMode === 'live' || this.cfg.showReasoning === true;
+    const stream = observesLiveEvents ? new LiveMessage(this, m.channel_id, m.id, m.author.id, display) : null;
     // Even with live streaming OFF, ask_user_question must still render its choice message — otherwise the
     // parked turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
     const onEvent = stream
@@ -371,7 +384,7 @@ export class DiscordAdapter {
       if (reactions) { await this.unreact(m.channel_id, m.id, '👀').catch(() => {}); void this.react(m.channel_id, m.id, '✅').catch(() => {}); }
     } catch (e) {
       clearInterval(typing);
-      stream?.abandon(); // the stall-hint timer must not edit the dead progress bubble after the error reply
+      if (stream) await stream.fail(e?.message ?? e); // settle live tools before the error reply lands below them
       if (reactions) { await this.unreact(m.channel_id, m.id, '👀').catch(() => {}); void this.react(m.channel_id, m.id, '❌').catch(() => {}); }
       await this.reply(m.channel_id, `⚠️ ${e?.message ?? e}`).catch(() => {});
     }
@@ -435,6 +448,20 @@ export class DiscordAdapter {
         this.state.patch(i.channel_id, { voice: next });
         const note = next && !this.voiceCreds() ? `\n${this.msg.voiceNeedsKey}` : '';
         return this.respond(i, 4, { content: `${this.msg.voiceSet(next)}${note}`, flags: 64 });
+      }
+      if (name === 'display') {
+        // Presentation is shared by everyone in this channel, so changing it is operator-only like /model.
+        if (!this.isAdminMember(i.member)) return this.respond(i, 4, { content: this.msg.controlForbidden, flags: 64 });
+        const options = Object.fromEntries((i.data?.options ?? []).map((o) => [o.name, String(o.value)]));
+        const values = {
+          ...(options.tools ? { toolActivity: options.tools } : {}),
+          ...(options.answer ? { answerMode: options.answer } : {}),
+          ...(options.output ? { toolOutput: options.output } : {}),
+        };
+        const state = this.state.get(i.channel_id);
+        if (Object.keys(values).length) this.state.patch(i.channel_id, { display: updateDisplayOverrides(state.display, values) });
+        const resolved = resolveDisplaySettings(this.cfg, this.state.get(i.channel_id));
+        return this.respond(i, 4, { content: this.msg.displaySet(resolved), flags: 64 });
       }
       // Channel-session control (stop/status/compact) + daemon restart — routed through the host control
       // surface. `this.ctl` is wired by the orchestrator after listen(); guard so a message-only host

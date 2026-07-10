@@ -57,6 +57,7 @@ describe('discord LiveMessage (tool progress)', () => {
     const deleted: string[] = [];
     let nextId = 0;
     const adapter = {
+      cfg: { answerMode: 'live' },
       rest: async (method: string, path: string, body: { content: string }) => {
         if (method === 'POST') { const id = `m${++nextId}`; posts.push(id); edits.set(id, body.content); return { id }; }
         const id = path.split('/').pop()!;
@@ -74,7 +75,7 @@ describe('discord LiveMessage (tool progress)', () => {
     // Bubbles created in order: [stranded draft m1, tool trace m2, re-anchored answer m3].
     const [draftId, progressId, finalId] = posts;
     expect(deleted).toContain(draftId); // the draft stranded ABOVE the trace is deleted, not left buried in scrollback
-    expect(edits.get(progressId)).toBe('💻 `run_command`: "apt list --upgradable"\n📄 `read_file`…'); // single \n = tight
+    expect(edits.get(progressId)).toBe('✅ 💻 `run_command`: "apt list --upgradable"\n✅ 📄 `read_file`'); // single \n = tight; finalize closes every row
     expect(edits.get(progressId)).not.toContain('\n\n');
     expect(edits.get(finalId)).toBe('Hotovo, vše běží.'); // final answer re-posted BELOW the trace, as the LAST message
   });
@@ -103,6 +104,79 @@ describe('discord LiveMessage (tool progress)', () => {
     expect(edits.get(posts[0]!.id)).toContain('run_command'); // tool trace streamed live
     expect(posts[1]!.content).toContain('Hotovo — vše zelené.'); // the summary posted once, below the trace
     expect(posts.some((p) => p.content.includes('Koukám se na to'))).toBe(false); // narration never became its own message
+  });
+
+  it('tracks a live command by id: running tail → completed summary, while answerMode=final posts once', async () => {
+    vi.useFakeTimers();
+    try {
+      const { LiveMessage } = await load();
+      const posts: string[] = [];
+      const edits = new Map<string, string>();
+      let nextId = 0;
+      const adapter = { cfg: {}, rest: async (method: string, path: string, body: { content: string }) => {
+        const id = method === 'POST' ? `m${++nextId}` : path.split('/').pop()!;
+        if (method === 'POST') posts.push(id);
+        edits.set(id, body.content);
+        return { id };
+      } };
+      const lm = new LiveMessage(adapter, 'chan', 'trigger', 'user', { toolActivity: 'live', answerMode: 'final', toolOutput: 'tail' });
+      lm.onEvent({ type: 'text', delta: 'working narration' });
+      lm.onEvent({ type: 'tool', id: 'cmd1', name: 'run_command', detail: 'npm test', icon: '💻' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(edits.get('m1')).toContain('🔸 💻 `run_command`');
+      expect(posts).toEqual(['m1']); // no answer draft in final mode
+
+      lm.onEvent({ type: 'tool_progress', id: 'cmd1', text: 'PASS a.test\nPASS b.test' });
+      await vi.advanceTimersByTimeAsync(1200);
+      expect(edits.get('m1')).toContain('> PASS b.test');
+
+      lm.onEvent({ type: 'tool_output', id: 'cmd1', output: { title: 'console output', kind: 'console', text: '44 tests passed', status: 'exit 0', tone: 'success' } });
+      await lm.finalize('Hotovo.');
+      expect(edits.get('m1')).toContain('✅ 💻 `run_command`');
+      expect(edits.get('m1')).toContain('44 tests passed');
+      expect(posts).toEqual(['m1', 'm2']);
+      expect(edits.get('m2')).toContain('Hotovo.');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('updates parallel tool rows by toolCallId and preserves independent success/error states', async () => {
+    const { LiveMessage } = await load();
+    const edits = new Map<string, string>();
+    let nextId = 0;
+    const adapter = { cfg: {}, rest: async (method: string, path: string, body: { content: string }) => {
+      const id = method === 'POST' ? `m${++nextId}` : path.split('/').pop()!;
+      edits.set(id, body.content); return { id };
+    } };
+    const lm = new LiveMessage(adapter, 'chan', undefined, undefined, { toolActivity: 'status', answerMode: 'final', toolOutput: 'summary' });
+    lm.onEvent({ type: 'tool', id: 'a', name: 'read_file', detail: 'a.ts', icon: '📄' });
+    lm.onEvent({ type: 'tool', id: 'b', name: 'run_command', detail: 'npm test', icon: '💻' });
+    lm.onEvent({ type: 'tool_output', id: 'b', output: { title: 'console output', kind: 'console', text: 'Test failed', status: 'exit 1', tone: 'warning' } });
+    lm.onEvent({ type: 'tool_end', id: 'a' });
+    await lm.finalize('Opravil jsem chybu.');
+    expect(edits.get('m1')).toContain('✅ 📄 `read_file`: "a.ts"');
+    expect(edits.get('m1')).toContain('❌ 💻 `run_command`: "npm test" — exit 1');
+  });
+
+  it('bounds a long trace around the newest tools and neutralizes mentions from tool data', async () => {
+    const { LiveMessage } = await load();
+    const edits = new Map<string, string>();
+    let nextId = 0;
+    const adapter = { cfg: {}, rest: async (method: string, path: string, body: { content: string }) => {
+      const id = method === 'POST' ? `m${++nextId}` : path.split('/').pop()!;
+      edits.set(id, body.content); return { id };
+    } };
+    const lm = new LiveMessage(adapter, 'chan', undefined, undefined, { toolActivity: 'live', answerMode: 'final', toolOutput: 'tail' });
+    for (let i = 0; i < 140; i++) lm.onEvent({ type: 'tool', id: `t${i}`, name: `tool_${i}`, detail: i === 139 ? '@everyone <@123>' : `item ${i}` });
+    lm.onEvent({ type: 'tool_progress', id: 't139', text: '@here still running' });
+    lm.onEvent({ type: 'tool_output', id: 't139', output: { title: 'tool result', kind: 'result', text: '@here done', tone: 'success' } });
+    await lm.finalize('done');
+    const trace = edits.get('m1')!;
+    expect(trace.length).toBeLessThanOrEqual(1990);
+    expect(trace).toContain('tool_139');
+    expect(trace).not.toContain('tool_0`');
+    expect(trace).not.toContain('@everyone');
+    expect(trace).not.toContain('<@123>');
+    expect(trace).not.toContain('@here');
   });
 
   it('a turn without tools posts only the answer', async () => {
@@ -136,7 +210,7 @@ describe('discord LiveMessage (tool progress)', () => {
     lm.onEvent({ type: 'tool', name: 'sarah_hair', icon: '✂️' }); // NON-consecutive → a fresh line, no merge back
     await new Promise((r) => setTimeout(r, 20));
     await lm.finalize('done');
-    expect(edits.get('m1')).toBe('✂️ `sarah_hair`: "list_bookings" ×3\n📄 `read_file`…\n✂️ `sarah_hair`…');
+    expect(edits.get('m1')).toBe('✅ ✂️ `sarah_hair`: "list_bookings" ×3\n✅ 📄 `read_file`\n✅ ✂️ `sarah_hair`');
   });
 
   it('renders a ctx.emitCard card in the progress bubble; an empty card removes it', async () => {
@@ -200,6 +274,51 @@ describe('discord LiveMessage (tool progress)', () => {
   });
 });
 
+describe('discord display settings', () => {
+  it('defaults to live tool status + one final answer, while preserving legacy booleans', async () => {
+    const { resolveDisplaySettings } = (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as {
+      resolveDisplaySettings: (cfg?: Record<string, unknown>, state?: Record<string, unknown>) => Record<string, string>;
+    };
+    expect(resolveDisplaySettings({})).toEqual({ toolActivity: 'status', answerMode: 'final', toolOutput: 'summary' });
+    expect(resolveDisplaySettings({ streaming: true, streamAnswer: true })).toMatchObject({ toolActivity: 'status', answerMode: 'live' });
+    expect(resolveDisplaySettings({ streaming: true, streamAnswer: false })).toMatchObject({ toolActivity: 'status', answerMode: 'final' });
+    expect(resolveDisplaySettings({ streaming: false })).toMatchObject({ toolActivity: 'off', answerMode: 'final' });
+  });
+
+  it('lets each channel override one axis and reset it to the global default independently', async () => {
+    const { resolveDisplaySettings, updateDisplayOverrides } = (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as {
+      resolveDisplaySettings: (cfg?: Record<string, unknown>, state?: Record<string, unknown>) => Record<string, string>;
+      updateDisplayOverrides: (current: Record<string, string>, values: Record<string, string>) => Record<string, string>;
+    };
+    const cfg = { toolActivity: 'status', answerMode: 'final', toolOutput: 'summary' };
+    const display = updateDisplayOverrides({}, { toolActivity: 'live', toolOutput: 'tail' });
+    expect(resolveDisplaySettings(cfg, { display })).toEqual({ toolActivity: 'live', answerMode: 'final', toolOutput: 'tail' });
+    const reset = updateDisplayOverrides(display, { toolActivity: 'default' });
+    expect(resolveDisplaySettings(cfg, { display: reset })).toEqual({ toolActivity: 'status', answerMode: 'final', toolOutput: 'tail' });
+  });
+
+  it('/display persists operator-only channel overrides and reports the resolved policy', async () => {
+    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const channels: Record<string, Record<string, unknown>> = {};
+    const state = {
+      get: (id: string) => channels[id] ?? {},
+      patch: (id: string, fields: Record<string, unknown>) => { channels[id] = { ...(channels[id] ?? {}), ...fields }; },
+    };
+    const adapter = new DiscordAdapter(
+      { language: 'en', toolActivity: 'status', answerMode: 'final', toolOutput: 'summary', rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
+      log, state, async () => [],
+    );
+    const replies: unknown[] = [];
+    adapter.rest = async (_method: string, _path: string, body: unknown) => { replies.push(body); return {}; };
+    await adapter.onInteraction({
+      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] },
+      data: { name: 'display', options: [{ name: 'tools', value: 'live' }, { name: 'output', value: 'tail' }] },
+    });
+    expect(channels.C?.display).toEqual({ toolActivity: 'live', toolOutput: 'tail' });
+    expect(JSON.stringify(replies[0])).toContain('tools **live** · answer **final** · output **tail**');
+  });
+});
+
 describe('discord answer streaming (live reply edits, two-bubble model)', () => {
   interface Ev { type: string; name?: string; detail?: string; icon?: string; delta?: string; model?: string; usage?: { percent: number } }
   const load = async () => (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as {
@@ -214,7 +333,7 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
     const edits = new Map<string, string>();
     let nextId = 0;
     const adapter = {
-      cfg,
+      cfg: { answerMode: 'live', ...(cfg ?? {}) },
       rest: async (method: string, path: string, body?: { content?: string }) => {
         const content = body?.content ?? '';
         if (method === 'POST') { const id = `m${++nextId}`; posts.push(id); edits.set(id, content); calls.push({ method, id, content }); return { id }; }
@@ -331,6 +450,7 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
       const refs: (unknown)[] = [];
       let nextId = 0;
       const adapter = {
+        cfg: { answerMode: 'live' },
         rest: async (method: string, _path: string, body?: { message_reference?: unknown }) => {
           if (method === 'POST') { refs.push(body?.message_reference); return { id: `m${++nextId}` }; }
           return { id: 'x' };
@@ -350,7 +470,7 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
     let failNextPatch = false;
     let patchAttempts = 0;
     const adapter = {
-      cfg: {},
+      cfg: { answerMode: 'live' },
       rest: async (method: string, path: string, body?: { content?: string }) => {
         if (method === 'POST') { const id = `m${++nextId}`; edits.set(id, body?.content ?? ''); return { id }; }
         if (method === 'PATCH') {
@@ -376,7 +496,7 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
     let uploads = 0;
     let nextId = 0;
     const adapter = {
-      cfg: {},
+      cfg: { answerMode: 'live' },
       resolveImageFiles: (names: string[]) => names.map((n) => ({ name: n, blob: new Uint8Array([1]) })),
       uploadImages: async () => { uploads++; },
       rest: async (method: string, path: string, body?: { content?: string }) => {
@@ -404,6 +524,7 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
       const calls: { method: string; id: string }[] = [];
       let nextId = 0;
       const adapter = {
+        cfg: { answerMode: 'live' },
         rest: (method: string, path: string) => {
           if (method === 'POST') {
             const id = `m${++nextId}`;
@@ -434,6 +555,7 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
     const queue: Array<() => void> = [];
     let nextId = 0;
     const adapter = {
+      cfg: { answerMode: 'live' },
       rest: (method: string, path: string) => {
         if (method === 'POST') {
           const id = `m${++nextId}`;

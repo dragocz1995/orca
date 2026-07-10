@@ -3,8 +3,8 @@
 // own rolePolicies config — to the Elowen projects they may touch plus an extra role prompt (a per-role
 // instructions pattern). Unmapped senders (and DMs, which carry no roles) are ignored.
 //
-// On top of plain chat it provides: slash commands (/model, /new, /help), a per-channel model picker
-// (select menu, choice persisted), live streaming replies (edit-in-place with a tool-call trace), a
+// On top of plain chat it provides: slash commands (/model, /display, /new, /help), per-channel model
+// and presentation settings, a stateful live tool trace with independent answer delivery, a
 // typing indicator, proactive pushes (cron/tick echoes) via notify(), and an admin-only `discord_api`
 // tool for server management (messages, roles, channels — the whole REST surface).
 import { join } from 'node:path';
@@ -15,6 +15,7 @@ import { registerTools } from './lib/tools.mjs';
 export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, memberIsAdmin, displayNameOf, resolveMentions, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
 export { askUsesButtons, buildAskComponents } from './lib/ask.mjs';
 export { LiveMessage } from './lib/stream.mjs';
+export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
 
 export function register(ctx) {
   const token = typeof ctx.config.botToken === 'string' ? ctx.config.botToken.trim() : '';
@@ -26,5 +27,5 @@ export function register(ctx) {
   const adapter = new DiscordAdapter({ ...ctx.config, botToken: token }, ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion);
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
-  ctx.logger.info('discord platform registered (slash commands + model picker + streaming + server tools)');
+  ctx.logger.info('discord platform registered (slash commands + per-channel display + live tools + server tools)');
 }

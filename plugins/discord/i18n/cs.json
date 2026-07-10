@@ -1,5 +1,5 @@
 {
-  "description": "Discord bot: zmiňte ho a odpoví z Elowen AI. Slash příkazy (/model, /new, /help), výběr modelu pro každý kanál, živé streamované odpovědi (s živým todo checklistem agenta), stavové reakce a proaktivní cron/tick oznámení. Serverové nástroje (admin session): info o serveru/kanálu/členovi, výpis a hledání členů, role, piny, vlákna (vytvořit/archivovat/zamknout/členové), kanály (vytvořit/přejmenovat/smazat, kategorie) a správa zpráv (mazání/purge). Každá Discord role se mapuje na povolené projekty Elowen a prompt role.",
+  "description": "Discord bot: zmiňte ho a odpoví z Elowen AI. Slash příkazy (/model, /display, /new, /help), nastavení modelu a zobrazení pro každý kanál, živá aktivita nástrojů s nezávislým doručením odpovědi, stavové reakce a proaktivní cron/tick oznámení. Serverové nástroje (admin session): info o serveru/kanálu/členovi, výpis a hledání členů, role, piny, vlákna (vytvořit/archivovat/zamknout/členové), kanály (vytvořit/přejmenovat/smazat, kategorie) a správa zpráv (mazání/purge). Každá Discord role se mapuje na povolené projekty Elowen a prompt role.",
   "fields": {
     "sec_connection": {
       "label": "Připojení",
@@ -57,13 +57,17 @@
       "label": "ID oznamovacího kanálu",
       "hint": "Kam se posílají proaktivní zprávy (výsledky cronů/ticků, eskalace). Prázdné = žádné proaktivní zprávy."
     },
-    "streaming": {
-      "label": "Živé streamované odpovědi",
-      "hint": "Upravovat odpověď průběžně, jak přichází (volání nástrojů + text). Vypnuto = jedna zpráva na konci."
+    "toolActivity": {
+      "label": "Aktivita nástrojů",
+      "hint": "Vypnuto skryje pracovní stopu. Živý stav ukazuje spuštění a dokončení nástrojů. Živý výstup navíc streamuje omezený průběh run_command. Pro kanál lze přepsat přes /display."
     },
-    "streamAnswer": {
-      "label": "Streamovat text odpovědi",
-      "hint": "Platí jen při zapnutém živém streamování. Zapnuto = text odpovědi se upravuje průběžně, jak vzniká. Vypnuto = stopa nástrojů běží živě, ale odpověď se pošle jednou na konci jako shrnutí — na Discordu klidnější."
+    "answerMode": {
+      "label": "Doručení odpovědi",
+      "hint": "Finální odpověď pošle jednu kompletní zprávu pod živou stopu nástrojů. Živě průběžně upravuje vznikající odpověď. Pro kanál lze přepsat přes /display."
+    },
+    "toolOutput": {
+      "label": "Detail výstupu nástrojů",
+      "hint": "Určuje, kolik omezeného výstupu se ukáže pod stavem nástroje. Celý raw výstup se do Discordu nikdy nevypisuje."
     },
     "reactions": {
       "label": "Stavové reakce",

@@ -111,7 +111,7 @@ describe('tool_execution_end → image vs tool_output (run_command must not be h
   });
 
   it('an image tool that returns a stored-image link surfaces a first-class image event', () => {
-    expect(withImageLink('generate_image')).toEqual({ type: 'image', ref: '/api/brain/images/abcdef123.png' });
+    expect(withImageLink('generate_image')).toEqual({ type: 'image', ref: '/api/brain/images/abcdef123.png', id: 'c9' });
   });
 
   it('run_command whose console output merely prints such a path stays a tool_output (progress can reconcile)', () => {
@@ -120,5 +120,17 @@ describe('tool_execution_end → image vs tool_output (run_command must not be h
     const e = withImageLink('run_command');
     expect((e as { type: string }).type).toBe('tool_output');
     expect((e as { id?: string }).id).toBe('c9');
+  });
+});
+
+describe('tool_execution_end → lifecycle-only event', () => {
+  it('closes a successful tool even when its output policy yields no display block', () => {
+    expect(ev({ type: 'tool_execution_end', toolName: 'read_file', toolCallId: 'r1', result: { content: [], details: {} } }))
+      .toEqual({ type: 'tool_end', id: 'r1' });
+  });
+
+  it('preserves an output-less failure state', () => {
+    expect(ev({ type: 'tool_execution_end', toolName: 'read_file', toolCallId: 'r2', isError: true, result: { content: [], details: {} } }))
+      .toMatchObject({ type: 'tool_end', id: 'r2', isError: true });
   });
 });

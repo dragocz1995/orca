@@ -1,5 +1,6 @@
 // Streaming/edit-throttle machinery: the live progress bubble and the final-answer posting.
 import { CHUNK, extractImageRefs, splitContent, stripThinking, footerLine } from './format.mjs';
+import { resolveDisplaySettings } from './display.mjs';
 
 const EDIT_THROTTLE_MS = 1200; // Discord allows ~5 edits / 5 s per channel — stay under it
 /** How long a turn may go with no VISIBLE progress (a new tool call / card) before the `Step N / MAX`
@@ -160,8 +161,65 @@ class StreamingAnswer {
 /** One rendered progress line: `<icon> \`tool\`` + optional `: "detail"` + optional ` ×N` counter. The
  *  icon is resolved daemon-side (core map + plugin manifest `icons`) and rides the `tool` event; the
  *  generic wrench is the fallback when a tool declared none. */
-function toolLine(c) {
-  return `${c.icon ?? '🔧'} \`${c.name}\`` + (c.detail ? `: "${c.detail}"` : '…') + (c.count > 1 ? ` ×${c.count}` : '');
+function compactLine(value, max = 180) {
+  const line = String(value ?? '')
+    .replace(/@(?=everyone|here)/gi, '@\u200b')
+    .replace(/<@(?=[!&]?\d)/g, '<@\u200b')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+function safeTail(value, max = 600) {
+  const clean = String(value ?? '')
+    .replace(/\u001b(?:\[[0-?]*[ -\/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|.)?/g, '')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+    .replace(/```/g, "'''")
+    .replace(/@(?=everyone|here)/gi, '@\u200b')
+    .replace(/<@(?=[!&]?\d)/g, '<@\u200b')
+    .trim();
+  return clean.length > max ? `…${clean.slice(clean.length - max + 1)}` : clean;
+}
+
+function outputFailed(output) {
+  return output?.tone === 'warning' || output?.tone === 'danger' || /(?:needs attention|exit [1-9]\d*)/i.test(output?.status ?? '');
+}
+
+function outputSummary(output) {
+  const notes = Array.isArray(output?.notes) ? output.notes.filter(Boolean) : [];
+  const status = compactLine(output?.status);
+  const text = safeTail(output?.text ?? '').split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? '';
+  return compactLine(notes.at(-1) ?? (status && !/^(?:ok|done|exit 0)$/i.test(status) ? status : text) ?? '');
+}
+
+function diffSummary(diff) {
+  const lines = String(diff ?? '').split('\n');
+  const added = lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).length;
+  const removed = lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).length;
+  return [added ? `+${added}` : '', removed ? `−${removed}` : ''].filter(Boolean).join(' ') || 'updated';
+}
+
+/** One tool row plus optional bounded output. The icon identifies the action; the leading glyph is the
+ *  lifecycle, so a settled trace never leaves ambiguous trailing ellipses behind. */
+function toolLinesFor(c, display) {
+  const state = c.state === 'error' ? '❌' : c.state === 'done' ? '✅' : '🔸';
+  let line = `${state} ${c.icon ?? '🔧'} \`${c.name}\``;
+  if (c.detail) line += `: "${compactLine(c.detail, 100)}"`;
+  if (c.count > 1) line += ` ×${c.count}`;
+  if (display.toolOutput !== 'hidden' && c.summary) line += ` — ${compactLine(c.summary)}`;
+  const lines = [line];
+  if (display.toolOutput === 'hidden') return lines;
+  // Mid-run output is exclusive to live activity. A settled rolling tail is still useful with status
+  // activity, while summary mode already carries its one-line result on the main row.
+  const output = c.state === 'running'
+    ? (display.toolActivity === 'live' ? c.progress : '')
+    : (display.toolOutput === 'tail' ? c.finalTail : '');
+  if (!output) return lines;
+  const safe = safeTail(output);
+  if (!safe) return lines;
+  if (display.toolOutput === 'summary') lines.push(`-# ↳ ${compactLine(safe.split('\n').at(-1), 220)}`);
+  else lines.push(...safe.split('\n').slice(-6).map((part) => `> ${part || ' '}`));
+  return lines;
 }
 
 /** A display card (ctx.emitCard) for the progress bubble — title + checklist (emoji per status, since
@@ -178,19 +236,19 @@ function cardLines(card, max = 15) {
   return lines;
 }
 
-/** Streaming turn: TWO independently-edited Discord messages. Tools go into ONE progress bubble — one
- *  emoji-tagged line per tool, joined by single newlines so they stack tightly; CONSECUTIVE repeats of the
- *  same tool collapse into a ×N counter on their line (latest detail shown). The assistant's ANSWER streams
- *  LIVE into its OWN separate message (StreamingAnswer) as text deltas arrive — so alternating text→tool→text
- *  edits two stably-identified messages and never loses its target. On finalize the answer bubble is settled
- *  to the returned reply (authoritative over the streamed draft). No tools → just the streaming answer. */
+/** One turn with independent presentation axes. Tool calls share one lifecycle bubble keyed by toolCallId;
+ *  answer text either streams into separate editable messages or is posted once at finalize. Keeping those
+ *  surfaces independent lets Discord feel alive without forcing token-by-token answer noise. */
 export class LiveMessage {
-  constructor(adapter, channelId, replyToId, askerId) {
+  constructor(adapter, channelId, replyToId, askerId, display) {
     this.a = adapter;
     this.channelId = channelId;
     this.replyToId = replyToId; // the triggering message — the answer bubble is a real reply to it
     this.askerId = askerId;     // who to route an ask_user_question prompt to (and gate its answer on)
-    this.toolCalls = []; // { name, detail?, count } — one entry per rendered line
+    this.display = display ?? resolveDisplaySettings(adapter.cfg);
+    this.toolCalls = []; // lifecycle rows in display order
+    this.toolById = new Map(); // PI toolCallId → row (parallel-safe completion/progress updates)
+    this.notices = new Map(); // retry/compaction status lines by kind
     this.progress = null; // the tool-trace bubble, created lazily on the first tool event
     this.answer = null;   // the live answer bubble(s), created lazily on the first visible text delta
     this.answerStranded = false; // set when the tool bubble is posted BELOW an already-started answer draft →
@@ -216,7 +274,8 @@ export class LiveMessage {
     if (this.maxSteps > 0 && Date.now() - this.lastActivityAt >= STALL_HINT_MS) {
       toolLines.push(`-# ⚙️ Step ${Math.min(this.step, this.maxSteps)} / ${this.maxSteps}`);
     }
-    toolLines.push(...this.toolCalls.map(toolLine));
+    for (const call of this.toolCalls) toolLines.push(...toolLinesFor(call, this.display));
+    for (const notice of this.notices.values()) toolLines.push(`🔄 ${compactLine(notice, 240)}`);
     if (this.a.cfg?.showReasoning && this.reasoning.trim()) {
       const tail = this.reasoning.trim().slice(-280).replace(/\s+/g, ' ');
       toolLines.push(`💭 _${tail}_`);
@@ -233,7 +292,10 @@ export class LiveMessage {
       // ABOVE the trace. Flag it so finalize re-anchors the answer below and keeps it the LAST message.
       if (this.answer) this.answerStranded = true;
     }
-    this.progress.update(sections.join('\n-# ┈┈┈┈┈┈┈┈┈┈\n').slice(0, CHUNK));
+    const rendered = sections.join('\n-# ┈┈┈┈┈┈┈┈┈┈\n');
+    // Preserve the newest/active tools and cards when a long turn exceeds Discord's message limit.
+    const bounded = rendered.length > CHUNK ? `…\n${rendered.slice(-(CHUNK - 2))}` : rendered;
+    this.progress.update(bounded);
   }
   /** (Re)arm the stall hint: after STALL_HINT_MS of no visible tool progress, re-render so the step
    *  counter surfaces even during pure silence (one long-running tool emits no interim events). */
@@ -242,17 +304,73 @@ export class LiveMessage {
     this.stallTimer = setTimeout(() => this.renderProgress(), STALL_HINT_MS);
     if (typeof this.stallTimer.unref === 'function') this.stallTimer.unref();
   }
+  findTool(id) {
+    return id ? this.toolById.get(id) : this.toolCalls[this.toolCalls.length - 1];
+  }
+  settleTool(id, state = 'done', summary = '', tail = '') {
+    const call = this.findTool(id);
+    if (!call) return;
+    call.state = state;
+    call.progress = '';
+    if (summary) call.summary = summary;
+    if (tail) call.finalTail = tail;
+    this.lastActivityAt = Date.now();
+    this.armStallHint();
+    this.renderProgress();
+  }
   onEvent(e) {
     if (e.type === 'tool' && e.name) {
+      if (this.display.toolActivity === 'off') return;
+      const existing = e.id ? this.toolById.get(e.id) : null;
       const last = this.toolCalls[this.toolCalls.length - 1];
-      if (last && last.name === e.name) {
+      let call;
+      if (existing) {
+        call = existing;
+        call.detail = e.detail ?? call.detail;
+        call.icon = e.icon ?? call.icon;
+        call.state = 'running';
+      } else if (!e.id && last && last.name === e.name && last.state === 'running') {
         last.count += 1;
         if (e.detail) last.detail = e.detail; // latest detail wins on a collapsed line
+        call = last;
       } else {
-        this.toolCalls.push({ name: e.name, detail: e.detail, icon: e.icon, count: 1 });
+        call = { id: e.id, name: e.name, detail: e.detail, icon: e.icon, count: 1, state: 'running', progress: '', summary: '', finalTail: '' };
+        this.toolCalls.push(call);
+        if (e.id) this.toolById.set(e.id, call);
       }
       this.lastActivityAt = Date.now(); // visible progress → reset the stall clock, hide the step counter
       this.armStallHint();
+      this.renderProgress();
+    } else if (e.type === 'tool_progress' && e.id) {
+      const call = this.findTool(e.id);
+      if (call && this.display.toolActivity === 'live') {
+        call.progress = safeTail(e.text);
+        this.lastActivityAt = Date.now();
+        this.armStallHint();
+        this.renderProgress();
+      }
+    } else if (e.type === 'tool_output') {
+      const output = e.output ?? {};
+      this.settleTool(e.id, outputFailed(output) ? 'error' : 'done', outputSummary(output), output.fullText ?? output.text);
+    } else if (e.type === 'diff') {
+      const note = outputSummary(e.output);
+      this.settleTool(e.id, outputFailed(e.output) ? 'error' : 'done', note || diffSummary(e.diff), e.diff);
+    } else if (e.type === 'tool_end') {
+      this.settleTool(e.id, e.isError ? 'error' : 'done');
+    } else if (e.type === 'subagent' && e.id) {
+      const call = this.findTool(e.id);
+      if (call) {
+        call.detail = e.detail || e.task || call.detail;
+        call.summary = `${e.tools ?? 0} tools · ${e.seconds ?? 0}s`;
+        if (e.status !== 'running') call.state = e.status === 'error' ? 'error' : 'done';
+        this.lastActivityAt = Date.now(); this.armStallHint(); this.renderProgress();
+      }
+    } else if (e.type === 'notice' && e.kind) {
+      // Notices may annotate an existing work trace, but do not create a standalone bubble that would
+      // become stale as soon as the transient notice clears.
+      if (!this.progress && this.toolCalls.length === 0 && this.cards.size === 0) return;
+      if (e.done) this.notices.delete(e.kind);
+      else if (e.message) this.notices.set(e.kind, e.message);
       this.renderProgress();
     } else if (e.type === 'reasoning' && e.delta) {
       // Off by default — reasoning is noise on Discord. When cfg.showReasoning is on it rides the
@@ -261,10 +379,9 @@ export class LiveMessage {
       if (this.a.cfg?.showReasoning) this.renderProgress();
     } else if (e.type === 'text' && e.delta) {
       this.text += e.delta;
-      // Summary mode (cfg.streamAnswer === false): keep accumulating the text for the finalize post, but
-      // DON'T stream it live — the tool trace still streams, and the answer lands once at the end as a
-      // single "summary" message below the trace. Quieter than watching the whole reply type itself out.
-      if (this.a.cfg?.streamAnswer === false) return;
+      // Final-answer mode keeps accumulating text for finalize but does not create an editable answer
+      // bubble. The live tool trace remains independent and the complete answer lands once below it.
+      if (this.display.answerMode !== 'live') return;
       // Stream the growing answer into its OWN message, separate from the tool bubble. Skip pure-thinking
       // deltas (stripThinking) so no empty/placeholder answer is posted while the model is still reasoning.
       const visible = stripThinking(this.text);
@@ -274,6 +391,7 @@ export class LiveMessage {
       }
     } else if (e.type === 'image' && e.ref) {
       this.imageRefs.push(e.ref);
+      this.settleTool(e.id, 'done', 'image ready');
     } else if (e.type === 'card' && e.card?.id) {
       // Upsert the card by id; an empty card (no items/body) removes it. Then re-render the bubble.
       const empty = (!e.card.items || e.card.items.length === 0) && !e.card.body;
@@ -300,10 +418,25 @@ export class LiveMessage {
     if (this.progress) this.progress.close();
     if (this.answer) this.answer.close();
   }
+  /** Settle a failed turn's activity before the adapter posts the error reply. */
+  async fail(message) {
+    clearTimeout(this.stallTimer);
+    for (const call of this.toolCalls) if (call.state === 'running') {
+      call.state = 'error';
+      call.progress = '';
+      if (!call.summary) call.summary = compactLine(message, 140);
+    }
+    this.notices.clear();
+    this.renderProgress();
+    if (this.progress) await this.progress.settle(this.progress.content);
+    if (this.answer) this.answer.close();
+  }
   async finalize(reply) {
     // Settle the progress bubble to its complete tool list (a throttled edit may still be pending),
     // then freeze it so the straggler timer can't fire afterwards.
     clearTimeout(this.stallTimer);
+    for (const call of this.toolCalls) if (call.state === 'running') call.state = 'done';
+    this.notices.clear();
     if (this.progress) {
       this.lastActivityAt = Date.now(); // drop the stall step-counter from the settled tool trace
       this.renderProgress();

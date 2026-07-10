@@ -1,8 +1,8 @@
 {
   "name": "discord",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "apiVersion": "1",
-  "description": "Discord bot: mention it and it answers from Elowen AI. Slash commands (/model, /new, /help), a per-channel model picker, live streaming replies (with the agent's live todo checklist), status reactions and proactive cron/tick pushes. Server tools (admin sessions): server/channel/member info, list & search members, roles, pins, threads (create/archive/lock/members), channels (create/rename/delete, categories) and message management (delete/purge). Each Discord role maps to allowed Elowen projects + a role prompt.",
+  "description": "Discord bot: mention it and it answers from Elowen AI. Slash commands (/model, /display, /new, /help), per-channel model and presentation settings, live tool activity with independent answer delivery, status reactions and proactive cron/tick pushes. Server tools (admin sessions): server/channel/member info, list & search members, roles, pins, threads (create/archive/lock/members), channels (create/rename/delete, categories) and message management (delete/purge). Each Discord role maps to allowed Elowen projects + a role prompt.",
   "entry": "index.mjs",
   "provides": {
     "platforms": [
@@ -88,18 +88,39 @@
       "hint": "On: the bot answers every message in channels it can see (Iris-style). Off: it only answers when @mentioned."
     },
     {
-      "key": "streaming",
-      "label": "Live streaming replies",
-      "type": "boolean",
-      "default": true,
-      "hint": "Edit the reply in place as it streams (tool calls + text). Off = one message at the end."
+      "key": "toolActivity",
+      "label": "Tool activity",
+      "type": "enum",
+      "default": "status",
+      "options": [
+        { "value": "off", "label": "Off" },
+        { "value": "status", "label": "Live status" },
+        { "value": "live", "label": "Live output" }
+      ],
+      "hint": "Off hides the work trace. Live status updates tool start/completion. Live output also streams bounded run_command progress. Override per channel with /display."
     },
     {
-      "key": "streamAnswer",
-      "label": "Stream answer text",
-      "type": "boolean",
-      "default": true,
-      "hint": "Only applies with live streaming on. On = the answer text edits in place as it's written. Off = the tool trace still streams live, but the answer is posted once at the end as a summary — quieter on Discord."
+      "key": "answerMode",
+      "label": "Answer delivery",
+      "type": "enum",
+      "default": "final",
+      "options": [
+        { "value": "final", "label": "Final answer only" },
+        { "value": "live", "label": "Stream answer live" }
+      ],
+      "hint": "Final posts one complete answer below the live tool trace. Live edits the answer while it is written. Override per channel with /display."
+    },
+    {
+      "key": "toolOutput",
+      "label": "Tool output detail",
+      "type": "enum",
+      "default": "summary",
+      "options": [
+        { "value": "hidden", "label": "Status only" },
+        { "value": "summary", "label": "Short summary" },
+        { "value": "tail", "label": "Rolling output tail" }
+      ],
+      "hint": "Controls how much bounded tool output appears below each status. Raw full output is never dumped into Discord."
     },
     {
       "key": "reactions",
