@@ -28,7 +28,7 @@ describe('StatsView', () => {
     expect(await screen.findByText('sonnet')).toBeTruthy();
     expect(screen.getByTestId('stats-hero')).toBeTruthy();
     expect(screen.queryByTestId('usage-flame')).toBeNull();
-    expect(screen.getByTestId('page-mascot').querySelector('img')).toHaveAttribute('src', '/images/elowen-inferno.gif');
+    expect(screen.getByTestId('page-mascot').querySelector('img')).toHaveAttribute('src', '/icon.png');
     // Default preset is '7d' — a finite from-bound is sent, no 'to' (open-ended).
     await waitFor(() => expect(seenSearch).toContain('from='));
     expect(seenSearch).not.toContain('to=');
