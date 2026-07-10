@@ -12,9 +12,9 @@ function mount(compact = false) {
 }
 
 describe('OrbitalNav', () => {
-  it('keeps real links over the WebGL scene and exposes the active world children', () => {
+  it('keeps real links in the orbital navigation and exposes the active world children', () => {
     mount();
-    expect(screen.getByTestId('orbit-webgl').querySelector('canvas')).toBeTruthy();
+    expect(screen.getByTestId('future-navigation').querySelector('canvas')).toBeNull();
     expect(screen.queryByRole('img', { name: 'Elowen' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Work' })).toHaveAttribute('aria-current', 'location');
     expect(screen.getByRole('link', { name: 'Stats' })).toHaveAttribute('aria-current', 'page');

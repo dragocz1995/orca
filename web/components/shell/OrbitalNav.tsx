@@ -8,7 +8,6 @@ import { useHealth } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { entryIsActive } from './NavGroup';
 import { useShellNavigation } from './useShellNavigation';
-import { NavOrbitScene } from './NavOrbitScene';
 
 function wrapsDelta(index: number, focus: number, count: number): number {
   let delta = index - focus;
@@ -67,8 +66,6 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
       }}
       className={`relative h-full shrink-0 overflow-visible ${compact ? 'w-32' : 'w-[24rem]'}`}
     >
-      <NavOrbitScene side={side} compact={compact} />
-
       <div role="list" className="absolute inset-0 z-30">
         {entries.map((entry, index) => {
           const delta = wrapsDelta(index, focusIndex, entries.length);
