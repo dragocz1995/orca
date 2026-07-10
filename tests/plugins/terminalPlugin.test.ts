@@ -131,6 +131,27 @@ describe('terminal plugin — configurable outputCap', () => {
   });
 });
 
+describe('terminal plugin — UTF-8 streaming', () => {
+  let dir: string;
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'elowen-term-utf8-')); });
+
+  it('does not corrupt multibyte output split across stream chunks', async () => {
+    // 70000 × the 3-byte euro sign = 210000 bytes, well past the OS pipe chunk size, so the character
+    // lands split across 'data' events at 64KB boundaries (64KB is not a multiple of 3). A per-chunk
+    // toString() emits U+FFFD at every such split; the streaming decoder must not. A high outputCap
+    // keeps the whole payload so a boundary U+FFFD can't hide in the truncated head.
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log,
+      config: { terminal: { outputCap: 500_000 } },
+    });
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: `node -e "process.stdout.write('€'.repeat(70000))"` }), { identity: owner });
+    const text = res.content[0].text;
+    expect(text).not.toContain('�');           // no corruption at any chunk boundary
+    expect((text.match(/€/g) ?? []).length).toBe(70001); // 70000 from stdout + 1 in the echoed command
+    expect(text).toContain('[exit 0]');
+  });
+});
+
 // commandTimeoutMs is clamped to a 30000ms floor, and a real child process's 'close' event does not
 // reliably fire under vi.useFakeTimers() (Node defers it past the fake clock), so these run in real
 // time at the clamp boundary — the fastest a genuine kill can be observed. Both share one `sleep 32`

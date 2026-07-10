@@ -1,7 +1,7 @@
 // Files plugin: read/write/list, each confined to the caller's accessible repos via ctx.assertPathAllowed
 // (which reads the per-session Policy). A guard rejection is returned as an error text so the model can
 // react, not thrown, matching how the elowen_* tools surface API errors.
-import { defineTool, withFileMutationQueue, truncateHead, formatSize } from '@earendil-works/pi-coding-agent';
+import { defineTool, withFileMutationQueue, truncateHead, truncateLine, formatSize, generateDiffString, generateUnifiedPatch, resizeImage, formatDimensionNote } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
@@ -13,6 +13,8 @@ const DEFAULT_SEARCH_MAX_MATCHES = 200;
 const SEARCH_TIMEOUT_MS = 5_000;
 const DIFF_CONTEXT = 3;
 const DIFF_MAX_LINES = 200;
+const RESULT_LINE_MAX = 500; // cap each search hit so one minified line can't flood the result set
+const IMAGE_MAX_BYTES = 5_000_000; // skip inlining an image we can neither resize nor safely embed raw
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'web-dist', '.next', '.turbo']);
 const execFileP = promisify(execFile);
 const ok = (tool, text, details = {}) => ({
@@ -24,18 +26,6 @@ const fail = (tool, e, details = {}) => ok(tool, `Error: ${e instanceof Error ? 
   error: { message: e instanceof Error ? e.message : String(e) },
   ...details,
 });
-/** Line-aware head truncation via PI's shared util. readCap maps to maxBytes, with no line cap so the
- *  config knob stays purely byte-based. truncateHead never splits a line, so a single line longer than the
- *  cap yields empty content (firstLineExceedsLimit) — fall back to a UTF-8-safe byte slice of that line so a
- *  minified/one-line file still shows its head. The hint carries how much was shown vs. the full size. */
-const truncate = (text, maxBytes = DEFAULT_MAX) => {
-  const r = truncateHead(text, { maxBytes, maxLines: Infinity });
-  if (!r.truncated) return { text: r.content, truncated: false };
-  const shown = r.firstLineExceedsLimit ? sliceBytes(text, maxBytes) : r.content;
-  const shownLines = r.firstLineExceedsLimit ? 1 : r.outputLines;
-  const hint = `…[truncated: showing ${formatSize(Buffer.byteLength(shown))} of ${formatSize(r.totalBytes)}, ${shownLines}/${r.totalLines} lines]`;
-  return { text: `${shown}\n${hint}`, truncated: true };
-};
 
 /** Slice `text` to at most `maxBytes` UTF-8 bytes without splitting a multi-byte character. */
 function sliceBytes(text, maxBytes) {
@@ -46,44 +36,226 @@ function sliceBytes(text, maxBytes) {
   return buf.subarray(0, end).toString('utf-8');
 }
 
-/** One numbered diff row in pi's display format (sign first, so pi's renderDiff can color it with
- *  intra-line highlighting): `-   12 old` / `+   13 new` / `    11 context`. */
-const diffRow = (n, sign, text) => `${sign}${String(n).padStart(5)} ${text}`;
+// ── Fuzzy-edit core ──────────────────────────────────────────────────────────
+// PI's edit tool tolerates smart quotes / Unicode dashes / trailing whitespace and preserves BOM+CRLF,
+// but the package's exports map (only "." and "./rpc-entry") blocks importing edit-diff's fuzzyFindText /
+// applyEditsToNormalizedContent / stripBom / line-ending helpers. These are a faithful port of that logic
+// (node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit-diff.js) so our own defineTool wrapper
+// keeps the ctx.assertPathAllowed guard and details shape while gaining the same matching semantics.
 
-/** Build a numbered display diff for a localized replacement: context, removed, added, context. */
-export function replacementDiff(before, matchIndex, oldText, newText) {
-  const startLine = before.slice(0, matchIndex).split('\n').length; // 1-based first changed row
-  const all = before.split('\n');
-  const oldLines = oldText.split('\n');
-  const newLines = newText.split('\n');
-  const rows = [];
-  for (let i = Math.max(0, startLine - 1 - DIFF_CONTEXT); i < startLine - 1; i++) rows.push(diffRow(i + 1, ' ', all[i]));
-  oldLines.forEach((l, i) => rows.push(diffRow(startLine + i, '-', l)));
-  newLines.forEach((l, i) => rows.push(diffRow(startLine + i, '+', l)));
-  const afterStart = startLine - 1 + oldLines.length;
-  for (let i = afterStart; i < Math.min(all.length, afterStart + DIFF_CONTEXT); i++) {
-    rows.push(diffRow(i + 1 - oldLines.length + newLines.length, ' ', all[i]));
+function detectLineEnding(content) {
+  const crlf = content.indexOf('\r\n');
+  const lf = content.indexOf('\n');
+  if (lf === -1 || crlf === -1) return '\n';
+  return crlf < lf ? '\r\n' : '\n';
+}
+function normalizeToLF(text) {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+function restoreLineEndings(text, ending) {
+  return ending === '\r\n' ? text.replace(/\n/g, '\r\n') : text;
+}
+/** Strip trailing per-line whitespace and fold smart quotes / Unicode dashes / exotic spaces to ASCII. */
+function normalizeForFuzzyMatch(text) {
+  return text
+    .normalize('NFKC')
+    .split('\n').map((line) => line.trimEnd()).join('\n')
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐‑‒–—―−]/g, '-')
+    .replace(/[  -   　]/g, ' ');
+}
+/** Strip a leading UTF-8 BOM, returning it separately so it can be restored on write. */
+function stripBom(content) {
+  return content.startsWith('﻿') ? { bom: '﻿', text: content.slice(1) } : { bom: '', text: content };
+}
+function splitLinesWithEndings(content) {
+  return content.match(/[^\n]*\n|[^\n]+/g) ?? [];
+}
+function getLineSpans(content) {
+  let offset = 0;
+  return splitLinesWithEndings(content).map((line) => {
+    const span = { start: offset, end: offset + line.length };
+    offset = span.end;
+    return span;
+  });
+}
+function getReplacementLineRange(lines, replacement) {
+  const start = replacement.matchIndex;
+  const end = replacement.matchIndex + replacement.matchLength;
+  let startLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (start >= lines[i].start && start < lines[i].end) { startLine = i; break; }
   }
-  return rows.slice(0, DIFF_MAX_LINES).join('\n');
+  if (startLine === -1) throw new Error('Replacement range is outside the base content.');
+  let endLine = startLine;
+  while (endLine < lines.length && lines[endLine].end < end) endLine++;
+  if (endLine >= lines.length) throw new Error('Replacement range is outside the base content.');
+  return { startLine, endLine: endLine + 1 };
+}
+/** Apply replacements (ascending, non-overlapping) to `content` in reverse so earlier offsets stay valid. */
+function applyReplacements(content, replacements, offset = 0) {
+  let result = content;
+  for (let i = replacements.length - 1; i >= 0; i--) {
+    const r = replacements[i];
+    const at = r.matchIndex - offset;
+    result = result.substring(0, at) + r.newText + result.substring(at + r.matchLength);
+  }
+  return result;
+}
+/** Overlay fuzzy-space replacements onto the original content, rewriting only the touched line blocks so
+ *  every other line keeps its exact original bytes (base and original must share a line count). */
+function applyReplacementsPreservingUnchangedLines(originalContent, baseContent, replacements) {
+  const originalLines = splitLinesWithEndings(originalContent);
+  const baseLines = getLineSpans(baseContent);
+  if (originalLines.length !== baseLines.length) {
+    throw new Error('Cannot preserve unchanged lines because the base content has a different line count.');
+  }
+  const groups = [];
+  for (const replacement of [...replacements].sort((a, b) => a.matchIndex - b.matchIndex)) {
+    const range = getReplacementLineRange(baseLines, replacement);
+    const current = groups[groups.length - 1];
+    if (current && range.startLine < current.endLine) {
+      current.endLine = Math.max(current.endLine, range.endLine);
+      current.replacements.push(replacement);
+      continue;
+    }
+    groups.push({ ...range, replacements: [replacement] });
+  }
+  let originalLineIndex = 0;
+  let result = '';
+  for (const group of groups) {
+    result += originalLines.slice(originalLineIndex, group.startLine).join('');
+    const groupStart = baseLines[group.startLine].start;
+    const groupEnd = baseLines[group.endLine - 1].end;
+    result += applyReplacements(baseContent.slice(groupStart, groupEnd), group.replacements, groupStart);
+    originalLineIndex = group.endLine;
+  }
+  result += originalLines.slice(originalLineIndex).join('');
+  return result;
+}
+function findAllOccurrences(haystack, needle) {
+  const out = [];
+  let i = haystack.indexOf(needle);
+  while (i !== -1) { out.push(i); i = haystack.indexOf(needle, i + needle.length); }
+  return out;
+}
+/** Plan a fuzzy-tolerant edit: exact match first, then a normalized-space match; preserve BOM/CRLF. Returns
+ *  { content, newContent, after, count } (both LF, no BOM, for diffing) or { error } for the caller to surface. */
+function planEdit(rawBefore, oldTextRaw, newTextRaw, replaceAll) {
+  const { bom, text } = stripBom(rawBefore);
+  const ending = detectLineEnding(text);
+  const content = normalizeToLF(text);
+  const oldLF = normalizeToLF(oldTextRaw);
+  const newLF = normalizeToLF(newTextRaw);
+  if (oldLF.length === 0) return { error: 'empty' };
+  let base = content;
+  let needle = oldLF;
+  let fuzzy = false;
+  let idxs = findAllOccurrences(content, oldLF);
+  if (idxs.length === 0) {
+    base = normalizeForFuzzyMatch(content);
+    needle = normalizeForFuzzyMatch(oldLF);
+    fuzzy = true;
+    idxs = needle.length === 0 ? [] : findAllOccurrences(base, needle);
+  }
+  if (idxs.length === 0) return { error: 'notfound' };
+  if (idxs.length > 1 && !replaceAll) return { error: 'ambiguous', count: idxs.length };
+  const targets = replaceAll ? idxs : [idxs[0]];
+  const replacements = targets.map((matchIndex) => ({ matchIndex, matchLength: needle.length, newText: newLF }));
+  const newContent = fuzzy
+    ? applyReplacementsPreservingUnchangedLines(content, base, replacements)
+    : applyReplacements(content, replacements);
+  return { content, newContent, after: bom + restoreLineEndings(newContent, ending), count: targets.length };
 }
 
-/** Whole-file diff for an overwrite: common prefix/suffix stay context, the middle flips -/+.
- *  A brand-new file (before = null) renders as all-added lines. */
-export function overwriteDiff(before, after) {
-  if (before === after) return '';
-  const a = before === null ? [] : before.split('\n');
-  const b = after.split('\n');
-  let head = 0;
-  while (head < a.length && head < b.length && a[head] === b[head]) head++;
-  let tail = 0;
-  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
-  const rows = [];
-  for (let i = Math.max(0, head - DIFF_CONTEXT); i < head; i++) rows.push(diffRow(i + 1, ' ', a[i]));
-  for (let i = head; i < a.length - tail; i++) rows.push(diffRow(i + 1, '-', a[i]));
-  for (let i = head; i < b.length - tail; i++) rows.push(diffRow(i + 1, '+', b[i]));
-  for (let i = b.length - tail; i < Math.min(b.length, b.length - tail + DIFF_CONTEXT); i++) rows.push(diffRow(i + 1, ' ', b[i]));
-  return rows.slice(0, DIFF_MAX_LINES).join('\n');
+/** PI's line-numbered display diff, capped so a huge edit can't flood the transcript. The CLI (renderDiff)
+ *  and web (DiffBlock) renderers both accept this `±<n> text` / ` <n> text` row format. */
+function displayDiff(before, after) {
+  const { diff } = generateDiffString(before, after, DIFF_CONTEXT);
+  if (!diff) return '';
+  const lines = diff.split('\n');
+  if (lines.length <= DIFF_MAX_LINES) return diff;
+  return [...lines.slice(0, DIFF_MAX_LINES), `…[diff truncated: ${lines.length - DIFF_MAX_LINES} more lines]`].join('\n');
 }
+/** Applicable unified patch for review/tooling; omitted when large enough that it would bloat the event. */
+function unifiedPatch(path, before, after) {
+  const patch = generateUnifiedPatch(path, before, after, DIFF_CONTEXT);
+  if (!patch || after === before) return undefined;
+  return patch.split('\n').length > DIFF_MAX_LINES * 4 ? undefined : patch;
+}
+
+// Magic-byte image sniff — a faithful port of PI's detectSupportedImageMimeType
+// (node_modules/@earendil-works/pi-coding-agent/dist/utils/mime.js). The full-header validation is NOT
+// optional cosmetics: "BM", "GIF" and "\x89PNG" are common enough as plain-text/binary prefixes that a
+// prefix-only sniff would misclassify a real text file as an image, drop into the image branch, fail to
+// resize, and return an "[Image omitted]" stub instead of the file's actual text — silent data loss on a
+// normal read. So BMP validates its 26-byte header, PNG its 8-byte signature + IHDR + non-animated, and
+// JPEG rejects the unsupported JPEG-LS (0xf7) variant, exactly as PI does.
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+function startsWithBytes(buf, bytes) {
+  if (buf.length < bytes.length) return false;
+  return bytes.every((b, i) => buf[i] === b);
+}
+function startsWithAscii(buf, offset, text) {
+  if (buf.length < offset + text.length) return false;
+  for (let i = 0; i < text.length; i += 1) if (buf[offset + i] !== text.charCodeAt(i)) return false;
+  return true;
+}
+function readUint16LE(buf, o) { return (buf[o] ?? 0) + ((buf[o + 1] ?? 0) << 8); }
+function readUint32BE(buf, o) {
+  return (buf[o] ?? 0) * 0x1000000 + ((buf[o + 1] ?? 0) << 16) + ((buf[o + 2] ?? 0) << 8) + (buf[o + 3] ?? 0);
+}
+function readUint32LE(buf, o) {
+  return (buf[o] ?? 0) + ((buf[o + 1] ?? 0) << 8) + ((buf[o + 2] ?? 0) << 16) + (buf[o + 3] ?? 0) * 0x1000000;
+}
+function isPng(buf) {
+  return buf.length >= 16 && readUint32BE(buf, PNG_SIGNATURE.length) === 13 && startsWithAscii(buf, 12, 'IHDR');
+}
+function isAnimatedPng(buf) {
+  let offset = PNG_SIGNATURE.length;
+  while (offset + 8 <= buf.length) {
+    const chunkLength = readUint32BE(buf, offset);
+    const chunkTypeOffset = offset + 4;
+    if (startsWithAscii(buf, chunkTypeOffset, 'acTL')) return true;
+    if (startsWithAscii(buf, chunkTypeOffset, 'IDAT')) return false;
+    const next = offset + 8 + chunkLength + 4;
+    if (next <= offset || next > buf.length) return false;
+    offset = next;
+  }
+  return false;
+}
+function isBmp(buf) {
+  if (buf.length < 26) return false;
+  const declaredFileSize = readUint32LE(buf, 2);
+  const pixelDataOffset = readUint32LE(buf, 10);
+  const dibHeaderSize = readUint32LE(buf, 14);
+  if (declaredFileSize !== 0 && declaredFileSize < 26) return false;
+  if (pixelDataOffset < 14 + dibHeaderSize) return false;
+  if (declaredFileSize !== 0 && pixelDataOffset >= declaredFileSize) return false;
+  let colorPlanes;
+  let bitsPerPixel;
+  if (dibHeaderSize === 12) {
+    colorPlanes = readUint16LE(buf, 22);
+    bitsPerPixel = readUint16LE(buf, 24);
+  } else if (dibHeaderSize >= 40 && dibHeaderSize <= 124) {
+    if (buf.length < 30) return false;
+    colorPlanes = readUint16LE(buf, 26);
+    bitsPerPixel = readUint16LE(buf, 28);
+  } else {
+    return false;
+  }
+  return colorPlanes === 1 && [1, 4, 8, 16, 24, 32].includes(bitsPerPixel);
+}
+function detectImageMime(buf) {
+  if (startsWithBytes(buf, [0xff, 0xd8, 0xff])) return buf[3] === 0xf7 ? null : 'image/jpeg';
+  if (startsWithBytes(buf, PNG_SIGNATURE)) return isPng(buf) && !isAnimatedPng(buf) ? 'image/png' : null;
+  if (startsWithAscii(buf, 0, 'GIF')) return 'image/gif';
+  if (startsWithAscii(buf, 0, 'RIFF') && startsWithAscii(buf, 8, 'WEBP')) return 'image/webp';
+  if (startsWithAscii(buf, 0, 'BM') && isBmp(buf)) return 'image/bmp';
+  return null;
+}
+const INLINE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 function safeRegex(query) {
   try { return new RegExp(query, 'i'); }
@@ -182,18 +354,79 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'read_file', label: 'Read file',
     description: [
-      'Read a UTF-8 text file within the accessible repositories.',
+      'Read a UTF-8 text file or an image within the accessible repositories.',
       'Use when you need exact source text, config, logs, or docs before editing.',
       'Do not use for broad discovery; use search_files or list_dir first.',
-      'Input requires an absolute path. Output is file text and may be truncated; details.truncated tells you if more targeted reads are needed.',
+      'Input requires an absolute path. For large files use offset/limit (1-indexed lines) and follow the continuation hint.',
+      'Images (jpg/png/gif/webp/bmp) are returned as an attachment. Output may be truncated; details.truncated tells you if more targeted reads are needed.',
     ].join(' '),
-    parameters: Type.Object({ path: Type.String({ description: 'Absolute path to the UTF-8 text file' }) }),
-    execute: async (_id, p) => {
+    parameters: Type.Object({
+      path: Type.String({ description: 'Absolute path to the file' }),
+      offset: Type.Optional(Type.Number({ description: 'Line number to start reading from (1-indexed)' })),
+      limit: Type.Optional(Type.Number({ description: 'Maximum number of lines to read' })),
+    }),
+    execute: async (_id, p, _signal, _onUpdate, ectx) => {
       try {
         const abs = ctx.assertPathAllowed(p.path);
-        const body = readFileSync(abs, 'utf-8');
-        const out = truncate(body, readCap);
-        return ok('read_file', out.text, { path: abs, bytes: Buffer.byteLength(body), truncated: out.truncated });
+        const raw = readFileSync(abs);
+        const mime = detectImageMime(raw);
+        if (mime) {
+          const model = ectx?.model ?? ctx.model;
+          const supportsImages = !model || (Array.isArray(model.input) ? model.input.includes('image') : true);
+          const details = { ok: true, tool: 'read_file', truncated: false, path: abs, bytes: raw.length, image: true, mimeType: mime };
+          const resized = await resizeImage(raw, mime, { maxWidth: 2000, maxHeight: 2000 }).catch(() => null);
+          let data = resized?.data;
+          let outMime = resized?.mimeType ?? mime;
+          const hints = [];
+          if (resized) {
+            const dim = formatDimensionNote(resized);
+            if (dim) hints.push(dim);
+          } else if (INLINE_IMAGE_TYPES.has(mime) && raw.length <= IMAGE_MAX_BYTES) {
+            data = raw.toString('base64'); // Photon unavailable: embed the original bytes for supported formats
+            outMime = mime;
+          }
+          details.mimeType = outMime;
+          let note = `Read image file [${outMime}]`;
+          if (hints.length) note += `\n${hints.join('\n')}`;
+          if (!data) {
+            note += `\n[Image omitted: could not be resized or embedded inline.]`;
+            return { content: [{ type: 'text', text: note }], details };
+          }
+          if (!supportsImages) {
+            note += `\n[Current model does not support images. The image will be omitted from this request.]`;
+            return { content: [{ type: 'text', text: note }], details };
+          }
+          return { content: [{ type: 'text', text: note }, { type: 'image', data, mimeType: outMime }], details };
+        }
+        const body = raw.toString('utf-8');
+        const allLines = body.split('\n');
+        const total = allLines.length;
+        const start = p.offset ? Math.max(0, Math.floor(p.offset) - 1) : 0;
+        if (start >= total) return fail('read_file', new Error(`Offset ${p.offset} is beyond end of file (${total} lines total)`), { path: abs });
+        const endLine = p.limit !== undefined ? Math.min(start + Math.max(0, Math.floor(p.limit)), total) : total;
+        const selected = allLines.slice(start, endLine).join('\n');
+        const r = truncateHead(selected, { maxBytes: readCap, maxLines: Infinity });
+        let shownText;
+        let shownLines;
+        let byteTruncated;
+        if (r.firstLineExceedsLimit) {
+          shownText = sliceBytes(selected, readCap);
+          shownLines = 1;
+          byteTruncated = true;
+        } else {
+          shownText = r.content;
+          byteTruncated = r.truncated;
+          shownLines = r.truncated ? r.outputLines : (endLine - start);
+        }
+        const endShown = start + shownLines; // 1-indexed last line shown
+        const truncated = byteTruncated || endShown < total;
+        let text = shownText;
+        if (r.firstLineExceedsLimit) {
+          text += `\n\n[Line ${start + 1} exceeds the ${formatSize(readCap)} read limit; showing the first ${formatSize(Buffer.byteLength(shownText))}. Use bash (sed/head) to read the rest.]`;
+        } else if (truncated) {
+          text += `\n\n[Showing lines ${start + 1}-${endShown} of ${total}. Use offset=${endShown + 1} to continue.]`;
+        }
+        return ok('read_file', text, { path: abs, bytes: Buffer.byteLength(body), truncated });
       } catch (e) { return fail('read_file', e); }
     },
   }));
@@ -203,7 +436,7 @@ export function register(ctx) {
     description: [
       'Create or overwrite a UTF-8 text file within the accessible repositories.',
       'Use only when you intend to replace the full file content.',
-      'Prefer edit_file for localized changes. Output includes a human summary and details.diff for UI/review.',
+      'Prefer edit_file for localized changes. Output includes a human summary, details.diff for UI/review and details.patch (unified) for tooling.',
     ].join(' '),
     parameters: Type.Object({ path: Type.String(), content: Type.String() }),
     execute: async (_id, p) => {
@@ -215,8 +448,13 @@ export function register(ctx) {
           let before = null;
           try { before = readFileSync(abs, 'utf-8'); } catch { /* new file */ }
           writeFileSync(abs, p.content, 'utf-8');
-          const diff = overwriteDiff(before, p.content);
-          return ok('write_file', `Wrote ${Buffer.byteLength(p.content)} bytes to ${abs}`, { path: abs, bytes: Buffer.byteLength(p.content), ...(diff ? { diff } : {}) });
+          const base = before ?? '';
+          const diff = displayDiff(base, p.content);
+          const patch = unifiedPatch(abs, base, p.content);
+          return ok('write_file', `Wrote ${Buffer.byteLength(p.content)} bytes to ${abs}`, {
+            path: abs, bytes: Buffer.byteLength(p.content),
+            ...(diff ? { diff } : {}), ...(patch ? { patch } : {}),
+          });
         });
       } catch (e) { return fail('write_file', e); }
     },
@@ -227,12 +465,12 @@ export function register(ctx) {
     description: [
       'Replace an exact text snippet in a UTF-8 file within the accessible repositories.',
       'Use for targeted edits after reading enough surrounding context.',
-      'oldText must match exactly, including whitespace. By default it must match exactly once; set replaceAll only when every occurrence should change.',
-      'Output includes details.diff for review. If oldText is missing or ambiguous, read the file again and provide more context.',
+      'Matching tolerates smart quotes, Unicode dashes and trailing whitespace, and preserves the file BOM/CRLF. By default oldText must match exactly once; set replaceAll only when every occurrence should change.',
+      'Output includes details.diff for review and details.patch (unified). If oldText is missing or ambiguous, read the file again and provide more context.',
     ].join(' '),
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path to the file' }),
-      oldText: Type.String({ description: 'Exact text to replace' }),
+      oldText: Type.String({ description: 'Text to replace (whitespace/quote tolerant)' }),
       newText: Type.String({ description: 'Replacement text' }),
       replaceAll: Type.Optional(Type.Boolean({ description: 'Replace every occurrence (default false)' })),
     }),
@@ -244,14 +482,17 @@ export function register(ctx) {
         return await withFileMutationQueue(abs, async () => {
           const before = readFileSync(abs, 'utf-8');
           if (p.oldText === p.newText) return ok('edit_file', 'Error: oldText and newText are identical.', { ok: false, path: abs });
-          const first = before.indexOf(p.oldText);
-          if (first < 0) return ok('edit_file', 'Error: oldText not found in the file. Match it exactly, including whitespace.', { ok: false, path: abs });
-          const count = before.split(p.oldText).length - 1;
-          if (count > 1 && !p.replaceAll) return ok('edit_file', `Error: oldText matches ${count} times. Provide more context to make it unique, or set replaceAll.`, { ok: false, path: abs, matches: count });
-          const after = p.replaceAll ? before.split(p.oldText).join(p.newText) : `${before.slice(0, first)}${p.newText}${before.slice(first + p.oldText.length)}`;
-          writeFileSync(abs, after, 'utf-8');
-          const diff = p.replaceAll && count > 1 ? overwriteDiff(before, after) : replacementDiff(before, first, p.oldText, p.newText);
-          return ok('edit_file', `Edited ${abs} (${count > 1 ? `${count} replacements` : '1 replacement'})`, { path: abs, replacements: p.replaceAll ? count : 1, diff });
+          const plan = planEdit(before, p.oldText, p.newText, p.replaceAll ?? false);
+          if (plan.error === 'empty') return ok('edit_file', 'Error: oldText must not be empty.', { ok: false, path: abs });
+          if (plan.error === 'notfound') return ok('edit_file', 'Error: oldText not found in the file. Match it exactly, including whitespace.', { ok: false, path: abs });
+          if (plan.error === 'ambiguous') return ok('edit_file', `Error: oldText matches ${plan.count} times. Provide more context to make it unique, or set replaceAll.`, { ok: false, path: abs, matches: plan.count });
+          if (plan.newContent === plan.content) return ok('edit_file', 'Error: the replacement produced identical content.', { ok: false, path: abs });
+          writeFileSync(abs, plan.after, 'utf-8');
+          const diff = displayDiff(plan.content, plan.newContent);
+          const patch = unifiedPatch(abs, plan.content, plan.newContent);
+          return ok('edit_file', `Edited ${abs} (${plan.count > 1 ? `${plan.count} replacements` : '1 replacement'})`, {
+            path: abs, replacements: plan.count, ...(diff ? { diff } : {}), ...(patch ? { patch } : {}),
+          });
         });
       } catch (e) { return fail('edit_file', e); }
     },
@@ -299,12 +540,17 @@ export function register(ctx) {
         const query = safeRegex(queryText);
         const include = globRegex(p.include);
         const lines = [];
+        let rgOk = false;
         try {
           lines.push(...await rgSearch(abs, root, queryText, p.include, mode, searchMaxMatches));
+          rgOk = true;
         } catch {
           // rg is optional on user machines. Fall back to a bounded JS walk when it is unavailable/errors.
         }
-        for (const file of lines.length ? [] : walkFiles(abs)) {
+        // Only walk when rg was unavailable — a successful rg that found zero hits is a real empty result,
+        // not a reason to re-scan. Walking anyway would disagree with rg (rg honors .gitignore, the walk
+        // only SKIP_DIRS), so an otherwise-empty query could surface gitignored files on the fallback path.
+        for (const file of rgOk ? [] : walkFiles(abs)) {
           const rel = relative(root, file) || file;
           if (include && !include.test(rel) && !include.test(rel.split('/').at(-1) ?? rel)) continue;
           if (mode === 'files') {
@@ -322,7 +568,8 @@ export function register(ctx) {
           }
           if (lines.length >= searchMaxMatches) break;
         }
-        const formatted = lines.join('\n');
+        // Cap each hit so one minified/very long match line can't flood the result set.
+        const formatted = lines.map((l) => truncateLine(l, RESULT_LINE_MAX).text).join('\n');
         const truncated = lines.length >= searchMaxMatches;
         return ok('search_files', formatted || 'No matches found.', { path: abs, mode, matches: lines.length, truncated });
       } catch (e) { return fail('search_files', e); }

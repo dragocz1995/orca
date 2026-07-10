@@ -425,4 +425,29 @@ describe('codebase plugin — batch3 fixes', () => {
     const res = await runWithPolicy(adminPolicy(), () => runTool(reg, 'codebase_search', { query: 'cosine similarity vector' }), { workDir: repo });
     expect(res.content[0].text).not.toContain('foreign.ts'); // excluded by the SQL model filter, not compared
   });
+
+  // #7 — the result snippet is line-aware and UTF-8-safe (PI truncateHead/truncateLine), never splitting a
+  // multibyte char and never emptying on a lone over-long first line.
+  it('#7 snippet truncates an over-long single line without splitting a multibyte char', async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), 'elowen-cb7-data-'));
+    const repo = mkdtempSync(join(tmpdir(), 'elowen-cb7-repo-'));
+    // A single line far longer than SNIPPET_MAX_CHARS (400), padded with 3-byte '€' so a naive byte slice
+    // could land mid-character. Vocab words make it rank for the query.
+    const longLine = `// cosine similarity vector ${'€'.repeat(600)} dot product`;
+    writeFileSync(join(repo, 'wide.ts'), `${longLine}\n`);
+    const cfg: EmbeddingConfig = { providerId: 'p', model: 'fake-1', dimensions: VOCAB.length };
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['codebase'], logger: log, dataRoot,
+      embeddings: fakeEmbedder, embeddingConfig: () => cfg,
+    });
+    await runWithPolicy(adminPolicy(), () => runTool(reg, 'codebase_reindex', { repo }), { workDir: repo });
+
+    const res = await runWithPolicy(adminPolicy(), () => runTool(reg, 'codebase_search', { query: 'cosine similarity vector dot product' }), { workDir: repo });
+    const text = res.content[0].text;
+    expect(text).toContain('wide.ts');
+    // The over-long line is capped for display and marked — the snippet is never empty.
+    expect(text).toContain('... [truncated]');
+    // No U+FFFD replacement char: the multibyte '€' sequence was never cut mid-byte.
+    expect(text).not.toContain('�');
+  });
 });

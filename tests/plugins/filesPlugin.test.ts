@@ -42,15 +42,19 @@ describe('files plugin', () => {
     expect(readFileSync(join(dir, 'out.txt'), 'utf-8')).toBe('written');
   });
 
-  it('edit_file replaces a unique snippet and returns a numbered diff', async () => {
+  it('edit_file replaces a unique snippet and returns a numbered diff plus a unified patch', async () => {
     const f = join(dir, 'edit.txt');
     writeFileSync(f, 'line one\nline two\nline three');
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'edit_file', { path: f, oldText: 'line two', newText: 'line 2' }));
     expect(res.content[0].text).toContain('1 replacement');
     expect(readFileSync(f, 'utf-8')).toBe('line one\nline 2\nline three');
-    const diff = (res as { details?: { diff?: string } }).details?.diff ?? '';
-    expect(diff).toContain('-    2 line two');
-    expect(diff).toContain('+    2 line 2');
+    const details = (res as { details?: { diff?: string; patch?: string; replacements?: number } }).details ?? {};
+    expect(details.diff).toContain('-2 line two');
+    expect(details.diff).toContain('+2 line 2');
+    expect(details.replacements).toBe(1);
+    expect(details.patch).toContain('@@');
+    expect(details.patch).toContain('-line two');
+    expect(details.patch).toContain('+line 2');
   });
 
   it('edit_file refuses an ambiguous match unless replaceAll is set', async () => {
@@ -62,17 +66,43 @@ describe('files plugin', () => {
     expect(readFileSync(f, 'utf-8')).toBe('x\nx\n');
   });
 
-  it('write_file carries a diff for overwrites and new files', async () => {
+  it('edit_file replaceAll rewrites every occurrence (multi-edit) and counts them', async () => {
+    const f = join(dir, 'multi2.txt');
+    writeFileSync(f, 'x\ny\nx\nz\nx\n');
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'edit_file', { path: f, oldText: 'x', newText: 'Q', replaceAll: true }));
+    expect(readFileSync(f, 'utf-8')).toBe('Q\ny\nQ\nz\nQ\n');
+    expect((res as { details?: { replacements?: number } }).details?.replacements).toBe(3);
+  });
+
+  it('edit_file fuzzy-matches smart quotes while preserving the other lines byte-for-byte', async () => {
+    const f = join(dir, 'fuzzy.txt');
+    // The target line uses curly quotes; oldText is supplied with straight ASCII quotes.
+    writeFileSync(f, 'const a = 1;\nconst s = “hello”;\nconst b = 2;');
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'edit_file', { path: f, oldText: 'const s = "hello";', newText: 'const s = "world";' }));
+    expect(res.content[0].text).toContain('1 replacement');
+    expect(readFileSync(f, 'utf-8')).toBe('const a = 1;\nconst s = "world";\nconst b = 2;');
+  });
+
+  it('edit_file preserves CRLF line endings across an edit', async () => {
+    const f = join(dir, 'crlf.txt');
+    writeFileSync(f, 'a\r\nb\r\nc');
+    await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'edit_file', { path: f, oldText: 'b', newText: 'X' }));
+    expect(readFileSync(f, 'utf-8')).toBe('a\r\nX\r\nc');
+  });
+
+  it('write_file carries a diff and unified patch for overwrites and new files', async () => {
     const f = join(dir, 'ow.txt');
     writeFileSync(f, 'a\nb\nc');
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'write_file', { path: f, content: 'a\nX\nc' }));
-    const diff = (res as { details?: { diff?: string } }).details?.diff ?? '';
-    expect(diff).toContain('-    2 b');
-    expect(diff).toContain('+    2 X');
+    const details = (res as { details?: { diff?: string; patch?: string } }).details ?? {};
+    expect(details.diff).toContain('-2 b');
+    expect(details.diff).toContain('+2 X');
+    expect(details.patch).toContain('@@');
+    expect(details.patch).toContain('+X');
     const fresh = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'write_file', { path: join(dir, 'new.txt'), content: 'n1\nn2' }));
     const freshDiff = (fresh as { details?: { diff?: string } }).details?.diff ?? '';
-    expect(freshDiff).toContain('+    1 n1');
-    expect(freshDiff).toContain('+    2 n2');
+    expect(freshDiff).toContain('+1 n1');
+    expect(freshDiff).toContain('+2 n2');
   });
 
   it('refuses a path outside the allowed roots', async () => {
@@ -90,9 +120,59 @@ describe('files plugin', () => {
       runTool(reg, 'write_file', { path: f, content: 'two' }),
     ]));
     const diffB = (rb as { details?: { diff?: string } }).details?.diff ?? '';
-    expect(diffB).toContain('-    1 one');
-    expect(diffB).toContain('+    1 two');
+    expect(diffB).toContain('-1 one');
+    expect(diffB).toContain('+1 two');
     expect(readFileSync(f, 'utf-8')).toBe('two');
+  });
+
+  it('read_file paginates with offset/limit and hints how to continue', async () => {
+    const f = join(dir, 'paged.txt');
+    writeFileSync(f, Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n'));
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f, offset: 3, limit: 2 }));
+    const text = res.content[0].text;
+    expect(text).toContain('line 3');
+    expect(text).toContain('line 4');
+    expect(text).not.toContain('line 5');
+    expect(text).toContain('Showing lines 3-4 of 10. Use offset=5 to continue.');
+    expect((res as { details?: { truncated?: boolean } }).details?.truncated).toBe(true);
+    const beyond = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f, offset: 999 }));
+    expect(beyond.content[0].text).toMatch(/beyond end of file/);
+  });
+
+  it('read_file returns an image content block with a base64 attachment', async () => {
+    const f = join(dir, 'pixel.png');
+    // 1x1 PNG.
+    writeFileSync(f, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC', 'base64'));
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f })) as unknown as { content: { type: string; mimeType?: string; data?: string; text?: string }[]; details?: { image?: boolean; mimeType?: string } };
+    expect(res.content[0].type).toBe('text');
+    expect(res.content[0].text).toContain('Read image file [image/png]');
+    const img = res.content.find((b) => b.type === 'image');
+    expect(img?.mimeType).toBe('image/png');
+    expect(typeof img?.data).toBe('string');
+    expect((img?.data?.length ?? 0)).toBeGreaterThan(0);
+    expect(res.details?.image).toBe(true);
+  });
+
+  it('read_file does not misclassify a text file whose bytes start with an image prefix as an image', async () => {
+    // "BM" is the BMP magic prefix but also an ordinary text lead ("BMW…"); a prefix-only sniff would drop
+    // this into the image branch and return an "[Image omitted]" stub instead of the file's real text. The
+    // full-header validation (isBmp) must reject it so the actual text is read back verbatim.
+    const f = join(dir, 'notes.txt');
+    writeFileSync(f, 'BMW service log\nline two\n');
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f })) as unknown as { content: { type: string; text?: string }[]; details?: { image?: boolean } };
+    expect(res.details?.image).toBeFalsy();
+    expect(res.content.some((b) => b.type === 'image')).toBe(false);
+    expect(res.content[0].text).toContain('BMW service log');
+    expect(res.content[0].text).toContain('line two');
+  });
+
+  it('search_files caps a very long match line', async () => {
+    const f = join(dir, 'long.txt');
+    writeFileSync(f, `needle ${'y'.repeat(2000)}\n`);
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'search_files', { path: dir, query: 'needle', include: 'long.txt' }));
+    const hit = res.content[0].text.split('\n').find((l) => l.includes('needle')) ?? '';
+    expect(hit.length).toBeLessThanOrEqual(520);
+    expect(hit).toContain('[truncated]');
   });
 
   it('search_files finds content and file names with structured metadata', async () => {
@@ -134,9 +214,9 @@ describe('files plugin — configurable readCap', () => {
   let dir: string;
   beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'elowen-files-cap-')); });
 
-  // shown bytes are everything before the appended "\n…[truncated: …]" hint line.
+  // shown content is everything before the appended "\n\n[…]" continuation/limit hint.
   const shownLength = (text: string): number => {
-    const idx = text.indexOf('\n…[truncated');
+    const idx = text.indexOf('\n\n[');
     if (idx < 0) throw new Error('not truncated');
     return idx;
   };
@@ -150,7 +230,7 @@ describe('files plugin — configurable readCap', () => {
     writeFileSync(f, 'a'.repeat(30_000));
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f }));
     const text = res.content[0].text;
-    expect(text).toContain('…[truncated');
+    expect(text).toContain('exceeds the'); // single overlong line: byte-limit hint, not line paging
     expect(shownLength(text)).toBe(20_000); // single-line file: byte-slice fallback keeps exactly the cap
   });
 
@@ -159,13 +239,14 @@ describe('files plugin — configurable readCap', () => {
     const under = join(dir, 'under.txt');
     writeFileSync(under, 'a'.repeat(30_000));
     const underRes = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: under }));
-    expect(underRes.content[0].text).not.toContain('…[truncated'); // below the 100000 default: untouched
+    expect(underRes.content[0].text).not.toContain('\n\n['); // below the 100000 default: untouched
+    expect((underRes as { details?: { truncated?: boolean } }).details?.truncated).toBe(false);
 
     const over = join(dir, 'over.txt');
     writeFileSync(over, 'a'.repeat(150_000));
     const overRes = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: over }));
     const text = overRes.content[0].text;
-    expect(text).toContain('…[truncated');
+    expect(text).toContain('exceeds the');
     expect(shownLength(text)).toBe(100_000);
   });
 
@@ -179,7 +260,7 @@ describe('files plugin — configurable readCap', () => {
     writeFileSync(f, `${Array.from({ length: 3000 }, () => 'x'.repeat(9)).join('\n')}\n`);
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f }));
     const text = res.content[0].text;
-    expect(text).toContain('…[truncated');
+    expect(text).toContain('Use offset='); // multi-line: line-paging continuation hint
     const shown = text.slice(0, shownLength(text));
     expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(20_000); // within cap
     expect(shown.split('\n').every((l) => l === 'x'.repeat(9))).toBe(true); // only whole lines kept

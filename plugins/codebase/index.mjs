@@ -4,7 +4,7 @@
 // ctx.dataDir()/index.db. codebase_search then cosine-ranks chunks by MEANING (unlike the files plugin's
 // lexical search_files). The index is per-REPO and plugin-owned — it never touches the user-scoped memory
 // store. Every disk read + every returned path is confined to the session's repos via ctx.assertPathAllowed.
-import { defineTool } from '@earendil-works/pi-coding-agent';
+import { defineTool, truncateHead, truncateLine } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
@@ -519,8 +519,14 @@ export function register(ctx) {
         const text = top.map(({ id, path: rpath, start_line, end_line, symbol, score }) => {
           const body = bodyOf.get(id)?.body ?? '';
           const head = `${rpath}:${start_line}-${end_line}${symbol ? `  [${symbol}]` : ''}  (${score.toFixed(3)})`;
-          const snippet = body.split('\n').slice(0, SNIPPET_MAX_LINES).join('\n').slice(0, SNIPPET_MAX_CHARS);
-          return `${head}\n${snippet.split('\n').map((l) => `    ${l}`).join('\n')}`;
+          // Line-aware, UTF-8-safe truncation via PI's shared helper (consistent with the files/terminal
+          // tools): keep whole leading lines within SNIPPET_MAX_LINES / SNIPPET_MAX_CHARS (bytes) — never
+          // splitting a multibyte char. A lone over-long first line yields empty truncateHead content, so
+          // fall back to that raw first line; truncateLine then caps any single long line for display.
+          const capped = truncateHead(body, { maxLines: SNIPPET_MAX_LINES, maxBytes: SNIPPET_MAX_CHARS });
+          const snippetLines = capped.firstLineExceedsLimit ? body.split('\n', 1) : capped.content.split('\n');
+          const snippet = snippetLines.map((l) => `    ${truncateLine(l, SNIPPET_MAX_CHARS).text}`).join('\n');
+          return `${head}\n${snippet}`;
         }).join('\n\n');
         return ok('codebase_search', text, { matches: top.length });
       } catch (e) { return fail('codebase_search', e); }

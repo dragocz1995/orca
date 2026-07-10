@@ -4,15 +4,24 @@
 // list/read/kill tools manage them. NOTE: cwd guarding does NOT contain a shell that reads absolute
 // paths outside the repo (e.g. the prod config DB), so ALL terminal tools are OWNER-ONLY: only the
 // verified operator may run them; role-scoped platform members (Discord) are refused (see denyNonOwner).
-import { defineTool, truncateTail, formatSize } from '@earendil-works/pi-coding-agent';
+import { defineTool, truncateTail, formatSize, createLocalBashOperations } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 
 const DEFAULT_MAX = 60_000;              // output cap per foreground run / background buffer
 const DEFAULT_TIMEOUT_MS = 120_000;      // foreground runs get killed after this
 const MAX_BG = 16;               // concurrent background processes
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
+
+// PI's local shell backend for FOREGROUND runs. Two things it gets right that a hand-rolled spawn does
+// not: (1) `waitForChildProcess` resolves on the shell's exit WITHOUT hanging on a stdout/stderr pipe a
+// detached grandchild (e.g. a dev-server the command forked) still holds open; (2) a timeout kills the
+// whole process TREE via `killProcessTree`, not just the top shell. We pair it with a streaming UTF-8
+// decoder below so a multibyte character split across two `data` chunks is never mangled. Background
+// processes stay on our own spawn (BgProcess) — PI has no live, re-readable, kill-by-id registry.
+const bashOps = createLocalBashOperations();
 
 /** One background child: rolling output buffer + exit state, addressable by a short id. */
 class BgProcess {
@@ -29,17 +38,25 @@ class BgProcess {
     // any grandchild (e.g. the `sleep`/dev-server the shell forked) is orphaned to init and keeps running.
     // With its own group we can signal the whole tree via `process.kill(-pid)` in kill().
     this.child = spawn(command, { cwd, shell: true, env: process.env, detached: true });
-    const onData = (d) => {
-      this.output += d.toString();
+    // Streaming UTF-8 decoders: a multibyte character delivered across two `data` events is held until
+    // complete, so the rolling buffer never contains a U+FFFD from a chunk boundary (a plain per-chunk
+    // `d.toString()` would corrupt it). stdout and stderr are TWO independent pipes that interleave at
+    // arbitrary byte boundaries, so each gets its OWN decoder — sharing one would let a stderr chunk be
+    // fed to the decoder mid-way through an unfinished stdout character and mangle it (and vice versa).
+    this.stdoutDecoder = new StringDecoder('utf8');
+    this.stderrDecoder = new StringDecoder('utf8');
+    const onData = (decoder) => (d) => {
+      this.output += decoder.write(d);
       if (this.output.length > outputCap) { // keep the tail; new-output reads follow the trim
         const drop = this.output.length - outputCap;
         this.output = this.output.slice(drop);
         this.readOffset = Math.max(0, this.readOffset - drop);
       }
     };
-    this.child.stdout.on('data', onData);
-    this.child.stderr.on('data', onData);
-    this.child.on('close', (code) => { this.exitCode = code ?? -1; onClose?.(); });
+    this.child.stdout.on('data', onData(this.stdoutDecoder));
+    this.child.stderr.on('data', onData(this.stderrDecoder));
+    // Flush any bytes either decoder was holding for a trailing partial character before the state flips.
+    this.child.on('close', (code) => { this.output += this.stdoutDecoder.end() + this.stderrDecoder.end(); this.exitCode = code ?? -1; onClose?.(); });
     this.child.on('error', (e) => { this.output += `\n[spawn error: ${e.message}]`; this.exitCode = -1; onClose?.(); });
   }
   get running() { return this.exitCode === null; }
@@ -51,36 +68,45 @@ class BgProcess {
   }
 }
 
-function runForeground(command, cwd, outputCap, timeoutMs) {
-  return new Promise((done) => {
-    const child = spawn(command, { cwd, shell: true, env: process.env });
-    let out = '';
-    let killed = false;
-    const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, timeoutMs);
-    // Accumulate output but keep only a bounded rolling tail so a runaway command can't grow `out`
-    // without limit; truncateTail below produces the final line-aware tail — bash errors live at the END,
-    // so we keep the tail (not the head).
-    const onData = (d) => {
-      out += d.toString();
-      if (out.length > outputCap * 2) out = out.slice(out.length - outputCap * 2);
-    };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      // Byte-only cap: `maxLines: Infinity` overrides PI's 2000-line default, which would otherwise
-      // silently clip long-but-small output (e.g. a lint report) far under the configured `outputCap`.
-      const t = truncateTail(out, { maxBytes: outputCap, maxLines: Infinity });
-      const body = t.truncated
-        ? `…[truncated: last ${formatSize(t.outputBytes)} of ${formatSize(t.totalBytes)}]\n${t.content}`
-        : t.content;
-      // Ensure the exit marker starts on its own line — the tail may not end in a newline, which would
-      // otherwise glue `[exit N]` onto the last line of real output the model parses.
-      const sep = body.endsWith('\n') || body.length === 0 ? '' : '\n';
-      done(`$ ${command}\n(cwd: ${cwd})\n${killed ? '[killed: timeout]\n' : ''}${body}${sep}[exit ${code}]`);
-    });
-    child.on('error', (e) => { clearTimeout(timer); done(`Error: ${e.message}`); });
-  });
+async function runForeground(command, cwd, outputCap, timeoutMs) {
+  // Streaming UTF-8 decoder: PI hands us raw Buffer chunks; decode incrementally so a multibyte
+  // character split across two chunks is reassembled instead of turning into U+FFFD. Keep only a bounded
+  // rolling tail (2× the cap of headroom for a clean line-aware final trim) so a runaway command can't
+  // grow `out` without limit; truncateTail below produces the final tail — bash errors live at the END,
+  // so we keep the tail (not the head). NOTE: PI's exec funnels BOTH stdout and stderr into this single
+  // `onData` (bash.js does `child.stdout.on('data', onData); child.stderr.on('data', onData)`), so — unlike
+  // BgProcess where we own the pipes — we cannot split them into per-stream decoders here; a multibyte char
+  // split exactly across a stdout/stderr boundary is an unavoidable PI-level edge (rare, merged stream).
+  const decoder = new StringDecoder('utf8');
+  let out = '';
+  const onData = (d) => {
+    out += decoder.write(d);
+    if (out.length > outputCap * 2) out = out.slice(out.length - outputCap * 2);
+  };
+  let exitCode = null;
+  let killed = false;
+  try {
+    // PI's exec takes its timeout in SECONDS; on expiry it SIGKILLs the whole process tree and throws
+    // `timeout:<seconds>`. It also throws for a missing cwd or shell-spawn failure. `env: process.env`
+    // preserves the daemon's environment (PATH etc.) the same way the old spawn did.
+    const res = await bashOps.exec(command, cwd, { onData, env: process.env, timeout: Math.ceil(timeoutMs / 1000) });
+    exitCode = res.exitCode;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.startsWith('timeout:')) { killed = true; exitCode = null; }
+    else return `Error: ${msg}`;
+  }
+  out += decoder.end(); // flush any bytes held for a trailing partial character
+  // Byte-only cap: `maxLines: Infinity` overrides PI's 2000-line default, which would otherwise
+  // silently clip long-but-small output (e.g. a lint report) far under the configured `outputCap`.
+  const t = truncateTail(out, { maxBytes: outputCap, maxLines: Infinity });
+  const body = t.truncated
+    ? `…[truncated: last ${formatSize(t.outputBytes)} of ${formatSize(t.totalBytes)}]\n${t.content}`
+    : t.content;
+  // Ensure the exit marker starts on its own line — the tail may not end in a newline, which would
+  // otherwise glue `[exit N]` onto the last line of real output the model parses.
+  const sep = body.endsWith('\n') || body.length === 0 ? '' : '\n';
+  return `$ ${command}\n(cwd: ${cwd})\n${killed ? '[killed: timeout]\n' : ''}${body}${sep}[exit ${exitCode}]`;
 }
 
 export function register(ctx) {
