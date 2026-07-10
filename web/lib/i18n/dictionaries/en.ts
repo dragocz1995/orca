@@ -736,6 +736,8 @@ export const en = {
     providersSaved: 'Providers saved',
     defaultsSaved: 'Defaults saved',
     modelPlaceholder: 'My Model',
+    modelSearchPlaceholder: 'Search models…',
+    modelNoMatches: 'No models match this search.',
     plannerPlaceholder: 'claude-opus-4-8',
     overseerPlaceholder: 'gpt-4o-mini (cheaper)',
     apiKeySetPlaceholder: '•••• set',

@@ -42,7 +42,7 @@ describe('SettingsPage', () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
-    // Cards are grouped by provider (claude-code first), so the first card is Sonnet.
+    // Rows are grouped by provider (claude-code first), so the first row is Sonnet.
     fireEvent.click(screen.getAllByRole('button', { name: 'Add description' })[0]);
     // The note modal auto-saves on edit — no manual Save button; the change PUTs shortly after.
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
@@ -55,6 +55,23 @@ describe('SettingsPage', () => {
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
     expect(screen.getByRole('button', { name: 'Add model' })).toBeTruthy();
+  });
+
+  it('filters model rows from the search above provider groups', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByLabelText('Claude Sonnet 4.5')).toBeChecked());
+
+    const search = screen.getByRole('searchbox', { name: 'Search models…' });
+    expect(screen.getAllByTestId('model-row').length).toBeGreaterThan(1);
+
+    fireEvent.change(search, { target: { value: 'GPT 5.5' } });
+    expect(screen.getByText('GPT 5.5')).toBeTruthy();
+    expect(screen.queryByText('Claude Sonnet 4.5')).toBeNull();
+
+    fireEvent.change(search, { target: { value: 'nothing-matches-this' } });
+    expect(screen.getByText('No models match this search.')).toBeTruthy();
+    expect(screen.queryAllByTestId('model-row')).toHaveLength(0);
   });
 
   it('add-model modal opens on click and sends customModels with the new entry on save', async () => {
@@ -195,7 +212,7 @@ describe('Settings depth', () => {
     const { unmount } = render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
 
     // Models category is active by default
-    await waitFor(() => expect(screen.getAllByRole('switch').length).toBeGreaterThan(0)); // model toggle cards
+    await waitFor(() => expect(screen.getAllByRole('switch').length).toBeGreaterThan(0)); // model toggle rows
     unmount();
 
     // Autopilot section — the notes textarea seeded from config.

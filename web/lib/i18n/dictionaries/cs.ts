@@ -736,6 +736,8 @@ export const cs = {
     providersSaved: 'Poskytovatelé uloženi',
     defaultsSaved: 'Výchozí nastavení uloženo',
     modelPlaceholder: 'Můj model',
+    modelSearchPlaceholder: 'Hledat modely…',
+    modelNoMatches: 'Tomuto hledání neodpovídá žádný model.',
     plannerPlaceholder: 'claude-opus-4-8',
     overseerPlaceholder: 'gpt-4o-mini (levnější)',
     apiKeySetPlaceholder: '•••• nastaveno',

@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Bot, SlidersHorizontal, Plus, X, Pencil, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, RefreshCw, RotateCcw, Sparkles, FlaskConical } from 'lucide-react';
+import { Bot, SlidersHorizontal, Plus, X, Pencil, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, RefreshCw, RotateCcw, Sparkles, FlaskConical, Search } from 'lucide-react';
 import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { BackendPicker } from '../../components/ui/BackendPicker';
@@ -115,6 +115,7 @@ export default function SettingsPage() {
   // Per-model max context window overrides (Elowen AI models only), keyed `providerId/model`. Lives here
   // in the Models section next to where models are enabled — one home for all Elowen AI model config.
   const [modelWindows, setModelWindows] = useState<Record<string, number>>({});
+  const [modelQuery, setModelQuery] = useState('');
   // The model whose autopilot description is being edited (null = editor closed).
   const [noteFor, setNoteFor] = useState<{ label: string; exec: string } | null>(null);
   // The Elowen AI model whose context-window override is being edited (null = editor closed).
@@ -344,6 +345,17 @@ export default function SettingsPage() {
       >
         {category === 'models' && (
           <>
+            <div className="relative w-full">
+              <Search size={15} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <Input
+                type="search"
+                value={modelQuery}
+                onChange={(event) => setModelQuery(event.target.value)}
+                placeholder={t.settings.modelSearchPlaceholder}
+                aria-label={t.settings.modelSearchPlaceholder}
+                className="pl-9"
+              />
+            </div>
             {/* Cross-link to where models come from (accounts, keys, endpoints) — the Elowen AI section. */}
             <p className="-mb-2 text-xs">
               <button type="button" onClick={() => setCategory('brain')} className="font-medium text-accent hover:underline">
@@ -353,10 +365,13 @@ export default function SettingsPage() {
             {/* One catalog, grouped by the engine that runs the model — the same grouping the
              *  executor picker uses, so what admins configure here matches what users pick. */}
             {PROVIDERS.map((prov) => {
-              const cliItems = models.filter((m) => execProvider(m.exec) === prov.id);
-              const elowenItems = prov.id === 'elowen' ? (brainModels.data ?? []) : [];
+              const needle = modelQuery.trim().toLocaleLowerCase();
+              const allCliItems = models.filter((m) => execProvider(m.exec) === prov.id);
+              const allElowenItems = prov.id === 'elowen' ? (brainModels.data ?? []) : [];
+              const cliItems = needle ? allCliItems.filter((m) => `${prov.label} ${m.label} ${m.exec} ${execModel(m.exec)} ${modelNotes[m.exec] ?? ''}`.toLocaleLowerCase().includes(needle)) : allCliItems;
+              const elowenItems = needle ? allElowenItems.filter((m) => `${prov.label} ${m.model} ${m.exec} ${m.providerLabel}`.toLocaleLowerCase().includes(needle)) : allElowenItems;
               if (cliItems.length === 0 && elowenItems.length === 0) return null;
-              const groupExecs = [...cliItems.map((m) => m.exec), ...elowenItems.map((m) => m.exec)];
+              const groupExecs = [...allCliItems.map((m) => m.exec), ...allElowenItems.map((m) => m.exec)];
               const enabledCount = groupExecs.filter((e) => allowed.includes(e)).length;
               return (
                 <div key={prov.id} className="flex flex-col gap-3">
@@ -366,23 +381,36 @@ export default function SettingsPage() {
                     <span className="font-mono text-tiny text-text-muted">{enabledCount}/{groupExecs.length}</span>
                     {prov.embedded ? <HelpTip align="left">{t.help.elowenModels}</HelpTip> : null}
                   </div>
-                  <div className="@container">
-                  <div className="grid grid-cols-1 gap-x-6 @sm:grid-cols-2">
+                  <div className="@container divide-y divide-border/70 border-y border-border/80">
                     {cliItems.map((p) => {
                       const isCustom = !isPresetExec(p.exec);
                       return (
-                        <div key={p.exec} className="group relative flex flex-col gap-3.5 border-y border-border/80 py-5">
-                          {/* Always visible on touch (no hover exists on phones, so hover-only buttons are
-                           *  unreachable — you could only toggle a model, never edit/delete it). On desktop
-                           *  (sm+) keep the clean hover-reveal, plus focus-within for keyboard access. */}
-                          <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-100 transition-opacity @sm:opacity-0 @sm:group-hover:opacity-100 @sm:focus-within:opacity-100" style={{ transitionDuration: 'var(--motion-fast)' }}>
+                        <div data-testid="model-row" key={p.exec} className="group flex min-w-0 items-center gap-3 px-1 py-3.5 transition-colors hover:bg-elevated/30">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted">
+                            <ModelIcon name={p.exec} size={20} />
+                          </span>
+                          <div className="min-w-0 @2xl:w-56 @2xl:shrink-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-sm font-medium text-text">{p.label}</span>
+                              {!isCustom ? <span className="text-[9px] uppercase tracking-wide text-text-muted/70">{t.settings.presetTag}</span> : null}
+                            </div>
+                            <span className="block truncate font-mono text-[11px] text-text-muted">{execModel(p.exec)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setNoteFor({ label: p.label, exec: p.exec })}
+                            title={t.settings.modelNoteEdit}
+                            className={`hidden min-w-0 flex-1 truncate text-left text-xs @2xl:block ${modelNotes[p.exec]?.trim() ? 'text-text-muted hover:text-text' : 'italic text-text-muted/60 hover:text-text-muted'}`}
+                          >
+                            {modelNotes[p.exec]?.trim() || t.settings.modelNoteAdd}
+                          </button>
+                          <div className="ml-auto flex shrink-0 items-center gap-1.5">
                             <button
                               type="button"
                               aria-label={t.settings.editLabel.replace('{exec}', p.exec)}
                               title={t.settings.editLabel.replace('{exec}', p.exec)}
                               onClick={() => startEdit(p)}
-                              className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface text-text-muted transition-colors hover:border-border-strong hover:text-text"
-                              style={{ transitionDuration: 'var(--motion-fast)' }}
+                              className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"
                             >
                               <Pencil size={13} aria-hidden />
                             </button>
@@ -391,30 +419,10 @@ export default function SettingsPage() {
                               aria-label={t.settings.deleteLabel.replace('{exec}', p.exec)}
                               title={t.settings.deleteLabel.replace('{exec}', p.exec)}
                               onClick={() => setPendingDelete(p.exec)}
-                              className="flex h-6 w-6 items-center justify-center rounded-md border border-danger/60 bg-surface text-danger transition-colors hover:bg-danger hover:text-bg"
-                              style={{ transitionDuration: 'var(--motion-fast)' }}
+                              className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-danger/10 hover:text-danger"
                             >
                               <X size={13} aria-hidden />
                             </button>
-                          </div>
-                          <div className="flex items-start gap-3 pr-14">
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
-                              <ModelIcon name={p.exec} size={20} />
-                            </span>
-                            <div className="flex min-w-0 flex-col gap-1">
-                              <span className="truncate text-sm font-medium text-text">{p.label}{!isCustom ? <span className="ml-1.5 text-tiny uppercase tracking-wide text-text-muted/70">{t.settings.presetTag}</span> : null}</span>
-                              <span className="truncate font-mono text-xs text-text-muted">{execModel(p.exec)}</span>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setNoteFor({ label: p.label, exec: p.exec })}
-                            title={t.settings.modelNoteEdit}
-                            className={`line-clamp-2 min-h-[2.25rem] text-left text-xs ${modelNotes[p.exec]?.trim() ? 'text-text-muted hover:text-text' : 'italic text-text-muted/60 hover:text-text-muted'}`}
-                          >
-                            {modelNotes[p.exec]?.trim() || t.settings.modelNoteAdd}
-                          </button>
-                          <div className="mt-auto flex items-center gap-2">
                             <Toggle checked={allowed.includes(p.exec)} onChange={() => toggle(p.exec)} label={p.label} />
                           </div>
                         </div>
@@ -428,43 +436,40 @@ export default function SettingsPage() {
                       const override = modelWindows[winKey];
                       const overridden = override != null;
                       return (
-                      <div key={m.exec} className="flex flex-col gap-3.5 border-y border-border/80 py-5">
-                        <div className="flex items-start gap-3">
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
-                            <ModelIcon name={m.model} size={20} />
-                          </span>
-                          <div className="flex min-w-0 flex-col gap-1">
+                      <div data-testid="model-row" key={m.exec} className="flex min-w-0 items-center gap-3 px-1 py-3.5 transition-colors hover:bg-elevated/30">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted"><ModelIcon name={m.model} size={20} /></span>
+                          <div className="min-w-0 flex-1">
                             <span className="truncate text-sm font-medium text-text">{m.model}</span>
-                            <span className="truncate font-mono text-xs text-text-muted">{m.exec}</span>
+                            <span className="block truncate font-mono text-[11px] text-text-muted">{m.exec}</span>
                           </div>
-                        </div>
-                        {/* Footer: enable toggle + a compact context-window pill (Gauge icon, edited in a
-                         *  focused modal) sitting next to the provider badge. Accent-tinted when an
-                         *  override is set, quiet otherwise. Wraps on narrow/phone widths. */}
-                        <div className="mt-auto flex flex-wrap items-center justify-between gap-2">
-                          <Toggle checked={allowed.includes(m.exec)} onChange={() => toggle(m.exec)} label={m.model} />
-                          <div className="flex min-w-0 items-center gap-1.5">
+                          <div className="ml-auto flex shrink-0 items-center gap-2">
+                            <Badge>{m.providerLabel}</Badge>
                             <button
                               type="button"
                               onClick={() => setCtxFor({ model: m.model, key: winKey, effective: m.contextWindow })}
                               title={`${t.brain.contextWindowEdit} · ${formatTokens(override ?? m.contextWindow)}`}
                               aria-label={`${t.brain.contextWindowEdit}: ${m.model}`}
-                              className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs transition-colors ${overridden ? 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20' : 'border-border bg-elevated text-text-muted hover:border-border-strong hover:text-text'}`}
+                              className={`inline-flex h-8 shrink-0 items-center gap-1 px-2 font-mono text-[11px] transition-colors ${overridden ? 'text-accent' : 'text-text-muted hover:text-text'}`}
                             >
                               <Gauge size={12} aria-hidden />
                               {formatTokens(override ?? m.contextWindow)}
                             </button>
-                            <Badge>{m.providerLabel}</Badge>
+                            <Toggle checked={allowed.includes(m.exec)} onChange={() => toggle(m.exec)} label={m.model} />
                           </div>
-                        </div>
                       </div>
                       );
                     })}
                   </div>
-                  </div>
                 </div>
               );
             })}
+
+            {modelQuery.trim() && ![
+              ...models.map((m) => `${PROVIDERS.find((provider) => provider.id === execProvider(m.exec))?.label ?? ''} ${m.label} ${m.exec} ${execModel(m.exec)} ${modelNotes[m.exec] ?? ''}`),
+              ...(brainModels.data ?? []).map((m) => `${PROVIDERS.find((provider) => provider.id === 'elowen')?.label ?? ''} ${m.model} ${m.exec} ${m.providerLabel}`),
+            ].some((value) => value.toLocaleLowerCase().includes(modelQuery.trim().toLocaleLowerCase())) ? (
+              <p className="border-y border-border/80 py-8 text-center text-sm text-text-muted">{t.settings.modelNoMatches}</p>
+            ) : null}
 
             <div>
               <Button variant="ghost" icon={Plus} onClick={() => { setEditingExec(null); setShowAddForm(true); }}>
