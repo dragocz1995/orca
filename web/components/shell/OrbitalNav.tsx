@@ -48,9 +48,9 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
     wheelDelta.current = 0;
   };
 
-  const centerX = compact ? 64 : 72;
-  const radiusX = compact ? 34 : 108;
-  const radiusY = compact ? 148 : 178;
+  const centerX = compact ? 72 : 88;
+  const radiusX = compact ? 44 : 128;
+  const radiusY = compact ? 165 : 205;
   const mirrored = side === 'right';
 
   return (
@@ -64,8 +64,12 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
         if (event.key === 'ArrowLeft') { event.preventDefault(); move(mirrored ? 1 : -1); }
         if (event.key === 'ArrowRight') { event.preventDefault(); move(mirrored ? -1 : 1); }
       }}
-      className={`relative h-full shrink-0 overflow-visible ${compact ? 'w-32' : 'w-[24rem]'}`}
+      className={`relative h-full shrink-0 overflow-visible ${compact ? 'w-36' : 'w-[26rem]'}`}
     >
+      <div aria-hidden className={`pointer-events-none absolute inset-x-0 top-7 z-30 text-center font-sans font-semibold uppercase text-text/90 ${compact ? 'text-[10px] tracking-[.22em]' : 'text-sm tracking-[.3em]'}`}>
+        ELOWEN
+      </div>
+
       <div role="list" className="absolute inset-0 z-30">
         {entries.map((entry, index) => {
           const delta = wrapsDelta(index, focusIndex, entries.length);
@@ -76,13 +80,13 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
           const active = entryIsActive(entry, pathname);
           const Icon = entry.icon;
           const position = mirrored ? { right: x } : { left: x };
-          const control = `group flex items-center gap-2.5 whitespace-nowrap text-left transition-[color,opacity,transform,filter] duration-300 ${focused ? 'text-accent' : active ? 'text-text' : 'text-text-muted/85 hover:text-text'} ${compact ? 'justify-center' : ''}`;
+          const control = `group flex items-center gap-3 whitespace-nowrap text-left transition-[color,opacity,transform,filter] duration-300 ${focused ? 'text-accent' : active ? 'text-text' : 'text-text-muted/85 hover:text-text'} ${compact ? 'justify-center' : ''}`;
           const content = (
             <>
-              <span className={`orbit-node ${focused ? 'orbit-node-active' : ''} grid shrink-0 place-items-center rounded-full border backdrop-blur-md transition-[width,height,border-color,background-color,box-shadow] ${focused ? 'h-12 w-12 border-accent/50 bg-accent/12 shadow-[0_0_34px_rgb(255_82_54_/_0.2)]' : 'h-10 w-10 border-border-strong/90 bg-black/65'}`}>
-                <Icon size={focused ? 20 : 18} strokeWidth={1.55} aria-hidden />
+              <span className={`orbit-node ${focused ? 'orbit-node-active' : ''} grid shrink-0 place-items-center rounded-full border backdrop-blur-md transition-[width,height,border-color,background-color,box-shadow] ${focused ? 'h-14 w-14 border-accent/50 bg-accent/12 shadow-[0_0_38px_rgb(255_82_54_/_0.22)]' : 'h-11 w-11 border-border-strong/90 bg-black/65'}`}>
+                <Icon size={focused ? 22 : 19} strokeWidth={1.5} aria-hidden />
               </span>
-              {!compact ? <span className={`text-base font-medium tracking-tight ${focused ? 'translate-x-0 opacity-100' : 'opacity-90'}`}>{entry.label}</span> : null}
+              {!compact ? <span className={`text-lg font-medium tracking-tight ${focused ? 'translate-x-0 opacity-100' : 'opacity-90'}`}>{entry.label}</span> : null}
             </>
           );
           return (
@@ -107,7 +111,7 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
       </div>
 
       {!compact && focus?.subItems?.length ? (
-        <div key={focus.id ?? focus.label} className={`absolute top-1/2 z-40 w-44 -translate-y-1/2 ${mirrored ? 'right-[14rem] text-right' : 'left-[14rem]'}`} aria-label={focus.label}>
+        <div key={focus.id ?? focus.label} className={`absolute top-1/2 z-40 w-44 -translate-y-1/2 ${mirrored ? 'right-[16.5rem] text-right' : 'left-[16.5rem]'}`} aria-label={focus.label}>
           <span aria-hidden className={`absolute top-1/2 h-px w-12 -translate-y-1/2 ${mirrored ? '-right-12 bg-gradient-to-l' : '-left-12 bg-gradient-to-r'} from-accent/55 via-accent/25 to-border`} />
           <span aria-hidden className={`absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_12px_rgb(255_82_54_/_0.65)] ${mirrored ? '-right-[3px]' : '-left-[3px]'}`} />
           <div className={`orbit-branch flex flex-col gap-1 py-3 ${mirrored ? 'items-end border-r border-border/90 pr-4' : 'border-l border-border/90 pl-4'}`}>
@@ -128,9 +132,9 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
       ) : null}
 
       {!compact ? (
-        <div className={`absolute bottom-5 z-30 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[.14em] text-text-muted/35 ${mirrored ? 'right-6' : 'left-6'}`}>
+        <div className="absolute bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 font-mono text-[9px] uppercase tracking-[.14em] text-text-muted/35">
           <button type="button" onClick={() => move(-1)} aria-label={t.calendar.previous}><ChevronLeft size={13} aria-hidden /></button>
-          <span>Elowen {health.data?.version ?? '—'}</span>
+          <span>{health.data?.version ? `v${health.data.version}` : '—'}</span>
           <button type="button" onClick={() => move(1)} aria-label={t.calendar.next}><ChevronRight size={13} aria-hidden /></button>
         </div>
       ) : null}

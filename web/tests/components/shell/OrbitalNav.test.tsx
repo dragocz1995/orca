@@ -15,6 +15,7 @@ describe('OrbitalNav', () => {
   it('keeps real links in the orbital navigation and exposes the active world children', () => {
     mount();
     expect(screen.getByTestId('future-navigation').querySelector('canvas')).toBeNull();
+    expect(screen.getByText('ELOWEN')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Elowen' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Work' })).toHaveAttribute('aria-current', 'location');
     expect(screen.getByRole('link', { name: 'Stats' })).toHaveAttribute('aria-current', 'page');
@@ -44,7 +45,7 @@ describe('OrbitalNav', () => {
 
   it('collapses to an icon orbit when content room is constrained', () => {
     mount(true);
-    expect(screen.getByTestId('future-navigation')).toHaveClass('w-32');
+    expect(screen.getByTestId('future-navigation')).toHaveClass('w-36');
     expect(screen.queryByRole('link', { name: 'Stats' })).toBeNull();
   });
 });
