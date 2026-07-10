@@ -23,8 +23,11 @@ describe('OrbitalNav', () => {
     expect(screen.getByRole('link', { name: 'Timeline' })).toHaveAttribute('href', '/timeline');
     expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute('href', '/projects');
     expect(screen.getByRole('link', { name: 'Editor' })).toHaveAttribute('href', '/editor');
+    expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+    expect(screen.getByRole('link', { name: 'Users' })).toHaveAttribute('href', '/users');
     expect(screen.queryByRole('link', { name: 'Work' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'System' })).toBeNull();
   });
 
   it('rotates focus without navigating and magnetically anchors the next destination', () => {
@@ -39,22 +42,21 @@ describe('OrbitalNav', () => {
     expect(screen.getByRole('link', { name: 'Projects' }).closest('[role="listitem"]')).toHaveStyle({ opacity: '1' });
   });
 
-  it('stages distant wrap-around items outside the visible curve', () => {
+  it('suppresses only the item wrapping between the two ends of the curve', () => {
     mount();
-    const home = screen.getByRole('link', { name: 'Home' });
-    expect(home).toHaveAttribute('tabindex', '-1');
-    expect(home.closest('[role="listitem"]')).toHaveStyle({ opacity: '0', pointerEvents: 'none' });
+    const users = screen.getByRole('link', { name: 'Users' });
+    expect(users).not.toHaveAttribute('tabindex', '-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(users).toHaveAttribute('tabindex', '-1');
+    expect(users.closest('[role="listitem"]')).toHaveStyle({ opacity: '0', pointerEvents: 'none' });
   });
 
-  it('does not move controls under the pointer and opens button-only groups on click', () => {
+  it('does not move controls under the pointer', () => {
     mount();
     const projects = screen.getByRole('link', { name: 'Projects' }).closest('[role="listitem"]');
     const before = projects?.getAttribute('style');
     fireEvent.mouseEnter(screen.getByRole('link', { name: 'Projects' }));
     expect(projects?.getAttribute('style')).toBe(before);
-    fireEvent.click(screen.getByRole('button', { name: 'System' }));
-    expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
-    expect(screen.getByText('Account').closest('.orbit-branch')).toBeTruthy();
   });
 
   it('collapses to an icon orbit when content room is constrained', () => {

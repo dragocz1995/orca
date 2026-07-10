@@ -27,20 +27,33 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
     ...worlds.flatMap((world) => world.id === 'work' || world.id === 'projects'
       ? (world.subItems ?? []).map((item) => ({ ...item, icon: item.icon ?? world.icon }))
       : [world]),
-    ...systemItems,
+    ...systemItems.flatMap((group) => group.subItems?.length
+      ? group.subItems.map((item) => ({ ...item, icon: item.icon ?? group.icon }))
+      : [group]),
   ], [worlds, systemItems]);
   const routeIndex = Math.max(0, entries.findIndex((entry) => entryIsActive(entry, pathname)));
   const [focusIndex, setFocusIndex] = useState(routeIndex);
+  const [suppressedIndex, setSuppressedIndex] = useState<number | null>(null);
   const wheelAt = useRef(Number.NEGATIVE_INFINITY);
   const wheelDelta = useRef(0);
   const wheelReset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const motionReset = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setFocusIndex(routeIndex), [routeIndex]);
   useEffect(() => () => {
     if (wheelReset.current) clearTimeout(wheelReset.current);
+    if (motionReset.current) clearTimeout(motionReset.current);
   }, []);
-  const focus = entries[focusIndex] ?? entries[0];
-  const move = (step: number) => setFocusIndex((current) => (current + step + entries.length) % entries.length);
+  const move = (step: number) => {
+    const next = (focusIndex + step + entries.length) % entries.length;
+    const wrapIndex = entries.findIndex((_, index) => Math.abs(
+      wrapsDelta(index, next, entries.length) - wrapsDelta(index, focusIndex, entries.length),
+    ) > 1);
+    setSuppressedIndex(wrapIndex >= 0 ? wrapIndex : null);
+    if (motionReset.current) clearTimeout(motionReset.current);
+    motionReset.current = setTimeout(() => setSuppressedIndex(null), 620);
+    setFocusIndex(next);
+  };
   const onWheel = (event: React.WheelEvent) => {
     if (Math.abs(event.deltaY) < 0.5) return;
     event.preventDefault();
@@ -56,7 +69,7 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
 
   const centerX = compact ? 30 : 50;
   const radiusX = compact ? 46 : 100;
-  const verticalStep = compact ? 62 : 76;
+  const verticalStep = compact ? 52 : 62;
   const mirrored = side === 'right';
 
   return (
@@ -76,8 +89,8 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
         {entries.map((entry, index) => {
           const delta = wrapsDelta(index, focusIndex, entries.length);
           const distance = Math.abs(delta);
-          const outside = distance > 3;
-          const x = centerX + Math.cos(Math.min(distance, 5) * 0.5) * radiusX;
+          const suppressed = suppressedIndex === index;
+          const x = centerX + Math.cos(distance * 0.28) * radiusX;
           const y = delta * verticalStep;
           const focused = index === focusIndex;
           const active = entryIsActive(entry, pathname);
@@ -97,14 +110,14 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
               key={entry.id ?? entry.label}
               role="listitem"
               className="absolute top-1/2 transition-[transform,opacity] duration-700 ease-[var(--ease-out)]"
-              style={{ ...position, transform: `translateY(calc(-50% + ${y}px)) scale(${focused ? 1 : Math.max(0.84, 0.98 - distance * 0.04)})`, transformOrigin: mirrored ? 'right center' : 'left center', opacity: outside ? 0 : focused ? 1 : Math.max(0.74, 0.94 - distance * 0.06), zIndex: 20 - distance, pointerEvents: outside ? 'none' : undefined }}
+              style={{ ...position, transform: `translateY(calc(-50% + ${y}px)) scale(${focused ? 1 : Math.max(0.82, 0.98 - distance * 0.03)})`, transformOrigin: mirrored ? 'right center' : 'left center', opacity: suppressed ? 0 : focused ? 1 : Math.max(0.62, 0.94 - distance * 0.05), zIndex: 20 - distance, pointerEvents: suppressed ? 'none' : undefined }}
             >
               {entry.href ? (
-                <Link href={entry.href} tabIndex={outside ? -1 : undefined} aria-label={compact ? entry.label : undefined} aria-current={active ? (entry.subItems?.length ? 'location' : 'page') : undefined} className={control}>
+                <Link href={entry.href} tabIndex={suppressed ? -1 : undefined} aria-label={compact ? entry.label : undefined} aria-current={active ? 'page' : undefined} className={control}>
                   {content}
                 </Link>
               ) : (
-                <button type="button" tabIndex={outside ? -1 : undefined} aria-label={compact ? entry.label : undefined} aria-expanded={focused && !!entry.subItems?.length} className={control} onClick={() => setFocusIndex(index)}>
+                <button type="button" tabIndex={suppressed ? -1 : undefined} aria-label={compact ? entry.label : undefined} className={control} onClick={() => setFocusIndex(index)}>
                   {content}
                 </button>
               )}
@@ -112,27 +125,6 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
           );
         })}
       </div>
-
-      {!compact && focus?.subItems?.length ? (
-        <div key={focus.id ?? focus.label} className={`absolute top-1/2 z-40 w-40 -translate-y-1/2 ${mirrored ? 'right-[14.5rem] text-right' : 'left-[14.5rem]'}`} aria-label={focus.label}>
-          <span aria-hidden className={`absolute top-1/2 h-px w-12 -translate-y-1/2 ${mirrored ? '-right-12 bg-gradient-to-l' : '-left-12 bg-gradient-to-r'} from-accent/55 via-accent/25 to-border`} />
-          <span aria-hidden className={`absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_12px_rgb(255_82_54_/_0.65)] ${mirrored ? '-right-[3px]' : '-left-[3px]'}`} />
-          <div className={`orbit-branch flex flex-col gap-1 py-3 ${mirrored ? 'items-end border-r border-border/90 pr-4' : 'border-l border-border/90 pl-4'}`}>
-            <span className="mb-1 font-mono text-[9px] uppercase tracking-[.18em] text-accent/75">{focus.label}</span>
-            {focus.subItems.map((item) => {
-              const current = pathname === item.href || pathname.startsWith(`${item.href}/`);
-              const Icon = item.icon;
-              return (
-                <Link key={item.id} href={item.href} aria-current={current ? 'page' : undefined} className={`relative flex w-full items-center gap-2 py-1.5 text-sm transition-[color,transform] duration-200 ${mirrored ? 'flex-row-reverse hover:-translate-x-1' : 'hover:translate-x-1'} ${current ? 'text-text' : 'text-text-muted/85 hover:text-text'}`}>
-                  {current ? <span aria-hidden className={`absolute top-1/2 h-1 w-1 -translate-y-1/2 rounded-full bg-accent ${mirrored ? '-right-[18px]' : '-left-[18px]'}`} /> : null}
-                  {Icon ? <Icon size={13} strokeWidth={1.5} className={current ? 'text-accent' : ''} aria-hidden /> : null}
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
 
       {!compact ? (
         <div className="absolute bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 font-mono text-[9px] uppercase tracking-[.14em] text-text-muted/35">
