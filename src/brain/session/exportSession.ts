@@ -1,11 +1,11 @@
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import { CURRENT_SESSION_VERSION } from '@earendil-works/pi-coding-agent';
 import type { SessionManager } from '@earendil-works/pi-coding-agent';
 import type { BrainStore } from '../../store/brainStore.js';
 import { rehydrateWithTimestamps } from '../persistence.js';
+import { shapeBrainMessages, type BrainMessageView } from '../messageView.js';
 
 export type ExportFormat = 'html' | 'jsonl';
 
@@ -18,35 +18,76 @@ export interface SessionExport {
   cleanup(): void;
 }
 
-/** PI ships its transcript→HTML renderer (the TUI `/export` command) in `core/export-html`, but its
- *  package `exports` map only publishes the main entry and `rpc-entry` — the renderer is not importable
- *  by specifier. Reaching it by ABSOLUTE file path (resolved off the published main entry) bypasses the
- *  `exports` gate without reimplementing PI's HTML template, so the output stays PI's own, versioned one.
- *  `exportFromFile` renders a saved JSONL session file to a self-contained HTML page. */
-type ExportFromFile = (inputPath: string, options?: { outputPath?: string; themeName?: string }) => Promise<string>;
-let exportFromFileFn: ExportFromFile | undefined;
+const esc = (s: string): string => s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
 
-/** Locate PI's (non-exported) export-html module by the standard node_modules walk from THIS file — the
- *  only way to reach it, since the package `exports` map blocks both the subpath specifier and
- *  `import.meta.resolve` (and the latter isn't even a function under some test runners). Works the same
- *  from the built `dist/` tree and the `src/` tree run under vitest. */
-function locateExportHtml(): string {
-  const rel = join('node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'core', 'export-html', 'index.js');
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (;;) {
-    const candidate = join(dir, rel);
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) throw new Error('pi-coding-agent export-html module not found');
-    dir = parent;
-  }
+/** Colorize a display diff line-by-line by its leading sign (+/-/space) for the HTML export. */
+function renderDiff(diff: string): string {
+  const rows = diff.split('\n').map((line) => {
+    const cls = line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : 'ctx';
+    return `<span class="${cls}">${esc(line)}</span>`;
+  });
+  return `<pre class="diff">${rows.join('\n')}</pre>`;
 }
 
-async function loadExportFromFile(): Promise<ExportFromFile> {
-  if (exportFromFileFn) return exportFromFileFn;
-  const mod = (await import(pathToFileURL(locateExportHtml()).href)) as { exportFromFile: ExportFromFile };
-  exportFromFileFn = mod.exportFromFile;
-  return exportFromFileFn;
+/** One assistant tool segment → an HTML block: the tool name + argument summary, an optional colorized
+ *  diff, and any console/result output body. */
+function renderTool(seg: { name: string; detail?: string; diff?: string; output?: { text?: string; notes?: string[] } }): string {
+  const head = `<div class="tool-head"><span class="tool-name">${esc(seg.name)}</span>${seg.detail ? `<span class="tool-detail">${esc(seg.detail)}</span>` : ''}</div>`;
+  const diff = seg.diff ? renderDiff(seg.diff) : '';
+  const outText = seg.output?.text?.trim() ? `<pre class="tool-out">${esc(seg.output.text)}</pre>` : '';
+  const notes = (seg.output?.notes ?? []).map((n) => `<div class="tool-note">${esc(n)}</div>`).join('');
+  return `<div class="tool">${head}${diff}${outText}${notes}</div>`;
+}
+
+/** Render a shaped transcript to a self-contained HTML page. This is Elowen's OWN renderer over the same
+ *  `shapeBrainMessages` view the web/CLI clients use — deliberately NOT PI's `core/export-html`, which is
+ *  outside the package `exports` map and would only be reachable by a fragile deep file-path import that a
+ *  PI update could break at runtime. Fully inline (no external assets), light/dark aware. */
+function renderSessionHtml(views: BrainMessageView[], title: string, generatedAt: string): string {
+  const body = views.map((v) => {
+    if (v.role === 'compaction') return '<div class="divider"><span>context compacted</span></div>';
+    const label = v.role === 'user' ? 'You' : 'Elowen';
+    const inner = v.segments
+      ? v.segments.map((s) => (s.kind === 'text' ? `<div class="text">${esc(s.text)}</div>` : renderTool(s))).join('')
+      : `<div class="text">${esc(v.text)}</div>`;
+    return `<div class="msg ${esc(v.role)}"><div class="role">${label}</div>${inner}</div>`;
+  }).join('\n');
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --card:#f9fafb; --user:#eef2ff; --add:#166534; --del:#991b1b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d0d0f; --fg:#e5e5e7; --muted:#9ca3af; --line:#26262b; --card:#17171b; --user:#1e1b3a; --add:#4ade80; --del:#f87171; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 96px; }
+  header { border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:28px; }
+  header h1 { font-size:20px; margin:0 0 4px; }
+  header .meta { color:var(--muted); font-size:12px; }
+  .msg { margin: 0 0 22px; }
+  .msg .role { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
+  .msg.user { background:var(--user); border-radius:10px; padding:12px 14px; }
+  .text { white-space:pre-wrap; word-wrap:break-word; }
+  .text + .text { margin-top:10px; }
+  .tool { border:1px solid var(--line); border-radius:8px; margin:10px 0; overflow:hidden; }
+  .tool-head { display:flex; gap:8px; align-items:baseline; background:var(--card); padding:8px 12px; font-size:13px; }
+  .tool-name { font-weight:600; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .tool-detail { color:var(--muted); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  pre.diff, pre.tool-out { margin:0; padding:10px 12px; overflow-x:auto; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre; }
+  pre.tool-out { color:var(--muted); border-top:1px solid var(--line); }
+  pre.diff span { display:block; }
+  pre.diff .add { color:var(--add); }
+  pre.diff .del { color:var(--del); }
+  .tool-note { padding:6px 12px; font-size:12px; color:var(--muted); border-top:1px solid var(--line); }
+  .divider { text-align:center; margin:26px 0; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; position:relative; }
+  .divider span { background:var(--bg); padding:0 12px; position:relative; }
+  .divider::before { content:""; position:absolute; left:0; right:0; top:50%; border-top:1px solid var(--line); }
+</style></head>
+<body><div class="wrap">
+<header><h1>${esc(title)}</h1><div class="meta">Elowen conversation · exported ${esc(generatedAt)}</div></header>
+${body}
+</div></body></html>
+`;
 }
 
 /** Serialize a session manager's current branch to PI's JSONL session-file format — the exact shape of
@@ -100,8 +141,11 @@ export async function exportBrainSession(o: {
     if (o.format === 'jsonl') {
       return { path: jsonlPath, filename: `${base}.jsonl`, contentType: 'application/x-ndjson', cleanup };
     }
-    const exportFromFile = await loadExportFromFile();
-    const htmlPath = await exportFromFile(jsonlPath, { outputPath: join(dir, `${base}.html`) });
+    // HTML: render with Elowen's own template over the shared shapeBrainMessages view (the same one the
+    // web/CLI use), NOT PI's non-exported core/export-html — no fragile deep import to break on a PI bump.
+    const views = shapeBrainMessages(o.store.getMessages(o.sessionId));
+    const htmlPath = join(dir, `${base}.html`);
+    writeFileSync(htmlPath, renderSessionHtml(views, o.title || o.sessionId, new Date().toISOString().slice(0, 10)), 'utf8');
     return { path: htmlPath, filename: `${base}.html`, contentType: 'text/html; charset=utf-8', cleanup };
   } catch (e) {
     cleanup();

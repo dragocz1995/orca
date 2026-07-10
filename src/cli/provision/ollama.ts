@@ -10,13 +10,13 @@ import { must, step } from './exec.js';
 const OLLAMA_HOST = 'http://127.0.0.1:11434';
 
 /** Absolute path of the `ollama` binary, or null when it isn't installed. */
-export function hasOllama(r: Runner): Promise<string | null> {
+function hasOllama(r: Runner): Promise<string | null> {
   return r.which('ollama');
 }
 
 /** Whether the Ollama server answers on its native API (`/api/tags`). Uses fetch (no shell) with a short
  *  timeout so a down server fails fast rather than hanging the wizard. */
-export async function ollamaUp(): Promise<boolean> {
+async function ollamaUp(): Promise<boolean> {
   try {
     const res = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(2500) });
     return res.ok;
@@ -27,7 +27,7 @@ export async function ollamaUp(): Promise<boolean> {
  *  on Linux; it self-elevates with sudo when not run as root. Idempotent — a no-op if already installed.
  *  Recent installer builds ship a zstd-compressed archive and abort with a "requires zstd for extraction"
  *  error when the tool is missing (bare containers/minimal images), so ensure it first on apt hosts. */
-export async function installOllama(r: Runner): Promise<void> {
+async function installOllama(r: Runner): Promise<void> {
   await must(r, 'bash', ['-lc',
     'command -v zstd >/dev/null 2>&1 || { '
     + 'SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"; '
@@ -47,7 +47,7 @@ const pollUp = async (tries: number): Promise<boolean> => {
  *  on a normal host); on a box without systemd (or where the unit isn't installed) fall back to spawning
  *  `ollama serve` detached ourselves. Throws when it never comes up so the caller can surface a clear
  *  error instead of a later opaque probe failure. */
-export async function ensureOllamaRunning(r: Runner): Promise<void> {
+async function ensureOllamaRunning(r: Runner): Promise<void> {
   if (await ollamaUp()) return;
   await r.exec('systemctl', ['start', 'ollama']).catch(() => undefined);
   if (await pollUp(6)) return;
@@ -68,7 +68,7 @@ export async function listLocalModels(): Promise<string[]> {
 }
 
 /** Pull a model (`ollama pull <model>`). No-op when it is already present locally. */
-export async function pullModel(r: Runner, model: string): Promise<void> {
+async function pullModel(r: Runner, model: string): Promise<void> {
   const local = await listLocalModels();
   if (local.includes(model)) return;
   await must(r, 'ollama', ['pull', model]);

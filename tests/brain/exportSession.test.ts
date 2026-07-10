@@ -4,8 +4,8 @@ import { openDb } from '../../src/store/db.js';
 import { BrainStore } from '../../src/store/brainStore.js';
 import { exportBrainSession } from '../../src/brain/session/exportSession.js';
 
-/** Exercises the real PI exporter (imported off its internal export-html module) and our JSONL
- *  serialization end-to-end from a seeded store — no live PI session involved. */
+/** Exercises Elowen's own self-contained HTML renderer and our JSONL serialization end-to-end from a
+ *  seeded store — no live PI session and no PI-internal export module involved. */
 describe('exportBrainSession', () => {
   let store: BrainStore;
   beforeEach(() => {
@@ -33,19 +33,31 @@ describe('exportBrainSession', () => {
     } finally { out.cleanup(); }
   });
 
-  it('renders a self-contained HTML transcript through PI\'s own exporter', async () => {
+  it('renders a self-contained HTML transcript with Elowen\'s own renderer (no PI-internal module)', async () => {
     const out = await exportBrainSession({ store, sessionId: 's1', cwd: '/tmp', title: 'Chat about pi', format: 'html' });
     try {
       expect(out.filename).toBe('elowen-chat-about-pi.html');
       expect(out.contentType).toBe('text/html; charset=utf-8');
       const html = readFileSync(out.path, 'utf8');
-      expect(html).toContain('<!DOCTYPE html>');
-      // PI base64-encodes the session data into a <script> tag — decode it and confirm our messages rode through.
-      const m = /<script id="session-data" type="application\/json">([^<]+)<\/script>/.exec(html);
-      expect(m).not.toBeNull();
-      const decoded = Buffer.from(m![1]!, 'base64').toString('utf8');
-      expect(decoded).toContain('UNIQUE_QUESTION');
-      expect(decoded).toContain('UNIQUE_ANSWER');
+      expect(html.toLowerCase()).toContain('<!doctype html>');
+      // Self-contained: no external asset references (all CSS inline).
+      expect(html).not.toMatch(/<(link|script)\b/i);
+      // The messages render inline as escaped text under their role labels.
+      expect(html).toContain('Chat about pi'); // title
+      expect(html).toContain('>You<');
+      expect(html).toContain('>Elowen<');
+      expect(html).toContain('UNIQUE_QUESTION about deploys');
+      expect(html).toContain('UNIQUE_ANSWER ship it');
+    } finally { out.cleanup(); }
+  });
+
+  it('escapes HTML in message text so a transcript can\'t inject markup', async () => {
+    store.appendMessage({ id: 'u2', sessionId: 's1', parentId: null, role: 'user', content: { role: 'user', content: 'raw <script>alert(1)</script> & <b>x</b>' } });
+    const out = await exportBrainSession({ store, sessionId: 's1', cwd: '/tmp', title: 'Chat about pi', format: 'html' });
+    try {
+      const html = readFileSync(out.path, 'utf8');
+      expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(html).not.toContain('<script>alert(1)</script>');
     } finally { out.cleanup(); }
   });
 

@@ -2,6 +2,13 @@ import type { AgentSession } from '@earendil-works/pi-coding-agent';
 import type { Policy } from '../../plugins/policy.js';
 import type { BrainEvent } from '../events.js';
 
+/** A queued mid-turn message's image attachments, in PI's ImageContent shape. */
+export type QueuedImage = { type: 'image'; data: string; mimeType: string };
+/** One mirrored queue entry: the text we enqueued plus any image attachments PI's public queue drops.
+ *  Defined here (next to the LiveBrain fields that hold them) so queueMirror.ts imports one-directionally
+ *  from liveBrain and the two don't form an import cycle. */
+export type QueuedMsg = { text: string; images?: QueuedImage[] };
+
 /** One live brain conversation: the PI session plus its settings, event fanout and per-turn context.
  *  Shared by the chat brain, the channel service and the live registry. */
 export interface LiveBrain {
@@ -39,6 +46,12 @@ export interface LiveBrain {
    *  by the `subagent` progress emitter (added on 'running', dropped on 'done'/'error'). abort() cancels
    *  these children along with the parent turn, so an interrupted delegation can't keep burning tokens. */
   activeChildren?: Set<string>;
+  /** Image-carrying mirror of PI's native mid-turn queue (steering + follow-up), kept in sync via the
+   *  `queue_update` event. PI's public queue is text-only and clearQueue() drops image attachments, so
+   *  these hold what a positional queue-remove needs to re-queue the survivors WITH their images. Ordered
+   *  to match queueItems([...steering, ...followUp]) so a client's positional id maps straight in. */
+  queuedSteer?: QueuedMsg[];
+  queuedFollowUp?: QueuedMsg[];
   /** The session's resolved working directory (validated client cwd → policy root → primary project).
    *  Reused as the per-turn workDir fallback for sends that carry no client cwd (goal kickoff/continue)
    *  and re-passed on respawns (model switch, vision hop, restart) so the session cwd never silently

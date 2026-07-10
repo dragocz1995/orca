@@ -34,11 +34,14 @@ function fakeDeps() {
     // delivers it between steps; the fake just records it so tests can assert it landed), and the
     // getters/clearQueue mirror what status()/queueList/abort read.
     __queue: [] as string[],
-    steer: vi.fn(async (t: string) => { session.__queue.push(t); }),
+    // Emit queue_update on every queue mutation, exactly like PI, so BrainService's image-carrying queue
+    // mirror (reconciled on that event) stays aligned with this text-only backlog.
+    __emitQueue: () => listeners.forEach((l) => l({ type: 'queue_update', steering: session.__queue.slice(), followUp: [] })),
+    steer: vi.fn(async (t: string) => { session.__queue.push(t); session.__emitQueue(); }),
     getSteeringMessages: () => session.__queue,
     getFollowUpMessages: () => [] as string[],
     get pendingMessageCount() { return session.__queue.length; },
-    clearQueue: vi.fn(() => { const s = session.__queue.slice(); session.__queue.length = 0; return { steering: s, followUp: [] }; }),
+    clearQueue: vi.fn(() => { const s = session.__queue.slice(); session.__queue.length = 0; session.__emitQueue(); return { steering: s, followUp: [] }; }),
     __contextUsage: undefined as { tokens: number; contextWindow: number; percent: number } | undefined,
     getContextUsage(this: { __contextUsage?: { tokens: number; contextWindow: number; percent: number } }) { return this.__contextUsage; },
     compact: vi.fn(async () => {}),
@@ -235,6 +238,23 @@ describe('BrainService', () => {
     await svc.send(1, 'gamma');
     await svc.abort(1);
     expect(svc.queueList(1)).toEqual([]);
+  });
+
+  it('queueRemove keeps the surviving messages\' image attachments (PI clearQueue would drop them)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.isStreaming = true;
+    await svc.send(1, 'look at this', [{ data: 'BASE64PNG', mimeType: 'image/png' }]); // steered WITH an image
+    await svc.send(1, 'and a note'); // steered, text only
+    expect(svc.queueList(1).map((q) => q.text)).toEqual(['look at this', 'and a note']);
+    // Remove the text-only message; the image message must be re-queued WITH its attachment intact.
+    expect(svc.queueRemove(1, '1')).toBe(true);
+    expect(svc.queueList(1).map((q) => q.text)).toEqual(['look at this']);
+    // The survivor was re-steered carrying its image (PI's clearQueue drops attachments; the mirror restores).
+    const lastSteer = d.session.steer.mock.calls.at(-1);
+    expect(lastSteer?.[0]).toBe('look at this');
+    expect(lastSteer?.[1]).toEqual([{ type: 'image', data: 'BASE64PNG', mimeType: 'image/png' }]);
   });
 
   it('echo authority: an immediate send streams ONE `user` event to every listener (no client-side echo)', async () => {

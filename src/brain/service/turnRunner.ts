@@ -16,6 +16,7 @@ import { newCostMeter, runWithMeter } from '../openrouterMeter.js';
 import { applyToolVisibility } from '../session/capabilities.js';
 import type { LiveSessionRegistry } from '../session/liveRegistry.js';
 import type { LiveBrain } from '../session/liveBrain.js';
+import { enqueueMirrored } from '../session/queueMirror.js';
 import { summarizePermissions } from '../toolPermissions.js';
 import { isPromptCommand } from '../slashCommands.js';
 import type { AskQuestion, SubagentUpdate } from '../events.js';
@@ -108,7 +109,9 @@ export class BrainTurnRunner {
       const persistText = images?.length ? `${text}\n[📎 ${images.length}× image]` : text;
       projectUserTurn(this.d.store, active.sessionId, persistText);
       for (const l of active.listeners) l({ type: 'user', text: display ?? persistText });
-      await active.session.steer(text, images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })));
+      // Route through the mirror so the image attachments survive a later positional queue-remove (PI's
+      // clearQueue drops them). PI's queue_update then reconciles the mirror.
+      await enqueueMirrored(active, 'steer', text, images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })));
       return;
     }
     // Run ONE user turn on `live`. Refactored out of send() so the flush loop below can replay it for the

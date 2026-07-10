@@ -11,7 +11,8 @@ import { buildPromptTemplates } from '../slashCommands.js';
 import { formatSkillsForPrompt } from '@earendil-works/pi-coding-agent';
 import { personalityText } from '../personality.js';
 import type { BrainSessionFactory } from '../session/factory.js';
-import type { LiveBrain, SpawnOpts } from '../session/liveBrain.js';
+import type { LiveBrain, SpawnOpts, QueuedMsg } from '../session/liveBrain.js';
+import { reconcileMirrors } from '../session/queueMirror.js';
 import { toBrainEvent, usageOf } from '../events.js';
 import type { BrainEvent } from '../events.js';
 import type { BrainDeps } from '../brainDeps.js';
@@ -159,6 +160,10 @@ export class LiveSessionSpawner {
     // LRU eviction + revival) builds a fresh listener set, and without this the tapped stream would
     // silently go dark while the client believes it is still following the session.
     for (const tap of this.d.sessionTaps(opts.sessionId)) listeners.add(tap);
+    // Image-carrying mirror of PI's mid-turn queue — the SAME array instances returned on the LiveBrain, so
+    // reconciling them here (in place) keeps the live wrapper's queue in sync. PI's public queue is text-only.
+    const queuedSteer: QueuedMsg[] = [];
+    const queuedFollowUp: QueuedMsg[] = [];
     let steps = 0; // model round-trips in the current run — reset on agent_start, one per turn_start
     session.subscribe((e: AgentSessionEvent) => {
       const raw = (e as { type?: string }).type;
@@ -196,6 +201,11 @@ export class LiveSessionSpawner {
       if (raw === 'compaction_end' && (e as { result?: unknown }).result != null && (e as { aborted?: boolean }).aborted !== true) {
         for (const l of listeners) l({ type: 'compacted' });
       }
+      // Keep the image-carrying queue mirror aligned with PI's native queue on every enqueue/delivery/clear.
+      if (raw === 'queue_update') {
+        const qe = e as { steering?: readonly string[]; followUp?: readonly string[] };
+        reconcileMirrors(queuedSteer, queuedFollowUp, qe.steering ?? [], qe.followUp ?? []);
+      }
       const be = toBrainEvent(e);
       if (!be) return;
       if (be.type === 'idle') { be.usage = usageOf(session); be.model = model.id; } // statusline data rides the idle event
@@ -210,6 +220,6 @@ export class LiveSessionSpawner {
       const parts = providers.map((f) => { try { return f(); } catch { return ''; } }).filter((x) => x && x.trim());
       return parts.length ? `<context>\n${parts.join('\n')}\n</context>\n\n` : '';
     };
-    return { session, sessionId, model: model.id, providerId, thinkingLevel: opts.thinkingLevel, policy: opts.policy, listeners, turnContext, pluginToolNames: new Set(pluginTools.map((t) => t.name)), workDir: cwd };
+    return { session, sessionId, model: model.id, providerId, thinkingLevel: opts.thinkingLevel, policy: opts.policy, listeners, turnContext, pluginToolNames: new Set(pluginTools.map((t) => t.name)), workDir: cwd, queuedSteer, queuedFollowUp };
   }
 }

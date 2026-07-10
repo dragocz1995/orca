@@ -21,6 +21,7 @@ import type { ConversationTitler } from './conversationTitler.js';
 import type { LiveSessionRegistry } from './session/liveRegistry.js';
 import type { LiveBrain, SpawnOpts } from './session/liveBrain.js';
 import { DEFAULT_AUTO_COMPACT_PCT } from './session/liveBrain.js';
+import { enqueueMirrored } from './session/queueMirror.js';
 
 export interface ChannelSendOpts {
   channelId: string;
@@ -129,7 +130,8 @@ export class ChannelSessionService {
       // onEvent is stashed.
       if (streaming.turnSender != null && streaming.turnSender === opts.identity?.userId) {
         projectUserTurn(this.d.store, sessionId, opts.images?.length ? `${text}\n[📎 ${opts.images.length}× image]` : text);
-        await streaming.session.steer(text, opts.images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })));
+        // Mirror the enqueue so the image bytes survive a positional queue-remove (PI's clearQueue drops them).
+        await enqueueMirrored(streaming, 'steer', text, opts.images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })));
         return '';
       }
     }

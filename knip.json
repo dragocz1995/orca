@@ -22,7 +22,8 @@
     "which",
     "dot",
     "gh",
-    "elowen"
+    "elowen",
+    "ollama"
   ],
   "ignoreIssues": {
     "web/lib/i18n/types.ts": [

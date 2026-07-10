@@ -5,8 +5,8 @@
 import { loadSkillsFromDir, defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { dirname, join, basename, resolve, sep } from 'node:path';
+import { writeFileSync, unlinkSync, rmSync, existsSync, statSync } from 'node:fs';
 
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -14,14 +14,19 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 export function register(ctx) {
   const here = dirname(fileURLToPath(import.meta.url));
+  const bundledDir = join(here, 'skills');
   const userDir = ctx.dataDir(); // instance-local skills created at runtime
+  // Both catalog surfaces (list/delete) go through PI's loader, not a raw `*.md` readdir, so they see
+  // EVERY skill PI actually loads — including the `<name>/SKILL.md` directory form (PI treats a dir with a
+  // SKILL.md as a skill root). A flat readdir would silently miss those.
+  const loadSkills = (dir, source) => (existsSync(dir) ? loadSkillsFromDir({ dir, source }).skills : []);
+
   let count = 0;
   for (const { dir, source } of [
-    { dir: join(here, 'skills'), source: 'elowen-plugin:skills' },
+    { dir: bundledDir, source: 'elowen-plugin:skills' },
     { dir: userDir, source: 'elowen-user:skills' },
   ]) {
-    if (!existsSync(dir)) continue;
-    const { skills } = loadSkillsFromDir({ dir, source });
+    const skills = loadSkills(dir, source);
     for (const skill of skills) ctx.registerSkill(skill);
     count += skills.length;
   }
@@ -57,12 +62,13 @@ export function register(ctx) {
     execute: async () => {
       try {
         const rows = [];
-        for (const { dir, tag } of [{ dir: join(here, 'skills'), tag: 'bundled' }, { dir: userDir, tag: 'user' }]) {
-          if (!existsSync(dir)) continue;
-          for (const f of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
-            const head = readFileSync(join(dir, f), 'utf-8').slice(0, 400);
-            const desc = /description:\s*(.+)/.exec(head)?.[1] ?? '';
-            rows.push(`- ${f.replace(/\.md$/, '')} (${tag}) — ${desc}`);
+        for (const { dir, source, tag } of [
+          { dir: bundledDir, source: 'elowen-plugin:skills', tag: 'bundled' },
+          { dir: userDir, source: 'elowen-user:skills', tag: 'user' },
+        ]) {
+          for (const s of loadSkills(dir, source)) {
+            const flags = s.disableModelInvocation ? ', /skill only' : '';
+            rows.push(`- ${s.name} (${tag}${flags}) — ${s.description}`);
           }
         }
         return ok(rows.length ? rows.join('\n') : 'No skills found.');
@@ -78,9 +84,19 @@ export function register(ctx) {
       try {
         adminOnly();
         if (!NAME_RE.test(p.name)) return ok('Error: invalid skill name.');
-        const file = join(userDir, `${p.name}.md`);
-        if (!existsSync(file)) return ok(`Error: no user skill named "${p.name}".`);
-        unlinkSync(file);
+        // Resolve via the loader so BOTH forms are deletable: a flat `<name>.md` (unlink the file) and a
+        // `<name>/SKILL.md` directory skill (remove the whole skill root). Guard the resolved path stays
+        // inside userDir so a crafted frontmatter name can never point the delete outside it.
+        const skill = loadSkills(userDir, 'elowen-user:skills').find((s) => s.name === p.name);
+        if (!skill) return ok(`Error: no user skill named "${p.name}".`);
+        const isDirForm = basename(skill.filePath).toLowerCase() === 'skill.md';
+        const target = isDirForm ? dirname(skill.filePath) : skill.filePath;
+        const base = resolve(userDir);
+        const abs = resolve(target);
+        if (abs !== base && !abs.startsWith(base + sep)) return ok('Error: skill path is outside the user skills directory.');
+        if (abs === base) return ok('Error: refusing to delete the skills root.');
+        if (isDirForm && statSync(abs).isDirectory()) rmSync(abs, { recursive: true, force: true });
+        else unlinkSync(abs);
         return ok(`Skill "${p.name}" deleted.`);
       } catch (e) { return fail(e); }
     },

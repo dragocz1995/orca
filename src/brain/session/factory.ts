@@ -111,11 +111,15 @@ export class BrainSessionFactory {
     }
 
     const sessionManager = rehydrate(this.d.store, spec.sessionId, spec.cwd);
-    // Each session owns its own SettingsManager so its compaction threshold is per-conversation (the
-    // owner's per-user %, the channel default) — shared by createAgentSession (which reads compaction at
-    // check time) and the resource loader. Reads the user's project settings but is NEVER flushed, so the
-    // applyOverrides below stays in-memory and never writes to their .pi/settings.json.
-    const settingsManager = SettingsManager.create(spec.cwd, spec.cwd);
+    // Each session owns its own IN-MEMORY SettingsManager so its compaction threshold is per-conversation
+    // (the owner's per-user %, the channel default) — shared by createAgentSession (which reads compaction
+    // at check time) and the resource loader. It MUST be in-memory, never file-backed: SettingsManager.create
+    // would read the user's project `.pi/settings.json` from cwd (letting a checked-in file override Elowen's
+    // per-user config) and a PI-side write (e.g. /reasoning → setDefaultThinkingLevel) would persist a
+    // settings.json INTO the working repo. inMemory reads nothing from disk and writes nowhere; only the
+    // compaction override below (and any session-local PI setting) lives here, dying with the session.
+    // `projectTrusted` lets those session-local writes land in the in-memory store instead of erroring.
+    const settingsManager = SettingsManager.inMemory(undefined, { projectTrusted: true });
     const resourceLoader = (this.d.resourceLoaderFactory ?? defaultResourceLoaderFactory)({
       cwd: spec.cwd, systemPrompt: spec.systemPrompt, appendSystemPrompt: spec.appendSystemPrompt,
       skills: spec.skills, prompts: spec.promptTemplates, contextFiles: spec.contextFiles,

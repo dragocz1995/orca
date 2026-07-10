@@ -10,6 +10,7 @@ import { BrainSessionFactory } from './session/factory.js';
 import { IdentityResolver } from './identity.js';
 import { LiveSessionRegistry } from './session/liveRegistry.js';
 import type { LiveBrain } from './session/liveBrain.js';
+import { enqueueMirrored } from './session/queueMirror.js';
 import { ChannelSessionService } from './channels.js';
 import type { ChannelSendOpts } from './channels.js';
 import { PlatformOrchestrator } from './platforms.js';
@@ -343,22 +344,28 @@ export class BrainService {
 
   /** Remove ONE pending mid-turn message (the CLI ctrl+x / the web × button). PI's steering queue holds
    *  bare strings with no ids and offers only a clear-all, so we target by POSITION (the same positional
-   *  id `queueItems` hands clients): drain the queue, then re-queue everything except the targeted index,
-   *  preserving order and the steering/follow-up split. An out-of-range id is a no-op. Returns whether a
-   *  message was actually removed. */
+   *  id `queueItems` hands clients): drain the queue, then re-queue everything except the targeted index.
+   *  Re-queues from our image-carrying mirror (queuedSteer/queuedFollowUp), NOT PI's text-only accessors —
+   *  PI's clearQueue drops image attachments, so re-steering from text alone would strip the surviving
+   *  messages' images. An out-of-range id is a no-op. Returns whether a message was actually removed. */
   queueRemove(userId: number, id: string, session?: string): boolean {
     const sessionId = session ? this.lifecycle.ownedUserSession(userId, session) : this.sessions.activeIdFor(userId);
     const live = sessionId ? this.sessions.get(sessionId) : undefined;
     if (!live) return false;
-    const steering = [...live.session.getSteeringMessages()];
-    const followUp = [...live.session.getFollowUpMessages()];
+    const steering = live.queuedSteer ?? [];
+    const followUp = live.queuedFollowUp ?? [];
     const idx = Number(id);
     if (!Number.isInteger(idx) || idx < 0 || idx >= steering.length + followUp.length) return false;
+    // Snapshot WITH images before clearQueue empties both PI's queue and (via queue_update) our mirror.
+    const combined = [
+      ...steering.map((m) => ({ kind: 'steer' as const, ...m })),
+      ...followUp.map((m) => ({ kind: 'followUp' as const, ...m })),
+    ];
     live.session.clearQueue();
-    // Re-queue in the same order, dropping the positional target. `steer`/`followUp` only enqueue while
-    // the turn is streaming (which it is — a queue only exists mid-turn), so nothing runs a fresh turn.
-    steering.forEach((t, i) => { if (i !== idx) void live.session.steer(t); });
-    followUp.forEach((t, i) => { if (steering.length + i !== idx) void live.session.followUp(t); });
+    // Re-queue in the same order, dropping the positional target, preserving each survivor's images.
+    // `steer`/`followUp` only enqueue while the turn is streaming (a queue only exists mid-turn), so
+    // nothing runs a fresh turn; enqueueMirrored keeps the mirror in step.
+    combined.forEach((m, i) => { if (i !== idx) void enqueueMirrored(live, m.kind, m.text, m.images); });
     return true;
   }
 
