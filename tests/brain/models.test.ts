@@ -78,7 +78,7 @@ describe('listBrainModels', () => {
   it('adds the complete OpenAI OAuth account catalog', async () => {
     const f = vi.fn() as unknown as typeof fetch;
     const cfg: BrainRuntimeConfig = {
-      providers: [{ id: 'openai', label: 'OpenAI account', type: 'oauth-openai-codex', baseUrl: '', models: [], apiKey: null }],
+      providers: [{ id: 'openai', label: 'OpenAI account', type: 'oauth-openai-codex', baseUrl: '', models: ['gpt-5.5'], apiKey: null }],
     };
     const ids = (await listBrainModels(cfg, f)).map((model) => model.model);
     expect(ids).toEqual(expect.arrayContaining([

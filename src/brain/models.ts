@@ -92,9 +92,13 @@ export async function listBrainModels(cfg: BrainRuntimeConfig, fetchImpl: typeof
         const listed = new Set(entries.map((e) => e.id));
         freeEntries = fetched.filter((f) => f.id.endsWith(':free') && !listed.has(f.id));
       }
-    } else if (entries.length === 0 && p.type in OAUTH_BUILTIN) {
+    } else if (p.type in OAUTH_BUILTIN) {
       const builtin = registryProviderName(p);
-      entries = registry.getAll().filter((m) => m.provider === builtin).map((m) => ({ id: m.id }));
+      const listed = new Set(entries.map((entry) => entry.id));
+      const catalog = registry.getAll().filter((m) => m.provider === builtin && !listed.has(m.id)).map((m) => ({ id: m.id }));
+      // A stored OAuth model is the user's preferred/default model, not an allowlist. Always append
+      // the complete account catalog so adding a default never makes every other OAuth model vanish.
+      entries = [...entries, ...catalog];
     }
     const toOption = (e: FetchedModel, free?: boolean): BrainModelOption => {
       const pinned = cfg.contextWindows?.[`${p.id}/${e.id}`];
