@@ -251,7 +251,13 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
   // Kill a background process from the panel's ✕. Fire-and-forget: no optimistic local removal — the
   // daemon's `process` snapshot event is the single source of truth and drops it once the kill lands.
   const killProcess = (id: string): void => {
-    void client.killProcess(id).catch((e: Error) => { rt.notice = color.error(`could not kill process: ${e.message}`); render(); });
+    void client.killProcess(id).then((killed) => {
+      // Already gone → no `process` snapshot will fire, so refetch to drop the stale row the user clicked.
+      if (!killed) {
+        rt.notice = color.dim('process already finished');
+        void client.processes().then((p) => { rt.processes = p; render(); }).catch(() => { /* offline */ });
+      }
+    }).catch((e: Error) => { rt.notice = color.error(`could not kill process: ${e.message}`); render(); });
   };
 
   let thinkStart = 0;
@@ -284,7 +290,7 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
     processPanel.set(rt.processes);
     // Pending mid-turn queue strip above the composer (with the remove-last keybind hint when bound).
     const removeChord = keymap.chordLabel('queue_remove');
-    rt.queuedMessages.set(rt.queued, rt.queued.length && removeChord ? `${removeChord} clears the pending queue` : null);
+    rt.queuedMessages.set(rt.queued, rt.queued.length && removeChord ? `${removeChord} removes the last queued message` : null);
     tui.requestRender();
   };
 
@@ -492,11 +498,9 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
         // Drop the most recent pending mid-turn queued message. Optimistic local pop; the server's `queue`
         // snapshot reconciles (and is authoritative if the item was already delivered in the meantime).
         case 'queue_remove': {
-          // PI's steering queue only supports clearing the WHOLE backlog (no per-id removal), so this
-          // drops every pending message, not just the last — clear optimistically to match the server.
           const last = rt.queued.at(-1);
           if (!last) { rt.notice = color.dim('no queued messages'); render(); return; }
-          rt.queued = [];
+          rt.queued = rt.queued.slice(0, -1); // optimistic; the queue_update snapshot reconciles
           void client.queueRemove(last.id).catch((e: Error) => { rt.notice = color.error(`error: ${e.message}`); render(); });
           render();
           return;

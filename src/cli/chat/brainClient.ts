@@ -1,5 +1,5 @@
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeFileSync, existsSync } from 'node:fs';
+import { join, basename } from 'node:path';
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent } from '../../brain/events.js';
 import type { ProcessInfo } from '../../brain/processRegistry.js';
 import type { BrainMessageView } from '../../brain/messageView.js';
@@ -153,12 +153,15 @@ export class BrainClient {
     return (await res.json()) as ProcessInfo[];
   }
 
-  /** Kill one background process by id. The daemon's `process` snapshot event then drops it from the
-   *  panel — the caller relies on that single source of truth, never a local delete. */
-  async killProcess(id: string): Promise<void> {
+  /** Kill one background process by id. On a real kill the daemon's `process` snapshot event drops it
+   *  from the panel (the caller relies on that single source of truth). Returns `false` when the process
+   *  was already gone — no snapshot fires in that case, so the caller must refetch to clear a stale row. */
+  async killProcess(id: string): Promise<boolean> {
     const res = await this.f(`${this.o.base}/brain/processes/${encodeURIComponent(id)}`, { method: 'DELETE', headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/processes`);
+    const body = (await res.json()) as { killed?: boolean };
+    return body.killed === true;
   }
 
   /** Run a server-side (`action`) slash command through the shared dispatcher (`/stop`, `/new`,
@@ -269,8 +272,14 @@ export class BrainClient {
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/sessions`);
     const disposition = res.headers.get('content-disposition') ?? '';
-    const filename = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? `elowen-session.${format}`;
-    const out = join(process.cwd(), filename);
+    // `basename` strips any path in the server-sent filename so a `filename="../.."` can never escape cwd.
+    const name = basename(/filename="?([^"]+)"?/.exec(disposition)?.[1] ?? `elowen-session.${format}`);
+    // Never clobber an existing file: append -1, -2, … before the extension until the name is free.
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    let out = join(process.cwd(), name);
+    for (let n = 1; existsSync(out); n++) out = join(process.cwd(), `${stem}-${n}${ext}`);
     writeFileSync(out, Buffer.from(await res.arrayBuffer()));
     return out;
   }

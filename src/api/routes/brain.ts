@@ -9,6 +9,7 @@ import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
 import type { BrainEvent } from '../../brain/events.js';
 import { commandsWithPlugins, findCommand, type SlashSurface } from '../../brain/slashCommands.js';
 import { processRegistry } from '../../brain/processRegistry.js';
+import { logger } from '../../shared/logger.js';
 import type { ElowenApp, RouteContext } from '../context.js';
 
 /** Per-user embedded brain (the new advisor engine): status / start / send / live event stream.
@@ -138,7 +139,14 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     const format = c.req.query('format') === 'jsonl' ? 'jsonl' : 'html';
     let out;
     try { out = await d.brain.exportSession(c.get('user').id, c.req.param('id'), format); }
-    catch { return c.json({ error: 'unknown session' }, 404); }
+    catch (e) {
+      // Only a genuine ownership/lookup miss is a 404 — a render/parse failure must surface as 500 with a
+      // log line, not be masked as "unknown session" (which hides real bugs and leaves nothing to debug).
+      const msg = (e as Error).message;
+      if (msg === 'unknown session') return c.json({ error: msg }, 404);
+      logger('brain-export').error(`export failed for session ${c.req.param('id')}: ${msg}`);
+      return c.json({ error: 'export failed' }, 500);
+    }
     try {
       const body = readFileSync(out.path);
       return c.body(new Uint8Array(body), 200, {

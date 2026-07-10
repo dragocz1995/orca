@@ -155,7 +155,12 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
       rt.view = reduce(rt.view, e);
       rt.render();
     };
-    void client.stream(onEvent, ac.signal).catch(() => { /* aborted/gone */ });
+    // On every (re)connect: the `process` snapshot is push-on-change only, so a spawn/exit that happened
+    // during a dropped connection would leave the panel stale — refetch it whenever the stream opens.
+    const onOpen = (): void => {
+      void client.processes().then((p) => { rt.processes = p; rt.render(); }).catch(() => { /* offline/403 */ });
+    };
+    void client.stream(onEvent, ac.signal, 1000, onOpen).catch(() => { /* aborted/gone */ });
   };
 
   /** Switch conversations: retarget the server session, then swap history + the event stream. */

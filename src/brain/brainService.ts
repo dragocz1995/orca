@@ -341,17 +341,25 @@ export class BrainService {
     return live ? queueItems(live.session.getSteeringMessages(), live.session.getFollowUpMessages()) : [];
   }
 
-  /** Drop the pending mid-turn backlog (the CLI ctrl+x / the web × button). PI steers a mid-turn message
-   *  into the running turn within a step or two, so its queue holds at most a brief transient — there is
-   *  no per-id removal to target, so this clears the whole pending backlog. `id` is accepted for wire
-   *  compatibility with the DELETE route and is ignored. Returns whether anything was pending. */
-  queueRemove(userId: number, _id: string, session?: string): boolean {
+  /** Remove ONE pending mid-turn message (the CLI ctrl+x / the web × button). PI's steering queue holds
+   *  bare strings with no ids and offers only a clear-all, so we target by POSITION (the same positional
+   *  id `queueItems` hands clients): drain the queue, then re-queue everything except the targeted index,
+   *  preserving order and the steering/follow-up split. An out-of-range id is a no-op. Returns whether a
+   *  message was actually removed. */
+  queueRemove(userId: number, id: string, session?: string): boolean {
     const sessionId = session ? this.lifecycle.ownedUserSession(userId, session) : this.sessions.activeIdFor(userId);
     const live = sessionId ? this.sessions.get(sessionId) : undefined;
     if (!live) return false;
-    const had = live.session.pendingMessageCount > 0;
+    const steering = [...live.session.getSteeringMessages()];
+    const followUp = [...live.session.getFollowUpMessages()];
+    const idx = Number(id);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= steering.length + followUp.length) return false;
     live.session.clearQueue();
-    return had;
+    // Re-queue in the same order, dropping the positional target. `steer`/`followUp` only enqueue while
+    // the turn is streaming (which it is — a queue only exists mid-turn), so nothing runs a fresh turn.
+    steering.forEach((t, i) => { if (i !== idx) void live.session.steer(t); });
+    followUp.forEach((t, i) => { if (steering.length + i !== idx) void live.session.followUp(t); });
+    return true;
   }
 
   /** Flip the SESSION-scoped YOLO override (the CLI `/yolo` command) — see PermissionApprovalService.

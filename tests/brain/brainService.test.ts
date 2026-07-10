@@ -221,12 +221,17 @@ describe('BrainService', () => {
     await svc.send(1, 'alpha'); // steered
     await svc.send(1, 'beta');  // steered
     expect(svc.queueList(1).map((q) => q.text)).toEqual(['alpha', 'beta']);
-    // PI can't target one transient steered message, so queueRemove clears the whole pending backlog.
-    expect(svc.queueRemove(1, 'ignored')).toBe(true);
+    // queueRemove targets ONE message by positional id (drain + re-queue the rest).
+    expect(svc.queueRemove(1, '0')).toBe(true);
+    expect(svc.queueList(1).map((q) => q.text)).toEqual(['beta']);
+    // An out-of-range id leaves the queue intact.
+    expect(svc.queueRemove(1, '5')).toBe(false);
+    expect(svc.queueList(1).map((q) => q.text)).toEqual(['beta']);
+    // Remove the last one, then a no-op when nothing is pending.
+    expect(svc.queueRemove(1, '0')).toBe(true);
     expect(svc.queueList(1)).toEqual([]);
-    // Nothing pending → a tolerated no-op.
-    expect(svc.queueRemove(1, 'nope')).toBe(false);
-    // Esc/stop also clears whatever is still pending.
+    expect(svc.queueRemove(1, '0')).toBe(false);
+    // Esc/stop still clears whatever is pending (abort → clearQueue).
     await svc.send(1, 'gamma');
     await svc.abort(1);
     expect(svc.queueList(1)).toEqual([]);

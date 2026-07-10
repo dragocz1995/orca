@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CURRENT_SESSION_VERSION } from '@earendil-works/pi-coding-agent';
 import type { SessionManager } from '@earendil-works/pi-coding-agent';
 import type { BrainStore } from '../../store/brainStore.js';
-import { rehydrate } from '../persistence.js';
+import { rehydrateWithTimestamps } from '../persistence.js';
 
 export type ExportFormat = 'html' | 'jsonl';
 
@@ -53,7 +53,7 @@ async function loadExportFromFile(): Promise<ExportFromFile> {
  *  `AgentSession.exportToJsonl` (header line + branch entries re-chained into a linear parent chain), so
  *  the same file round-trips back through `SessionManager.open` / `exportFromFile`. Kept in lockstep with
  *  PI because it is not callable without a live AgentSession. */
-function serializeToJsonl(sm: SessionManager): string {
+function serializeToJsonl(sm: SessionManager, timestamps: string[]): string {
   const header = {
     type: 'session',
     version: CURRENT_SESSION_VERSION,
@@ -63,10 +63,12 @@ function serializeToJsonl(sm: SessionManager): string {
   };
   const lines = [JSON.stringify(header)];
   let prevId: string | null = null;
-  for (const entry of sm.getBranch()) {
-    lines.push(JSON.stringify({ ...entry, parentId: prevId }));
+  // The branch entries are 1:1 (in order) with the appended store rows, so overlay each row's real
+  // timestamp back onto PI's Date.now() stamp — the transcript then shows when each message was said.
+  sm.getBranch().forEach((entry, i) => {
+    lines.push(JSON.stringify({ ...entry, parentId: prevId, ...(timestamps[i] ? { timestamp: timestamps[i] } : {}) }));
     prevId = entry.id;
-  }
+  });
   return `${lines.join('\n')}\n`;
 }
 
@@ -91,10 +93,10 @@ export async function exportBrainSession(o: {
   const dir = mkdtempSync(join(tmpdir(), 'elowen-export-'));
   const cleanup = (): void => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } };
   try {
-    const sm = rehydrate(o.store, o.sessionId, o.cwd);
+    const { sm, timestamps } = rehydrateWithTimestamps(o.store, o.sessionId, o.cwd);
     const base = exportBasename(o.title, o.sessionId);
     const jsonlPath = join(dir, `${base}.jsonl`);
-    writeFileSync(jsonlPath, serializeToJsonl(sm), 'utf8');
+    writeFileSync(jsonlPath, serializeToJsonl(sm, timestamps), 'utf8');
     if (o.format === 'jsonl') {
       return { path: jsonlPath, filename: `${base}.jsonl`, contentType: 'application/x-ndjson', cleanup };
     }

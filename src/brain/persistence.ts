@@ -78,13 +78,36 @@ export function persistCompaction(store: BrainStore, session: AgentSession, sess
   store.compactSessionMessages(sessionId, { id: randomUUID(), role: 'compaction', content: summary }, keepLastN);
 }
 
+/** The stored rows of a session, JSON-parsed defensively: a single corrupt `content` blob skips just
+ *  that row instead of aborting the whole rehydration (which would make the conversation un-spawnable
+ *  and un-exportable). Carries each row's original `created_at` for callers that need real timestamps. */
+function* parsedRows(store: BrainStore, sessionId: string): Generator<{ msg: { role: string; content: unknown }; createdAt: string }> {
+  for (const row of store.getMessages(sessionId)) {
+    let msg: { role: string; content: unknown };
+    try { msg = JSON.parse(row.content) as { role: string; content: unknown }; }
+    catch { continue; } // corrupt row — skip it, keep the rest of the history intact
+    yield { msg, createdAt: row.created_at };
+  }
+}
+
 /** Rebuild an in-memory PI session manager pre-seeded with the stored history (D1). Spike-proven:
  *  messages appended before createAgentSession appear as session.messages. */
 export function rehydrate(store: BrainStore, sessionId: string, cwd: string): SessionManager {
   const sm = SessionManager.inMemory(cwd);
-  for (const row of store.getMessages(sessionId)) {
-    const msg = JSON.parse(row.content) as { role: string; content: unknown };
-    sm.appendMessage(msg as never);
-  }
+  for (const { msg } of parsedRows(store, sessionId)) sm.appendMessage(msg as never);
   return sm;
+}
+
+/** Like `rehydrate`, but also returns each appended message's original store timestamp (ISO 8601). The
+ *  export path needs it because PI's `appendMessage` stamps `Date.now()`, which would otherwise make an
+ *  exported transcript show the export time on every message instead of when it was actually said. */
+export function rehydrateWithTimestamps(store: BrainStore, sessionId: string, cwd: string): { sm: SessionManager; timestamps: string[] } {
+  const sm = SessionManager.inMemory(cwd);
+  const timestamps: string[] = [];
+  for (const { msg, createdAt } of parsedRows(store, sessionId)) {
+    sm.appendMessage(msg as never);
+    // SQLite stores UTC `YYYY-MM-DD HH:MM:SS`; normalize to ISO 8601 so PI's exporter renders it.
+    timestamps.push(new Date(`${createdAt.replace(' ', 'T')}Z`).toISOString());
+  }
+  return { sm, timestamps };
 }
