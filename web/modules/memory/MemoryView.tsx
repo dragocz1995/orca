@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags, Trash2, RotateCcw, Layers, ChevronLeft, ChevronRight, SlidersHorizontal, Clock } from 'lucide-react';
+import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags, Trash2, RotateCcw, Layers, ChevronLeft, ChevronRight, SlidersHorizontal, Clock, CheckCircle2, Archive } from 'lucide-react';
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { useMemories, useMemoryCategories } from '../../lib/queries';
 import { useCreateMemory, useMergeMemories, useDeleteMemory, useRestoreMemory, usePurgeMemories, useEmptyTrash, useSetMemoryCategory } from '../../lib/mutations';
@@ -12,9 +12,9 @@ import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Field } from '../../components/ui/Field';
 import { Checkbox } from '../../components/ui/Checkbox';
+import { SelectMenu, type SelectMenuOption } from '../../components/ui/SelectMenu';
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { PageMascot } from '../../components/ui/PageMascot';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -176,10 +176,24 @@ export function MemoryView() {
     { value: 'brain', label: t.memory.viewBrain, icon: Brain },
     { value: 'retrieval', label: t.memory.viewRetrieval, icon: Sparkles },
   ];
-  const STATUS_OPTIONS = STATUS_VALUES.map((s) => ({
+  const STATUS_OPTIONS: SelectMenuOption<StatusFilter>[] = STATUS_VALUES.map((s) => ({
     value: s,
     label: s === 'all' ? t.memory.statusAll : memoryStatusLabel(t, s),
+    icon: s === 'active' ? <CheckCircle2 size={14} /> : s === 'archived' ? <Archive size={14} /> : s === 'deleted' ? <Trash2 size={14} /> : <Layers size={14} />,
   }));
+  const KIND_OPTIONS: SelectMenuOption<string>[] = [
+    { value: 'all', label: t.memory.allKinds, icon: <Hash size={14} /> },
+    ...kinds.map((item) => ({ value: item, label: item, icon: <Hash size={14} /> })),
+  ];
+  const CATEGORY_OPTIONS: SelectMenuOption<string>[] = [
+    { value: 'all', label: t.memory.categoryAll, icon: <Tags size={14} /> },
+    { value: 'none', label: t.memory.categoryUncategorized, icon: <Hash size={14} /> },
+    ...(categories.data ?? []).map((category) => ({
+      value: String(category.id),
+      label: category.name,
+      icon: <span style={{ color: categorySwatch(category.color) }}><CategoryIcon name={category.icon} size={14} /></span>,
+    })),
+  ];
   const filterCount = Number(kind !== 'all') + Number(categoryFilter !== 'all') + Number(layout === 'grouped');
 
   const row = (m: Memory) => (
@@ -200,7 +214,6 @@ export function MemoryView() {
         <div className="mr-auto min-w-0 overflow-x-auto">
           <Segmented value={tab} onChange={(v) => setTab(v as Tab)} options={TAB_OPTIONS} aria-label={t.page.memory} nowrap variant="line" />
         </div>
-        <PageMascot />
         <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.memory.newMemory}</Button>
       </ModuleHeader>
 
@@ -220,14 +233,13 @@ export function MemoryView() {
                   <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                   <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.memory.searchPlaceholder} className="pl-9" />
                 </div>
-                <select
+                <SelectMenu
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as StatusFilter)}
-                  aria-label={t.memory.filterStatus}
-                  className="h-9 min-w-[8.5rem] rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
-                >
-                  {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+                  onChange={setStatus}
+                  options={STATUS_OPTIONS}
+                  label={t.memory.filterStatus}
+                  className="min-w-[9.5rem]"
+                />
                 <Button
                   variant={filtersOpen || filterCount > 0 ? 'accent' : 'ghost'}
                   icon={SlidersHorizontal}
@@ -244,27 +256,22 @@ export function MemoryView() {
               {filtersOpen ? (
                 <div className="grid gap-4 border-t border-border/70 py-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto] lg:items-end">
                   <Field label={t.memory.filterKind}>
-                    <select
+                    <SelectMenu
                       value={kind}
-                      onChange={(e) => setKind(e.target.value)}
-                      aria-label={t.memory.filterKind}
-                      className="h-9 w-full border-b border-border bg-transparent px-1 text-sm text-text focus:border-accent focus:outline-none"
-                    >
-                      <option value="all">{t.memory.allKinds}</option>
-                      {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
-                    </select>
+                      onChange={setKind}
+                      options={KIND_OPTIONS}
+                      label={t.memory.filterKind}
+                      variant="line"
+                    />
                   </Field>
                   <Field label={t.memory.categoryFilter}>
-                    <select
+                    <SelectMenu
                       value={categoryFilter}
-                      onChange={(e) => setCategoryFilter(e.target.value)}
-                      aria-label={t.memory.categoryFilter}
-                      className="h-9 w-full border-b border-border bg-transparent px-1 text-sm text-text focus:border-accent focus:outline-none"
-                    >
-                      <option value="all">{t.memory.categoryAll}</option>
-                      <option value="none">{t.memory.categoryUncategorized}</option>
-                      {(categories.data ?? []).map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-                    </select>
+                      onChange={setCategoryFilter}
+                      options={CATEGORY_OPTIONS}
+                      label={t.memory.categoryFilter}
+                      variant="line"
+                    />
                   </Field>
                   <Button
                     variant={layout === 'grouped' ? 'accent' : 'ghost'}

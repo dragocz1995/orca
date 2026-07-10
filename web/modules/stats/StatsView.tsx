@@ -8,6 +8,7 @@ import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Button } from '../../components/ui/Button';
 import { DateRangeFilter } from '../../components/ui/DateRangeFilter';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
+import { PageMascot } from '../../components/ui/PageMascot';
 import { DEFAULT_RANGE, serializeRange, parseRange, isStoredRange, rangeBounds } from '../../lib/dateRange';
 import { usePersistentState } from '../../lib/usePersistentState';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
@@ -59,8 +60,9 @@ export function StatsView() {
             <section data-testid="stats-hero" className="@container relative isolate overflow-hidden border-y border-border/80 bg-black">
               <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_25%_48%,rgb(255_76_40_/_0.17),transparent_26%),radial-gradient(circle_at_72%_42%,rgb(255_255_255_/_0.035),transparent_28%),linear-gradient(rgb(255_255_255_/_0.025)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255_/_0.025)_1px,transparent_1px)] bg-[size:auto,auto,3rem_3rem,3rem_3rem]" />
               <div className="grid min-h-[29rem] items-center gap-2 @4xl:grid-cols-[minmax(18rem,.78fr)_minmax(0,1.22fr)]">
-                <div className="order-2 flex min-h-64 items-center justify-center @4xl:order-1 @4xl:min-h-[29rem]">
+                <div className="relative order-2 flex min-h-64 items-center justify-center @4xl:order-1 @4xl:min-h-[29rem]">
                   <UsageFlame activity={flameActivity} label={t.stats.flameLabel} />
+                  <PageMascot size="hero" className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2" />
                 </div>
 
                 <div className="order-1 flex min-w-0 flex-col gap-7 px-5 pb-2 pt-7 @4xl:order-2 @4xl:px-10 @4xl:py-9">
