@@ -1,6 +1,7 @@
 import {
   Puzzle, Globe, Database, FolderOpen, TerminalSquare, GraduationCap, Image as ImageIcon,
   Wand2, Clapperboard, Clock, Activity, ShieldCheck, MessageCircle, Mic, Bell, ListTodo,
+  CircleHelp, Braces, Command, Paintbrush, PlugZap, FileCog, GitFork, MessagesSquare,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -23,6 +24,14 @@ const PLUGIN_ICONS: Record<string, LucideIcon> = {
   discord: MessageCircle,
   tts: Mic,
   notify: Bell,
+  askuser: CircleHelp,
+  codebase: Braces,
+  'dev-commands': Command,
+  formatters: Paintbrush,
+  mcp: PlugZap,
+  'runtime-context': FileCog,
+  subagent: GitFork,
+  whatsapp: MessagesSquare,
 };
 
 export function pluginIcon(name: string): LucideIcon {

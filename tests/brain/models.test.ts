@@ -75,6 +75,18 @@ describe('listBrainModels', () => {
     expect(models.every((m) => m.provider === 'claude')).toBe(true);
   });
 
+  it('adds the complete OpenAI OAuth account catalog', async () => {
+    const f = vi.fn() as unknown as typeof fetch;
+    const cfg: BrainRuntimeConfig = {
+      providers: [{ id: 'openai', label: 'OpenAI account', type: 'oauth-openai-codex', baseUrl: '', models: [], apiKey: null }],
+    };
+    const ids = (await listBrainModels(cfg, f)).map((model) => model.model);
+    expect(ids).toEqual(expect.arrayContaining([
+      'gpt-5.3-codex-spark', 'gpt-5.5', 'gpt-5.6-luna', 'gpt-image-1.5', 'gpt-image-2',
+      'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.6-sol', 'gpt-5.6-terra',
+    ]));
+  });
+
   it('propagates the provider origin as the model source', async () => {
     const f = vi.fn() as unknown as typeof fetch;
     const cfg: BrainRuntimeConfig = { providers: [

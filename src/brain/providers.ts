@@ -37,6 +37,66 @@ export const OAUTH_BUILTIN: Record<string, string> = {
   'oauth-openai-codex': 'openai-codex',
 };
 
+/** Models exposed by the ChatGPT/OpenAI OAuth account. PI ships the stable core catalog; Elowen adds
+ *  newly enabled account models here until they land in the pinned PI release. Registration preserves
+ *  PI's exact descriptors for existing models and derives safe descriptors for the additions. */
+export const OPENAI_CODEX_OAUTH_MODELS = [
+  'gpt-5.3-codex-spark',
+  'gpt-5.5',
+  'gpt-5.6-luna',
+  'gpt-image-1.5',
+  'gpt-image-2',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+] as const;
+
+function extendOpenAiCodexCatalog(registry: ModelRegistry): void {
+  const provider = 'openai-codex';
+  const builtins = registry.getAll().filter((model) => model.provider === provider);
+  const template = builtins.find((model) => model.id === 'gpt-5.5') ?? builtins[0];
+  const builtinOauth = registry.authStorage.getOAuthProviders().find((entry) => entry.id === provider);
+  if (!template || !builtinOauth) return;
+  const existing = new Set(builtins.map((model) => model.id));
+  const models = builtins.map((model) => ({
+    id: model.id,
+    name: model.name,
+    api: model.api,
+    baseUrl: model.baseUrl,
+    reasoning: model.reasoning,
+    thinkingLevelMap: model.thinkingLevelMap,
+    input: model.input,
+    cost: model.cost,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    compat: model.compat,
+  }));
+  for (const id of OPENAI_CODEX_OAUTH_MODELS) {
+    if (existing.has(id)) continue;
+    models.push({
+      id,
+      name: id,
+      api: template.api,
+      baseUrl: template.baseUrl,
+      reasoning: !id.startsWith('gpt-image-'),
+      thinkingLevelMap: template.thinkingLevelMap,
+      input: ['text', 'image'],
+      cost: template.cost,
+      contextWindow: template.contextWindow,
+      maxTokens: template.maxTokens,
+      compat: template.compat,
+    });
+  }
+  registry.registerProvider(provider, {
+    name: 'OpenAI Codex',
+    api: 'openai-codex-responses',
+    baseUrl: 'https://chatgpt.com/backend-api',
+    oauth: builtinOauth,
+    models,
+  });
+}
+
 /** pi-ai's openai-completions client appends `/chat/completions` to the model's baseUrl, so the base
  *  must already include the API version segment (e.g. `.../v1`). We only trim a trailing slash — we do
  *  NOT strip `/v1` (doing so 404s against proxies whose route is `/v1/chat/completions`). */
@@ -93,6 +153,7 @@ export function buildBrainRegistry(cfg: BrainRuntimeConfig, authStorage: AuthSto
   // Idempotent, and co-located with provider setup so it's always active before the first brain request.
   installOpenRouterMeter();
   const registry = ModelRegistry.inMemory(authStorage);
+  extendOpenAiCodexCatalog(registry);
   for (const p of cfg.providers) {
     if (p.type === 'openai') {
       registry.registerProvider(registryProviderName(p), {

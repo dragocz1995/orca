@@ -214,12 +214,12 @@ describe('PluginDetail per-role tool allowlist', () => {
     const discordHeading = screen.getByRole('heading', { name: 'discord' });
     expect(discordHeading).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'web' })).toBeInTheDocument();
-    // Group headers carry the owning plugin's icon: discord ships a brand icon (<img>), web falls back
-    // to a lucide glyph (<svg>). Each tool row carries its owning plugin's icon too.
-    expect(discordHeading.querySelector('img')).toBeTruthy();
+    // Every group and tool row uses the same monochrome Lucide icon system, including plugins that
+    // ship an external brand asset.
+    expect(discordHeading.querySelector('svg')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'web' }).querySelector('svg')).toBeTruthy();
     const toolRow = screen.getByRole('button', { name: 'discord_send' });
-    expect(toolRow.querySelector('img')).toBeTruthy();
+    expect(toolRow.querySelector('svg')).toBeTruthy();
     fireEvent.click(toolRow);
     fireEvent.click(screen.getByRole('button', { name: en.managePicker.saveChanges }));
     await waitFor(() => expect(screen.queryByRole('button', { name: en.managePicker.saveChanges })).toBeNull());
