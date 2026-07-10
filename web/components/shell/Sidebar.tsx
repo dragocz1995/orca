@@ -134,7 +134,7 @@ export function Sidebar({
           ) : null}
         </div>
 
-        <div className={`flex-1 py-2 ${expanded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-visible'}`}>
+        <div className={`relative z-30 flex-1 py-4 ${expanded ? 'overflow-y-auto overflow-x-hidden scroll-pt-4' : 'overflow-visible'}`}>
           <NavGroup
             group={{ label: t.nav.worlds, items: worlds }}
             pathname={pathname}
