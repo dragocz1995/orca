@@ -349,13 +349,12 @@ export function BrainSection() {
       {/* OAuth accounts: one row per supported account type, connect/disconnect. */}
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-text">{t.brain.accounts}</span>
-        <div className="@container">
-        <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-3">
+        <div className="@container border-y border-border/80 divide-y divide-border/70">
           {OAUTH_TYPES.map(({ type, icon }) => {
             const connected = oauth.data?.[type] ?? false;
             return (
-              <div key={type} className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3 ${connected ? 'border-accent/40 bg-accent/5' : 'border-border bg-surface'}`}>
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
+              <div key={type} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-4">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center ${connected ? 'text-accent' : 'text-text-muted'}`}>
                   <ModelIcon name={icon} size={22} />
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
@@ -373,7 +372,6 @@ export function BrainSection() {
               </div>
             );
           })}
-        </div>
         </div>
       </div>
 
@@ -394,10 +392,9 @@ export function BrainSection() {
         {apiProviders.length === 0 ? (
           <p className="text-xs italic text-text-muted">{t.brain.noProviders}</p>
         ) : (
-          <div className="@container">
-          <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
+          <div className="@container border-y border-border/80 divide-y divide-border/70">
             {apiProviders.map((p) => (
-              <div key={p.id} className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
+              <div key={p.id} className="flex flex-col gap-2 px-1 py-4">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <BrainCircuit size={16} className="shrink-0 text-accent" aria-hidden />
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{p.label}</span>
@@ -412,7 +409,6 @@ export function BrainSection() {
                 <span className="text-tiny text-text-muted">{p.models.length > 0 ? t.brain.modelCount.replace('{n}', String(p.models.length)) : t.brain.modelsAuto}</span>
               </div>
             ))}
-          </div>
           </div>
         )}
       </div>

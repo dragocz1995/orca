@@ -53,21 +53,20 @@ export function SettingsLayout({ sections, value, onChange, ariaLabel, searchPla
         ref={(node) => { buttonRefs.current[id] = node; }}
         onClick={() => onChange(id)}
         onKeyDown={(event) => move(event, index)}
-        className={`group flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm transition-colors lg:w-full ${
-          on ? 'bg-accent/12 font-medium text-accent' : 'text-text-muted hover:bg-elevated hover:text-text'
+        className={`group flex shrink-0 items-center gap-2.5 whitespace-nowrap border-b-2 px-1 py-2.5 text-sm transition-colors lg:w-full lg:border-b-0 lg:border-l-2 lg:px-3 ${
+          on ? 'border-accent font-medium text-accent' : 'border-transparent text-text-muted hover:text-text'
         }`}
         style={{ transitionDuration: 'var(--motion-fast)' }}
       >
         <Icon size={16} aria-hidden className="shrink-0" />
         <span className="truncate">{label}</span>
-        {on ? <span className="ml-auto hidden h-1.5 w-1.5 rounded-full bg-accent lg:block" aria-hidden /> : null}
       </button>
     );
   });
 
   return (
-    <div className="grid min-w-0 gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:items-start">
-      <aside className="min-w-0 lg:sticky lg:top-5">
+    <div className="grid min-w-0 gap-7 lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start">
+      <aside className="min-w-0 lg:sticky lg:top-5 lg:border-r lg:border-border/80 lg:pr-5">
         <div className="relative mb-2">
           <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <Input
@@ -82,7 +81,7 @@ export function SettingsLayout({ sections, value, onChange, ariaLabel, searchPla
         <nav
           role="radiogroup"
           aria-label={ariaLabel}
-          className="scrollbar-none -mx-1 flex gap-1 overflow-x-auto px-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0"
+          className="scrollbar-none flex gap-4 overflow-x-auto lg:flex-col lg:gap-0 lg:overflow-visible"
         >
           {buttons}
         </nav>

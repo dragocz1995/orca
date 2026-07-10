@@ -367,11 +367,11 @@ export default function SettingsPage() {
                     {prov.embedded ? <HelpTip align="left">{t.help.elowenModels}</HelpTip> : null}
                   </div>
                   <div className="@container">
-                  <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-x-6 @sm:grid-cols-2">
                     {cliItems.map((p) => {
                       const isCustom = !isPresetExec(p.exec);
                       return (
-                        <div key={p.exec} className="card-interactive group relative flex flex-col gap-3.5 rounded-xl border border-border bg-surface p-5">
+                        <div key={p.exec} className="group relative flex flex-col gap-3.5 border-y border-border/80 py-5">
                           {/* Always visible on touch (no hover exists on phones, so hover-only buttons are
                            *  unreachable — you could only toggle a model, never edit/delete it). On desktop
                            *  (sm+) keep the clean hover-reveal, plus focus-within for keyboard access. */}
@@ -428,7 +428,7 @@ export default function SettingsPage() {
                       const override = modelWindows[winKey];
                       const overridden = override != null;
                       return (
-                      <div key={m.exec} className="card-interactive flex flex-col gap-3.5 rounded-xl border border-border bg-surface p-5">
+                      <div key={m.exec} className="flex flex-col gap-3.5 border-y border-border/80 py-5">
                         <div className="flex items-start gap-3">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated">
                             <ModelIcon name={m.model} size={20} />
@@ -507,7 +507,7 @@ export default function SettingsPage() {
         {category === 'autopilot' && (
             <div className="flex flex-col gap-4">
               {/* One clear choice: how the planner + overseer reason. Relay (API) OR CLI agents. */}
-              <div className="card-interactive rounded-xl border border-border bg-surface p-5">
+              <section className="border-y border-border/80 py-5">
                 <div className="mb-2 flex items-center gap-1.5">
                   <span className="text-sm font-medium text-text">{t.settings.backendMode}</span>
                   <HelpTip>{t.help.backendMode}</HelpTip>
@@ -521,10 +521,10 @@ export default function SettingsPage() {
                   ]}
                 />
                 <p className="mt-2 text-xs text-text-muted">{reasoningMode === 'relay' ? t.settings.modeRelayDesc : t.settings.modeAgentsDesc}</p>
-              </div>
+              </section>
 
               <div className="@container">
-              <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-6 @sm:grid-cols-2">
               {reasoningMode === 'relay' ? (
                 <>
                   <SettingCard title={t.settings.apProvider} description={t.help.apProvider} icon={KeyRound} className="@sm:col-span-2">
@@ -585,7 +585,7 @@ export default function SettingsPage() {
                 <span className="text-sm font-medium text-text">{t.settings.runDefaults}</span>
               </div>
               <div className="@container">
-              <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-6 @sm:grid-cols-2">
                 <SettingCard title={t.settings.executor} description={t.help.executor} icon={Cpu}>
                   {/* Same worker + Elowen AI split the task picker uses, in the unified manage-selection
                       modal, so the default executor can also be a brain model. A saved value missing
@@ -614,7 +614,7 @@ export default function SettingsPage() {
 
         {category === 'github' && (
           <div className="@container">
-          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-6 @sm:grid-cols-2">
             <GithubStatusBanner />
             <SettingCard title={t.settings.ghToken} description={ghTokenSet ? t.help.ghToken : t.help.ghTokenNotSet} icon={KeyRound}>
               <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={ghTokenSet ? t.settings.apiKeySetPlaceholder : t.settings.ghTokenPlaceholder} className={inputClass} />
@@ -640,7 +640,7 @@ export default function SettingsPage() {
             {/* Agent skills sit at the top of CLI Agents — they install/verify the `elowen-workflow`
                 skill into the very CLI agents this section configures. The daemon self-installs on
                 startup; this is the on-demand re-apply + per-provider status. */}
-            <div className="card-interactive flex w-full flex-col gap-4 rounded-xl border border-border bg-surface p-5">
+            <section className="flex w-full flex-col gap-4 border-y border-border/80 py-5">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <Sparkles size={16} className="text-text-muted" aria-hidden />
@@ -672,14 +672,14 @@ export default function SettingsPage() {
                   );
                 })}
               </div>
-            </div>
+            </section>
             <div className="flex flex-col gap-3">
               {PROVIDERS.map((p) => {
                 const cur = providers[p.id] ?? { bin: p.binHint, args: '', skipPermissions: true, resume: true };
                 const set = (patch: Partial<{ bin: string; args: string; skipPermissions: boolean; resume: boolean }>) => setProviders((prev) => ({ ...prev, [p.id]: { ...cur, ...patch } }));
                 return (
                   <div key={p.id} className="@container">
-                  <div className="card-interactive flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 @sm:flex-row @sm:items-start">
+                  <div className="flex flex-col gap-3 border-y border-border/80 py-5 @sm:flex-row @sm:items-start">
                     <div className="flex items-center gap-3 @sm:w-44 @sm:shrink-0 @sm:pt-1">
                       <ProviderLogo meta={p} alt={t.providers[p.id as keyof typeof t.providers]} size={56} />
                       <div className="min-w-0">
@@ -804,7 +804,7 @@ export default function SettingsPage() {
               </div>
 
               {/* Auto-update — a full-size pill switch, no fine print. */}
-              <div className="card-interactive flex flex-col gap-4 rounded-xl border border-border bg-surface p-6">
+              <section className="flex flex-col gap-4 border-y border-border/80 py-6">
                 <div className="flex items-center gap-2.5">
                   <RefreshCw size={16} className="text-text-muted" aria-hidden />
                   <span className="text-sm font-medium text-text">{t.settings.autoUpdate}</span>
@@ -826,7 +826,7 @@ export default function SettingsPage() {
                   </button>
                   <span className={`text-sm font-medium ${autoUpdate ? 'text-text' : 'text-text-muted'}`}>{autoUpdate ? t.settings.on : t.settings.off}</span>
                 </div>
-              </div>
+              </section>
 
               {/* Session token TTL — a server-wide security setting, so it lives with the other
                   server controls rather than among the per-task defaults. Same autosave as defaults. */}

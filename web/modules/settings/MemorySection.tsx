@@ -133,7 +133,7 @@ export function MemorySection() {
   return (
     <div className="@container flex flex-col gap-4">
       {/* Embedding model */}
-      <section className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-5">
+      <section className="flex flex-col gap-5 border-y border-border/80 py-6">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-text">{t.memory.embeddingHeading}</span>
           <HelpTip align="left">{t.help.embeddingIntro}</HelpTip>
@@ -173,7 +173,7 @@ export function MemorySection() {
         </div>
 
         {/* Reindex: re-embeds memories still missing a vector. Needs a configured provider first. */}
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-bg p-4">
+        <div className="flex flex-col gap-2 border-t border-border/70 pt-5">
           <span className="text-sm font-medium text-text">{t.memory.reindex}</span>
           <p className="text-xs text-text-muted">{t.memory.reindexConfirmBody}</p>
           {embedding.configured ? null : <p className="text-xs italic text-text-muted">{t.memory.reindexUnconfigured}</p>}
@@ -190,7 +190,7 @@ export function MemorySection() {
       </section>
 
       {/* Categorization model */}
-      <section className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-5">
+      <section className="flex flex-col gap-5 border-y border-border/80 py-6">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-text">{t.categorization.title}</span>
           <HelpTip align="left">{t.help.categorizationIntro}</HelpTip>
@@ -211,7 +211,7 @@ export function MemorySection() {
 
         {/* Reclassify: runs the categorization model over the caller's uncategorized memories. Needs a
             configured model first. */}
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-bg p-4">
+        <div className="flex flex-col gap-2 border-t border-border/70 pt-5">
           <span className="text-sm font-medium text-text">{t.categorization.reclassify}</span>
           <p className="text-xs text-text-muted">{t.categorization.reclassifyHint}</p>
           <Button

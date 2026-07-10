@@ -16,8 +16,8 @@ export function Collapsible({ icon: Icon, title, subtitle, defaultOpen = false, 
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-border bg-surface">
-      <div className="flex items-center gap-3 px-4 py-3">
+    <section className="border-y border-border/80">
+      <div className="flex items-center gap-3 py-3.5">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
@@ -25,7 +25,7 @@ export function Collapsible({ icon: Icon, title, subtitle, defaultOpen = false, 
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
         >
           {Icon ? (
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-elevated text-text-muted">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center text-text-muted">
               <Icon size={15} aria-hidden />
             </span>
           ) : null}
@@ -42,7 +42,7 @@ export function Collapsible({ icon: Icon, title, subtitle, defaultOpen = false, 
         </button>
         {right ? <span className="shrink-0">{right}</span> : null}
       </div>
-      {open ? <div className="border-t border-border px-4 py-4">{children}</div> : null}
-    </div>
+      {open ? <div className="border-t border-border/70 py-5">{children}</div> : null}
+    </section>
   );
 }

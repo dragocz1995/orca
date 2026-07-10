@@ -7,12 +7,14 @@ export interface SegmentedOption { value: string; label: string; icon?: LucideIc
 /** A connected segmented switch: one bordered track holding the options, the active one lifted with an
  *  accent fill. Single source of truth for single-choice toggles (mode, filters, type, priority,
  *  autonomy, PR workflow…). The track wraps when it can't fit, so long option sets degrade gracefully. */
-export function Segmented({ options, value, onChange, size = 'md', className, nowrap = false, 'aria-label': ariaLabel }: {
+export function Segmented({ options, value, onChange, size = 'md', variant = 'default', className, nowrap = false, 'aria-label': ariaLabel }: {
   options: SegmentedOption[];
   value: string;
   onChange: (value: string) => void;
   /** `sm` for tight inline rows (e.g. a manual phase line), `md` for full form fields. */
   size?: 'sm' | 'md';
+  /** `line` is the quiet settings/navigation treatment: no pill track, active underline only. */
+  variant?: 'default' | 'line';
   className?: string;
   /** Keep the track on one line (no wrapping). Pass it inside the single-line page toolbars so the
    *  header row scrolls horizontally instead of the control folding onto a second line. Off by default
@@ -38,7 +40,7 @@ export function Segmented({ options, value, onChange, size = 'md', className, no
     buttonRefs.current[next]?.focus();
   };
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className={`inline-flex ${wrap} gap-0.5 rounded-md border border-border bg-surface p-0.5 ${className ?? ''}`}>
+    <div role="radiogroup" aria-label={ariaLabel} className={`inline-flex ${wrap} ${variant === 'line' ? 'gap-4 border-b border-border/80' : 'gap-0.5 rounded-md border border-border bg-surface p-0.5'} ${className ?? ''}`}>
       {options.map((o, index) => {
         const active = o.value === value;
         const Icon = o.icon;
@@ -53,7 +55,9 @@ export function Segmented({ options, value, onChange, size = 'md', className, no
             ref={(node) => { buttonRefs.current[index] = node; }}
             onClick={() => onChange(o.value)}
             onKeyDown={(event) => move(event, index)}
-            className={`inline-flex items-center gap-1.5 rounded text-xs font-medium transition-colors ${pad} ${active ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-elevated hover:text-text'}`}
+            className={`inline-flex items-center gap-1.5 text-xs font-medium transition-colors ${pad} ${variant === 'line'
+              ? `-mb-px border-b-2 ${active ? 'border-accent text-accent' : 'border-transparent text-text-muted hover:text-text'}`
+              : `rounded ${active ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-elevated hover:text-text'}`}`}
             style={{ transitionDuration: 'var(--motion-fast)' }}
           >
             {Icon ? <Icon size={13} aria-hidden /> : null}

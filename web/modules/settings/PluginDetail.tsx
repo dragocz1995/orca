@@ -87,7 +87,7 @@ function PluginWorkspace({ name, detail, contributions, logs, hookExecutions, on
       <PluginHero name={name} detail={detail} description={pluginDescription} toolCount={toolCount} />
 
       <div className="flex flex-col gap-3 border-y border-border/80 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <Segmented value={tab} onChange={changeTab} options={tabs} aria-label={t.pluginDetail.workspaceNav} />
+        <Segmented variant="line" value={tab} onChange={changeTab} options={tabs} aria-label={t.pluginDetail.workspaceNav} />
         <AutoSaveStatus status={draft.status} onRetry={draft.retry} />
       </div>
 

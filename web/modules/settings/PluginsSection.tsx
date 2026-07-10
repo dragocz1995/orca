@@ -304,7 +304,7 @@ export function PluginsSection() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-2">
-        <Segmented value={view} onChange={(v) => { setView(v as 'installed' | 'available'); setCategory('all'); }} options={viewOptions} aria-label={t.plugins.tabInstalled} />
+        <Segmented variant="line" value={view} onChange={(v) => { setView(v as 'installed' | 'available'); setCategory('all'); }} options={viewOptions} aria-label={t.plugins.tabInstalled} />
         <HelpTip>{t.help.pluginsManage}</HelpTip>
       </div>
 
@@ -313,7 +313,7 @@ export function PluginsSection() {
           <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.plugins.searchPlaceholder} className="pl-9" />
         </div>
-        <Segmented value={category} onChange={(v) => setCategory(v as Category | 'all')} options={categoryOptions} aria-label={t.plugins.catAll} />
+        <Segmented variant="line" value={category} onChange={(v) => setCategory(v as Category | 'all')} options={categoryOptions} aria-label={t.plugins.catAll} />
       </div>
 
       {view === 'installed' ? (

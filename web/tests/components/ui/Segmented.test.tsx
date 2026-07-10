@@ -28,4 +28,10 @@ describe('Segmented', () => {
     expect(onChange).toHaveBeenCalledWith('c');
     expect(screen.getByRole('radio', { name: 'C' })).toHaveFocus();
   });
+  it('offers a quiet underline variant for settings navigation', () => {
+    render(<Segmented variant="line" options={opts} value="b" onChange={() => {}} />);
+    expect(screen.getByRole('radiogroup')).toHaveClass('border-b');
+    expect(screen.getByRole('radio', { name: 'B' })).toHaveClass('border-accent');
+    expect(screen.getByRole('radio', { name: 'A' })).toHaveClass('border-transparent');
+  });
 });
