@@ -95,10 +95,7 @@ function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, onC
     >
       <div className="flex items-center gap-3">
         <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl">
-          {p.hasIllustration
-            // eslint-disable-next-line @next/next/no-img-element -- served through the daemon BFF
-            ? <img src={`/api/plugins/${encodeURIComponent(p.name)}/illustration`} alt="" className="h-full w-full object-contain" />
-            : <PluginIcon name={p.name} hasIcon={p.hasIcon} size={44} />}
+          <PluginIcon name={p.name} hasIcon={p.hasIcon} size={44} />
           {p.enabled ? <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-surface bg-success" aria-hidden /> : null}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">

@@ -8,10 +8,7 @@ import type { PluginDetail } from '../../lib/types';
 /** Hero: the plugin's identity card — icon, name, description, live enable toggle, and key facts. */
 export function PluginHero({ name, detail, description, toolCount }: { name: string; detail: PluginDetail; description: string; toolCount: number }) {
   const { t } = useTranslation();
-  const icon = detail.hasIllustration
-    ? // eslint-disable-next-line @next/next/no-img-element -- served from the daemon route via BFF
-      <img src={`/api/plugins/${encodeURIComponent(detail.name)}/illustration`} alt="" className="h-full w-full object-contain" />
-    : <PluginIcon name={detail.name} hasIcon={detail.hasIcon} size={64} />;
+  const icon = <PluginIcon name={detail.name} hasIcon={detail.hasIcon} size={64} />;
   return (
     <section className="@container border-b border-border/80 pb-6">
       <div className="flex flex-col gap-5 @2xl:flex-row @2xl:items-start">
