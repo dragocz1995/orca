@@ -61,6 +61,10 @@
       "label": "Živé streamované odpovědi",
       "hint": "Upravovat odpověď průběžně, jak přichází (volání nástrojů + text). Vypnuto = jedna zpráva na konci."
     },
+    "streamAnswer": {
+      "label": "Streamovat text odpovědi",
+      "hint": "Platí jen při zapnutém živém streamování. Zapnuto = text odpovědi se upravuje průběžně, jak vzniká. Vypnuto = stopa nástrojů běží živě, ale odpověď se pošle jednou na konci jako shrnutí — na Discordu klidnější."
+    },
     "reactions": {
       "label": "Stavové reakce",
       "hint": "Reaguje 👀 při přemýšlení, ✅/❌ po dokončení."

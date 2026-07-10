@@ -261,6 +261,10 @@ export class LiveMessage {
       if (this.a.cfg?.showReasoning) this.renderProgress();
     } else if (e.type === 'text' && e.delta) {
       this.text += e.delta;
+      // Summary mode (cfg.streamAnswer === false): keep accumulating the text for the finalize post, but
+      // DON'T stream it live — the tool trace still streams, and the answer lands once at the end as a
+      // single "summary" message below the trace. Quieter than watching the whole reply type itself out.
+      if (this.a.cfg?.streamAnswer === false) return;
       // Stream the growing answer into its OWN message, separate from the tool bubble. Skip pure-thinking
       // deltas (stripThinking) so no empty/placeholder answer is posted while the model is still reasoning.
       const visible = stripThinking(this.text);

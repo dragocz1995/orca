@@ -79,6 +79,32 @@ describe('discord LiveMessage (tool progress)', () => {
     expect(edits.get(finalId)).toBe('Hotovo, vše běží.'); // final answer re-posted BELOW the trace, as the LAST message
   });
 
+  it('summary mode (cfg.streamAnswer=false): tools stream live, the answer posts once at the end', async () => {
+    const { LiveMessage } = await load();
+    const posts: { id: string; content: string }[] = [];
+    const edits = new Map<string, string>();
+    let nextId = 0;
+    const adapter = {
+      cfg: { streamAnswer: false },
+      rest: async (method: string, path: string, body: { content: string }) => {
+        if (method === 'POST') { const id = `m${++nextId}`; posts.push({ id, content: body.content }); edits.set(id, body.content); return { id }; }
+        const id = path.split('/').pop()!;
+        edits.set(id, body.content);
+        return { id };
+      },
+    };
+    const lm = new LiveMessage(adapter, 'chan');
+    lm.onEvent({ type: 'text', delta: 'Koukám se na to, hned…' }); // narration is NOT streamed live in summary mode
+    lm.onEvent({ type: 'tool', name: 'run_command', detail: 'npm test', icon: '💻' }); // the tool trace DOES stream (m1)
+    await new Promise((r) => setTimeout(r, 20));
+    await lm.finalize('Hotovo — vše zelené.');
+    // Exactly two messages: the live tool trace and the single final summary — no intermediate answer bubble.
+    expect(posts).toHaveLength(2);
+    expect(edits.get(posts[0]!.id)).toContain('run_command'); // tool trace streamed live
+    expect(posts[1]!.content).toContain('Hotovo — vše zelené.'); // the summary posted once, below the trace
+    expect(posts.some((p) => p.content.includes('Koukám se na to'))).toBe(false); // narration never became its own message
+  });
+
   it('a turn without tools posts only the answer', async () => {
     const { LiveMessage } = await load();
     const posts: string[] = [];

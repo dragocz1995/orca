@@ -95,6 +95,13 @@
       "hint": "Edit the reply in place as it streams (tool calls + text). Off = one message at the end."
     },
     {
+      "key": "streamAnswer",
+      "label": "Stream answer text",
+      "type": "boolean",
+      "default": true,
+      "hint": "Only applies with live streaming on. On = the answer text edits in place as it's written. Off = the tool trace still streams live, but the answer is posted once at the end as a summary — quieter on Discord."
+    },
+    {
       "key": "reactions",
       "label": "Status reactions",
       "type": "boolean",
