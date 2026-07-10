@@ -77,14 +77,14 @@ describe('Sidebar (registry-driven)', () => {
     expect(within(workFlyout).getByRole('link', { name: 'Kanban' })).toHaveAttribute('href', '/kanban');
   });
 
-  it('shows live agents and last outcome in the ops bar', () => {
+  it('keeps the footer quiet with only the Elowen version', () => {
     const { wrapper: Wrapper, client } = createWrapper();
     client.setQueryData(['tasks'], [{ id: 'tx', title: 'Refactor', status: 'closed', outcome: 'ok', result_summary: 'passed', closed_at: '2026-06-18 10:00:00' }]);
     client.setQueryData(['sessions'], [{ name: 'elowen-a', role: 'agent', agent: 'a' }, { name: 'elowen-b', role: 'agent', agent: 'b' }]);
     client.setQueryData(['session-signals'], { 'elowen-a': { type: 'needs_input', question: 'go?' } });
     render(<Wrapper><Sidebar /></Wrapper>);
-    // The notification bell moved to the TopBar; the Sidebar keeps the ops bar (live agents + last outcome).
-    expect(screen.getByText('2 live agents')).toBeInTheDocument();
-    expect(screen.getByText('Last: Refactor')).toBeInTheDocument();
+    expect(screen.queryByText('2 live agents')).not.toBeInTheDocument();
+    expect(screen.queryByText('Last: Refactor')).not.toBeInTheDocument();
+    expect(screen.getByText(/Elowen —/)).toBeInTheDocument();
   });
 });

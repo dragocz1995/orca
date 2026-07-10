@@ -7,7 +7,6 @@ import { useSidebarState } from '../../lib/useSidebarState';
 import { useHealth, useTasks, useMe } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { NavGroup } from './NavGroup';
-import { OpsStatusBar } from './OpsStatusBar';
 
 const RAIL = 68;
 const DAEMON_STATUS = {
@@ -158,9 +157,8 @@ export function Sidebar({
         </div>
 
         <div className="shrink-0 border-t border-border/80 bg-bg/20">
-          <OpsStatusBar expanded={expanded} />
           {expanded ? (
-            <div className="px-4 pt-1 text-center font-mono text-[9px] uppercase tracking-[0.14em] text-text-muted/45">
+            <div className="px-4 py-3 text-center font-mono text-[9px] uppercase tracking-[0.14em] text-text-muted/45">
               Elowen {data?.version ?? '—'}
             </div>
           ) : null}
