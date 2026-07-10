@@ -22,9 +22,13 @@ describe('Sidebar (registry-driven)', () => {
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Work' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Projects' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Memory' })).toBeInTheDocument();
+    const memory = screen.getByRole('link', { name: 'Memory' });
+    const system = screen.getByRole('button', { name: 'System' });
+    expect(memory).toBeInTheDocument();
+    expect(memory.compareDocumentPosition(system) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText(/Elowen —/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'System' }));
+    fireEvent.click(system);
     expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
     expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
     expect(screen.getByRole('link', { name: 'Users' })).toHaveAttribute('href', '/users');
