@@ -166,6 +166,50 @@ describe('files plugin', () => {
     expect(res.content[0].text).toContain('line two');
   });
 
+  it('read_file reads a text file starting with "GIF" as text, not a broken image (3-byte sniff misfire)', async () => {
+    const f = join(dir, 'gifts.txt');
+    writeFileSync(f, 'GIFT ideas for the party\nballoons\n');
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f })) as unknown as { content: { type: string; text?: string }[]; details?: { image?: boolean } };
+    expect(res.details?.image).toBeFalsy();
+    expect(res.content.some((b) => b.type === 'image')).toBe(false);
+    expect(res.content[0].text).toContain('GIFT ideas for the party');
+  });
+
+  it('read_file never emits an image block the API would reject (a BMP is omitted, not sent as image/bmp)', async () => {
+    // Anthropic accepts only jpeg/png/gif/webp. A valid BMP is a real image but resizeImage may hand it back
+    // unconverted as image/bmp; the tool must never put image/bmp (or any non-inline type) into an image
+    // content block — that would 400 the whole turn. Build a minimal valid 54-byte BMP header.
+    const bmp = Buffer.alloc(54);
+    bmp.write('BM', 0, 'ascii');
+    bmp.writeUInt32LE(0, 2);    // declared file size (0 = unspecified, allowed by the validator)
+    bmp.writeUInt32LE(54, 10);  // pixel data offset (>= 14 + dibHeaderSize)
+    bmp.writeUInt32LE(40, 14);  // DIB header size (BITMAPINFOHEADER)
+    bmp.writeInt32LE(1, 18);    // width
+    bmp.writeInt32LE(1, 22);    // height
+    bmp.writeUInt16LE(1, 26);   // color planes
+    bmp.writeUInt16LE(24, 28);  // bits per pixel
+    const f = join(dir, 'pixel.bmp');
+    writeFileSync(f, bmp);
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f })) as unknown as { content: { type: string; mimeType?: string }[]; details?: { image?: boolean; mimeType?: string } };
+    const SUPPORTED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+    expect(res.details?.image).toBe(true); // it IS detected as an image…
+    // …but any emitted image block must carry an API-supported type — never image/bmp.
+    for (const b of res.content) if (b.type === 'image') expect(SUPPORTED.has(b.mimeType ?? '')).toBe(true);
+  });
+
+  it('read_file does not report a phantom truncation for a file ending in a newline', async () => {
+    // "l1\nl2\n".split("\n") == ["l1","l2",""] — the trailing "" is not a real line. Reading with a limit
+    // that covers the real lines must NOT claim truncation nor hand out a continuation offset that reads back
+    // nothing.
+    const f = join(dir, 'trail.txt');
+    writeFileSync(f, 'l1\nl2\n');
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_file', { path: f, limit: 2 })) as unknown as { content: { text?: string }[]; details?: { truncated?: boolean } };
+    expect(res.details?.truncated).toBe(false);
+    expect(res.content[0].text).not.toContain('Use offset=');
+    expect(res.content[0].text).toContain('l1');
+    expect(res.content[0].text).toContain('l2');
+  });
+
   it('search_files caps a very long match line', async () => {
     const f = join(dir, 'long.txt');
     writeFileSync(f, `needle ${'y'.repeat(2000)}\n`);

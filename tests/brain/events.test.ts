@@ -103,3 +103,22 @@ describe('tool_execution_end → diff event (hook-annotated edits)', () => {
     expect((e as { output?: { notes?: string[]; text?: string } }).output).toMatchObject({ text: '', notes: ['formatted a.ts with prettier'] });
   });
 });
+
+describe('tool_execution_end → image vs tool_output (run_command must not be hijacked)', () => {
+  const withImageLink = (toolName: string) => ev({
+    type: 'tool_execution_end', toolName, toolCallId: 'c9',
+    result: { content: [{ type: 'text', text: 'saved to ![shot](/api/brain/images/abcdef123.png)' }], details: {} },
+  });
+
+  it('an image tool that returns a stored-image link surfaces a first-class image event', () => {
+    expect(withImageLink('generate_image')).toEqual({ type: 'image', ref: '/api/brain/images/abcdef123.png' });
+  });
+
+  it('run_command whose console output merely prints such a path stays a tool_output (progress can reconcile)', () => {
+    // Otherwise the live progress tail for this id never gets dropped — the reducer only reconciles on
+    // tool_output/diff — and a stale "live" tail would hang under the finished command until reload.
+    const e = withImageLink('run_command');
+    expect((e as { type: string }).type).toBe('tool_output');
+    expect((e as { id?: string }).id).toBe('c9');
+  });
+});

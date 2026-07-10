@@ -92,25 +92,38 @@ export function persistCompaction(store: BrainStore, session: AgentSession, sess
 }
 
 /** How many trailing store rows to keep so the compaction divider lands directly before PI's kept tail.
- *  `keptRoles` is the ordered role sequence of PI's kept, store-backed messages. We find the SMALLEST
- *  number of newest store rows to skip (rows PI hasn't ingested yet — the in-flight user turn) such that
- *  the `keptRoles`-length window ending just before them matches by role, then keep that window PLUS the
- *  skipped rows (so the in-flight user turn survives as the newest row). Skip 0 = already aligned (manual
- *  `/compact`, overflow recovery) → identical to keeping the last `keptRoles.length` rows. Falls back to
- *  `keptRoles.length` when no alignment exists (e.g. the kept tail is longer than the whole store — the
- *  documented `keepLastN >= total` case that keeps the entire log). */
+ *  `keptRoles` is the ordered role sequence of PI's kept, store-backed messages. We look for how many
+ *  newest store rows to skip (rows PI hasn't ingested yet — the in-flight user turn) such that the
+ *  `keptRoles`-length window ending just before them matches by role, then keep that window PLUS the
+ *  skipped rows (so the in-flight user turn survives as the newest row).
+ *
+ *  Two constraints make role-only matching safe:
+ *  1. The skipped (in-flight) rows can ONLY be `user` turns — `projectUserTurn` writes user rows ahead of
+ *     PI's `prompt()`, whereas assistant/tool rows are written from `agent_end`, AFTER PI already holds
+ *     them. So the first non-user trailing row ends the search: nothing older than it can be in-flight.
+ *  2. We take the LARGEST valid skip, not the smallest. When the kept tail is all `user` messages (e.g. a
+ *     huge user paste that alone survives the cut, with no following assistant), a smaller skip would match
+ *     too and `compactSessionMessages` DELETES the older rows — silently dropping a genuinely-kept message.
+ *     Keeping more is always safe (at worst a couple of rows PI has dropped stay visible until the next
+ *     compaction); keeping fewer loses data. Constraint 1 bounds the over-keep to real in-flight user rows.
+ *
+ *  Skip 0 = already aligned (manual `/compact`, overflow recovery) → identical to keeping the last
+ *  `keptRoles.length` rows. Falls back to `keptRoles.length` when no alignment exists (e.g. the kept tail is
+ *  longer than the whole store — the documented `keepLastN >= total` case that keeps the entire log). */
 function alignedKeepCount(storeRoles: string[], keptRoles: string[]): number {
   const n = storeRoles.length;
   const k = keptRoles.length;
-  for (let skip = 0; skip <= n - k; skip++) {
+  let best = k; // fallback: no role alignment found → old count-only behaviour (keep the last k rows)
+  for (let skip = 0; skip + k <= n; skip++) {
+    if (skip > 0 && storeRoles[n - skip] !== 'user') break; // a non-user trailing row can't be in-flight
     const start = n - skip - k;
     let matches = true;
     for (let i = 0; i < k; i++) {
       if (storeRoles[start + i] !== keptRoles[i]) { matches = false; break; }
     }
-    if (matches) return k + skip;
+    if (matches) best = k + skip; // keep scanning for a LARGER valid skip (constraint 2)
   }
-  return k;
+  return best;
 }
 
 /** The stored rows of a session, JSON-parsed defensively: a single corrupt `content` blob skips just

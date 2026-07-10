@@ -264,11 +264,16 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
       return { type: 'diff', diff, id: anyE.toolCallId, ...(output ? { output } : {}) };
     }
     // Image tools return a markdown link to the stored file; surface it as a first-class event so
-    // channel adapters can attach the real file (models often omit the link from their final text).
-    const parts = (anyE.result as { content?: { type?: string; text?: string }[] } | undefined)?.content;
-    for (const part of Array.isArray(parts) ? parts : []) {
-      const m = typeof part?.text === 'string' ? /\((\/api)?\/brain\/images\/([a-z0-9]+\.png)\)/.exec(part.text) : null;
-      if (m) return { type: 'image', ref: `/api/brain/images/${m[2]}` };
+    // channel adapters can attach the real file (models often omit the link from their final text). Skip
+    // run_command: its console output can legitimately print such a path (grep/cat over stored transcripts,
+    // curl of our own API) and turning that into an `image` event instead of `tool_output` would strand the
+    // live progress tail — the reducer only reconciles (drops) progress on tool_output/diff for the id.
+    if (anyE.toolName !== PROGRESS_TOOL) {
+      const parts = (anyE.result as { content?: { type?: string; text?: string }[] } | undefined)?.content;
+      for (const part of Array.isArray(parts) ? parts : []) {
+        const m = typeof part?.text === 'string' ? /\((\/api)?\/brain\/images\/([a-z0-9]+\.png)\)/.exec(part.text) : null;
+        if (m) return { type: 'image', ref: `/api/brain/images/${m[2]}` };
+      }
     }
     if (typeof anyE.toolName === 'string') {
       // `anyE.args` is absent on the end event; the command is threaded via the reducer instead. The

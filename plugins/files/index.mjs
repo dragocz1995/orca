@@ -14,7 +14,9 @@ const SEARCH_TIMEOUT_MS = 5_000;
 const DIFF_CONTEXT = 3;
 const DIFF_MAX_LINES = 200;
 const RESULT_LINE_MAX = 500; // cap each search hit so one minified line can't flood the result set
-const IMAGE_MAX_BYTES = 5_000_000; // skip inlining an image we can neither resize nor safely embed raw
+// Raw-byte cap for embedding an image we couldn't resize. base64 inflates ~4/3, and the API rejects images
+// whose encoded payload tops ~5 MB, so cap the RAW bytes at ~3.75 MB to keep the base64 under that ceiling.
+const IMAGE_MAX_BYTES = 3_750_000;
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'web-dist', '.next', '.turbo']);
 const execFileP = promisify(execFile);
 const ok = (tool, text, details = {}) => ({
@@ -250,7 +252,9 @@ function isBmp(buf) {
 function detectImageMime(buf) {
   if (startsWithBytes(buf, [0xff, 0xd8, 0xff])) return buf[3] === 0xf7 ? null : 'image/jpeg';
   if (startsWithBytes(buf, PNG_SIGNATURE)) return isPng(buf) && !isAnimatedPng(buf) ? 'image/png' : null;
-  if (startsWithAscii(buf, 0, 'GIF')) return 'image/gif';
+  // Require the full 6-byte GIF signature incl. version (PI sniffs only "GIF") — the 3-byte prefix alone
+  // misfires on ordinary text ("GIFT ideas…"), which would then be embedded as a broken image/gif block.
+  if (startsWithAscii(buf, 0, 'GIF87a') || startsWithAscii(buf, 0, 'GIF89a')) return 'image/gif';
   if (startsWithAscii(buf, 0, 'RIFF') && startsWithAscii(buf, 8, 'WEBP')) return 'image/webp';
   if (startsWithAscii(buf, 0, 'BM') && isBmp(buf)) return 'image/bmp';
   return null;
@@ -317,12 +321,20 @@ async function rgSearch(abs, root, queryText, include, mode, maxMatches) {
   const ignoreGlobs = [...SKIP_DIRS].map((d) => `!${d}/**`);
   if (mode === 'files') {
     const args = ['--files', ...ignoreGlobs.flatMap((g) => ['--glob', g]), ...(include ? ['--glob', include] : []), abs];
-    const { stdout } = await execFileP('rg', args, { cwd: root, encoding: 'utf8', timeout: SEARCH_TIMEOUT_MS, maxBuffer: 1_000_000 });
-    const query = safeRegex(queryText);
-    return stdout.split('\n').filter(Boolean)
-      .map((p) => relative(root, p.startsWith('/') ? p : join(root, p)) || p)
-      .filter((p) => query.test(p))
-      .slice(0, maxMatches);
+    try {
+      const { stdout } = await execFileP('rg', args, { cwd: root, encoding: 'utf8', timeout: SEARCH_TIMEOUT_MS, maxBuffer: 1_000_000 });
+      const query = safeRegex(queryText);
+      return stdout.split('\n').filter(Boolean)
+        .map((p) => relative(root, p.startsWith('/') ? p : join(root, p)) || p)
+        .filter((p) => query.test(p))
+        .slice(0, maxMatches);
+    } catch (e) {
+      // rg exits 1 on "no files matched" just like content mode — that's a real empty result, NOT an
+      // rg-unavailable signal. Without this the caller would treat it as a miss and fall back to the JS
+      // walk (which ignores .gitignore), surfacing gitignored files rg deliberately skipped.
+      if (e && typeof e === 'object' && 'code' in e && e.code === 1) return [];
+      throw e;
+    }
   }
   const args = [
     '--line-number', '--with-filename', '--color', 'never', '--no-heading', '-i',
@@ -385,6 +397,10 @@ export function register(ctx) {
             data = raw.toString('base64'); // Photon unavailable: embed the original bytes for supported formats
             outMime = mime;
           }
+          // The API accepts only jpeg/png/gif/webp image blocks. resizeImage can hand back a small BMP
+          // unconverted (raw bytes, mimeType still image/bmp); embedding that would 400 the whole turn, so
+          // drop any image whose final type isn't inline-supported and fall through to the text-only note.
+          if (data && !INLINE_IMAGE_TYPES.has(outMime)) data = undefined;
           details.mimeType = outMime;
           let note = `Read image file [${outMime}]`;
           if (hints.length) note += `\n${hints.join('\n')}`;
@@ -400,7 +416,11 @@ export function register(ctx) {
         }
         const body = raw.toString('utf-8');
         const allLines = body.split('\n');
-        const total = allLines.length;
+        // A trailing newline yields a phantom empty final element — it terminates the last line, it is not a
+        // line of its own. Drop it from the count so pagination doesn't advertise (and truncate at) a bogus
+        // extra empty line, which would report `truncated: true` and hand out a continuation offset that
+        // reads back nothing.
+        const total = allLines.length - (body.endsWith('\n') && allLines.length > 1 ? 1 : 0);
         const start = p.offset ? Math.max(0, Math.floor(p.offset) - 1) : 0;
         if (start >= total) return fail('read_file', new Error(`Offset ${p.offset} is beyond end of file (${total} lines total)`), { path: abs });
         const endLine = p.limit !== undefined ? Math.min(start + Math.max(0, Math.floor(p.limit)), total) : total;

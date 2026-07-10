@@ -187,4 +187,34 @@ describe('brain persistence', () => {
     expect(body).not.toContain('q1');
     expect(body).not.toContain('user_memories');
   });
+
+  it('persistCompaction does NOT delete a kept message when the kept tail is a lone user turn (all-user tail)', () => {
+    // Adversarial edge: a huge user paste alone survives the cut (a user message is a valid PI cut point),
+    // and its turn ends with NO assistant message (abort before first token). The kept tail is then a single
+    // 'user' role. A NEXT user turn ('q_next') is projected in-flight. Role-only matching from the tail is
+    // ambiguous here — both the in-flight row and the genuinely-kept giant are 'user' — so a smallest-skip
+    // heuristic would keep just the in-flight row and DELETE the kept giant. The fix keeps both.
+    projectUserTurn(store, 's1', 'q_old');
+    projectEvent(store, 's1', { type: 'agent_end', willRetry: false, messages: [{ role: 'assistant', content: 'a_old' }] } as never);
+    projectUserTurn(store, 's1', 'q_giant'); // huge paste, aborted turn → no assistant row follows
+    projectUserTurn(store, 's1', 'q_next');  // the in-flight turn's user row, persisted before prompt()
+    expect(store.getMessages('s1').map((r) => r.role)).toEqual(['user', 'assistant', 'user', 'user']);
+
+    // PI compacted at the start of q_next's prompt(): summarized q_old/a_old, kept ONLY q_giant. q_next is
+    // not in the live context yet, so the kept tail is the single user message q_giant.
+    const session = {
+      messages: [
+        { role: 'compactionSummary', summary: 'q_old/a_old summarized', tokensBefore: 900 },
+        { role: 'user', content: [{ type: 'text', text: '<user_memories>x</user_memories>\n\nq_giant' }] },
+      ],
+    } as unknown as AgentSession;
+
+    persistCompaction(store, session, 's1');
+
+    // q_giant (PI's kept tail) survives, q_next stays newest, only q_old/a_old fold into the divider.
+    const rows = store.getMessages('s1');
+    expect(rows.map((r) => r.role)).toEqual(['compaction', 'user', 'user']);
+    expect(JSON.parse(rows[1]!.content)).toMatchObject({ content: 'q_giant' });
+    expect(JSON.parse(rows[2]!.content)).toMatchObject({ content: 'q_next' });
+  });
 });
