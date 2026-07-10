@@ -117,7 +117,12 @@ export class DiscordAdapter {
   async registerCommands() {
     const commands = [
       { name: 'model', description: 'Pick the AI model for this channel', type: 1 },
-      { name: 'reasoning', description: 'Set reasoning effort for this channel', type: 1 },
+      { name: 'reasoning', description: 'Set reasoning effort for this channel', type: 1, options: [
+        { name: 'level', description: 'Reasoning effort for this channel', type: 3, required: true, choices: [
+          { name: 'default (model default)', value: 'default' },
+          ...THINKING_LEVELS.map((level) => ({ name: level, value: level })),
+        ] },
+      ] },
       { name: 'voice', description: 'Toggle spoken audio replies in this channel', type: 1, options: [
         { name: 'state', description: 'on or off (omit to toggle)', type: 3, required: false, choices: [
           { name: 'on', value: 'on' }, { name: 'off', value: 'off' },
@@ -432,16 +437,10 @@ export class DiscordAdapter {
       if (name === 'reasoning') {
         // Same operator-only gate as /model — reasoning effort is a shared per-channel setting.
         if (!this.isAdminMember(i.member)) return this.respond(i, 4, { content: this.msg.modelForbidden, flags: 64 });
-        const current = this.state.get(i.channel_id).thinkingLevel ?? '';
-        const options = [
-          { label: 'Default (model default)', value: 'default', default: current === '' },
-          ...THINKING_LEVELS.map((lv) => ({ label: lv, value: lv, default: current === lv })),
-        ];
-        return this.respond(i, 4, {
-          content: this.msg.pickThinking,
-          flags: 64,
-          components: [{ type: 1, components: [{ type: 3, custom_id: 'pick_reasoning', options, placeholder: 'Choose reasoning effort…' }] }],
-        });
+        const level = String((i.data?.options ?? []).find((o) => o.name === 'level')?.value ?? '');
+        if (!['default', ...THINKING_LEVELS].includes(level)) return this.respond(i, 4, { content: this.msg.pickThinking, flags: 64 });
+        this.state.patch(i.channel_id, { thinkingLevel: level === 'default' ? '' : level });
+        return this.respond(i, 4, { content: this.msg.thinkingSet(level === 'default' ? 'default' : level), flags: 64 });
       }
       if (name === 'voice') {
         // Spoken replies are a shared per-channel setting → operator-only, same gate as /model.
@@ -512,13 +511,6 @@ export class DiscordAdapter {
     // ask_user_question components (select menus + Submit/Other buttons) resolve a parked turn.
     if (i.type === 3 && typeof i.data?.custom_id === 'string' && i.data.custom_id.startsWith('ask:')) {
       return this.onAskInteraction(i);
-    }
-    if (i.type === 3 && i.data?.custom_id === 'pick_reasoning') {
-      if (!this.isAdminMember(i.member)) return this.respond(i, 7, { content: this.msg.modelForbidden, components: [] });
-      const v = String(i.data.values?.[0] ?? '');
-      const level = v === 'default' ? '' : (THINKING_LEVELS.includes(v) ? v : '');
-      this.state.patch(i.channel_id, { thinkingLevel: level });
-      return this.respond(i, 7, { content: this.msg.thinkingSet(level || 'default'), components: [] });
     }
     if (i.type === 3 && i.data?.custom_id === 'pick_model') {
       // Re-check on submit: the select menu was admin-gated, but the component round-trips independently.
