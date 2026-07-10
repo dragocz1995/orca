@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags, Trash2, RotateCcw, Layers, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags, Trash2, RotateCcw, Layers, ChevronLeft, ChevronRight, SlidersHorizontal, Clock } from 'lucide-react';
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { useMemories, useMemoryCategories } from '../../lib/queries';
 import { useCreateMemory, useMergeMemories, useDeleteMemory, useRestoreMemory, usePurgeMemories, useEmptyTrash, useSetMemoryCategory } from '../../lib/mutations';
@@ -18,10 +18,10 @@ import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { usePersistentState } from '../../lib/usePersistentState';
+import { formatTaskTime } from '../../lib/format';
 import { CategoryIcon } from '../../lib/categoryIcons';
 import { MemoryDetail } from './MemoryDetail';
 import { MemoryBrainMap } from './MemoryBrainMap';
-import { MemoryOverview } from './MemoryOverview';
 import { CategoryManager } from './CategoryManager';
 import { RetrievalDebugPanel } from './RetrievalDebugPanel';
 import { RankSlider, CategorySelect } from './MemoryFields';
@@ -48,6 +48,7 @@ export function MemoryView() {
   // loaded list, mirroring how `kind` narrows the same in-memory rows.
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [showCategories, setShowCategories] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -104,9 +105,14 @@ export function MemoryView() {
   const toggleSelect = (id: number) => setSelected((cur) => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelected(new Set());
 
-  // Select-all toggles the currently *filtered* rows: all already selected → clear, otherwise select them all.
-  const allSelected = filtered.length > 0 && filtered.every((m) => selected.has(m.id));
-  const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(filtered.map((m) => m.id)));
+  // Select-all is page-scoped: a paginated list must never silently select rows the user cannot see.
+  const allSelected = pageItems.length > 0 && pageItems.every((m) => selected.has(m.id));
+  const toggleSelectAll = () => setSelected((current) => {
+    const next = new Set(current);
+    if (allSelected) for (const m of pageItems) next.delete(m.id);
+    else for (const m of pageItems) next.add(m.id);
+    return next;
+  });
 
   const selectedIds = () => filtered.filter((m) => selected.has(m.id)).map((m) => m.id);
 
@@ -173,6 +179,7 @@ export function MemoryView() {
     value: s,
     label: s === 'all' ? t.memory.statusAll : memoryStatusLabel(t, s),
   }));
+  const filterCount = Number(kind !== 'all') + Number(categoryFilter !== 'all') + Number(layout === 'grouped');
 
   const row = (m: Memory) => (
     <MemoryRow
@@ -189,55 +196,9 @@ export function MemoryView() {
   return (
     <>
       <ModuleHeader title={t.page.memory} count={tab === 'list' ? filtered.length : undefined} icon={Brain}>
-        <Segmented value={tab} onChange={(v) => setTab(v as Tab)} options={TAB_OPTIONS} aria-label={t.page.memory} nowrap />
-        {tab === 'list' ? (
-          <>
-            <div className="relative w-40 @sm:w-52">
-              <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.memory.searchPlaceholder} className="pl-9" />
-            </div>
-            <Segmented value={status} onChange={(v) => setStatus(v as StatusFilter)} options={STATUS_OPTIONS} aria-label={t.memory.filterStatus} nowrap />
-            {kinds.length > 0 ? (
-              <select
-                value={kind}
-                onChange={(e) => setKind(e.target.value)}
-                aria-label={t.memory.filterKind}
-                className="h-9 min-w-0 max-w-[14rem] rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
-              >
-                <option value="all">{t.memory.allKinds}</option>
-                {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
-              </select>
-            ) : null}
-            {(categories.data?.length ?? 0) > 0 ? (
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                aria-label={t.memory.categoryFilter}
-                className="h-9 min-w-0 max-w-[14rem] rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
-              >
-                <option value="all">{t.memory.categoryAll}</option>
-                <option value="none">{t.memory.categoryUncategorized}</option>
-                {(categories.data ?? []).map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-              </select>
-            ) : null}
-            <Button
-              variant={layout === 'grouped' ? 'accent' : 'default'}
-              icon={Layers}
-              aria-pressed={layout === 'grouped'}
-              onClick={() => setLayout(layout === 'grouped' ? 'flat' : 'grouped')}
-            >
-              {t.memory.groupByCategory}
-            </Button>
-            <Button
-              variant={showCategories ? 'accent' : 'default'}
-              icon={Tags}
-              aria-pressed={showCategories}
-              onClick={() => setShowCategories((v) => !v)}
-            >
-              {t.memory.categoriesTitle}
-            </Button>
-          </>
-        ) : null}
+        <div className="mr-auto min-w-0 overflow-x-auto">
+          <Segmented value={tab} onChange={(v) => setTab(v as Tab)} options={TAB_OPTIONS} aria-label={t.page.memory} nowrap variant="line" />
+        </div>
         <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.memory.newMemory}</Button>
       </ModuleHeader>
 
@@ -250,74 +211,146 @@ export function MemoryView() {
         : memories.isLoading ? <LoadingState variant="cards" />
         : memories.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => memories.refetch()} />
         : (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
+            <div className="border-y border-border/80">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 py-3">
+                <div className="relative min-w-[15rem] flex-1">
+                  <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                  <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.memory.searchPlaceholder} className="pl-9" />
+                </div>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as StatusFilter)}
+                  aria-label={t.memory.filterStatus}
+                  className="h-9 min-w-[8.5rem] rounded-md border border-border bg-surface px-3 text-sm text-text focus:border-accent focus:outline-none"
+                >
+                  {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                <Button
+                  variant={filtersOpen || filterCount > 0 ? 'accent' : 'ghost'}
+                  icon={SlidersHorizontal}
+                  aria-expanded={filtersOpen}
+                  onClick={() => setFiltersOpen((open) => !open)}
+                >
+                  {t.memory.filters}{filterCount > 0 ? ` · ${filterCount}` : ''}
+                </Button>
+                {status === 'deleted' && filtered.length > 0 ? (
+                  <Button variant="danger" icon={Trash2} onClick={() => setConfirmEmptyTrash(true)}>{t.memory.emptyTrash}</Button>
+                ) : null}
+              </div>
+
+              {filtersOpen ? (
+                <div className="grid gap-4 border-t border-border/70 py-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto] lg:items-end">
+                  <Field label={t.memory.filterKind}>
+                    <select
+                      value={kind}
+                      onChange={(e) => setKind(e.target.value)}
+                      aria-label={t.memory.filterKind}
+                      className="h-9 w-full border-b border-border bg-transparent px-1 text-sm text-text focus:border-accent focus:outline-none"
+                    >
+                      <option value="all">{t.memory.allKinds}</option>
+                      {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                  </Field>
+                  <Field label={t.memory.categoryFilter}>
+                    <select
+                      value={categoryFilter}
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                      aria-label={t.memory.categoryFilter}
+                      className="h-9 w-full border-b border-border bg-transparent px-1 text-sm text-text focus:border-accent focus:outline-none"
+                    >
+                      <option value="all">{t.memory.categoryAll}</option>
+                      <option value="none">{t.memory.categoryUncategorized}</option>
+                      {(categories.data ?? []).map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                    </select>
+                  </Field>
+                  <Button
+                    variant={layout === 'grouped' ? 'accent' : 'ghost'}
+                    icon={Layers}
+                    aria-pressed={layout === 'grouped'}
+                    onClick={() => setLayout(layout === 'grouped' ? 'flat' : 'grouped')}
+                  >
+                    {t.memory.groupByCategory}
+                  </Button>
+                  <Button
+                    variant={showCategories ? 'accent' : 'ghost'}
+                    icon={Tags}
+                    aria-pressed={showCategories}
+                    onClick={() => setShowCategories((v) => !v)}
+                  >
+                    {t.memory.categoriesTitle}
+                  </Button>
+                  {filterCount > 0 ? (
+                    <Button variant="ghost" onClick={() => { setKind('all'); setCategoryFilter('all'); setLayout('flat'); }}>{t.memory.clearFilters}</Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
             {showCategories ? <CategoryManager memories={memories.data ?? []} /> : null}
 
             {(memories.data?.length ?? 0) === 0 ? (
               <EmptyState title={t.memory.empty} description={t.memory.emptyHint} icon={Brain} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.memory.newMemory}</Button>} />
             ) : (
-              // Split: list on the left (main), a sticky stats column on the right at lg+, stacked below.
-              // A viewport breakpoint (not a CSS `@container`, which would confine `position: sticky`).
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-                {/* Left — memory list */}
-                <div className="flex min-w-0 flex-col gap-2.5 lg:w-[65%] lg:shrink-0">
-                  {/* List header: select-all over the filtered rows + (in the trash) an empty-trash action. */}
-                  <div className="flex items-center gap-2.5 px-1 py-1">
-                    <button
-                      type="button"
-                      onClick={toggleSelectAll}
-                      disabled={filtered.length === 0}
-                      aria-label={t.memory.selectAll}
-                      aria-pressed={allSelected}
-                      className="flex items-center gap-2 text-xs text-text-muted transition-colors hover:text-text disabled:opacity-40"
-                    >
-                      <Checkbox checked={allSelected} />
-                      {t.memory.selectAll}
-                    </button>
-                    <span className="ml-auto font-mono text-[11px] text-text-muted">{filtered.length}</span>
-                    {status === 'deleted' && filtered.length > 0 ? (
-                      <Button variant="danger" icon={Trash2} onClick={() => setConfirmEmptyTrash(true)}>{t.memory.emptyTrash}</Button>
-                    ) : null}
-                  </div>
-
-                  {filtered.length === 0 ? (
-                    <EmptyState title={t.memory.emptySearch} icon={Search} />
-                  ) : layout === 'grouped' ? (
-                    sections.map((sec) => (
-                      <section key={String(sec.key)} className="flex flex-col gap-2.5">
-                        <CategorySectionHeader
-                          category={sec.category}
-                          label={sec.category ? sec.category.name : t.memory.categoryUncategorized}
-                          count={sec.items.length}
-                        />
-                        {sec.items.map((m) => row(m))}
-                      </section>
-                    ))
-                  ) : (
-                    pageItems.map((m) => row(m))
-                  )}
-
-                  {filtered.length > PAGE_SIZE ? (
-                    <div className="mt-1 flex items-center justify-between border-t border-border pt-3">
-                      <span className="font-mono text-xs text-text-muted">
-                        {t.memory.pageRange
-                          .replace('{from}', String(clampedPage * PAGE_SIZE + 1))
-                          .replace('{to}', String(clampedPage * PAGE_SIZE + pageItems.length))
-                          .replace('{total}', String(filtered.length))}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" icon={ChevronLeft} disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>{t.memory.prevPage}</Button>
-                        <Button variant="ghost" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>{t.memory.nextPage}<ChevronRight size={15} className="ml-1" aria-hidden /></Button>
+              <div className="flex min-w-0 flex-col gap-3">
+                {filtered.length === 0 ? (
+                  <EmptyState title={t.memory.emptySearch} icon={Search} />
+                ) : (
+                  <div role="table" aria-label={t.page.memory} className="@container border-y border-border/80">
+                    <div role="row" className="grid grid-cols-[2rem_minmax(0,1fr)_1.25rem] items-center gap-3 border-b border-border/80 px-1 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted @5xl:grid-cols-[2rem_minmax(0,1fr)_11rem_8rem_6rem_7rem_1.25rem]">
+                      <div role="columnheader" className="flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={toggleSelectAll}
+                          disabled={pageItems.length === 0}
+                          aria-label={t.memory.selectPage}
+                          aria-pressed={allSelected}
+                          title={t.memory.selectPage}
+                          className="flex items-center justify-center disabled:opacity-40"
+                        >
+                          <Checkbox checked={allSelected} />
+                        </button>
                       </div>
+                      <span role="columnheader">{t.page.memory}</span>
+                      <span role="columnheader" className="hidden @5xl:block">{t.memory.categoryFilter}</span>
+                      <span role="columnheader" className="hidden @5xl:block">{t.memory.filterKind}</span>
+                      <span role="columnheader" className="hidden @5xl:block">{t.memory.fieldImportance}</span>
+                      <span role="columnheader" className="hidden @5xl:block">{t.memory.updatedAt}</span>
+                      <span aria-hidden />
                     </div>
-                  ) : null}
-                </div>
 
-                {/* Right — sticky stats column at lg+ (counts + kind/status breakdowns + reindex);
-                    full-width below the list on narrower screens. */}
-                <aside className="w-full min-w-0 lg:sticky lg:top-14 lg:w-[34%] lg:shrink-0">
-                  <MemoryOverview memories={memories.data ?? []} />
-                </aside>
+                    {layout === 'grouped' ? (
+                      sections.map((sec) => (
+                        <section key={String(sec.key)} role="rowgroup">
+                          <CategorySectionHeader
+                            category={sec.category}
+                            label={sec.category ? sec.category.name : t.memory.categoryUncategorized}
+                            count={sec.items.length}
+                          />
+                          {sec.items.map((m) => row(m))}
+                        </section>
+                      ))
+                    ) : pageItems.map((m) => row(m))}
+                  </div>
+                )}
+
+                {filtered.length > 0 ? (
+                  <div className="flex flex-col gap-2 border-b border-border/80 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="font-mono text-xs text-text-muted">
+                      {t.memory.pageRange
+                        .replace('{from}', String(clampedPage * PAGE_SIZE + 1))
+                        .replace('{to}', String(clampedPage * PAGE_SIZE + pageItems.length))
+                        .replace('{total}', String(filtered.length))}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" icon={ChevronLeft} disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>{t.memory.prevPage}</Button>
+                      <span className="min-w-24 text-center font-mono text-xs text-text-muted">
+                        {t.memory.pageLabel.replace('{page}', String(clampedPage + 1)).replace('{pages}', String(pageCount))}
+                      </span>
+                      <Button variant="ghost" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>{t.memory.nextPage}<ChevronRight size={15} className="ml-1" aria-hidden /></Button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -379,47 +412,48 @@ export function MemoryView() {
   );
 }
 
-/** Section header for the grouped-by-category list: the category's colored icon + name, a count pill and a
- *  hairline rule so each group reads as its own band. Uncategorized falls back to a muted hash. */
+/** Quiet full-width divider for a grouped page. Uncategorized falls back to a muted hash. */
 function CategorySectionHeader({ category, label, count }: { category?: MemoryCategory; label: string; count: number }) {
   const color = category ? categorySwatch(category.color) : 'var(--color-text-muted)';
   return (
-    <div className="flex items-center gap-2 px-1 pt-1">
+    <div className="flex items-center gap-2 border-b border-border/70 bg-elevated/20 px-3 py-2">
       <span className="shrink-0" style={{ color }} aria-hidden>
         {category ? <CategoryIcon name={category.icon} size={14} /> : <Hash size={14} />}
       </span>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-text">{label}</h3>
-      <span className="rounded-full bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-muted tabular-nums">{count}</span>
-      <span className="ml-1 h-px flex-1 bg-border" aria-hidden />
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text">{label}</h3>
+      <span className="font-mono text-[10px] text-text-muted tabular-nums">{count}</span>
     </div>
   );
 }
 
-/** One memory in the list: selection checkbox, body snippet, category chip + kind/importance/usage meta. */
+/** One memory = one registry row. Secondary columns progressively appear as the workspace widens. */
 function MemoryRow({ memory, category, active, selected, onSelect, onToggleSelect }: {
   memory: Memory; category?: MemoryCategory; active: boolean; selected: boolean; onSelect: () => void; onToggleSelect: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const updated = formatTaskTime(memory.updated_at, Date.now(), locale);
   return (
-    <div className={`flex items-start gap-2.5 rounded-lg border p-3 transition-colors ${active ? 'border-accent/50 bg-accent/5' : 'border-border bg-surface hover:border-border-strong'}`} style={{ boxShadow: active ? undefined : 'var(--shadow-card)' }}>
-      <button type="button" onClick={onToggleSelect} aria-label={t.memory.merge} aria-pressed={selected} className="pt-0.5">
-        <Checkbox checked={selected} />
-      </button>
-      <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left">
-        <p className="line-clamp-2 text-sm leading-snug text-text">{memory.body}</p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+    <div data-testid="memory-row" role="row" className={`group grid grid-cols-[2rem_minmax(0,1fr)_1.25rem] items-center gap-3 border-b border-border/70 px-1 py-3 transition-colors last:border-b-0 @5xl:grid-cols-[2rem_minmax(0,1fr)_11rem_8rem_6rem_7rem_1.25rem] ${active ? 'bg-accent/5' : 'hover:bg-elevated/25'}`}>
+      <div role="cell" className="flex items-center justify-center">
+        <button type="button" onClick={onToggleSelect} aria-label={t.memory.merge} aria-pressed={selected}>
+          <Checkbox checked={selected} />
+        </button>
+      </div>
+      <div role="cell" className="min-w-0">
+        <button type="button" onClick={onSelect} className="flex w-full min-w-0 items-center gap-2 text-left">
+          <span className="truncate text-sm text-text">{memory.body}</span>
           {memory.status !== 'active' ? <Badge tone={memoryStatusTone(memory.status)}>{memoryStatusLabel(t, memory.status)}</Badge> : null}
-          {category ? (
-            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-elevated px-2 py-0.5 text-[11px] font-medium text-text">
-              <span className="shrink-0" style={{ color: categorySwatch(category.color) }}><CategoryIcon name={category.icon} size={12} /></span>
-              {category.name}
-            </span>
-          ) : null}
-          {memory.kind ? <Badge><Hash size={10} className="mr-0.5" aria-hidden />{memory.kind}</Badge> : null}
-          <span className="inline-flex items-center gap-1 font-mono text-[10px] text-text-muted"><Gauge size={11} aria-hidden />{memory.importance}/5</span>
-          {memory.use_count > 0 ? <span className="font-mono text-[10px] text-text-muted">{t.memory.useCount.replace('{n}', String(memory.use_count))}</span> : null}
-        </div>
-      </button>
+        </button>
+      </div>
+      <span role="cell" className="hidden min-w-0 items-center gap-1.5 truncate text-xs text-text-muted @5xl:flex">
+        {category ? (
+          <><span className="shrink-0" style={{ color: categorySwatch(category.color) }}><CategoryIcon name={category.icon} size={12} /></span><span className="truncate">{category.name}</span></>
+        ) : <span className="italic text-text-muted/65">{t.memory.categoryUncategorized}</span>}
+      </span>
+      <span role="cell" className="hidden truncate font-mono text-xs text-text-muted @5xl:block">{memory.kind || '—'}</span>
+      <span role="cell" className="hidden items-center gap-1 font-mono text-xs text-text-muted @5xl:flex"><Gauge size={12} aria-hidden />{memory.importance}/5</span>
+      <span role="cell" title={updated.title} className="hidden items-center gap-1.5 whitespace-nowrap text-xs text-text-muted @5xl:flex"><Clock size={12} aria-hidden />{updated.label}</span>
+      <span role="cell" aria-hidden className="text-text-muted/50 transition-colors group-hover:text-text"><ChevronRight size={15} /></span>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => {}, replace: () => {} }), useSearchParams: () => new URLSearchParams() }));
 import { setupServer } from 'msw/node';
@@ -16,12 +16,15 @@ const MEMORY = {
 
 const server = setupServer(
   http.get('*/api/memory', () => HttpResponse.json([MEMORY])),
+  http.get('*/api/memory/categories', () => HttpResponse.json([])),
   http.get('*/api/memory/1', () => HttpResponse.json(MEMORY)),
   http.get('*/api/memory/events', () => HttpResponse.json([])),
   http.get('*/api/memory/1/events', () => HttpResponse.json([])),
   http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'admin', is_admin: true, allowed_execs: [], name: 'Admin', email: '', avatar: '', default_exec: '', advisor_exec: '', advisor_autostart: false, created_at: '' } })),
 );
-beforeAll(() => server.listen({ onUnhandledRequest })); afterAll(() => server.close());
+beforeAll(() => server.listen({ onUnhandledRequest }));
+afterEach(() => { server.resetHandlers(); localStorage.clear(); });
+afterAll(() => server.close());
 
 describe('MemoryPage', () => {
   it('lists memories and opens a detail on select', async () => {
@@ -31,6 +34,19 @@ describe('MemoryPage', () => {
     // Selecting the row opens the detail pane, which shows the memory id (#1).
     fireEvent.click(screen.getAllByText('Filip prefers pnpm over npm')[0]);
     await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
+  });
+
+  it('renders a flat full-width row, keeps advanced filters collapsed, and always shows the pager', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);
+    const row = await screen.findByTestId('memory-row');
+    expect(row).not.toHaveClass('rounded-lg');
+    expect(row).not.toHaveClass('bg-surface');
+    expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Kind' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    expect(screen.getByRole('combobox', { name: 'Kind' })).toBeInTheDocument();
   });
 
   it('prunes the merge selection when a filter hides the selected row', async () => {
@@ -76,6 +92,7 @@ describe('MemoryPage', () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByText('Likes pnpm')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
     fireEvent.click(screen.getByText('Group by category'));
     // Each group renders a heading: the category name and the uncategorized bucket.
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Preferences' })).toBeInTheDocument());
