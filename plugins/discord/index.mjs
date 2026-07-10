@@ -3,7 +3,7 @@
 // own rolePolicies config — to the Elowen projects they may touch plus an extra role prompt (a per-role
 // instructions pattern). Unmapped senders (and DMs, which carry no roles) are ignored.
 //
-// On top of plain chat it provides: slash commands (/model, /display, /new, /help), per-channel model
+// On top of plain chat it provides: slash commands (/model, /reasoning, /display, /new, /help), per-channel model
 // and presentation settings, a stateful live tool trace with independent answer delivery, a
 // typing indicator, proactive pushes (cron/tick echoes) via notify(), and an admin-only `discord_api`
 // tool for server management (messages, roles, channels — the whole REST surface).

@@ -53,7 +53,7 @@ export function parseModelExec(spec) {
 }
 
 /** Whether any of a member's role ids maps to a rolePolicy flagged `admin: true` (the operator's role).
- *  Used to gate the shared per-channel pickers (/model, /thinking) to the operator only. */
+ *  Used to gate the shared per-channel pickers (/model, /reasoning) to the operator only. */
 export function memberIsAdmin(roleIds, rolePolicies) {
   const ids = Array.isArray(roleIds) ? roleIds : [];
   const policies = Array.isArray(rolePolicies) ? rolePolicies : [];

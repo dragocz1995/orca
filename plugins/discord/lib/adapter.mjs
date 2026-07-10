@@ -117,7 +117,7 @@ export class DiscordAdapter {
   async registerCommands() {
     const commands = [
       { name: 'model', description: 'Pick the AI model for this channel', type: 1 },
-      { name: 'thinking', description: 'Set reasoning effort for this channel', type: 1 },
+      { name: 'reasoning', description: 'Set reasoning effort for this channel', type: 1 },
       { name: 'voice', description: 'Toggle spoken audio replies in this channel', type: 1, options: [
         { name: 'state', description: 'on or off (omit to toggle)', type: 3, required: false, choices: [
           { name: 'on', value: 'on' }, { name: 'off', value: 'off' },
@@ -210,7 +210,7 @@ export class DiscordAdapter {
   send(obj) { try { this.ws?.send(JSON.stringify(obj)); } catch { /* gateway down; reconnect handles it */ } }
 
   /** Whether the member holds a role mapped as `admin: true` — the operator's own role. Gates the
-   *  model/thinking pickers so a shared channel's settings can't be changed by an ordinary member. */
+   *  model/reasoning pickers so a shared channel's settings can't be changed by an ordinary member. */
   isAdminMember(member) {
     return memberIsAdmin(member?.roles ?? [], this.cfg.rolePolicies);
   }
@@ -233,7 +233,7 @@ export class DiscordAdapter {
         projectIds: (match.projectIds ?? []).map(Number),
         prompt: rolePrompt(match),
         model: chosen ? { provider: chosen.provider, model: chosen.model } : undefined,
-        // Per-channel reasoning effort (set via /thinking); empty = the model default.
+        // Per-channel reasoning effort (set via /reasoning); empty = the model default.
         thinkingLevel: typeof st.thinkingLevel === 'string' ? st.thinkingLevel : undefined,
         // Per-role tool allowlist (undefined or ['*'] = everything the session would normally get).
         tools: Array.isArray(match.tools) && match.tools.length > 0 ? match.tools : undefined,
@@ -429,7 +429,7 @@ export class DiscordAdapter {
           components: [{ type: 1, components: [{ type: 3, custom_id: 'pick_model', options, placeholder: 'Choose a model…' }] }],
         });
       }
-      if (name === 'thinking') {
+      if (name === 'reasoning') {
         // Same operator-only gate as /model — reasoning effort is a shared per-channel setting.
         if (!this.isAdminMember(i.member)) return this.respond(i, 4, { content: this.msg.modelForbidden, flags: 64 });
         const current = this.state.get(i.channel_id).thinkingLevel ?? '';
@@ -440,7 +440,7 @@ export class DiscordAdapter {
         return this.respond(i, 4, {
           content: this.msg.pickThinking,
           flags: 64,
-          components: [{ type: 1, components: [{ type: 3, custom_id: 'pick_thinking', options, placeholder: 'Choose reasoning effort…' }] }],
+          components: [{ type: 1, components: [{ type: 3, custom_id: 'pick_reasoning', options, placeholder: 'Choose reasoning effort…' }] }],
         });
       }
       if (name === 'voice') {
@@ -513,7 +513,7 @@ export class DiscordAdapter {
     if (i.type === 3 && typeof i.data?.custom_id === 'string' && i.data.custom_id.startsWith('ask:')) {
       return this.onAskInteraction(i);
     }
-    if (i.type === 3 && i.data?.custom_id === 'pick_thinking') {
+    if (i.type === 3 && i.data?.custom_id === 'pick_reasoning') {
       if (!this.isAdminMember(i.member)) return this.respond(i, 7, { content: this.msg.modelForbidden, components: [] });
       const v = String(i.data.values?.[0] ?? '');
       const level = v === 'default' ? '' : (THINKING_LEVELS.includes(v) ? v : '');
