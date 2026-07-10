@@ -34,10 +34,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       data-theme="dark"
       data-effects-mode="auto"
       data-effects="full"
+      style={{ backgroundColor: '#000000' }}
       suppressHydrationWarning
     >
       <head><script dangerouslySetInnerHTML={{ __html: NO_FLASH_EFFECTS }} /></head>
-      <body><EffectsProvider><Shell>{children}</Shell></EffectsProvider></body>
+      <body style={{ backgroundColor: '#000000' }}><EffectsProvider><Shell>{children}</Shell></EffectsProvider></body>
     </html>
   );
 }

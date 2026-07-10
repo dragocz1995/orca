@@ -39,9 +39,9 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
     move(event.deltaY > 0 ? 1 : -1);
   };
 
-  const centerX = compact ? 52 : 58;
-  const radiusX = compact ? 27 : 86;
-  const radiusY = compact ? 132 : 154;
+  const centerX = compact ? 64 : 72;
+  const radiusX = compact ? 34 : 108;
+  const radiusY = compact ? 148 : 178;
   const mirrored = side === 'right';
 
   return (
@@ -53,7 +53,7 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
         if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
         if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
       }}
-      className={`relative h-full shrink-0 overflow-visible ${compact ? 'w-28' : 'w-[22rem]'}`}
+      className={`relative h-full shrink-0 overflow-visible ${compact ? 'w-32' : 'w-[24rem]'}`}
     >
       <NavOrbitScene side={side} compact={compact} />
 
@@ -67,13 +67,13 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
           const active = entryIsActive(entry, pathname);
           const Icon = entry.icon;
           const position = mirrored ? { right: x } : { left: x };
-          const control = `group flex items-center gap-2 whitespace-nowrap text-left transition-[color,opacity,transform,filter] duration-300 ${focused ? 'text-accent' : active ? 'text-text' : 'text-text-muted/55 hover:text-text'} ${compact ? 'justify-center' : ''}`;
+          const control = `group flex items-center gap-2.5 whitespace-nowrap text-left transition-[color,opacity,transform,filter] duration-300 ${focused ? 'text-accent' : active ? 'text-text' : 'text-text-muted/85 hover:text-text'} ${compact ? 'justify-center' : ''}`;
           const content = (
             <>
-              <span className={`grid shrink-0 place-items-center rounded-full border backdrop-blur-md transition-[width,height,border-color,background-color,box-shadow] ${focused ? 'h-11 w-11 border-accent/45 bg-accent/12 shadow-[0_0_30px_rgb(255_82_54_/_0.18)]' : 'h-9 w-9 border-border/80 bg-black/55'}`}>
-                <Icon size={focused ? 18 : 16} strokeWidth={1.55} aria-hidden />
+              <span className={`grid shrink-0 place-items-center rounded-full border backdrop-blur-md transition-[width,height,border-color,background-color,box-shadow] ${focused ? 'h-12 w-12 border-accent/50 bg-accent/12 shadow-[0_0_34px_rgb(255_82_54_/_0.2)]' : 'h-10 w-10 border-border-strong/90 bg-black/65'}`}>
+                <Icon size={focused ? 20 : 18} strokeWidth={1.55} aria-hidden />
               </span>
-              {!compact ? <span className={`text-sm font-medium tracking-tight ${focused ? 'translate-x-0 opacity-100' : 'opacity-70'}`}>{entry.label}</span> : null}
+              {!compact ? <span className={`text-base font-medium tracking-tight ${focused ? 'translate-x-0 opacity-100' : 'opacity-90'}`}>{entry.label}</span> : null}
             </>
           );
           return (
@@ -81,7 +81,7 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
               key={entry.id ?? entry.label}
               role="listitem"
               className="absolute top-1/2 transition-[transform,opacity] duration-500 ease-[var(--ease-out)]"
-              style={{ ...position, transform: `translate(${mirrored ? '50%' : '-50%'}, calc(-50% + ${y}px)) scale(${focused ? 1 : Math.max(0.76, 0.94 - Math.abs(delta) * 0.07)})`, opacity: focused ? 1 : Math.max(0.38, 0.8 - Math.abs(delta) * 0.14), zIndex: 20 - Math.abs(delta) }}
+              style={{ ...position, transform: `translate(${mirrored ? '50%' : '-50%'}, calc(-50% + ${y}px)) scale(${focused ? 1 : Math.max(0.8, 0.96 - Math.abs(delta) * 0.06)})`, opacity: focused ? 1 : Math.max(0.58, 0.92 - Math.abs(delta) * 0.12), zIndex: 20 - Math.abs(delta) }}
             >
               {entry.href ? (
                 <Link href={entry.href} aria-current={active ? (entry.subItems?.length ? 'location' : 'page') : undefined} className={control}>
@@ -98,13 +98,13 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
       </div>
 
       {!compact && focus?.subItems?.length ? (
-        <div className={`absolute top-1/2 z-40 flex w-36 -translate-y-1/2 flex-col gap-1 border-border/80 py-2 ${mirrored ? 'right-[11.5rem] items-end border-r pr-3 text-right' : 'left-[11.5rem] border-l pl-3'}`} aria-label={focus.label}>
+        <div className={`absolute top-1/2 z-40 flex w-40 -translate-y-1/2 flex-col gap-1 border-border/80 py-2 ${mirrored ? 'right-[13.75rem] items-end border-r pr-3 text-right' : 'left-[13.75rem] border-l pl-3'}`} aria-label={focus.label}>
           <span className="mb-1 font-mono text-[9px] uppercase tracking-[.16em] text-accent/70">{focus.label}</span>
           {focus.subItems.map((item) => {
             const current = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
-              <Link key={item.id} href={item.href} aria-current={current ? 'page' : undefined} className={`flex w-full items-center gap-2 py-1.5 text-xs transition-colors ${mirrored ? 'flex-row-reverse' : ''} ${current ? 'text-text' : 'text-text-muted hover:text-text'}`}>
+              <Link key={item.id} href={item.href} aria-current={current ? 'page' : undefined} className={`flex w-full items-center gap-2 py-1.5 text-sm transition-colors ${mirrored ? 'flex-row-reverse' : ''} ${current ? 'text-text' : 'text-text-muted/85 hover:text-text'}`}>
                 {Icon ? <Icon size={13} strokeWidth={1.5} className={current ? 'text-accent' : ''} aria-hidden /> : null}
                 <span className="truncate">{item.label}</span>
               </Link>

@@ -57,7 +57,7 @@ export function NavOrbitScene({ side, compact = false }: { side: 'left' | 'right
 
       const group = new THREE.Group();
       group.rotation.set(1.08, side === 'left' ? -0.28 : 0.28, 0.08);
-      group.scale.y = compact ? 2.15 : 1.18;
+      group.scale.y = compact ? 2.35 : 1.32;
       scene.add(group);
 
       const ringGeometry = new THREE.TorusGeometry(1.43, 0.028, 12, 128);
@@ -162,7 +162,7 @@ export function NavOrbitScene({ side, compact = false }: { side: 'left' | 'right
 
   return (
     <div ref={hostRef} data-testid="orbit-webgl" aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      <span className={`absolute top-1/2 -translate-y-1/2 rounded-full border border-accent/15 shadow-[0_0_60px_rgb(255_82_54_/_0.08)] ${compact ? 'inset-x-3 h-52' : 'inset-x-8 h-80'}`} />
+      <span className={`absolute top-1/2 -translate-y-1/2 rounded-full border border-accent/15 shadow-[0_0_60px_rgb(255_82_54_/_0.08)] ${compact ? 'inset-x-3 h-60' : 'inset-x-6 h-96'}`} />
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full opacity-90" />
     </div>
   );

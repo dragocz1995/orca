@@ -37,7 +37,7 @@ describe('OrbitalNav', () => {
 
   it('collapses to an icon orbit when content room is constrained', () => {
     mount(true);
-    expect(screen.getByTestId('future-navigation')).toHaveClass('w-28');
+    expect(screen.getByTestId('future-navigation')).toHaveClass('w-32');
     expect(screen.queryByRole('link', { name: 'Stats' })).toBeNull();
   });
 });
