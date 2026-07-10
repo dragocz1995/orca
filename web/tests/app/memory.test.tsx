@@ -44,4 +44,41 @@ describe('MemoryPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Search memories…'), { target: { value: 'zzz-no-match' } });
     await waitFor(() => expect(screen.queryByText('1 selected')).not.toBeInTheDocument());
   });
+
+  it('paginates a long list and pages through it', async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...MEMORY, id: i + 1, body: `Memory ${String(i + 1).padStart(2, '0')}`,
+      updated_at: `2026-01-01 00:00:${String(i + 1).padStart(2, '0')}`,
+    }));
+    server.use(http.get('*/api/memory', () => HttpResponse.json(many)));
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);
+    // Page 1 shows a 20-row window with a pager; the newest row is here, the oldest is not.
+    await waitFor(() => expect(screen.getByText('1–20 of 25')).toBeInTheDocument());
+    expect(screen.getByText('Memory 25')).toBeInTheDocument();
+    expect(screen.queryByText('Memory 01')).not.toBeInTheDocument();
+    // Next → the last 5 rows, incl. the oldest.
+    fireEvent.click(screen.getByText('Next'));
+    await waitFor(() => expect(screen.getByText('21–25 of 25')).toBeInTheDocument());
+    expect(screen.getByText('Memory 01')).toBeInTheDocument();
+  });
+
+  it('groups the list into category sections when toggled', async () => {
+    const cats = [{ id: 7, user_id: 1, name: 'Preferences', description: '', color: '#22c55e', icon: '', is_builtin: 0, created_at: '' }];
+    const mems = [
+      { ...MEMORY, id: 1, body: 'Likes pnpm', category_id: 7 },
+      { ...MEMORY, id: 2, body: 'Loose note', category_id: null },
+    ];
+    server.use(
+      http.get('*/api/memory', () => HttpResponse.json(mems)),
+      http.get('*/api/memory/categories', () => HttpResponse.json(cats)),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByText('Likes pnpm')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Group by category'));
+    // Each group renders a heading: the category name and the uncategorized bucket.
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Preferences' })).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Uncategorized' })).toBeInTheDocument();
+  });
 });

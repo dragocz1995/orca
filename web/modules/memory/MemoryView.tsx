@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags, Trash2, RotateCcw } from 'lucide-react';
+import { Brain, Search, Plus, GitMerge, X, ListChecks, Sparkles, Hash, Gauge, Tags, Trash2, RotateCcw, Layers, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Memory, MemoryCategory } from '../../lib/types';
 import { useMemories, useMemoryCategories } from '../../lib/queries';
 import { useCreateMemory, useMergeMemories, useDeleteMemory, useRestoreMemory, usePurgeMemories, useEmptyTrash, useSetMemoryCategory } from '../../lib/mutations';
@@ -29,8 +29,11 @@ import { memoryStatusTone, memoryStatusLabel, distinctKinds, categoriesById, cat
 
 type Tab = 'list' | 'brain' | 'retrieval';
 type StatusFilter = 'active' | 'archived' | 'deleted' | 'all';
+type Layout = 'flat' | 'grouped';
 const TABS: readonly Tab[] = ['list', 'brain', 'retrieval'];
 const STATUS_VALUES: readonly StatusFilter[] = ['active', 'archived', 'deleted', 'all'];
+const LAYOUT_VALUES: readonly Layout[] = ['flat', 'grouped'];
+const PAGE_SIZE = 20;
 
 /** Memory module: a searchable master/detail list of the caller's private memories, a retrieval
  *  inspector, and (for admins) the workspace embedding settings. All data via React Query. */
@@ -51,6 +54,9 @@ export function MemoryView() {
   const [merging, setMerging] = useState(false);
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false);
+  // Flat (paginated) vs grouped-by-category display of the list; persisted like the tab/status filters.
+  const [layout, setLayout] = usePersistentState<Layout>('elowen.memory.layout', 'flat', LAYOUT_VALUES);
+  const [page, setPage] = useState(0);
 
   const { toast } = useToast();
   const del = useDeleteMemory();
@@ -73,6 +79,27 @@ export function MemoryView() {
       .filter((m) => !q || `${m.body} ${m.kind} ${m.source}`.toLowerCase().includes(q))
       .sort((a, b) => (b.updated_at > a.updated_at ? 1 : b.updated_at < a.updated_at ? -1 : 0));
   }, [memories.data, kind, categoryFilter, query]);
+
+  // Paginate the filtered rows; the grouped view then buckets the CURRENT page into category sections, so
+  // both display modes page through the same window (mirrors how Tasks groups a page into day sections).
+  useEffect(() => { setPage(0); }, [query, kind, categoryFilter, status]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const clampedPage = Math.min(page, pageCount - 1);
+  const pageItems = useMemo(() => filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE), [filtered, clampedPage]);
+
+  // Grouped view: bucket the page's rows by category in first-appearance order (the page is already sorted
+  // by recency), so the uncategorized bucket sits wherever it first shows up. Each section carries its
+  // resolved category for a colored header.
+  const sections = useMemo(() => {
+    const order: (number | 'none')[] = [];
+    const buckets = new Map<number | 'none', Memory[]>();
+    for (const m of pageItems) {
+      const key = m.category_id ?? 'none';
+      if (!buckets.has(key)) { buckets.set(key, []); order.push(key); }
+      buckets.get(key)!.push(m);
+    }
+    return order.map((key) => ({ key, category: key === 'none' ? undefined : categoryById.get(key), items: buckets.get(key)! }));
+  }, [pageItems, categoryById]);
 
   const toggleSelect = (id: number) => setSelected((cur) => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelected(new Set());
@@ -147,6 +174,18 @@ export function MemoryView() {
     label: s === 'all' ? t.memory.statusAll : memoryStatusLabel(t, s),
   }));
 
+  const row = (m: Memory) => (
+    <MemoryRow
+      key={m.id}
+      memory={m}
+      category={m.category_id != null ? categoryById.get(m.category_id) : undefined}
+      active={selectedId === m.id}
+      selected={selected.has(m.id)}
+      onSelect={() => setSelectedId(m.id)}
+      onToggleSelect={() => toggleSelect(m.id)}
+    />
+  );
+
   return (
     <>
       <ModuleHeader title={t.page.memory} count={tab === 'list' ? filtered.length : undefined} icon={Brain}>
@@ -181,6 +220,14 @@ export function MemoryView() {
                 {(categories.data ?? []).map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
               </select>
             ) : null}
+            <Button
+              variant={layout === 'grouped' ? 'accent' : 'default'}
+              icon={Layers}
+              aria-pressed={layout === 'grouped'}
+              onClick={() => setLayout(layout === 'grouped' ? 'flat' : 'grouped')}
+            >
+              {t.memory.groupByCategory}
+            </Button>
             <Button
               variant={showCategories ? 'accent' : 'default'}
               icon={Tags}
@@ -235,17 +282,35 @@ export function MemoryView() {
 
                   {filtered.length === 0 ? (
                     <EmptyState title={t.memory.emptySearch} icon={Search} />
-                  ) : filtered.map((m) => (
-                    <MemoryRow
-                      key={m.id}
-                      memory={m}
-                      category={m.category_id != null ? categoryById.get(m.category_id) : undefined}
-                      active={selectedId === m.id}
-                      selected={selected.has(m.id)}
-                      onSelect={() => setSelectedId(m.id)}
-                      onToggleSelect={() => toggleSelect(m.id)}
-                    />
-                  ))}
+                  ) : layout === 'grouped' ? (
+                    sections.map((sec) => (
+                      <section key={String(sec.key)} className="flex flex-col gap-2.5">
+                        <CategorySectionHeader
+                          category={sec.category}
+                          label={sec.category ? sec.category.name : t.memory.categoryUncategorized}
+                          count={sec.items.length}
+                        />
+                        {sec.items.map((m) => row(m))}
+                      </section>
+                    ))
+                  ) : (
+                    pageItems.map((m) => row(m))
+                  )}
+
+                  {filtered.length > PAGE_SIZE ? (
+                    <div className="mt-1 flex items-center justify-between border-t border-border pt-3">
+                      <span className="font-mono text-xs text-text-muted">
+                        {t.memory.pageRange
+                          .replace('{from}', String(clampedPage * PAGE_SIZE + 1))
+                          .replace('{to}', String(clampedPage * PAGE_SIZE + pageItems.length))
+                          .replace('{total}', String(filtered.length))}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" icon={ChevronLeft} disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>{t.memory.prevPage}</Button>
+                        <Button variant="ghost" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>{t.memory.nextPage}<ChevronRight size={15} className="ml-1" aria-hidden /></Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* Right — sticky stats column at lg+ (counts + kind/status breakdowns + reindex);
@@ -311,6 +376,22 @@ export function MemoryView() {
         onConfirm={doEmptyTrash}
       />
     </>
+  );
+}
+
+/** Section header for the grouped-by-category list: the category's colored icon + name, a count pill and a
+ *  hairline rule so each group reads as its own band. Uncategorized falls back to a muted hash. */
+function CategorySectionHeader({ category, label, count }: { category?: MemoryCategory; label: string; count: number }) {
+  const color = category ? categorySwatch(category.color) : 'var(--color-text-muted)';
+  return (
+    <div className="flex items-center gap-2 px-1 pt-1">
+      <span className="shrink-0" style={{ color }} aria-hidden>
+        {category ? <CategoryIcon name={category.icon} size={14} /> : <Hash size={14} />}
+      </span>
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-text">{label}</h3>
+      <span className="rounded-full bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-muted tabular-nums">{count}</span>
+      <span className="ml-1 h-px flex-1 bg-border" aria-hidden />
+    </div>
   );
 }
 
