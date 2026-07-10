@@ -13,7 +13,7 @@ import type { AskAnswer } from '../brain/events.js';
  *  own English strings stay the source/fallback; a `<lang>.json` supplies translations for other locales. */
 interface PluginI18n {
   description?: string;
-  fields?: Record<string, { label?: string; hint?: string }>;
+  fields?: Record<string, { label?: string; hint?: string; options?: Record<string, string> }>;
 }
 
 /** A plugin found on disk (manifest parsed, code NOT imported). What the admin UI lists. */

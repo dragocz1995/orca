@@ -250,7 +250,7 @@ export interface PluginInfo {
 /** Localized overrides for a plugin's manifest strings, keyed by config-field key. */
 interface PluginI18n {
   description?: string;
-  fields?: Record<string, { label?: string; hint?: string }>;
+  fields?: Record<string, { label?: string; hint?: string; options?: Record<string, string> }>;
 }
 
 /** One row of the plugin marketplace catalog (GET /plugins/marketplace): a curated-registry entry plus

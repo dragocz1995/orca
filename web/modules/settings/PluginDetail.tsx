@@ -32,6 +32,10 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
   const tr = detail.i18n?.[locale];
   const fieldLabel = (f: PluginConfigField) => tr?.fields?.[f.key]?.label ?? f.label;
   const fieldHint = (f: PluginConfigField) => tr?.fields?.[f.key]?.hint ?? f.hint;
+  const fieldOptions = (f: PluginConfigField) => (f.options ?? []).map((option) => ({
+    ...option,
+    label: tr?.fields?.[f.key]?.options?.[option.value] ?? option.label,
+  }));
 
   const pluginDescription = tr?.description ?? detail.description;
   const riskText = (r: 'low' | 'medium' | 'high') => (r === 'high' ? t.pluginDetail.riskHigh : r === 'medium' ? t.pluginDetail.riskMedium : t.pluginDetail.riskLow);
@@ -53,7 +57,7 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
       {/* Two-column body: the config + capability sections in the main column, a status rail on the right. */}
       <PageLayout rail={<PluginStatusRail health={health} toolCount={toolCount} hookCount={hookCount} platformCount={platformCount} />}>
         {/* Config collapsibles (schema-driven form + the cronjob/skills special sections). */}
-        <PluginConfigEditor name={name} detail={detail} fieldLabel={fieldLabel} fieldHint={fieldHint} riskText={riskText} />
+        <PluginConfigEditor name={name} detail={detail} fieldLabel={fieldLabel} fieldHint={fieldHint} fieldOptions={fieldOptions} riskText={riskText} />
 
         {/* 3 — Tools: the plugin's live tools / skills / platforms. */}
         <PluginToolsPanel contributions={contributions} />

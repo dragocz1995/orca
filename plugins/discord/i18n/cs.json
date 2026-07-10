@@ -59,19 +59,23 @@
     },
     "toolActivity": {
       "label": "Aktivita nástrojů",
-      "hint": "Vypnuto skryje pracovní stopu. Živý stav ukazuje spuštění a dokončení nástrojů. Živý výstup navíc streamuje omezený průběh run_command. Pro kanál lze přepsat přes /display."
+      "hint": "Vypnuto skryje pracovní stopu. Živý stav ukazuje spuštění a dokončení nástrojů. Živý výstup navíc streamuje omezený průběh run_command. Pro kanál lze přepsat přes /display.",
+      "options": { "off": "Vypnuto", "status": "Živý stav", "live": "Živý výstup" }
     },
     "answerMode": {
       "label": "Doručení odpovědi",
-      "hint": "Finální odpověď pošle jednu kompletní zprávu pod živou stopu nástrojů. Živě průběžně upravuje vznikající odpověď. Pro kanál lze přepsat přes /display."
+      "hint": "Finální odpověď pošle jednu kompletní zprávu pod živou stopu nástrojů. Živě průběžně upravuje vznikající odpověď. Pro kanál lze přepsat přes /display.",
+      "options": { "final": "Jen finální odpověď", "live": "Živě streamovat odpověď" }
     },
     "toolOutput": {
       "label": "Detail výstupu nástrojů",
-      "hint": "Určuje, kolik omezeného výstupu se ukáže pod stavem nástroje. Celý raw výstup se do Discordu nikdy nevypisuje."
+      "hint": "Určuje, kolik omezeného výstupu se ukáže pod stavem nástroje. Celý raw výstup se do Discordu nikdy nevypisuje.",
+      "options": { "hidden": "Jen stav", "summary": "Krátké shrnutí", "tail": "Průběžný konec výstupu" }
     },
     "toolMessageMode": {
       "label": "Rozložení zpráv nástrojů",
-      "hint": "Jedna živá zpráva udrží kanál přehledný. Jedna zpráva na nástroj dá každému volání vlastní upravovanou bublinu v Discordu."
+      "hint": "Jedna živá zpráva udrží kanál přehledný. Jedna zpráva na nástroj dá každému volání vlastní upravovanou bublinu v Discordu.",
+      "options": { "single": "Jedna živá zpráva", "per_tool": "Jedna zpráva na nástroj" }
     },
     "reactions": {
       "label": "Stavové reakce",

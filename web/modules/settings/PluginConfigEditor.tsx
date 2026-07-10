@@ -365,11 +365,12 @@ function LabeledField({ label, hint, help, risk, riskLabel, children }: {
  *  one Config collapsible or one collapsible per declared `section`. Secrets are write-only (a
  *  placeholder shows they are set) and saving hot-reloads the brain. Also hosts the cronjob/skills
  *  special sections, whose content is data (jobs.json / .md files), not config schema. */
-export function PluginConfigEditor({ name, detail, fieldLabel, fieldHint, riskText }: {
+export function PluginConfigEditor({ name, detail, fieldLabel, fieldHint, fieldOptions, riskText }: {
   name: string;
   detail: PluginDetail;
   fieldLabel: (f: PluginConfigField) => string;
   fieldHint: (f: PluginConfigField) => string | undefined;
+  fieldOptions: (f: PluginConfigField) => { value: string; label: string }[];
   riskText: (r: 'low' | 'medium' | 'high') => string;
 }) {
   const save = useSavePluginConfig();
@@ -425,10 +426,10 @@ export function PluginConfigEditor({ name, detail, fieldLabel, fieldHint, riskTe
       case 'mcpServers':
         return <McpServersEditor value={Array.isArray(values[f.key]) ? (values[f.key] as McpServerSpec[]) : []} onChange={(v) => set(f.key, v)} />;
       case 'enum':
-        return <Segmented size="sm" options={(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))} value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} />;
+        return <Segmented size="sm" options={fieldOptions(f)} value={String(values[f.key] ?? '')} onChange={(v) => set(f.key, v)} />;
       case 'multiSelect': {
         const sel = Array.isArray(values[f.key]) ? (values[f.key] as string[]) : [];
-        return <MultiSelectField label={fieldLabel(f)} options={f.options ?? []} value={sel} onChange={(v) => set(f.key, v)} />;
+        return <MultiSelectField label={fieldLabel(f)} options={fieldOptions(f)} value={sel} onChange={(v) => set(f.key, v)} />;
       }
       case 'code':
         return (
