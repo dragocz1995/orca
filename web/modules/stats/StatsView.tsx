@@ -1,8 +1,7 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { useMemo, useState, type ReactNode } from 'react';
-import { BarChart3, Boxes, Database, DollarSign, Flame, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, Database, DollarSign, type LucideIcon } from 'lucide-react';
 import { useModelUsage, useMe } from '../../lib/queries';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Button } from '../../components/ui/Button';
@@ -16,18 +15,6 @@ import { useTranslation } from '../../lib/i18n';
 import { buildUsageSummary } from './usageBars';
 import { ResetUsageModal } from './ResetUsageModal';
 
-const UsageFlame = dynamic(
-  () => import('./UsageFlame').then((module) => module.UsageFlame),
-  {
-    ssr: false,
-    loading: () => (
-      <div data-testid="usage-flame" className="relative min-h-64 w-full" aria-hidden>
-        <Flame size={92} strokeWidth={0.8} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-accent/45" />
-      </div>
-    ),
-  },
-);
-
 export function StatsView() {
   const { t } = useTranslation();
   const [rangeRaw, setRangeRaw] = usePersistentState('elowen.stats.range', serializeRange(DEFAULT_RANGE), isStoredRange);
@@ -39,10 +26,6 @@ export function StatsView() {
   const [resetOpen, setResetOpen] = useState(false);
 
   const summary = buildUsageSummary(usage.data);
-  const cacheShare = summary.totalTokens > 0 ? Math.min(1, summary.totalCacheTokens / summary.totalTokens) : 0;
-  const flameActivity = summary.hasAnyUsage
-    ? Math.min(1, 0.38 + Math.min(summary.modelsUsed, 6) * 0.07 + cacheShare * 0.16)
-    : 0.18;
 
   return (
     <>
@@ -61,8 +44,7 @@ export function StatsView() {
               <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_25%_48%,rgb(255_76_40_/_0.17),transparent_26%),radial-gradient(circle_at_72%_42%,rgb(255_255_255_/_0.035),transparent_28%),linear-gradient(rgb(255_255_255_/_0.025)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255_/_0.025)_1px,transparent_1px)] bg-[size:auto,auto,3rem_3rem,3rem_3rem]" />
               <div className="grid min-h-[29rem] items-center gap-2 @4xl:grid-cols-[minmax(18rem,.78fr)_minmax(0,1.22fr)]">
                 <div className="relative order-2 flex min-h-64 items-center justify-center @4xl:order-1 @4xl:min-h-[29rem]">
-                  <UsageFlame activity={flameActivity} label={t.stats.flameLabel} />
-                  <PageMascot size="hero" className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2" />
+                  <PageMascot size="hero" animated />
                 </div>
 
                 <div className="order-1 flex min-w-0 flex-col gap-7 px-5 pb-2 pt-7 @4xl:order-2 @4xl:px-10 @4xl:py-9">
