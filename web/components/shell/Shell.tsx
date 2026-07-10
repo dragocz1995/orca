@@ -7,6 +7,7 @@ import { LanguageProvider } from '../../lib/i18n';
 import { ToastProvider } from '../ui/Toast';
 import { LoginGate } from '../auth/LoginGate';
 import { Sidebar, type SidebarMode } from './Sidebar';
+import { OrbitalNav } from './OrbitalNav';
 import { TopBar } from './TopBar';
 import { CommandPalette } from './CommandPalette';
 import { AdvisorPanel } from '../../modules/advisor/AdvisorPanel';
@@ -22,8 +23,8 @@ import { PageHeaderProvider } from '../../lib/pageHeader';
  *  (real phones, or a dock dragged nearly full-width); below the next it auto-collapses to an icon rail
  *  so the content keeps usable room; above it the user's own pin decides. Driven by the MEASURED region
  *  width (window − dock), not the viewport — so dragging the dock adapts the chrome just like resizing. */
-const DRAWER_MAX = 720;
-const RAIL_MAX = 1000;
+const DRAWER_MAX = 760;
+const RAIL_MAX = 1240;
 
 function ShellLayout({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -53,9 +54,9 @@ function ShellLayout({ children }: { children: ReactNode }) {
   const regionW = useElementWidth(regionRef);
   const mode: SidebarMode = regionW === 0 ? 'full' : regionW < DRAWER_MAX ? 'drawer' : regionW < RAIL_MAX ? 'rail' : 'full';
 
-  const sidebar = (
-    <Sidebar mode={mode} drawerOpen={drawerOpen} onDrawerClose={() => setDrawerOpen(false)} side={dockLeft ? 'right' : 'left'} />
-  );
+  const navigation = mode === 'drawer'
+    ? <Sidebar mode="drawer" drawerOpen={drawerOpen} onDrawerClose={() => setDrawerOpen(false)} side={dockLeft ? 'right' : 'left'} />
+    : <OrbitalNav compact={mode === 'rail'} side={dockLeft ? 'right' : 'left'} />;
   const content = (
     <div className="flex min-w-0 flex-1 flex-col">
       {/* NOTE: no `container-type` here on purpose — it would make <main> a containing block for
@@ -63,10 +64,9 @@ function ShellLayout({ children }: { children: ReactNode }) {
           context menus) to it. Content views scope their own `@container` around just the grid/list
           instead, keeping overlays outside it. */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable]">
-        {/* Global top bar: breadcrumb + account/bell/theme/language. In drawer mode it also carries the
-            hamburger that opens the off-canvas sidebar. */}
+        {/* Frameless page heading + global actions. In drawer mode it also opens mobile navigation. */}
         <TopBar onMenuClick={mode === 'drawer' ? () => setDrawerOpen(true) : undefined} />
-        <div className="p-4">{children}</div>
+        <div className="px-5 pb-5">{children}</div>
       </main>
     </div>
   );
@@ -80,7 +80,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
           {dockLeft ? <AdvisorPanel dock={dock} /> : null}
           {/* The sidebar + content region — the dock sits OUTSIDE it, so this width = window − dock. */}
           <div ref={regionRef} className="flex min-w-0 flex-1 overflow-hidden">
-            {dockLeft ? <>{content}{sidebar}</> : <>{sidebar}{content}</>}
+            {dockLeft ? <>{content}{navigation}</> : <>{navigation}{content}</>}
           </div>
           {docked && dock.state.side === 'right' ? <AdvisorPanel dock={dock} /> : null}
         </div>

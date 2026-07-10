@@ -12,6 +12,15 @@ beforeAll(() => server.listen({ onUnhandledRequest })); afterAll(() => server.cl
 beforeEach(() => localStorage.clear());
 
 describe('Sidebar (registry-driven)', () => {
+  it('keeps the closed mobile drawer out of the accessibility tree', () => {
+    const { wrapper: Wrapper, client } = createWrapper();
+    client.setQueryData(['me'], { user: undefined });
+    client.setQueryData(['tasks'], []);
+    render(<Wrapper><Sidebar mode="drawer" drawerOpen={false} /></Wrapper>);
+    expect(screen.getByRole('navigation', { hidden: true })).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('navigation', { hidden: true })).toHaveAttribute('inert');
+  });
+
   it('renders the four product worlds and the admin System menu', () => {
     const { wrapper: Wrapper, client } = createWrapper();
     client.setQueryData(['me'], { user: { id: 1, username: 'admin', is_admin: true, allowed_execs: [], name: '', email: '', avatar: '', default_exec: '', created_at: '' } });

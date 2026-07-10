@@ -2,10 +2,8 @@
 import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
-/** The page title (+ optional count badge + icon) that the global TopBar shows. A page publishes it
- *  via <ModuleHeader> (which calls setHeader on mount and clears it on unmount); the TopBar reads it.
- *  This keeps the heading in the always-visible top strip while the page's own filters/actions stay
- *  below it. Lives in one shared context so the shell chrome and per-page content stay in sync. */
+/** The page title (+ optional count + icon) that the shell's frameless masthead shows. A page publishes
+ *  it via <ModuleHeader>; page-local filters and actions remain in the module body below. */
 export type PageHeader = { title?: string; count?: number; icon?: LucideIcon };
 
 const PageHeaderContext = createContext<{ header: PageHeader; setHeader: (h: PageHeader) => void } | null>(null);

@@ -16,13 +16,14 @@ const server = setupServer(
 beforeAll(() => server.listen({ onUnhandledRequest })); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
 
 describe('Shell', () => {
-  it('renders the Sidebar, content slot and a mobile menu trigger', async () => {
+  it('renders the orbital desktop navigation, frameless masthead and content slot', async () => {
     render(<Shell><span>page-body</span></Shell>);
-    // Wordmark and the new Home world appear after the async gate opens.
+    // The mascot hub and Home world appear after the async gate opens.
     expect((await screen.findAllByAltText('Elowen')).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
     expect(screen.getByText('page-body')).toBeInTheDocument();
-    // Mobile menu opens the sidebar drawer on click.
-    expect(screen.getAllByRole('button', { name: /toggle sidebar/i }).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('future-navigation')).toBeInTheDocument();
+    expect(screen.getByTestId('future-page-header')).not.toHaveClass('sticky');
+    expect(screen.getByTestId('future-page-header')).not.toHaveClass('border-b');
   });
 });

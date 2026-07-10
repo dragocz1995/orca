@@ -1,12 +1,11 @@
 'use client';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { CircleUserRound, Settings2 } from 'lucide-react';
-import { NAVIGATION_WORLDS, SYSTEM_MODULES } from '../../modules/registry';
+import { useCallback, useEffect, useRef } from 'react';
 import { useSidebarState } from '../../lib/useSidebarState';
-import { useHealth, useTasks, useMe } from '../../lib/queries';
+import { useHealth, useTasks } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { NavGroup } from './NavGroup';
+import { useShellNavigation } from './useShellNavigation';
 
 const RAIL = 68;
 const DAEMON_STATUS = {
@@ -33,51 +32,15 @@ export function Sidebar({
   const { collapsed, width, toggle, setWidth } = useSidebarState();
   const { data } = useHealth();
   const tasks = useTasks();
-  const me = useMe();
   const { t } = useTranslation();
+  const { worlds, systemItems } = useShellNavigation();
   const dragging = useRef(false);
 
-  const isAdmin = me.data?.user?.is_admin ?? false;
   const up = data?.ok === true;
   const working = (tasks.data ?? []).some((task) => task.status === 'in_progress');
   const status: keyof typeof DAEMON_STATUS = !up ? 'fail' : working ? 'busy' : 'ready';
   const drawer = mode === 'drawer';
   const expanded = drawer ? true : mode === 'rail' ? false : !collapsed;
-
-  const worlds = useMemo(() => NAVIGATION_WORLDS.map((world) => ({
-    id: world.id,
-    href: world.route,
-    label: t.nav[world.id],
-    icon: world.icon,
-    activeRoutes: [world.route, ...world.children.map((module) => module.route)],
-    subItems: world.children.length > 0
-      ? world.children.map((module) => ({
-        id: module.id,
-        href: module.route,
-        label: t.nav[module.id as keyof typeof t.nav] ?? module.label,
-        icon: module.icon,
-      }))
-      : undefined,
-  })), [t]);
-
-  const systemItems = useMemo(() => {
-    const visibleModules = isAdmin ? SYSTEM_MODULES : [];
-    return [{
-      id: 'system',
-      label: t.nav.system,
-      icon: Settings2,
-      activeRoutes: ['/account', ...visibleModules.map((module) => module.route)],
-      subItems: [
-        { id: 'account', href: '/account', label: t.nav.account, icon: CircleUserRound },
-        ...visibleModules.map((module) => ({
-          id: module.id,
-          href: module.route,
-          label: t.nav[module.id as keyof typeof t.nav] ?? module.label,
-          icon: module.icon,
-        })),
-      ],
-    }];
-  }, [isAdmin, t]);
 
   // Route changes are the only automatic drawer-close signal; the callback itself is an unstable
   // inline prop from Shell, so intentionally keep it out of this dependency list.
@@ -111,6 +74,8 @@ export function Sidebar({
 
       <nav
         aria-label={t.common.primaryNav}
+        aria-hidden={drawer && !drawerOpen ? true : undefined}
+        inert={drawer && !drawerOpen ? true : undefined}
         className={drawer
           ? `fixed inset-y-0 z-50 flex h-full w-[288px] flex-col border-border bg-surface/95 shadow-2xl backdrop-blur-xl transition-transform duration-200 ${drawerPosition}`
           : `relative flex h-full shrink-0 flex-col ${side === 'right' ? 'border-l' : 'border-r'} border-border bg-surface/80 backdrop-blur-xl transition-[width] duration-200`}

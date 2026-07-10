@@ -4,10 +4,8 @@ import type { LucideIcon } from 'lucide-react';
 import { usePageHeader } from '../../lib/pageHeader';
 import { useTranslation } from '../../lib/i18n';
 
-/** Publishes the page title (+ optional count + icon) into the global TopBar, and renders ONLY the
- *  page's own actions/filters row (and optional subtitle) below the bar. The title itself no longer
- *  renders inline — it lives in the always-visible top strip — so pages get a stable heading up top
- *  while their filters stay with the content. If a page has no children/subtitle, nothing renders here. */
+/** Publishes the page title (+ optional count + icon) into the shell masthead, and renders only the
+ *  page's actions/filters below it. If a page has no children/subtitle, nothing renders here. */
 export function ModuleHeader({ title, count, icon: Icon, children, subtitle }: { title: string; count?: number; icon?: LucideIcon; children?: ReactNode; subtitle?: string }) {
   // Depend on the stable setHeader only — the context VALUE changes whenever the header state does
   // (which this very effect writes), so listing it in the deps would re-run the effect after its own

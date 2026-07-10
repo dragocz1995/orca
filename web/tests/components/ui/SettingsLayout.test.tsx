@@ -59,7 +59,7 @@ describe('SettingsLayout', () => {
         <div>Panel</div>
       </SettingsLayout>,
     );
-    expect(screen.getByRole('complementary')).toHaveClass('lg:top-20');
-    expect(screen.getByRole('complementary')).not.toHaveClass('lg:top-5');
+    expect(screen.getByRole('complementary')).toHaveClass('lg:top-5');
+    expect(screen.getByRole('complementary')).not.toHaveClass('lg:top-20');
   });
 });

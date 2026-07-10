@@ -4,7 +4,7 @@ import { NavItem } from './NavItem';
 
 export interface NavGroupData { label: string; items: NavEntry[] }
 
-function entryIsActive(entry: NavEntry, pathname: string): boolean {
+export function entryIsActive(entry: NavEntry, pathname: string): boolean {
   const routes = entry.activeRoutes
     ?? (entry.href ? [entry.href] : entry.subItems?.map((sub) => sub.href))
     ?? [];
