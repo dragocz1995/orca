@@ -8,6 +8,7 @@ import { useHealth } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { entryIsActive } from './NavGroup';
 import { useShellNavigation } from './useShellNavigation';
+import type { NavEntry } from './NavItem';
 
 function wrapsDelta(index: number, focus: number, count: number): number {
   let delta = index - focus;
@@ -22,7 +23,12 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
   const { worlds, systemItems } = useShellNavigation();
   const health = useHealth();
   const { t } = useTranslation();
-  const entries = useMemo(() => [...worlds, ...systemItems], [worlds, systemItems]);
+  const entries = useMemo<NavEntry[]>(() => [
+    ...worlds.flatMap((world) => world.id === 'work' || world.id === 'projects'
+      ? (world.subItems ?? []).map((item) => ({ ...item, icon: item.icon ?? world.icon }))
+      : [world]),
+    ...systemItems,
+  ], [worlds, systemItems]);
   const routeIndex = Math.max(0, entries.findIndex((entry) => entryIsActive(entry, pathname)));
   const [focusIndex, setFocusIndex] = useState(routeIndex);
   const wheelAt = useRef(Number.NEGATIVE_INFINITY);
@@ -50,7 +56,7 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
 
   const centerX = 72;
   const radiusX = compact ? 44 : 112;
-  const radiusY = compact ? 165 : 205;
+  const verticalStep = compact ? 62 : 76;
   const mirrored = side === 'right';
 
   return (
@@ -69,9 +75,8 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
       <div role="list" className="absolute inset-0 z-30">
         {entries.map((entry, index) => {
           const delta = wrapsDelta(index, focusIndex, entries.length);
-          const angle = delta * 0.67;
-          const x = centerX + Math.cos(angle) * radiusX;
-          const y = Math.sin(angle) * radiusY;
+          const x = centerX + Math.cos(Math.abs(delta) * 0.34) * radiusX;
+          const y = delta * verticalStep;
           const focused = index === focusIndex;
           const active = entryIsActive(entry, pathname);
           const Icon = entry.icon;
@@ -90,14 +95,14 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
               key={entry.id ?? entry.label}
               role="listitem"
               className="absolute top-1/2 transition-[transform,opacity] duration-500 ease-[var(--ease-out)]"
-              style={{ ...position, transform: `translate(${mirrored ? '50%' : '-50%'}, calc(-50% + ${y}px)) scale(${focused ? 1 : Math.max(0.8, 0.96 - Math.abs(delta) * 0.06)})`, opacity: focused ? 1 : Math.max(0.58, 0.92 - Math.abs(delta) * 0.12), zIndex: 20 - Math.abs(delta) }}
+              style={{ ...position, transform: `translate(${mirrored ? '50%' : '-50%'}, calc(-50% + ${y}px)) scale(${focused ? 1 : Math.max(0.82, 0.98 - Math.abs(delta) * 0.035)})`, opacity: focused ? 1 : Math.max(0.68, 0.94 - Math.abs(delta) * 0.055), zIndex: 20 - Math.abs(delta) }}
             >
               {entry.href ? (
-                <Link href={entry.href} aria-current={active ? (entry.subItems?.length ? 'location' : 'page') : undefined} className={control}>
+                <Link href={entry.href} aria-label={compact ? entry.label : undefined} aria-current={active ? (entry.subItems?.length ? 'location' : 'page') : undefined} className={control}>
                   {content}
                 </Link>
               ) : (
-                <button type="button" aria-expanded={focused && !!entry.subItems?.length} className={control} onClick={() => setFocusIndex(index)}>
+                <button type="button" aria-label={compact ? entry.label : undefined} aria-expanded={focused && !!entry.subItems?.length} className={control} onClick={() => setFocusIndex(index)}>
                   {content}
                 </button>
               )}

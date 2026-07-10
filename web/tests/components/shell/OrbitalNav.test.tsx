@@ -12,31 +12,39 @@ function mount(compact = false) {
 }
 
 describe('OrbitalNav', () => {
-  it('keeps real links in the orbital navigation and exposes the active world children', () => {
+  it('exposes work and project destinations as top-level orbital links', () => {
     mount();
     expect(screen.getByTestId('future-navigation').querySelector('canvas')).toBeNull();
     expect(screen.queryByRole('img', { name: 'Elowen' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Work' })).toHaveAttribute('aria-current', 'location');
     expect(screen.getByRole('link', { name: 'Stats' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Tasks' })).toHaveAttribute('href', '/tasks');
+    expect(screen.getByRole('link', { name: 'Kanban' })).toHaveAttribute('href', '/kanban');
+    expect(screen.getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/sessions');
+    expect(screen.getByRole('link', { name: 'Timeline' })).toHaveAttribute('href', '/timeline');
+    expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute('href', '/projects');
+    expect(screen.getByRole('link', { name: 'Editor' })).toHaveAttribute('href', '/editor');
+    expect(screen.queryByRole('link', { name: 'Work' })).toBeNull();
     expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument();
   });
 
-  it('rotates focus without navigating and reveals the next world hierarchy', () => {
+  it('rotates focus without navigating and magnetically anchors the next destination', () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByRole('link', { name: 'Editor' })).toHaveAttribute('href', '/editor');
+    expect(screen.getByRole('link', { name: 'Projects' }).closest('[role="listitem"]')).toHaveStyle({ opacity: '1' });
   });
 
   it('magnetically advances one world for a deliberate wheel gesture', () => {
     mount();
     fireEvent.wheel(screen.getByTestId('future-navigation'), { deltaY: 60 });
-    expect(screen.getByRole('link', { name: 'Editor' })).toHaveAttribute('href', '/editor');
+    expect(screen.getByRole('link', { name: 'Projects' }).closest('[role="listitem"]')).toHaveStyle({ opacity: '1' });
   });
 
   it('does not move controls under the pointer and opens button-only groups on click', () => {
     mount();
+    const projects = screen.getByRole('link', { name: 'Projects' }).closest('[role="listitem"]');
+    const before = projects?.getAttribute('style');
     fireEvent.mouseEnter(screen.getByRole('link', { name: 'Projects' }));
-    expect(screen.queryByRole('link', { name: 'Editor' })).toBeNull();
+    expect(projects?.getAttribute('style')).toBe(before);
     fireEvent.click(screen.getByRole('button', { name: 'System' }));
     expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
     expect(screen.getByText('Account').closest('.orbit-branch')).toBeTruthy();
@@ -45,6 +53,6 @@ describe('OrbitalNav', () => {
   it('collapses to an icon orbit when content room is constrained', () => {
     mount(true);
     expect(screen.getByTestId('future-navigation')).toHaveClass('w-36');
-    expect(screen.queryByRole('link', { name: 'Stats' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Stats' })).toHaveAttribute('aria-current', 'page');
   });
 });
