@@ -30,10 +30,11 @@ export function validatePipelineBenchmarkReport(report) {
 
 function percentile(values, fraction) {
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ?? 0;
+  const nearestRankIndex = Math.max(0, Math.ceil(sorted.length * fraction) - 1);
+  return sorted[Math.min(sorted.length - 1, nearestRankIndex)] ?? 0;
 }
 
-function timings(values) {
+export function summarizeTimings(values) {
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   return {
     average: Number(average.toFixed(3)),
@@ -56,15 +57,19 @@ function history(turns) {
     : { role: 'assistant', text: `settled answer ${index}` });
 }
 
-export async function runPipelineBenchmark({ root = process.cwd(), samples = 20 } = {}) {
-  root = resolve(root);
-  samples = parsePositiveInteger(samples, 20);
+async function loadRuntime(root) {
   const [{ initTheme, getMarkdownTheme }, { ChatViewport }, transcript] = await Promise.all([
     import('@earendil-works/pi-coding-agent'),
     import(pathToFileURL(resolve(root, 'dist/cli/chat/layout.js')).href),
     import(pathToFileURL(resolve(root, 'dist/brain/transcript.js')).href),
   ]);
-  const { fromHistory, reduce } = transcript;
+  return { initTheme, getMarkdownTheme, ChatViewport, fromHistory: transcript.fromHistory, reduce: transcript.reduce };
+}
+
+export async function runPipelineBenchmark({ root = process.cwd(), samples = 20, runtime } = {}) {
+  root = resolve(root);
+  samples = parsePositiveInteger(samples, 20);
+  const { initTheme, getMarkdownTheme, ChatViewport, fromHistory, reduce } = runtime ?? await loadRuntime(root);
   initTheme();
 
   const results = [];
@@ -107,8 +112,8 @@ export async function runPipelineBenchmark({ root = process.cwd(), samples = 20 
     results.push({
       historyTurns,
       eventType: 'subagent',
-      reducerMs: timings(reducerSamples),
-      eventToFrameMs: timings(eventToFrameSamples),
+      reducerMs: summarizeTimings(reducerSamples),
+      eventToFrameMs: summarizeTimings(eventToFrameSamples),
     });
   }
 

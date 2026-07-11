@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { getMarkdownTheme, initTheme } from '@earendil-works/pi-coding-agent';
+import { fromHistory, reduce } from '../../../src/brain/transcript.js';
+import { ChatViewport } from '../../../src/cli/chat/layout.js';
 // The benchmark is an executable repository script rather than compiled application source.
 // @ts-expect-error JavaScript benchmark modules intentionally have no declaration file.
-import { PIPELINE_HISTORY_TURNS, validatePipelineBenchmarkReport } from '../../../scripts/tests/cli-pipeline-benchmark.mjs';
+import {
+  PIPELINE_HISTORY_TURNS,
+  runPipelineBenchmark,
+  summarizeTimings,
+  validatePipelineBenchmarkReport,
+} from '../../../scripts/tests/cli-pipeline-benchmark.mjs';
 
 describe('CLI whole-pipeline benchmark contract', () => {
   it('reports reducer and complete event-to-frame timings for every required history size', () => {
@@ -33,5 +41,47 @@ describe('CLI whole-pipeline benchmark contract', () => {
     };
 
     expect(() => validatePipelineBenchmarkReport(renderOnly)).toThrow(/reducerMs/);
+  });
+
+  it('executes reduction, state handoff and viewport rendering at every required history size', async () => {
+    const visits = { reduce: 0, setState: 0, render: 0 };
+    class InstrumentedViewport extends ChatViewport {
+      override setState(next: Parameters<ChatViewport['setState']>[0]): void {
+        visits.setState++;
+        super.setState(next);
+      }
+      override render(width: number): string[] {
+        visits.render++;
+        return super.render(width);
+      }
+    }
+    const instrumentedReduce: typeof reduce = (view, event) => {
+      visits.reduce++;
+      return reduce(view, event);
+    };
+
+    const report = await runPipelineBenchmark({
+      samples: 1,
+      runtime: {
+        initTheme,
+        getMarkdownTheme,
+        ChatViewport: InstrumentedViewport,
+        fromHistory,
+        reduce: instrumentedReduce,
+      },
+    });
+
+    expect(report.results.map((result: { historyTurns: number }) => result.historyTurns))
+      .toEqual([200, 10_000, 40_000]);
+    expect(visits).toEqual({ reduce: 3, setState: 3, render: 6 });
+    expect(report.results.every((result: { reducerMs: { average: number }; eventToFrameMs: { average: number } }) =>
+      result.reducerMs.average >= 0 && result.eventToFrameMs.average >= result.reducerMs.average)).toBe(true);
+  });
+
+  it('uses conventional nearest-rank p95 for twenty samples', () => {
+    expect(summarizeTimings(Array.from({ length: 20 }, (_, index) => index + 1))).toEqual({
+      average: 10.5,
+      p95: 19,
+    });
   });
 });

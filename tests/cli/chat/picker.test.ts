@@ -98,7 +98,6 @@ describe('picker overlay lifecycle', () => {
     const focus = vi.fn();
     const setFocus = vi.fn();
     const requestRender = vi.fn();
-    const editor = { marker: 'editor' };
     const tui = {
       terminal: { rows: 24, columns: 100 },
       showOverlay: (component: Component) => {
@@ -108,10 +107,12 @@ describe('picker overlay lifecycle', () => {
       setFocus,
       requestRender,
     } as unknown as TUI;
+    const editor = new ChatEditor(tui, { borderColor: (text) => text, selectList: getSelectListTheme() }, {});
+    editor.setText('keep this unfinished draft');
 
     openPicker({
       tui,
-      editor: editor as never,
+      editor,
       items: [{ value: 'one', label: 'One' }],
       title: 'Choose',
       onPick: vi.fn(),
@@ -122,5 +123,6 @@ describe('picker overlay lifecycle', () => {
     expect(hide).toHaveBeenCalledOnce();
     expect(setFocus).toHaveBeenCalledWith(editor);
     expect(requestRender).toHaveBeenCalledTimes(2);
+    expect(editor.getText()).toBe('keep this unfinished draft');
   });
 });
