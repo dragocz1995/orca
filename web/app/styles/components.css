@@ -280,6 +280,7 @@ html[data-effects='full'] .spatial-section-node--active .spatial-section-node__i
 .workspace-detail-rail__body { max-height: calc(100dvh - 9rem); overflow-y: auto; padding: 1rem; }
 .tasks-workspace-grid[data-detail='true'] { grid-template-columns: minmax(0, 1fr) minmax(25rem, 30rem); }
 .tasks-control-surface { width: min(100%, var(--content-max)); margin-inline: auto; }
+.editor-control-surface { min-height: min(70dvh, 54rem); }
 .tasks-register { padding: 0 clamp(1.25rem, 2vw, 2rem) 1rem; }
 .timeline-workspace-grid[data-detail='true'] { grid-template-columns: minmax(0, 1fr) minmax(24rem, 28rem); }
 .users-workspace-grid[data-detail='true'] { grid-template-columns: minmax(0, 1fr) minmax(27rem, 32rem); }

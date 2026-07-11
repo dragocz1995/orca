@@ -11,6 +11,7 @@ import { useTranslation } from '../../lib/i18n';
 import { ProjectEditor } from '../projects/editor/ProjectEditor';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { WorkspaceHeader, WorkspacePage } from '../../components/ui/WorkspacePrimitives';
+import { ControlSurfaceDocument } from '../../components/ui/ControlSurface';
 
 /** Standalone code-editor page: the very same ProjectEditor that Projects opens as an overlay, here
  *  driven by the shared project-filter pills. The editor needs one concrete project, so an 'all' (or
@@ -45,11 +46,13 @@ export function EditorView() {
           action={<ProjectFilterPills value={projectId ?? 'all'} onChange={setProject} includeAll={false} variant="dropdown" />}
         />
         <div className="workspace-content">
-          <MotionPresence mode="wait">
-            {projectId == null
-              ? <MotionLayoutItem key="empty"><EmptyState title={t.editor.noProjects} description={t.editor.noProjectsDescription} icon={Code2} /></MotionLayoutItem>
-              : <MotionLayoutItem key={projectId}><ProjectEditor projectId={projectId} onClose={onClose} fill /></MotionLayoutItem>}
-          </MotionPresence>
+          <ControlSurfaceDocument className="editor-control-surface">
+            <MotionPresence mode="wait">
+              {projectId == null
+                ? <MotionLayoutItem key="empty"><EmptyState title={t.editor.noProjects} description={t.editor.noProjectsDescription} icon={Code2} /></MotionLayoutItem>
+                : <MotionLayoutItem key={projectId}><ProjectEditor projectId={projectId} onClose={onClose} fill /></MotionLayoutItem>}
+            </MotionPresence>
+          </ControlSurfaceDocument>
         </div>
       </WorkspacePage>
     </>

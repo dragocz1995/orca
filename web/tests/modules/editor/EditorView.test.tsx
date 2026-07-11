@@ -37,8 +37,10 @@ describe('EditorView', () => {
 
   it('opens the editor on the first project by default', () => {
     const { wrapper } = createWrapper();
-    render(<EditorView />, { wrapper });
+    const { container } = render(<EditorView />, { wrapper });
     expect(screen.getByTestId('editor').textContent).toContain('project:7');
+    expect(container.querySelectorAll('[data-control-surface]')).toHaveLength(1);
+    expect(screen.queryByRole('img', { name: 'Elowen' })).toBeNull();
   });
 
   it('shows an empty state when there are no projects', () => {
