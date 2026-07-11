@@ -38,6 +38,32 @@ describe('TranscriptModel', () => {
     expect(model.changesSince(before)).toEqual({ kind: 'full', revision: model.revision });
   });
 
+  it('does not expose an old assistant plan when durable history ends with a user turn', () => {
+    const model = new TranscriptModel([
+      { role: 'assistant', text: '<proposed_plan>old</proposed_plan>' },
+      { role: 'user', text: 'new request' },
+    ]);
+
+    expect(model.lastAssistantText()).toBe('');
+  });
+
+  it('does not expose an old assistant plan when durable history ends with a compaction divider', () => {
+    const model = new TranscriptModel([
+      { role: 'assistant', text: '<proposed_plan>old</proposed_plan>' },
+      { role: 'compaction', text: '' },
+    ]);
+
+    expect(model.lastAssistantText()).toBe('');
+  });
+
+  it('clears the assistant-tail projection when a live user turn is appended', () => {
+    const model = new TranscriptModel([{ role: 'assistant', text: '<proposed_plan>old</proposed_plan>' }]);
+
+    model.apply({ type: 'user', text: 'implement something else' });
+
+    expect(model.lastAssistantText()).toBe('');
+  });
+
   it('folds streamed text, reasoning, tool lifecycle, notice, idle and error without changing UX state', () => {
     const model = new TranscriptModel();
     model.apply({ type: 'user', text: 'run it' });
@@ -96,6 +122,27 @@ describe('TranscriptModel', () => {
     });
     expect(model.subagents()).not.toBe(projection);
     expect(model.subagents()).toEqual([expect.objectContaining({ status: 'done', tools: 7 })]);
+  });
+
+  it('protects the cached sub-agent projection from caller mutation', () => {
+    const model = new TranscriptModel([{
+      role: 'assistant', text: '', segments: [{
+        kind: 'tool', id: 'delegate', name: 'delegate',
+        sub: { sessionId: 'child', status: 'running', task: 'inspect', tools: 1, seconds: 1 },
+      }],
+    }]);
+    const projection = model.subagents();
+
+    expect(Object.isFrozen(projection)).toBe(true);
+    expect(() => (projection as unknown as typeof projection[number][]).pop()).toThrow(TypeError);
+    expect(Object.isFrozen(projection[0])).toBe(true);
+    expect(() => { (projection[0] as { sessionId: string }).sessionId = 'corrupted'; }).toThrow(TypeError);
+    expect(model.subagents()).toBe(projection);
+
+    model.apply({
+      type: 'subagent', id: 'delegate', sessionId: 'child', status: 'done', task: 'inspect', tools: 2, seconds: 2,
+    });
+    expect(model.subagents()).toEqual([expect.objectContaining({ status: 'done', tools: 2 })]);
   });
 
   it('treats an unknown old tool patch as a true no-op', () => {

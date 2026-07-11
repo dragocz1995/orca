@@ -124,7 +124,7 @@ export class SubagentPanel implements Component {
   /** Row index (0-based within this panel's output) → the sub-agent session that row opens. */
   private rowTargets = new Map<number, string>();
   invalidate(): void { /* re-rendered on the next frame */ }
-  set(entries: SubagentPanelEntry[]): void { this.entries = entries.filter((e) => e.status === 'running'); }
+  set(entries: readonly SubagentPanelEntry[]): void { this.entries = entries.filter((e) => e.status === 'running'); }
   setMaxRows(rows: number): void { this.maxRows = Math.max(0, Math.floor(rows)); }
   desiredRows(): number { return this.entries.length === 0 ? 0 : this.collapsed ? 1 : this.entries.length + 1; }
   targetAt(index: number): string | null { return this.rowTargets.get(index) ?? null; }

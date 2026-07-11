@@ -11,7 +11,7 @@ import type { Flows } from './flows.js';
 export interface StreamController {
   /** Latest known state of every delegated sub-agent in the parent transcript, in first-seen order —
    *  feeds the live Sub-agents panel and the ctrl+o cycle ring. */
-  subagentStates(): SubagentPanelEntry[];
+  subagentStates(): readonly SubagentPanelEntry[];
   subagentSessions(): { sessionId: string; running: boolean }[];
   openSubagent(sessionId: string): Promise<void>;
   closeSubagent(): void;
@@ -31,7 +31,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
   // can overlap; a late A response must never overwrite the later B selection's bound view or stream.
   let switchGeneration = 0;
 
-  const subagentStates = (): SubagentPanelEntry[] => rt.transcript.subagents();
+  const subagentStates = (): readonly SubagentPanelEntry[] => rt.transcript.subagents();
   const subagentSessions = (): { sessionId: string; running: boolean }[] =>
     subagentStates().map((s) => ({ sessionId: s.sessionId, running: s.status === 'running' }));
 

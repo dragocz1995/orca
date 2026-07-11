@@ -71,12 +71,13 @@ export class TranscriptModel {
   static fromView(view: ChatView, options: TranscriptModelOptions = {}): TranscriptModel {
     const model = new TranscriptModel([], options);
     for (const turn of view.turns) model.turns.push(turn);
-    model.clearDerived();
+    model.clearDerived(true);
     for (let index = 0; index < model.turns.length; index += 1) {
       const turn = model.turns[index]!;
       model.indexTurn(index, turn, false);
-      if (turn.role === 'elowen') model.lastAssistant = assistantText(turn);
     }
+    model.lastAssistant = tailAssistantText(model.turns);
+    model.freezeSubagents();
     model.thinking = view.thinking;
     model.notice = view.notice;
     model.currentView = withChatViewChange(
@@ -91,7 +92,7 @@ export class TranscriptModel {
   get view(): ChatView { return this.currentView; }
 
   turnAt(index: number): ChatTurn | undefined { return this.turns[index]; }
-  subagents(): SubagentState[] { return this.subagentProjection; }
+  subagents(): readonly SubagentState[] { return this.subagentProjection; }
   lastAssistantText(): string { return this.lastAssistant; }
 
   replaceHistory(history: HistoryMessage[]): void {
@@ -200,6 +201,7 @@ export class TranscriptModel {
       case 'user': {
         const index = this.turns.length;
         this.turns.push({ role: 'you', text: event.text });
+        this.lastAssistant = '';
         this.thinking = true;
         this.publish({ kind: 'append', index });
         return true;
@@ -259,24 +261,25 @@ export class TranscriptModel {
   private rebuild(history: HistoryMessage[]): void {
     this.turns.length = 0;
     for (const turn of turnsFromHistory(history)) this.turns.push(turn);
-    this.clearDerived();
-    this.lastAssistant = '';
+    this.clearDerived(true);
     for (let index = 0; index < this.turns.length; index += 1) {
       const turn = this.turns[index]!;
       this.indexTurn(index, turn, false);
-      if (turn.role === 'elowen') this.lastAssistant = assistantText(turn);
     }
+    this.lastAssistant = tailAssistantText(this.turns);
+    this.freezeSubagents();
     this.thinking = false;
     this.notice = undefined;
   }
 
-  private clearDerived(): void {
+  private clearDerived(mutableProjection = false): void {
     this.toolLocations.clear();
     this.lastToolLocation = null;
     this.subagentProjection = [];
     this.subagentIndices.clear();
     this.subagentSources.clear();
     this.sourceSessions.clear();
+    if (!mutableProjection) this.freezeSubagents();
   }
 
   private indexTurn(turnIndex: number, turn: ChatTurn, cloneProjection: boolean): void {
@@ -349,15 +352,17 @@ export class TranscriptModel {
     const sources = this.subagentSources.get(sub.sessionId) ?? new Set<string>();
     sources.add(source);
     this.subagentSources.set(sub.sessionId, sources);
+    const projected = Object.freeze({ ...sub });
 
     const index = this.subagentIndices.get(sub.sessionId);
     if (clone) this.subagentProjection = this.subagentProjection.slice();
     if (index == null) {
       this.subagentIndices.set(sub.sessionId, this.subagentProjection.length);
-      this.subagentProjection.push(sub);
+      this.subagentProjection.push(projected);
     } else {
-      this.subagentProjection[index] = sub;
+      this.subagentProjection[index] = projected;
     }
+    if (clone) this.freezeSubagents();
   }
 
   private removeSubagentSource(source: string, sessionId: string, clone: boolean): void {
@@ -379,6 +384,10 @@ export class TranscriptModel {
   private visit(index: number): ChatTurn | undefined {
     this.onTurnVisit?.(index);
     return this.turns[index];
+  }
+
+  private freezeSubagents(): void {
+    Object.freeze(this.subagentProjection);
   }
 
   private publish(change: ChatViewChange): void {
@@ -406,6 +415,11 @@ function assistantText(turn: ElowenTurn): string {
     .filter((segment): segment is Extract<typeof segment, { kind: 'text' }> => segment.kind === 'text')
     .map((segment) => segment.text)
     .join('');
+}
+
+function tailAssistantText(turns: ChatTurn[]): string {
+  const tail = turns[turns.length - 1];
+  return tail?.role === 'elowen' ? assistantText(tail) : '';
 }
 
 function appendSegmentText(turn: ElowenTurn, kind: 'text' | 'reasoning', delta: string): void {
