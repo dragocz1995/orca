@@ -21,7 +21,7 @@ import { groupToolItems, type ChatView } from '../../brain/transcript.js';
 import { TranscriptModel } from '../../brain/transcriptModel.js';
 import { commandsFor } from '../../brain/slashCommands.js';
 import { createTuiDiagnostics } from './tuiDiagnostics.js';
-import { TerminalLifecycle } from './terminalLifecycle.js';
+import { ChatState } from './chatState.js';
 
 /** Plain-text rendering of the view — used for the non-TTY fallback and unit tests (no ANSI, so it's
  *  deterministic to assert on). The rich terminal path uses pi-tui components instead. */
@@ -220,21 +220,12 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   inputStack.addChild(editorSlot);
   let rateLimitRefreshGeneration = 0;
 
-  /** The shared runtime: all mutable chat state + the render/refreshMeta/quit callbacks, threaded
-   *  through every module factory below (see ChatRuntime). */
+  /** One mutable state object, augmented with fixed application services/callbacks for the current
+   * factory boundary. Task 7 switches the entrypoint itself; all production modules already share this
+   * ChatState instance rather than parallel snapshots. */
   const transcript = new TranscriptModel(history0);
-  const rt: ChatRuntime = {
-    client, tui, term, editor, editorSlot, inputStack, attachmentChips, queuedMessages,
-    promptStash: new PromptStash(),
-    shellContext: new LocalShellBuffer(),
-    mentionIndex: new FileIndex(process.cwd()),
-    commandDefs, termSettings, cwdLabel, branchLabel,
+  const state = new ChatState({
     transcript,
-    get view() { return transcript.view; },
-    childView: null,
-    childAc: null,
-    streamAc: new AbortController(),
-    // Warn ONCE about broken keybind overrides — the binds themselves fell back to their defaults.
     notice: keymap.warnings.length ? color.warning(`keybinds: ${keymap.warnings.join(' · ')} (see /keybinds)`) : '',
     modelName: boot?.model || opts.model || '',
     conversationTitle: boot?.title ?? '',
@@ -247,16 +238,19 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
     fastAvailable: boot?.fastAvailable ?? false,
     lspEnabled: boot?.lspEnabled ?? null,
     yoloOn: boot?.yolo ?? false,
-    mcpList: null,
-    rateLimits: null,
     workMode: 'build',
     cards: boot?.cards ?? [],
     queued: boot?.queued ?? [],
     processes: bootProcesses,
-    listed: [],
     showThoughts,
-    pendingImages: [],
     mentionFrecency: loadMentionFrecency(process.cwd()),
+  });
+  const rt = Object.assign(state, {
+    client, tui, term, editor, editorSlot, inputStack, attachmentChips, queuedMessages,
+    promptStash: new PromptStash(),
+    shellContext: new LocalShellBuffer(),
+    mentionIndex: new FileIndex(process.cwd()),
+    commandDefs, termSettings, cwdLabel, branchLabel,
     terminalLifecycle: null,
     render: () => { /* wired to the shell below */ },
     renderForced: () => { /* wired to the shell below */ },
@@ -288,7 +282,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
       if (st) { rt.modelName = st.model || rt.modelName; rt.conversationTitle = st.title ?? rt.conversationTitle; rt.lineCfg = st.statusline; rt.usage = st.usage; rt.thinkingLevel = st.thinkingLevel ?? ''; rt.thinkingLevels = st.thinkingLevels ?? []; rt.thinkingLevelLabels = st.thinkingLevelLabels ?? {}; rt.fastOn = st.fast ?? false; rt.fastAvailable = st.fastAvailable ?? false; rt.cards = st.cards ?? []; rt.queued = st.queued ?? []; rt.lspEnabled = st.lspEnabled ?? null; rt.yoloOn = st.yolo ?? rt.yoloOn; }
       rt.mcpList = mcp;
     },
-  };
+  }) as ChatRuntime;
   await rt.refreshMeta();
 
   const flows = createFlows(rt);
@@ -296,17 +290,7 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
   const shell = createShell(rt, stream, mdTheme, diagnostics);
   rt.render = shell.render;
   rt.renderForced = shell.renderForced;
-  const terminalLifecycle = new TerminalLifecycle({
-    term,
-    tui,
-    scheduler: {
-      pause: shell.pauseRendering,
-      resume: shell.resumeRendering,
-      stop: shell.stopRendering,
-    },
-    forceRender: shell.renderForced,
-    beforeStop: shell.hideOverlays,
-  });
+  const terminalLifecycle = shell.terminalLifecycle;
   rt.terminalLifecycle = terminalLifecycle;
   const pickers = createPickers(rt, stream, { reshowPanel: shell.reshowPanel, reloadKeymap: shell.reloadKeymap });
   wireSubmit(rt, { stream, pickers });
