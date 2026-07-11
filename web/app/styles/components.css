@@ -57,7 +57,32 @@ html[data-effects='full'] .card-interactive:hover { transform: translateY(-1px);
   .adaptive-split { grid-template-columns: minmax(0, 1fr) var(--adaptive-aside, 19rem); align-items: start; }
 }
 
-/* Spatial control surface -------------------------------------------------- */
+/* Spatial control deck ----------------------------------------------------- */
+.spatial-control-deck { container-type: inline-size; width: 100%; max-width: var(--content-max); margin-inline: auto; padding: 0 var(--shell-gutter) 3rem; }
+.spatial-deck-heading { display: flex; min-height: 8rem; flex-direction: column; justify-content: center; padding: 0.6rem 0 1rem; }
+.spatial-deck-heading__eyebrow { margin-bottom: 0.65rem; font-family: var(--font-mono); color: color-mix(in srgb, var(--color-accent) 68%, var(--color-text-muted)); font-size: 0.62rem; font-weight: 650; letter-spacing: 0.19em; text-transform: uppercase; }
+.spatial-deck-heading h1 { color: var(--color-text); font-size: clamp(2.15rem, 1.72rem + 1.2vw, 3.1rem); font-weight: 610; letter-spacing: -0.045em; line-height: 0.96; }
+.spatial-deck-heading p { max-width: 42rem; margin-top: 0.75rem; color: var(--color-text-muted); font-size: 0.84rem; line-height: 1.55; }
+.spatial-deck-hero { position: relative; display: grid; grid-template-columns: minmax(25rem, 0.56fr) minmax(34rem, 1.44fr); min-height: 20.75rem; border-block: var(--hairline); background: radial-gradient(circle at 18% 54%, rgb(255 82 54 / 0.075), transparent 24%), linear-gradient(90deg, rgb(255 255 255 / 0.012), transparent 46%); overflow: clip; }
+.spatial-deck-hero__mascot { position: relative; min-width: 0; pointer-events: none; }
+.spatial-deck-hero__mascot::after { content: ''; position: absolute; right: 0; bottom: 12%; width: 46%; height: 1px; background: linear-gradient(90deg, transparent, rgb(255 82 54 / 0.36)); box-shadow: 0 0 10px rgb(255 82 54 / 0.16); }
+.spatial-deck-hero__content { position: relative; z-index: 4; display: flex; min-width: 0; align-items: center; padding: 2rem clamp(1rem, 2vw, 2.5rem); }
+.spatial-deck-hero__save { position: absolute; right: 0.25rem; bottom: 0.7rem; z-index: 5; }
+.spatial-section-rail { position: relative; width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; }
+.spatial-section-rail::-webkit-scrollbar { display: none; }
+.spatial-section-rail__track { position: relative; display: flex; width: max(100%, 68rem); min-height: 8.2rem; align-items: flex-start; padding: 1.25rem 0 0.85rem; }
+.spatial-section-rail__track::before { content: ''; position: absolute; top: 2.95rem; right: 3.4rem; left: 3.4rem; height: 1px; background: linear-gradient(90deg, transparent, rgb(255 82 54 / 0.34) 4%, rgb(255 82 54 / 0.2) 96%, transparent); }
+.spatial-section-node { position: relative; z-index: 1; display: flex; min-width: 7rem; flex: 1 0 7rem; flex-direction: column; align-items: center; gap: 0.72rem; color: var(--color-text-muted); font-size: 0.78rem; transition: color var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
+.spatial-section-node:hover { color: var(--color-text); transform: translateY(-2px); }
+.spatial-section-node__icon { display: grid; width: 3.45rem; height: 3.45rem; place-items: center; border: 1px solid var(--color-border-strong); border-radius: 50%; background: #050505; box-shadow: 0 0 0 6px #000, inset 0 1px rgb(255 255 255 / 0.025); transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
+.spatial-section-node--active { color: var(--color-accent); font-weight: 570; }
+.spatial-section-node--active .spatial-section-node__icon { border-color: var(--color-accent); background: radial-gradient(circle, rgb(255 82 54 / 0.14), #050505 68%); box-shadow: 0 0 0 6px #000, var(--glow-active), inset 0 0 20px rgb(255 82 54 / 0.09); transform: scale(1.1); }
+.spatial-section-node:focus-visible { outline: none; }
+.spatial-section-node:focus-visible .spatial-section-node__icon { outline: 2px solid var(--color-text); outline-offset: 5px; }
+.spatial-section-node__label { white-space: nowrap; }
+.spatial-content-surface { min-width: 0; border-block: var(--hairline); background: linear-gradient(180deg, rgb(255 255 255 / 0.012), transparent 11rem); padding: 0.25rem 0 2rem; }
+
+/* Legacy orbital control surface; removed after Account and Settings migrate. */
 .spatial-control-surface {
   container-type: inline-size;
   display: grid;
@@ -398,6 +423,12 @@ html[data-effects='full'] .card-interactive:hover { transform: translateY(-1px);
 }
 
 @media (max-width: 900px) {
+  .spatial-control-deck { padding-inline: 1rem; }
+  .spatial-deck-heading { min-height: 7rem; }
+  .spatial-deck-hero { grid-template-columns: minmax(15rem, 0.72fr) minmax(22rem, 1.28fr); min-height: 17rem; }
+  .spatial-deck-hero__content { padding-inline: 1rem; }
+  .spatial-section-rail__track { width: max-content; min-width: 100%; }
+  .spatial-section-node { min-width: 7.5rem; flex-basis: 7.5rem; }
   .spatial-control-surface { display: flex; flex-direction: column; padding-inline: 1rem; }
   .spatial-control-surface__orbit { position: static; display: block; width: 100%; height: auto; min-height: 0; }
   .spatial-orbit-stage { display: block; width: 100%; aspect-ratio: auto; transform: none; }
@@ -411,6 +442,16 @@ html[data-effects='full'] .card-interactive:hover { transform: translateY(-1px);
 }
 
 @media (max-width: 620px) {
+  .spatial-control-deck { padding-inline: 0.65rem; }
+  .spatial-deck-heading { min-height: 6.4rem; padding-inline: 0.35rem; }
+  .spatial-deck-heading h1 { font-size: 2rem; }
+  .spatial-deck-hero { display: block; min-height: 20rem; }
+  .spatial-deck-hero__mascot { position: absolute; inset: 0 auto auto 0; width: 100%; height: 12rem; opacity: 0.82; }
+  .spatial-deck-hero__content { min-height: 20rem; align-items: flex-end; padding: 8.5rem 0.7rem 2rem; }
+  .spatial-section-rail__track { min-height: 6.7rem; padding-top: 0.85rem; }
+  .spatial-section-rail__track::before { top: 2.55rem; }
+  .spatial-section-node { min-width: 6.75rem; flex-basis: 6.75rem; gap: 0.55rem; font-size: 0.72rem; }
+  .spatial-section-node__icon { width: 3.15rem; height: 3.15rem; }
   .spatial-control-surface { padding-inline: 0.65rem; }
   .spatial-document { border-inline: 0; border-radius: 0; }
   .spatial-document__header { min-height: 6.5rem; padding: 1.25rem 1rem; }
