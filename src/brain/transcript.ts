@@ -90,13 +90,16 @@ export type AccumulatedChatViewChange =
 
 interface ChatViewChangeLink {
   change: ChatViewChange;
-  previous?: ChatView;
+  /** Weak by design: the currently displayed view must not retain every immutable streaming snapshot.
+   * If GC collects a predecessor before the next frame, the renderer safely falls back to reference
+   * reconciliation; within one event-loop job WeakRef targets remain available for burst coalescing. */
+  previous?: WeakRef<ChatView>;
 }
 
 const chatViewChanges = new WeakMap<ChatView, ChatViewChangeLink>();
 
 function withChange(view: ChatView, change: ChatViewChange, previous?: ChatView): ChatView {
-  chatViewChanges.set(view, { change, previous });
+  chatViewChanges.set(view, { change, ...(previous ? { previous: new WeakRef(previous) } : {}) });
   return view;
 }
 
@@ -118,8 +121,9 @@ export function getChatViewChange(view: ChatView, since?: ChatView): ChatViewCha
     if (link.change.kind === 'append' || link.change.kind === 'turn') {
       suffixFrom = Math.min(suffixFrom, link.change.index);
     }
-    if (!link.previous) return undefined;
-    cursor = link.previous;
+    const previous = link.previous?.deref();
+    if (!previous) return undefined;
+    cursor = previous;
   }
   return Number.isFinite(suffixFrom) ? { kind: 'suffix', from: suffixFrom } : { kind: 'none' };
 }
