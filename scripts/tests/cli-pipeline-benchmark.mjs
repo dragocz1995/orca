@@ -3,6 +3,20 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 export const PIPELINE_HISTORY_TURNS = Object.freeze([200, 10_000, 40_000]);
+export const PIPELINE_SAMPLE_COUNT = 20;
+
+const PIPELINE_OPERATION_LIMITS = Object.freeze({
+  steadyTurnVisits: 1,
+  renderedTurns: 1,
+  reconciledTurns: 1,
+  indexedTurns: 64,
+  indexedTurnDelta: 1,
+  cachedRows: 2_048,
+  layoutVisits: 1,
+  heightIndexOperations: 512,
+  scrollOffset: 0,
+  maxScrollOffset: 64,
+});
 
 function finiteTiming(value) {
   return value
@@ -10,6 +24,58 @@ function finiteTiming(value) {
     && value.average >= 0
     && Number.isFinite(value.p95)
     && value.p95 >= 0;
+}
+
+function finiteCount(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function validateCounter(name, value, samples, maxPerSample, perSampleKey, totalKey = 'total') {
+  if (!value || !finiteCount(value[totalKey]) || !finiteCount(value[perSampleKey])) {
+    throw new Error(`missing or invalid operations.${name}`);
+  }
+  if (value[totalKey] < value[perSampleKey] || value[totalKey] > samples * maxPerSample) {
+    throw new Error(`unbounded operations.${name}`);
+  }
+  if (value[perSampleKey] > maxPerSample) throw new Error(`unbounded operations.${name}`);
+}
+
+function validateStateCount(name, value, limit, deltaLimit) {
+  if (!value || !['initial', 'final', 'max'].every((key) => finiteCount(value[key]))) {
+    throw new Error(`missing or invalid operations.${name}`);
+  }
+  if (value.max > limit || value.initial > value.max || value.final > value.max) {
+    throw new Error(`unbounded operations.${name}`);
+  }
+  if (deltaLimit != null) {
+    if (!finiteCount(value.maxDeltaPerFrame) || value.maxDeltaPerFrame > deltaLimit) {
+      throw new Error(`unbounded operations.${name}`);
+    }
+  }
+}
+
+function validateRange(name, value, limit) {
+  if (!value || !['initial', 'final', 'min', 'max'].every((key) => finiteCount(value[key]))) {
+    throw new Error(`missing or invalid operations.${name}`);
+  }
+  if (value.min > value.max || value.initial < value.min || value.initial > value.max
+    || value.final < value.min || value.final > value.max || value.max > limit) {
+    throw new Error(`unbounded operations.${name}`);
+  }
+}
+
+function validateOperations(value, samples) {
+  if (!value || typeof value !== 'object') throw new Error('missing operations');
+  validateCounter('reducerTurnVisits', value.reducerTurnVisits, samples, PIPELINE_OPERATION_LIMITS.steadyTurnVisits, 'maxPerEvent');
+  validateCounter('viewportTurnVisits', value.viewportTurnVisits, samples, PIPELINE_OPERATION_LIMITS.steadyTurnVisits, 'maxPerFrame');
+  validateCounter('renderedTurns', value.renderedTurns, samples, PIPELINE_OPERATION_LIMITS.renderedTurns, 'maxPerFrame');
+  validateCounter('reconciledTurns', value.reconciledTurns, samples, PIPELINE_OPERATION_LIMITS.reconciledTurns, 'maxPerFrame');
+  validateStateCount('indexedTurns', value.indexedTurns, PIPELINE_OPERATION_LIMITS.indexedTurns, PIPELINE_OPERATION_LIMITS.indexedTurnDelta);
+  validateStateCount('cachedRows', value.cachedRows, PIPELINE_OPERATION_LIMITS.cachedRows);
+  validateCounter('layoutVisits', value.layoutVisits, samples, PIPELINE_OPERATION_LIMITS.layoutVisits, 'maxPerFrame');
+  validateCounter('heightIndexOperations', value.heightIndexOperations, samples, PIPELINE_OPERATION_LIMITS.heightIndexOperations, 'maxDeltaPerFrame', 'totalDelta');
+  validateRange('scrollOffset', value.scrollOffset, PIPELINE_OPERATION_LIMITS.scrollOffset);
+  validateRange('maxScrollOffset', value.maxScrollOffset, PIPELINE_OPERATION_LIMITS.maxScrollOffset);
 }
 
 /** Keep the machine-readable baseline useful to later rewrite tasks. A render-only benchmark is not a
@@ -25,6 +91,7 @@ export function validatePipelineBenchmarkReport(report) {
     if (result.eventType !== 'subagent') throw new Error(`unexpected event type for ${historyTurns}-turn history`);
     if (!finiteTiming(result.reducerMs)) throw new Error(`missing or invalid reducerMs for ${historyTurns}-turn history`);
     if (!finiteTiming(result.eventToFrameMs)) throw new Error(`missing or invalid eventToFrameMs for ${historyTurns}-turn history`);
+    validateOperations(result.operations, report.samples);
   }
 }
 
@@ -47,6 +114,46 @@ function parsePositiveInteger(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function max(values) {
+  return values.length > 0 ? Math.max(...values) : 0;
+}
+
+function counter(values, perSampleKey, totalKey = 'total') {
+  return {
+    [totalKey]: values.reduce((sum, value) => sum + value, 0),
+    [perSampleKey]: max(values),
+  };
+}
+
+function stateCount(initial, values, withDelta = false) {
+  const all = [initial, ...values];
+  const result = {
+    initial,
+    final: values.at(-1) ?? initial,
+    max: max(all),
+  };
+  if (withDelta) {
+    let previous = initial;
+    const deltas = values.map((value) => {
+      const delta = Math.max(0, value - previous);
+      previous = value;
+      return delta;
+    });
+    result.maxDeltaPerFrame = max(deltas);
+  }
+  return result;
+}
+
+function range(initial, values) {
+  const all = [initial, ...values];
+  return {
+    initial,
+    final: values.at(-1) ?? initial,
+    min: Math.min(...all),
+    max: max(all),
+  };
+}
+
 function history(turns) {
   return Array.from({ length: turns }, (_, index) => index === 0
     ? {
@@ -66,7 +173,7 @@ async function loadRuntime(root) {
   return { initTheme, getMarkdownTheme, ChatViewport, TranscriptModel };
 }
 
-export async function runPipelineBenchmark({ root = process.cwd(), samples = 20, runtime } = {}) {
+export async function runPipelineBenchmark({ root = process.cwd(), samples = PIPELINE_SAMPLE_COUNT, runtime } = {}) {
   root = resolve(root);
   samples = parsePositiveInteger(samples, 20);
   const { initTheme, getMarkdownTheme, ChatViewport, TranscriptModel } = runtime ?? await loadRuntime(root);
@@ -74,7 +181,10 @@ export async function runPipelineBenchmark({ root = process.cwd(), samples = 20,
 
   const results = [];
   for (const historyTurns of PIPELINE_HISTORY_TURNS) {
-    const parentTranscript = new TranscriptModel(history(historyTurns));
+    let turnVisits = 0;
+    const parentTranscript = new TranscriptModel(history(historyTurns), {
+      onTurnVisit: () => { turnVisits += 1; },
+    });
     const state = { parentTranscript, childTranscript: null };
     const viewport = new ChatViewport(
       {
@@ -85,9 +195,21 @@ export async function runPipelineBenchmark({ root = process.cwd(), samples = 20,
       getMarkdownTheme(), () => 18, () => 1, () => 80,
     );
     viewport.render(80);
+    const initialMetrics = viewport.metrics();
 
     const reducerSamples = [];
     const eventToFrameSamples = [];
+    const reducerTurnVisits = [];
+    const viewportTurnVisits = [];
+    const renderedTurns = [];
+    const reconciledTurns = [];
+    const indexedTurns = [];
+    const cachedRows = [];
+    const layoutVisits = [];
+    const heightIndexOperations = [];
+    const scrollOffsets = [];
+    const maxScrollOffsets = [];
+    let previousMetrics = initialMetrics;
     for (let index = 0; index < samples; index += 1) {
       const event = {
         type: 'subagent',
@@ -101,20 +223,34 @@ export async function runPipelineBenchmark({ root = process.cwd(), samples = 20,
       };
       const eventStarted = performance.now();
       const reducerStarted = performance.now();
+      const visitsBeforeReducer = turnVisits;
       parentTranscript.apply(event);
       reducerSamples.push(performance.now() - reducerStarted);
+      reducerTurnVisits.push(turnVisits - visitsBeforeReducer);
 
       // This deliberately mirrors the current application handoff instead of calling render in
       // isolation: apply the BrainEvent, publish parent state, select the active view, then frame it.
       state.parentTranscript = parentTranscript;
       const activeTranscript = state.childTranscript ?? state.parentTranscript;
+      const visitsBeforeViewport = turnVisits;
       viewport.setState({
         transcript: activeTranscript,
         transcriptNotice: activeTranscript.notice,
         notice: '', modelName: 'benchmark', thinkingSeconds: 0,
       });
       viewport.render(80);
+      const metrics = viewport.metrics();
       eventToFrameSamples.push(performance.now() - eventStarted);
+      viewportTurnVisits.push(turnVisits - visitsBeforeViewport);
+      renderedTurns.push(metrics.renderedTurns);
+      reconciledTurns.push(metrics.reconciledTurns);
+      indexedTurns.push(metrics.indexedTurns);
+      cachedRows.push(metrics.cachedRows);
+      layoutVisits.push(metrics.layoutVisits);
+      heightIndexOperations.push(Math.max(0, metrics.heightIndexOperations - previousMetrics.heightIndexOperations));
+      scrollOffsets.push(metrics.scrollOffset);
+      maxScrollOffsets.push(metrics.maxScrollOffset);
+      previousMetrics = metrics;
     }
 
     results.push({
@@ -122,6 +258,18 @@ export async function runPipelineBenchmark({ root = process.cwd(), samples = 20,
       eventType: 'subagent',
       reducerMs: summarizeTimings(reducerSamples),
       eventToFrameMs: summarizeTimings(eventToFrameSamples),
+      operations: {
+        reducerTurnVisits: counter(reducerTurnVisits, 'maxPerEvent'),
+        viewportTurnVisits: counter(viewportTurnVisits, 'maxPerFrame'),
+        renderedTurns: counter(renderedTurns, 'maxPerFrame'),
+        reconciledTurns: counter(reconciledTurns, 'maxPerFrame'),
+        indexedTurns: stateCount(initialMetrics.indexedTurns, indexedTurns, true),
+        cachedRows: stateCount(initialMetrics.cachedRows, cachedRows),
+        layoutVisits: counter(layoutVisits, 'maxPerFrame'),
+        heightIndexOperations: counter(heightIndexOperations, 'maxDeltaPerFrame', 'totalDelta'),
+        scrollOffset: range(initialMetrics.scrollOffset, scrollOffsets),
+        maxScrollOffset: range(initialMetrics.maxScrollOffset, maxScrollOffsets),
+      },
     });
   }
 
@@ -142,7 +290,7 @@ if (import.meta.url === invokedPath) {
   const samplesArg = process.argv.indexOf('--samples');
   const report = await runPipelineBenchmark({
     root: rootArg >= 0 ? process.argv[rootArg + 1] : process.cwd(),
-    samples: samplesArg >= 0 ? process.argv[samplesArg + 1] : 20,
+    samples: samplesArg >= 0 ? process.argv[samplesArg + 1] : PIPELINE_SAMPLE_COUNT,
   });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }

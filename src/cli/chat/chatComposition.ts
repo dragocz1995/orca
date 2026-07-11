@@ -657,10 +657,14 @@ export function createChatComposition(
         : undefined;
       const transcript = hasMessages() ? activeViewport().metrics() : null;
       const frame = renderOwner.takeFrame();
-      const sections = currentBudget?.sections ?? {
-        header: TOP_RULE_ROWS,
-        transcript: Math.max(0, term.rows - TOP_RULE_ROWS),
-        cards: 0, subagents: 0, queue: 0, attachments: 0, editor: 0, status: 1, hints: 0,
+      const startHeaderRows = Math.min(TOP_RULE_ROWS, lines.length);
+      const startStatusRows = Math.min(1, Math.max(0, lines.length - startHeaderRows));
+      const sections = hasMessages() && currentBudget ? currentBudget.sections : {
+        header: startHeaderRows,
+        transcript: Math.max(0, lines.length - startHeaderRows - startStatusRows),
+        cards: 0, subagents: 0, queue: 0, attachments: 0, editor: 0,
+        status: startStatusRows,
+        hints: 0,
       };
       diagnostics.record({
         type: 'frame',
@@ -673,11 +677,21 @@ export function createChatComposition(
         transcriptRowsExact: transcript?.transcriptRowsExact ?? true,
         visibleRows: transcript?.visibleRows ?? 0,
         renderedTurns: transcript?.renderedTurns ?? 0,
+        reconciledTurns: transcript?.reconciledTurns ?? 0,
         indexedTurns: transcript?.indexedTurns ?? 0,
         cachedRows: transcript?.cachedRows ?? 0,
+        layoutVisits: transcript?.layoutVisits ?? 0,
+        scrollOffset: transcript?.scrollOffset ?? 0,
+        maxScrollOffset: transcript?.maxScrollOffset ?? 0,
+        heightIndexOperations: transcript?.heightIndexOperations ?? 0,
         terminal: { columns: term.columns, rows: term.rows },
         sections: { ...sections },
         rootRows: lines.length,
+        // Width traversal is diagnostics-only: the disabled sink remains a constant-time no-op in the
+        // normal CLI, while perf/debug logs can machine-check the final root column invariant.
+        maxVisibleWidth: diagnostics.enabled
+          ? lines.reduce((maximum, line) => Math.max(maximum, visibleWidth(line)), 0)
+          : 0,
         reverseSpans,
       });
       return lines;

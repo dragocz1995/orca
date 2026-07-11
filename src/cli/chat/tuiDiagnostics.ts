@@ -14,11 +14,17 @@ interface TuiFrameDiagnostic {
   transcriptRowsExact?: boolean;
   visibleRows: number;
   renderedTurns: number;
-  indexedTurns?: number;
-  cachedRows?: number;
+  reconciledTurns: number;
+  indexedTurns: number;
+  cachedRows: number;
+  layoutVisits: number;
+  scrollOffset: number;
+  maxScrollOffset: number;
+  heightIndexOperations: number;
   terminal: { columns: number; rows: number };
   sections: Record<string, number>;
   rootRows: number;
+  maxVisibleWidth: number;
   /** ANSI reverse-video spans by row/column, without transcript text. Useful for distinguishing a real
    * component cursor/selection from a stale terminal cell while keeping diagnostics content-free. */
   reverseSpans?: { stage: 'raw' | 'constrained'; row: number; from: number; to: number }[];

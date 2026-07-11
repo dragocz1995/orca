@@ -9,6 +9,7 @@ import { OverlayController } from '../../../src/cli/chat/overlayController.js';
 import { RenderShell } from '../../../src/cli/chat/renderShell.js';
 import { createChatComposition } from '../../../src/cli/chat/chatComposition.js';
 import type { ChatComposition, ShellInputDeps } from '../../../src/cli/chat/chatComposition.js';
+import type { TuiDiagnostics } from '../../../src/cli/chat/tuiDiagnostics.js';
 import { startScreenBox, startScreenInputTop, TOP_RULE_ROWS } from '../../../src/cli/chat/startScreen.js';
 import { TerminalLifecycle } from '../../../src/cli/chat/terminalLifecycle.js';
 import { terminalPlainText } from '../../../src/cli/ui/text.js';
@@ -314,6 +315,60 @@ describe('chat application shell ownership', () => {
     composition.renderShell.stop();
     expect(h.tui.listeners.size).toBe(0);
     expect(h.tui.children).toHaveLength(1);
+  });
+
+  it('records content-free frame geometry and bounded viewport work for machine analysis', () => {
+    const h = compositionHarness({ columns: 80, rows: 24, turns: 40 });
+    const events: Record<string, unknown>[] = [];
+    const diagnostics: TuiDiagnostics = {
+      enabled: true,
+      path: '/tmp/unused-test-diagnostics.jsonl',
+      record: (event) => events.push(event as unknown as Record<string, unknown>),
+      close: async () => {},
+    };
+    const composition = createChatComposition(
+      h.rt, h.resources, { quit: vi.fn() }, h.stream, h.mdTheme, diagnostics,
+    );
+    composition.attachInput(noopInput);
+    const rendered = composition.root.render(h.term.columns);
+    const frame = events.find((event) => event.type === 'frame');
+
+    expect(frame).toMatchObject({
+      maxVisibleWidth: Math.max(...rendered.map(visibleWidth)),
+      reconciledTurns: expect.any(Number),
+      layoutVisits: expect.any(Number),
+      scrollOffset: expect.any(Number),
+      maxScrollOffset: expect.any(Number),
+      heightIndexOperations: expect.any(Number),
+      rootRows: h.term.rows,
+    });
+    expect(Object.values(frame?.sections as Record<string, number>)
+      .reduce((sum, value) => sum + value, 0)).toBe(frame?.rootRows);
+    expect(JSON.stringify(frame)).not.toContain('question 0');
+    expect(JSON.stringify(frame)).not.toContain('answer 0');
+    composition.dispose();
+    composition.renderShell.stop();
+  });
+
+  it('reports a section total equal to the constrained root on the start screen too', () => {
+    const h = compositionHarness({ columns: 40, rows: 15, turns: 0 });
+    const events: Record<string, unknown>[] = [];
+    const diagnostics: TuiDiagnostics = {
+      enabled: true,
+      path: '/tmp/unused-start-diagnostics.jsonl',
+      record: (event) => events.push(event as unknown as Record<string, unknown>),
+      close: async () => {},
+    };
+    const composition = createChatComposition(
+      h.rt, h.resources, { quit: vi.fn() }, h.stream, h.mdTheme, diagnostics,
+    );
+    composition.attachInput(noopInput);
+    composition.root.render(h.term.columns);
+    const frame = events.find((event) => event.type === 'frame');
+    expect(Object.values(frame?.sections as Record<string, number>)
+      .reduce((sum, value) => sum + value, 0)).toBe(frame?.rootRows);
+    composition.dispose();
+    composition.renderShell.stop();
   });
 
   it('resets a prior chat allocation before rendering the same editor on the roomy start screen', async () => {
