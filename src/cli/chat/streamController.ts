@@ -371,7 +371,11 @@ export function createStreamController(
     await lease.hydrate(
       (signal) => client.history(started.sessionId, signal),
       {
-        commit: (history) => { if (current() && lease.isCurrent()) rt.transcript.replaceHistory(history); },
+        commit: (history) => {
+          if (!current() || !lease.isCurrent()) return;
+          rt.transcript.replaceHistory(history);
+          clearHydrationNotice('parent');
+        },
         retain: (_replay, error) => {
           if (!current() || !lease.isCurrent()) return;
           publishHydrationNotice('parent', 'conversation', error);

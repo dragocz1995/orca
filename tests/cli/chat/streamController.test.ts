@@ -361,6 +361,36 @@ describe('streamController — bounded hydration lifecycle', () => {
     stream.stop();
   });
 
+  it('clears only the parent hydration notice after a successful session history switch', async () => {
+    const client = {
+      start: async () => ({ sessionId: 'B' }),
+      history: async () => [{ role: 'assistant', text: 'new session B history' }],
+      // Deliberately publish no snapshot: the successful history commit itself owns recovery.
+      stream: async () => {},
+      rebind: () => {},
+    } as unknown as BrainClient;
+    const keymapWarning = '\u001b[33mkeybinds: invalid ctrl+x\u001b[39m';
+    const externalNotice = '\u001b[36mDraft stashed\u001b[39m';
+    const childTimeout = '\u001b[31msub-agent transcript history timed out\u001b[39m';
+    const parentTimeout = '\u001b[31mconversation transcript history timed out\u001b[39m';
+    const notices = new HydrationNoticeOwner({
+      base: keymapWarning,
+      external: externalNotice,
+      parent: parentTimeout,
+      child: childTimeout,
+    });
+    const rt = runtime(client);
+    rt.notice = notices.render();
+    const stream = createStreamController(rt, flows, new SnapshotHydrator<BrainEvent>(), notices);
+
+    await stream.switchTo({ session: 'B' });
+
+    expect(JSON.stringify(rt.view)).toContain('new session B history');
+    expect(rt.notice).toBe(`${keymapWarning} · ${externalNotice} · ${childTimeout}`);
+    expect(rt.notice).not.toContain(parentTimeout);
+    stream.stop();
+  });
+
   it('stops parent history, child fallback, streams and all hydration timers together', async () => {
     vi.useFakeTimers();
     try {
