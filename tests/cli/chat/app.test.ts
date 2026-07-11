@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { loadInitialTranscript } from '../../../src/cli/chat/chatApplication.js';
+import { loadInitialTranscript } from '../../../src/cli/chat/initialTranscriptHydration.js';
 import { installExitGuards, createQuitCoordinator } from '../../../src/cli/chat/terminalLifecycle.js';
 import { SnapshotHydrator } from '../../../src/cli/chat/snapshotHydrator.js';
 import type { BrainClient } from '../../../src/cli/chat/brainClient.js';

@@ -1,4 +1,4 @@
-import { Container } from '@earendil-works/pi-tui';
+import { Container, isFocusable } from '@earendil-works/pi-tui';
 import type { Component, OverlayOptions, OverlayHandle, TUI } from '@earendil-works/pi-tui';
 import { getMarkdownTheme, getSelectListTheme } from '@earendil-works/pi-coding-agent';
 import { TranscriptModel } from '../../../src/brain/transcriptModel.js';
@@ -44,9 +44,9 @@ class HarnessTui {
 
   addChild(component: Component): void { this.children.push(component); }
   setFocus(component: Component | null): void {
-    if (this.focused && 'focused' in this.focused) (this.focused as Component & { focused: boolean }).focused = false;
+    if (isFocusable(this.focused)) this.focused.focused = false;
     this.focused = component;
-    if (component && 'focused' in component) (component as Component & { focused: boolean }).focused = true;
+    if (isFocusable(component)) component.focused = true;
   }
   addInputListener(listener: InputListener): () => void {
     this.listeners.add(listener);
@@ -84,7 +84,7 @@ class HarnessTui {
   }
 }
 
-interface ApplicationHarness {
+interface CompositionHarness {
   term: HarnessTerminal;
   tui: HarnessTui;
   rt: ChatState;
@@ -94,11 +94,11 @@ interface ApplicationHarness {
   mdTheme: ReturnType<typeof getMarkdownTheme>;
 }
 
-export function applicationHarness(options: {
+export function compositionHarness(options: {
   columns?: number;
   rows?: number;
   turns?: number;
-} = {}): ApplicationHarness {
+} = {}): CompositionHarness {
   const term = new HarnessTerminal(options.columns ?? 80, options.rows ?? 24);
   const tuiImpl = new HarnessTui(term);
   const tui = tuiImpl as unknown as TUI;

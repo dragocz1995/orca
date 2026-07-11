@@ -4,7 +4,6 @@ import { Container, ProcessTerminal, TUI } from '@earendil-works/pi-tui';
 import type { MarkdownTheme } from '@earendil-works/pi-tui';
 import { getMarkdownTheme, getSelectListTheme, initTheme } from '@earendil-works/pi-coding-agent';
 import type { BrainEvent } from '../../brain/events.js';
-import type { BrainMessageView } from '../../brain/messageView.js';
 import { commandsFor } from '../../brain/slashCommands.js';
 import { TranscriptModel } from '../../brain/transcriptModel.js';
 import { AsyncPublicationFence } from './asyncPublicationFence.js';
@@ -13,11 +12,12 @@ import type { BrainStatus } from './brainClient.js';
 import type { ChatApplicationActions, ChatApplicationResources } from './chatCapabilities.js';
 import { ChatState } from './chatState.js';
 import { createChatComposition } from './chatComposition.js';
-import type { ChatComposition, ShellInputDeps } from './chatComposition.js';
+import type { ChatComposition } from './chatComposition.js';
 import { AttachmentChips, QueuedMessages } from './components.js';
 import { wireSubmit } from './commands.js';
 import { createFlows } from './flows.js';
 import { HydrationNoticeOwner } from './hydrationNoticeOwner.js';
+import { loadInitialTranscript } from './initialTranscriptHydration.js';
 import { initKeymap } from './keys.js';
 import { LocalShellBuffer } from './localShell.js';
 import { FileIndex, loadMentionFrecency } from './mentions.js';
@@ -25,7 +25,7 @@ import { ChatEditor } from './picker.js';
 import { createPickers } from './pickers.js';
 import { loadPrefs } from './prefs.js';
 import { loadPromptHistory, PromptStash } from './promptHistory.js';
-import { SnapshotHydrator, SnapshotTimeoutError } from './snapshotHydrator.js';
+import { SnapshotHydrator } from './snapshotHydrator.js';
 import { StreamCoordinator } from './streamCoordinator.js';
 import type { StreamCoordinatorPort } from './streamCoordinator.js';
 import { TerminalLifecycle, createQuitCoordinator, installExitGuards } from './terminalLifecycle.js';
@@ -40,41 +40,6 @@ export interface ChatLaunchOptions {
   fresh?: boolean;
   session?: string;
   client?: BrainClient;
-}
-
-/** Dependency-injected mounted graph used by the real PI harness. It exercises the same application
- * lifecycle without performing network boot; production always uses ChatLaunchOptions. */
-export interface PreparedChatApplicationOptions {
-  state: ChatState;
-  resources: ChatApplicationResources;
-  stream: StreamCoordinatorPort;
-  mdTheme: MarkdownTheme;
-  diagnostics: TuiDiagnostics;
-  input?: ShellInputDeps;
-}
-
-/** Boot history goes through the same application-owned bounded hydrator as reconnect/compaction/child
- * drill-in. A transport which ignores abort is still fenced by the hydrator lane generation. */
-export async function loadInitialTranscript<E>(
-  client: Pick<BrainClient, 'history'>,
-  hydrator: SnapshotHydrator<E>,
-  lifecycle: AbortSignal,
-): Promise<{ history: BrainMessageView[]; notice: string }> {
-  let history: BrainMessageView[] = [];
-  let notice = '';
-  const lane = hydrator.openLane('parent', lifecycle, { onOverflow: () => {} });
-  await lane.hydrate(
-    (signal) => client.history(undefined, signal),
-    {
-      commit: (loaded) => { history = loaded; },
-      retain: (_replay, error) => {
-        notice = color.error(error instanceof SnapshotTimeoutError
-          ? 'conversation transcript history timed out'
-          : `could not load the conversation transcript: ${error instanceof Error ? error.message : String(error)}`);
-      },
-    },
-  );
-  return { history, notice };
 }
 
 function prettyCwd(cwd = process.cwd()): string {
@@ -96,23 +61,15 @@ function gitBranch(cwd = process.cwd()): string {
   }
 }
 
-const noopInput: ShellInputDeps = {
-  cycleThinkingLevel: () => {},
-  openHelpModal: () => {},
-  openThemePicker: () => {},
-  openModelPicker: () => {},
-  openSessionsModal: () => {},
-};
-
 /** One chat process graph. The application owns bootstrap, one state/model, one hydrator/coordinator,
  * one render composition/scheduler and one terminal lifecycle from construction through teardown. */
 export class ChatApplication {
-  private readonly hydrator = new SnapshotHydrator<BrainEvent>();
-  readonly actions: ChatApplicationActions;
+  private hydrator?: SnapshotHydrator<BrainEvent>;
+  private readonly actions: ChatApplicationActions;
 
   private state!: ChatState;
   private resources!: ChatApplicationResources;
-  private readonly launch: ChatLaunchOptions | null;
+  private readonly launch: ChatLaunchOptions;
   private coordinator: StreamCoordinatorPort | null = null;
   private composition: ChatComposition | null = null;
   private lifecycle: TerminalLifecycle | null = null;
@@ -123,8 +80,8 @@ export class ChatApplication {
   private launchPendingAsk: (() => void) | null = null;
   private stopped = false;
 
-  constructor(options: ChatLaunchOptions | PreparedChatApplicationOptions) {
-    this.launch = 'state' in options ? null : options;
+  constructor(options: ChatLaunchOptions) {
+    this.launch = options;
     this.actions = {
       render: (reason) => this.composition?.render(reason),
       renderForced: (reason) => this.composition?.renderForced(reason),
@@ -135,14 +92,10 @@ export class ChatApplication {
       suspendTerminal: () => this.suspend(),
       resumeTerminal: () => this.resume(),
     };
-    if ('state' in options) {
-      this.mount(options.state, options.resources, options.stream, options.mdTheme, options.diagnostics, options.input ?? noopInput);
-    }
   }
 
   /** Boot, start the terminal/stream and resolve only after the user quits. */
   async run(): Promise<void> {
-    if (!this.launch) throw new Error('prepared ChatApplication cannot run network bootstrap');
     if (this.stopped) throw new Error('stopped ChatApplication cannot be restarted');
     try {
       await this.bootstrap(this.launch);
@@ -168,22 +121,22 @@ export class ChatApplication {
     }
   }
 
-  start(): void {
+  private start(): void {
     if (this.stopped || this.lifecycle?.state !== 'new') return;
     this.diagnostics?.record({ type: 'lifecycle', action: 'start' });
     this.lifecycle?.start();
   }
 
-  suspend(): void { this.lifecycle?.suspend(); }
-  resume(): void { this.lifecycle?.resume(); }
+  private suspend(): void { this.lifecycle?.suspend(); }
+  private resume(): void { this.lifecycle?.resume(); }
 
   /** Idempotently stop every child owner before restoring the primary terminal buffer. */
-  stop(): void {
+  private stop(): void {
     if (this.stopped) return;
     this.stopped = true;
     this.publicationFence.stop();
     this.coordinator?.stop();
-    this.hydrator.stop();
+    this.hydrator?.stop();
     this.diagnostics?.record({ type: 'lifecycle', action: 'stop' });
     this.lifecycle?.stop();
     this.detachExitGuards();
@@ -191,6 +144,8 @@ export class ChatApplication {
   }
 
   private async bootstrap(options: ChatLaunchOptions): Promise<void> {
+    const hydrator = new SnapshotHydrator<BrainEvent>();
+    this.hydrator = hydrator;
     initTheme();
     const prefs = loadPrefs();
     if (prefs.theme && isChatThemeName(prefs.theme)) setChatTheme(prefs.theme);
@@ -203,7 +158,7 @@ export class ChatApplication {
       client.status().catch(() => null),
       client.processes().catch(() => []),
       client.terminalSettings().catch(() => null),
-      loadInitialTranscript(client, this.hydrator, bootHydration.signal),
+      loadInitialTranscript(client, hydrator, bootHydration.signal),
       client.commands().catch(() => commandsFor('cli', true)),
     ]);
     bootHydration.abort();
@@ -276,7 +231,7 @@ export class ChatApplication {
     if (pendingAsk) {
       this.launchPendingAsk = () => flows.launchAsk(pendingAsk.id, pendingAsk.questions, pendingAsk.kind);
     }
-    const coordinator = new StreamCoordinator(state, resources, this.actions, flows, this.hydrator, notices);
+    const coordinator = new StreamCoordinator(state, resources, this.actions, flows, hydrator, notices);
     this.coordinator = coordinator;
     this.mountComposition(getMarkdownTheme(), createTuiDiagnostics(process.env));
     const pickers = createPickers(state, resources, this.actions, coordinator, {
@@ -293,21 +248,6 @@ export class ChatApplication {
     });
   }
 
-  private mount(
-    state: ChatState,
-    resources: ChatApplicationResources,
-    stream: StreamCoordinatorPort,
-    mdTheme: MarkdownTheme,
-    diagnostics: TuiDiagnostics,
-    input: ShellInputDeps,
-  ): void {
-    this.state = state;
-    this.resources = resources;
-    this.coordinator = stream;
-    this.mountComposition(mdTheme, diagnostics);
-    this.composition!.attachInput(input);
-  }
-
   private mountComposition(mdTheme: MarkdownTheme, diagnostics: TuiDiagnostics): void {
     this.diagnostics = diagnostics;
     this.composition = createChatComposition(
@@ -322,7 +262,7 @@ export class ChatApplication {
         stop: () => this.stopRendering(),
       },
       forceRender: (reason) => this.actions.renderForced(reason),
-      beforeStop: () => this.disposeInteraction(),
+      beforeStop: () => this.composition?.dispose(),
     });
   }
 
@@ -382,20 +322,8 @@ export class ChatApplication {
   private resumeRendering(): void { this.composition?.renderShell.resume(); }
 
   private stopRendering(): void {
-    this.disposeInteraction();
-    this.composition?.renderShell.stop();
-  }
-
-  private disposeInteraction(): void {
-    this.state?.childAc?.abort();
-    if (this.state) {
-      this.state.childAc = null;
-      this.state.childView = null;
-    }
     this.composition?.dispose();
-    this.composition?.animations.stop();
-    this.composition?.inputRouter()?.stop();
-    this.composition?.overlays.stop();
+    this.composition?.renderShell.stop();
   }
 
   private detachExitGuards(): void {

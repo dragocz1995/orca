@@ -9,7 +9,7 @@ import type { ChatStateSeed } from '../../../src/cli/chat/chatState.js';
 import type { ChatApplicationActions } from '../../../src/cli/chat/chatCapabilities.js';
 import { SnapshotHydrator } from '../../../src/cli/chat/snapshotHydrator.js';
 import { HydrationNoticeOwner } from '../../../src/cli/chat/hydrationNoticeOwner.js';
-import { loadInitialTranscript } from '../../../src/cli/chat/chatApplication.js';
+import { loadInitialTranscript } from '../../../src/cli/chat/initialTranscriptHydration.js';
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;
@@ -403,10 +403,16 @@ describe('StreamCoordinator — bounded hydration lifecycle', () => {
       parentFrame({ type: 'compacted' });
       const childOpening = stream.openSubagent('child-stop');
       await vi.advanceTimersByTimeAsync(2_000);
+      const childSignal = rt.childAc?.signal;
+      expect(childSignal).toBeDefined();
+      expect(rt.childView?.sessionId).toBe('child-stop');
       expect(vi.getTimerCount()).toBeGreaterThan(0);
 
       stream.stop();
       await childOpening;
+      expect(childSignal?.aborted).toBe(true);
+      expect(rt.childAc).toBeNull();
+      expect(rt.childView).toBeNull();
       expect(signals.every((signal) => signal.aborted)).toBe(true);
       expect(vi.getTimerCount()).toBe(0);
     } finally {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import { runChat } from '../../../src/cli/chat/app.js';
 import type { BrainClient } from '../../../src/cli/chat/brainClient.js';
@@ -52,6 +53,60 @@ describe('chat production architecture boundaries', () => {
     expect(filesContaining(/constrainFrame\s*\(/, { excludeDefinition: true })).toEqual(['renderShell.ts']);
     expect(filesContaining(/new TerminalLifecycle\s*\(/)).toEqual(['chatApplication.ts']);
     expect(filesContaining(/new SnapshotHydrator(?:<[^>]+>)?\s*\(/)).toEqual(['chatApplication.ts']);
+  });
+
+  it('keeps ChatApplication on one production-only construction and lifecycle path', () => {
+    const application = source('chatApplication.ts');
+    const file = ts.createSourceFile('chatApplication.ts', application, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const declaration = file.statements.find((statement): statement is ts.ClassDeclaration =>
+      ts.isClassDeclaration(statement) && statement.name?.text === 'ChatApplication');
+    expect(declaration).toBeDefined();
+    const constructors = declaration!.members.filter(ts.isConstructorDeclaration);
+    expect(constructors).toHaveLength(1);
+    const [constructor] = constructors;
+    expect(constructor?.parameters).toHaveLength(1);
+    expect(constructor?.parameters[0]?.type?.getText(file)).toBe('ChatLaunchOptions');
+
+    const publicInstanceMembers = declaration!.members
+      .filter((member): member is ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration | ts.SetAccessorDeclaration =>
+        ts.isMethodDeclaration(member) || ts.isPropertyDeclaration(member)
+        || ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member))
+      .filter((member) => {
+        const modifiers = ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined;
+        return !modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword
+          || modifier.kind === ts.SyntaxKind.ProtectedKeyword
+          || modifier.kind === ts.SyntaxKind.StaticKeyword);
+      })
+      .map((member) => member.name?.getText(file));
+    expect(publicInstanceMembers).toEqual(['run']);
+
+    const hydratorProperty = declaration!.members.find((member): member is ts.PropertyDeclaration =>
+      ts.isPropertyDeclaration(member) && member.name.getText(file) === 'hydrator');
+    expect(hydratorProperty).toBeDefined();
+    expect(hydratorProperty?.initializer).toBeUndefined();
+    const hydratorConstructions: ts.NewExpression[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isNewExpression(node) && node.expression.getText(file) === 'SnapshotHydrator') {
+        hydratorConstructions.push(node);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    expect(hydratorConstructions).toHaveLength(1);
+    let owner: ts.Node | undefined = hydratorConstructions[0];
+    while (owner && !ts.isMethodDeclaration(owner)) owner = owner.parent;
+    expect(owner && ts.isMethodDeclaration(owner) ? owner.name.getText(file) : null).toBe('bootstrap');
+
+    expect(application).not.toContain('PreparedChatApplicationOptions');
+    expect(application).not.toMatch(/['"]state['"]\s+in\s+options/);
+    expect(filesContaining(/new ChatApplication\s*\(/)).toEqual(['app.ts']);
+    const exportedNames = file.statements
+      .filter((statement) => ts.canHaveModifiers(statement)
+        && ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword))
+      .map((statement) => ('name' in statement && statement.name && ts.isIdentifier(statement.name)
+        ? statement.name.text
+        : null));
+    expect(exportedNames).toEqual(['ChatLaunchOptions', 'ChatApplication']);
   });
 
   it('does not reintroduce pure transcript compatibility APIs', () => {

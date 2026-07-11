@@ -43,8 +43,6 @@ export interface ChatComposition {
   readonly root: Component;
   readonly renderShell: RenderShell;
   readonly animations: AnimationController;
-  readonly overlays: OverlayController;
-  readonly inputRouter: () => InputRouter | null;
   render(reason?: string): void;
   renderForced(reason?: string): void;
   attachInput(deps: ShellInputDeps): void;
@@ -143,7 +141,7 @@ function modelMetaLine(mode: BrainWorkMode, modelName: string, thinkingLevel: st
 export function createChatComposition(
   rt: ChatState,
   resources: ChatApplicationResources,
-  actions: ChatApplicationActions,
+  actions: Pick<ChatApplicationActions, 'quit'>,
   stream: StreamCoordinatorPort,
   mdTheme: MarkdownTheme,
   diagnostics: TuiDiagnostics,
@@ -755,7 +753,7 @@ export function createChatComposition(
       editor,
       stream,
       quit: actions.quit,
-      renderForced: actions.renderForced,
+      renderForced,
       keymap: () => keymap,
       leader: () => leader,
       dispatchAction,
@@ -787,9 +785,15 @@ export function createChatComposition(
     inputRouter.attach();
   };
 
+  let disposed = false;
   const cleanup = (): void => {
+    if (disposed) return;
+    disposed = true;
     clearInterruptArm();
     leader.cancel();
+    animations.stop();
+    inputRouter?.stop();
+    overlayController.stop();
     panelHandle = null;
     slashHandle = null;
     slashOverlay = null;
@@ -801,8 +805,6 @@ export function createChatComposition(
     root: measuredRoot,
     renderShell: renderOwner,
     animations,
-    overlays: overlayController,
-    inputRouter: () => inputRouter,
     render,
     renderForced,
     reshowPanel,

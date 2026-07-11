@@ -409,6 +409,7 @@ export class StreamCoordinator implements StreamCoordinatorPort {
       rt.streamAc.abort();
       rt.childAc?.abort();
       rt.childAc = null;
+      rt.childView = null;
       for (const timer of childFallbacks) clearTimeout(timer);
       childFallbacks.clear();
       hydrator.stop();

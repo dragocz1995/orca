@@ -7,22 +7,29 @@ import { InputRouter } from '../../../src/cli/chat/inputRouter.js';
 import type { ChatInputContext } from '../../../src/cli/chat/inputRouter.js';
 import { OverlayController } from '../../../src/cli/chat/overlayController.js';
 import { RenderShell } from '../../../src/cli/chat/renderShell.js';
-import { ChatApplication } from '../../../src/cli/chat/chatApplication.js';
+import { createChatComposition } from '../../../src/cli/chat/chatComposition.js';
+import type { ChatComposition, ShellInputDeps } from '../../../src/cli/chat/chatComposition.js';
 import { startScreenBox, startScreenInputTop, TOP_RULE_ROWS } from '../../../src/cli/chat/startScreen.js';
-import { StreamCoordinator } from '../../../src/cli/chat/streamCoordinator.js';
-import { SnapshotHydrator } from '../../../src/cli/chat/snapshotHydrator.js';
-import { HydrationNoticeOwner } from '../../../src/cli/chat/hydrationNoticeOwner.js';
-import type { BrainEvent } from '../../../src/brain/events.js';
+import { TerminalLifecycle } from '../../../src/cli/chat/terminalLifecycle.js';
 import { terminalPlainText } from '../../../src/cli/ui/text.js';
-import { applicationHarness } from './chatApplicationHarness.js';
+import { compositionHarness } from './chatCompositionHarness.js';
 
-type Harness = ReturnType<typeof applicationHarness>;
-const preparedApplication = (h: Harness, stream = h.stream): ChatApplication => {
-  const application = new ChatApplication({
-    state: h.rt, resources: h.resources, stream, mdTheme: h.mdTheme, diagnostics: h.diagnostics,
-  });
-  application.start();
-  return application;
+type Harness = ReturnType<typeof compositionHarness>;
+const noopInput: ShellInputDeps = {
+  cycleThinkingLevel: () => {},
+  openHelpModal: () => {},
+  openThemePicker: () => {},
+  openModelPicker: () => {},
+  openSessionsModal: () => {},
+};
+
+/** Composition fixture only: terminal lifecycle and stream teardown remain covered by their own owners. */
+const makeComposition = (h: Harness): ChatComposition => {
+  const composition = createChatComposition(
+    h.rt, h.resources, { quit: vi.fn() }, h.stream, h.mdTheme, h.diagnostics,
+  );
+  composition.attachInput(noopInput);
+  return composition;
 };
 
 function nativeOverlayHandle(hide = vi.fn()): OverlayHandle {
@@ -139,7 +146,7 @@ describe('chat application shell ownership', () => {
     });
     terminal.columns = 30;
     terminal.rows = 9;
-    (controller as OverlayController & { reflow(): void }).reflow();
+    controller.reflow();
 
     expect(native).toHaveLength(2);
     expect(native[0]!.handle.isFocused()).toBe(false);
@@ -268,60 +275,69 @@ describe('chat application shell ownership', () => {
     router.stop();
   });
 
-  it('ChatApplication mounts paused and enters the renderable alternate screen only through start', async () => {
-    const h = applicationHarness({ turns: 4 });
-    const app = new ChatApplication({
-      state: h.rt, resources: h.resources, stream: h.stream, mdTheme: h.mdTheme, diagnostics: h.diagnostics,
+  it('chat composition mounts paused and TerminalLifecycle alone enters the renderable alternate screen', async () => {
+    const h = compositionHarness({ turns: 4 });
+    const composition = makeComposition(h);
+    const lifecycle = new TerminalLifecycle({
+      term: h.resources.term,
+      tui: h.resources.tui,
+      scheduler: composition.renderShell,
+      forceRender: (reason) => composition.renderForced(reason),
+      beforeStop: () => composition.dispose(),
     });
     expect(h.tui.children).toHaveLength(1);
     expect(h.tui.renderRequests).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
-    app.start();
+    lifecycle.start();
     expect(h.tui.starts).toBe(1);
     await vi.runOnlyPendingTimersAsync();
     expect(h.tui.renderRequests).toEqual([true]);
-    app.stop();
+    lifecycle.stop();
     expect(h.tui.stops).toBe(1);
   });
 
-  it('real ChatApplication mounts one bounded root with exactly one footer and one input listener', async () => {
-    const h = applicationHarness({ columns: 80, rows: 24, turns: 40 });
-    const app = preparedApplication(h);
-    app.actions.renderForced('test:initial');
+  it('real composition mounts one bounded root with exactly one footer and one input listener', async () => {
+    const h = compositionHarness({ columns: 80, rows: 24, turns: 40 });
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
 
     expect(h.tui.children).toHaveLength(1);
     expect(h.tui.listeners.size).toBe(1);
-    const frame = h.tui.children[0]!.render(h.term.columns);
+    const frame = composition.root.render(h.term.columns);
     expect(frame).toHaveLength(h.term.rows);
     expect(frame.every((line) => visibleWidth(line) === h.term.columns)).toBe(true);
     const plain = frame.map(terminalPlainText);
     expect(plain.filter((line) => line.includes('Build')).length).toBe(1);
-    app.start();
-    app.stop();
+    composition.dispose();
+    composition.renderShell.stop();
     expect(h.tui.listeners.size).toBe(0);
     expect(h.tui.children).toHaveLength(1);
   });
 
   it('resets a prior chat allocation before rendering the same editor on the roomy start screen', async () => {
-    const h = applicationHarness({ columns: 80, rows: 24, turns: 0 });
+    const h = compositionHarness({ columns: 80, rows: 24, turns: 0 });
     h.resources.editor.setMaxRows(3);
     h.resources.editor.setText(Array.from({ length: 6 }, (_, index) => `session-draft-${index + 1}`).join('\n'));
-    const app = preparedApplication(h);
-    app.actions.renderForced('test:start-screen');
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:start-screen');
     await vi.runOnlyPendingTimersAsync();
-    const frame = h.tui.children[0]!.render(h.term.columns).map(terminalPlainText).join('\n');
+    const frame = composition.root.render(h.term.columns).map(terminalPlainText).join('\n');
     expect(frame).toContain('session-draft-1');
     expect(frame).toContain('session-draft-6');
-    app.stop();
+    composition.dispose();
+    composition.renderShell.stop();
   });
 
-  it('real ChatApplication routes a mouse drag through the rendered transcript scrollbar', async () => {
-    const h = applicationHarness({ columns: 80, rows: 24, turns: 80 });
-    const app = preparedApplication(h);
-    app.actions.renderForced('test:initial');
+  it('real composition routes a mouse drag through the rendered transcript scrollbar', async () => {
+    const h = compositionHarness({ columns: 80, rows: 24, turns: 80 });
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    const frame = h.tui.children[0]!.render(h.term.columns).map(terminalPlainText);
+    const frame = composition.root.render(h.term.columns).map(terminalPlainText);
     const thumbRow = frame.findIndex((line) => line.includes('█'));
     expect(thumbRow).toBeGreaterThan(0);
     const x = frame[thumbRow]!.lastIndexOf('█') + 1;
@@ -330,16 +346,18 @@ describe('chat application shell ownership', () => {
     expect(h.tui.emit(`\x1b[<32;${x};${Math.max(2, y - 5)}M`)?.consume).toBe(true);
     expect(h.tui.emit(`\x1b[<0;${x};${Math.max(2, y - 5)}m`)?.consume).toBe(true);
     await vi.runOnlyPendingTimersAsync();
-    expect(h.tui.children[0]!.render(h.term.columns).map(terminalPlainText).join('\n')).toContain('History');
-    app.stop();
+    expect(composition.root.render(h.term.columns).map(terminalPlainText).join('\n')).toContain('History');
+    composition.dispose();
+    composition.renderShell.stop();
   });
 
-  it('real ChatApplication reflows generic and named overlays on resize and hides every native handle on stop', async () => {
-    const h = applicationHarness({ columns: 120, rows: 30, turns: 8 });
-    const app = preparedApplication(h);
-    app.actions.renderForced('test:initial');
+  it('real composition reflows generic and named overlays on resize and disposal hides every handle', async () => {
+    const h = compositionHarness({ columns: 120, rows: 30, turns: 8 });
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
     h.resources.tui.showOverlay({ invalidate: () => {}, render: () => ['generic modal'] }, {
       anchor: 'center', width: 90, maxHeight: 24, margin: 2,
     });
@@ -347,16 +365,17 @@ describe('chat application shell ownership', () => {
     const beforeResize = [...h.tui.overlays];
     h.term.columns = 42;
     h.term.rows = 12;
-    app.actions.renderForced('test:resize');
+    composition.renderForced('test:resize');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
 
     expect(h.tui.overlays.length).toBeGreaterThan(beforeResize.length);
     expect(beforeResize.every((overlay) => overlay.removed)).toBe(true);
     const current = h.tui.overlays.filter((overlay) => !overlay.removed);
     expect(current.length).toBeGreaterThanOrEqual(2);
     expect(current.every((overlay) => typeof overlay.options?.width !== 'number' || overlay.options.width <= 42)).toBe(true);
-    app.stop();
+    composition.dispose();
+    composition.renderShell.stop();
     expect(h.tui.overlays.every((overlay) => overlay.removed)).toBe(true);
   });
 
@@ -364,11 +383,12 @@ describe('chat application shell ownership', () => {
     ['slash', '/'],
     ['mention', '@'],
   ] as const)('reflows the active %s suggestion overlay from live geometry', async (_name, input) => {
-    const h = applicationHarness({ columns: 120, rows: 30, turns: 8 });
-    const app = preparedApplication(h);
-    app.actions.renderForced('test:initial');
+    const h = compositionHarness({ columns: 120, rows: 30, turns: 8 });
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
     h.tui.emit(input);
     await vi.runOnlyPendingTimersAsync();
     const before = h.tui.overlays.filter((overlay) => !overlay.removed);
@@ -377,27 +397,29 @@ describe('chat application shell ownership', () => {
 
     h.term.columns = 50;
     h.term.rows = 14;
-    app.actions.renderForced('test:resize');
+    composition.renderForced('test:resize');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
     expect(before.every((overlay) => overlay.removed)).toBe(true);
     const reflowed = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'bottom-left');
     expect(reflowed).toBeDefined();
     expect(reflowed?.options?.width).toBeLessThanOrEqual(50);
     expect(reflowed?.options?.maxHeight).toBeLessThanOrEqual(14);
-    app.stop();
+    composition.dispose();
+    composition.renderShell.stop();
   });
 
   it('reflows an active suggestion from the prepared editor, queue, attachment, and panel budget exactly once', async () => {
-    const h = applicationHarness({ columns: 120, rows: 30, turns: 8 });
-    const app = preparedApplication(h);
-    app.actions.renderForced('test:initial');
+    const h = compositionHarness({ columns: 120, rows: 30, turns: 8 });
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
     h.tui.emit('/');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
 
     const initial = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'bottom-left');
@@ -417,7 +439,7 @@ describe('chat application shell ownership', () => {
     expect(h.tui.emit('\x1b[<0;74;5M')?.consume).toBe(true);
     expect(h.tui.emit('\x1b[<32;60;5M')?.consume).toBe(true);
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
 
     const reflowed = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'bottom-left');
@@ -429,27 +451,29 @@ describe('chat application shell ownership', () => {
 
     const suggestionRecords = h.tui.overlays.filter((overlay) => overlay.options?.anchor === 'bottom-left').length;
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
     expect(h.tui.overlays.filter((overlay) => overlay.options?.anchor === 'bottom-left')).toHaveLength(suggestionRecords);
     expect(vi.getTimerCount()).toBe(0);
-    app.stop();
+    composition.dispose();
+    composition.renderShell.stop();
   });
 
   it('reflows a start-screen suggestion only after a grow-resize allocates the editor', async () => {
-    const h = applicationHarness({ columns: 60, rows: 8, turns: 0 });
-    const app = preparedApplication(h);
-    app.actions.renderForced('test:initial-small');
+    const h = compositionHarness({ columns: 60, rows: 8, turns: 0 });
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:initial-small');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
     h.tui.emit('/');
     h.resources.editor.setText(`/${'y'.repeat(420)}`);
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
 
     h.term.rows = 30;
-    app.actions.renderForced('test:grow');
+    composition.renderForced('test:grow');
     await vi.runOnlyPendingTimersAsync();
-    h.tui.children[0]!.render(h.term.columns);
+    composition.root.render(h.term.columns);
 
     const active = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'top-left');
@@ -460,68 +484,19 @@ describe('chat application shell ownership', () => {
     expect(active).toBeDefined();
     expect((active?.options?.margin as { top?: number }).top).toBe(expectedTop);
     expect(active?.options?.maxHeight).toBe(Math.min(15, h.term.rows - expectedTop));
-    app.stop();
+    composition.dispose();
+    composition.renderShell.stop();
   });
 
-  it('teardown aborts a pending child SSE and hydration fallback and clears child state', async () => {
-    const h = applicationHarness({ turns: 4 });
-    let activeChildStreams = 0;
-    let abortedChildStreams = 0;
-    Object.assign(h.resources.client, {
-      stream: (_onEvent: (event: unknown) => void, signal: AbortSignal): Promise<void> => new Promise((resolve) => {
-        activeChildStreams++;
-        const onAbort = (): void => {
-          activeChildStreams--;
-          abortedChildStreams++;
-          resolve();
-        };
-        if (signal.aborted) onAbort();
-        else signal.addEventListener('abort', onAbort, { once: true });
-      }),
-    });
-    const stream = new StreamCoordinator(
-      h.rt,
-      h.resources,
-      {
-        render: vi.fn(), refreshMeta: async () => {}, refreshRateLimits: async () => {},
-        invalidateAsyncState: vi.fn(),
-      },
-      { launchAsk: vi.fn(), openPlanDecision: vi.fn() },
-      new SnapshotHydrator<BrainEvent>(),
-      new HydrationNoticeOwner(),
-    );
-    const app = preparedApplication(h, stream);
-
-    const opening = stream.openSubagent('child-pending');
-    await vi.advanceTimersByTimeAsync(0); // flush only the render frame; keep the 2s fallback pending
-    const childSignal = h.rt.childAc?.signal;
-    expect(childSignal).toBeDefined();
-    expect(activeChildStreams).toBe(1);
-    expect(vi.getTimerCount()).toBe(1);
-
-    app.stop();
-    try {
-      expect(childSignal?.aborted).toBe(true);
-      expect(h.rt.childAc).toBeNull();
-      expect(h.rt.childView).toBeNull();
-      expect(activeChildStreams).toBe(0);
-      expect(abortedChildStreams).toBe(1);
-      expect(h.tui.listeners.size).toBe(0);
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      // RED cleanup: the pre-fix application leaves this controller alive.
-      h.rt.childAc?.abort();
-      await opening;
-    }
-  });
-
-  it('cancels an armed leader and every scheduler/controller timer through rapid application cycles', () => {
+  it('cancels an armed leader and every scheduler/controller timer through rapid composition cycles', () => {
     for (let cycle = 0; cycle < 3; cycle++) {
-      const h = applicationHarness({ turns: 2 });
-      const app = preparedApplication(h);
+      const h = compositionHarness({ turns: 2 });
+      const composition = makeComposition(h);
+      composition.renderShell.resume();
       h.tui.emit('\x18'); // ctrl+x — arm the default two-second leader window
       expect(vi.getTimerCount()).toBeGreaterThan(0);
-      app.stop();
+      composition.dispose();
+      composition.renderShell.stop();
       expect(vi.getTimerCount()).toBe(0);
       expect(h.tui.listeners.size).toBe(0);
     }
