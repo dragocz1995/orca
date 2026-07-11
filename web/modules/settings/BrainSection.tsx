@@ -11,7 +11,6 @@ import { ManageSelectionModal, type ManageSelectionItem } from '../../components
 import { SelectionSummary } from '../../components/ui/SelectionSummary';
 import { Modal, ModalBody } from '../../components/ui/Modal';
 import { BrainLimitsModal, BRAIN_LIMIT_DEFAULTS } from './BrainLimitsModal';
-import { SpatialGroup, SpatialRow } from '../../components/ui/SpatialPrimitives';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
@@ -22,6 +21,7 @@ import { useAutoSaveStatus, type SaveStatus } from '../../lib/useAutoSaveStatus'
 import { useSaveBrainProviders, useBrainOauthDisconnect } from '../../lib/mutations';
 import { elowenClient } from '../../lib/elowenClient';
 import type { BrainProvider, BrainProviderType, OAuthFlowState, BrainLimits } from '../../lib/types';
+import { SettingsDocument, SettingsGroup, SettingsRow, SettingsState } from './SettingsSurface';
 
 const OAUTH_TYPES: { type: BrainProviderType; icon: string }[] = [
   { type: 'oauth-anthropic', icon: 'claude' },
@@ -333,24 +333,24 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
       .catch(() => toast(t.brain.connectError, 'error'));
 
   return (
-    <div className="flex flex-col gap-6">
+    <SettingsDocument>
       {/* Identity + step ceiling on one row: the assistant's name (everywhere it speaks) and the max
           agent steps per run (Discord shows "Step N / MAX"). */}
-      <SpatialGroup>
-        <SpatialRow title={t.brain.agentName} icon={BrainCircuit}>
+      <SettingsGroup icon={BrainCircuit}>
+        <SettingsRow label={t.brain.agentName} icon={BrainCircuit}>
           <Input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Elowen" aria-label={t.brain.agentName} />
-        </SpatialRow>
-        <SpatialRow title={t.brain.maxSteps} description={t.brain.maxStepsHint} icon={Gauge}>
+        </SettingsRow>
+        <SettingsRow label={t.brain.maxSteps} description={t.brain.maxStepsHint} icon={Gauge}>
           <Input type="number" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} aria-label={t.brain.maxSteps} />
-        </SpatialRow>
+        </SettingsRow>
         {limits ? (
-          <SpatialRow title={t.brain.limits.title} description={t.brain.limits.hint} icon={SlidersHorizontal}>
+          <SettingsRow label={t.brain.limits.title} description={t.brain.limits.hint} icon={SlidersHorizontal}>
             <button type="button" className="spatial-inline-action" onClick={() => setLimitsOpen(true)}>
               <SlidersHorizontal size={14} aria-hidden />{t.brain.limits.manage}
             </button>
-          </SpatialRow>
+          </SettingsRow>
         ) : null}
-      </SpatialGroup>
+      </SettingsGroup>
       {limits && limitsOpen ? (
             <BrainLimitsModal
               limits={limits}
@@ -360,38 +360,37 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
       ) : null}
 
       {/* OAuth accounts: one row per supported account type, connect/disconnect. */}
-      <div className="flex flex-col gap-2">
-        <span className="text-sm font-medium text-text">{t.brain.accounts}</span>
-        <div className="@container border-y border-border/80 divide-y divide-border/70">
-          {OAUTH_TYPES.map(({ type, icon }) => {
-            const connected = oauth.data?.[type] ?? false;
-            return (
-              <div key={type} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-4">
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center ${connected ? 'text-accent' : 'text-text-muted'}`}>
-                  <ModelIcon name={icon} size={22} />
+      <SettingsGroup title={t.brain.accounts} density="compact">
+        {OAUTH_TYPES.map(({ type, icon }) => {
+          const connected = oauth.data?.[type] ?? false;
+          return (
+            <SettingsRow
+              key={type}
+              label={t.brain.types[type]}
+              status={(
+                <span className="flex items-center gap-2">
+                  <ModelIcon name={icon} size={15} />
+                  {connected ? <Badge tone="accent">{t.brain.connected}</Badge> : <span>{t.brain.notConnected}</span>}
                 </span>
-                <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                  <span className="w-full truncate text-sm font-medium text-text">{t.brain.types[type]}</span>
-                  {connected ? <Badge tone="accent">{t.brain.connected}</Badge> : <span className="text-tiny text-text-muted">{t.brain.notConnected}</span>}
-                </div>
-                {connected ? (
-                  <span className="flex shrink-0 flex-wrap justify-end gap-1">
-                    <Button variant="ghost" icon={ListChecks} aria-label={`${t.brain.pickModels}: ${t.brain.types[type]}`} onClick={() => setModelsFor(type)}>{t.brain.pickModels}</Button>
-                    <Button variant="ghost" icon={Unlink} aria-label={`${t.brain.disconnect}: ${t.brain.types[type]}`} onClick={() => setDisconnectTarget(type)} />
-                  </span>
-                ) : (
-                  <Button variant="accent" icon={Link2} onClick={() => startConnect(type)}>{t.brain.connect}</Button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              )}
+              actions={connected ? (
+                <>
+                  <Button variant="ghost" icon={ListChecks} aria-label={`${t.brain.pickModels}: ${t.brain.types[type]}`} onClick={() => setModelsFor(type)}>{t.brain.pickModels}</Button>
+                  <Button variant="ghost" icon={Unlink} aria-label={`${t.brain.disconnect}: ${t.brain.types[type]}`} onClick={() => setDisconnectTarget(type)} />
+                </>
+              ) : (
+                <Button variant="accent" icon={Link2} onClick={() => startConnect(type)}>{t.brain.connect}</Button>
+              )}
+            />
+          );
+        })}
+      </SettingsGroup>
 
       {/* Provider entries the picker exposes. */}
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-sm font-medium text-text">{t.brain.providers}</span>
+      <SettingsGroup
+        title={t.brain.providers}
+        density="compact"
+        actions={(
           <button
             type="button"
             onClick={() => setModal(emptyDraft())}
@@ -401,30 +400,36 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
           >
             <Plus size={15} aria-hidden />
           </button>
-        </div>
+        )}
+      >
         {apiProviders.length === 0 ? (
-          <p className="text-xs italic text-text-muted">{t.brain.noProviders}</p>
+          <SettingsState>{t.brain.noProviders}</SettingsState>
         ) : (
-          <div className="@container border-y border-border/80 divide-y divide-border/70">
+          <>
             {apiProviders.map((p) => (
-              <div key={p.id} className="flex flex-col gap-2 px-1 py-4">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <BrainCircuit size={16} className="shrink-0 text-accent" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{p.label}</span>
+              <SettingsRow
+                key={p.id}
+                label={p.label}
+                icon={BrainCircuit}
+                status={(
+                  <span className="flex flex-col gap-1">
+                    {p.baseUrl ? <span className="truncate font-mono">{p.baseUrl}</span> : null}
+                    <span>{p.models.length > 0 ? t.brain.modelCount.replace('{n}', String(p.models.length)) : t.brain.modelsAuto}</span>
+                  </span>
+                )}
+                actions={(
+                  <>
                   <Badge>{t.brain.types[p.type]}</Badge>
                   {p.apiKeySet ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
-                  <span className="ml-auto flex shrink-0 gap-1">
-                    <Button variant="ghost" icon={Pencil} aria-label={`${t.brain.editProvider}: ${p.label}`} onClick={() => setModal({ id: p.id, label: p.label, type: p.type, baseUrl: p.baseUrl, models: p.models.join('\n'), apiKey: '', api: p.api ?? '' })} />
-                    <Button variant="ghost" icon={Trash2} aria-label={`${t.brain.removeProvider}: ${p.label}`} onClick={() => setRemoveTarget(p.id)} />
-                  </span>
-                </div>
-                {p.baseUrl ? <span className="truncate font-mono text-tiny text-text-muted">{p.baseUrl}</span> : null}
-                <span className="text-tiny text-text-muted">{p.models.length > 0 ? t.brain.modelCount.replace('{n}', String(p.models.length)) : t.brain.modelsAuto}</span>
-              </div>
+                  <Button variant="ghost" icon={Pencil} aria-label={`${t.brain.editProvider}: ${p.label}`} onClick={() => setModal({ id: p.id, label: p.label, type: p.type, baseUrl: p.baseUrl, models: p.models.join('\n'), apiKey: '', api: p.api ?? '' })} />
+                  <Button variant="ghost" icon={Trash2} aria-label={`${t.brain.removeProvider}: ${p.label}`} onClick={() => setRemoveTarget(p.id)} />
+                  </>
+                )}
+              />
             ))}
-          </div>
+          </>
         )}
-      </div>
+      </SettingsGroup>
 
       {modal ? <ProviderModal draft={modal} existingIds={providers.map((p) => p.id)} onSave={upsert} onClose={() => setModal(null)} /> : null}
       {modelsFor ? (
@@ -474,6 +479,6 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
         onConfirm={() => { if (removeTarget) remove(removeTarget); setRemoveTarget(null); }}
         onClose={() => setRemoveTarget(null)}
       />
-    </div>
+    </SettingsDocument>
   );
 }

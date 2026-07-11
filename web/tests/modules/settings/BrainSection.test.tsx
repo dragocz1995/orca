@@ -35,6 +35,15 @@ const renderSection = () => render(<ToastProvider><BrainSection /></ToastProvide
 beforeEach(() => { saveProviders.mockClear(); disconnect.mockClear(); });
 
 describe('BrainSection — OAuth account model picker', () => {
+  it('uses the shared settings document pattern for identity, accounts, and providers', () => {
+    const { container } = renderSection();
+
+    expect(container.querySelectorAll('[data-settings-document]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-settings-group]')).toHaveLength(3);
+    expect(container.querySelector('.spatial-group')).toBeNull();
+    expect(container.querySelector('.border-y.divide-y')).toBeNull();
+  });
+
   it('opens the manage modal for a connected account, picks a model (icon rows), and saves the selection', async () => {
     renderSection();
     // The connected Claude account exposes a "Models" button opening the manage-selection modal.
