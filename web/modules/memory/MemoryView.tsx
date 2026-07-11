@@ -6,7 +6,6 @@ import { useMemories, useMemoryCategories } from '../../lib/queries';
 import { useCreateMemory, useMergeMemories, useDeleteMemory, useRestoreMemory, usePurgeMemories, useEmptyTrash, useSetMemoryCategory } from '../../lib/mutations';
 import { apiErrorMessage } from '../../lib/elowenClient';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
-import { Segmented } from '../../components/ui/Segmented';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
@@ -17,7 +16,8 @@ import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { DataTable, DataTableCell, DataTableRow } from '../../components/ui/DataTable';
-import { WorkspaceDetailRail, WorkspaceHeader, WorkspaceMetric, WorkspaceMetrics, WorkspacePage } from '../../components/ui/WorkspacePrimitives';
+import { WorkspaceDetailRail, WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
+import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -200,9 +200,9 @@ export function MemoryView() {
   useEffect(() => { if (tab !== 'list') clearSelection(); }, [tab]);
 
   const TAB_OPTIONS = [
-    { value: 'list', label: t.memory.viewList, icon: ListChecks },
-    { value: 'brain', label: t.memory.viewBrain, icon: Brain },
-    { value: 'retrieval', label: t.memory.viewRetrieval, icon: Sparkles },
+    { id: 'list', label: t.memory.viewList, icon: ListChecks },
+    { id: 'brain', label: t.memory.viewBrain, icon: Brain },
+    { id: 'retrieval', label: t.memory.viewRetrieval, icon: Sparkles },
   ];
   const STATUS_OPTIONS: SelectMenuOption<StatusFilter>[] = STATUS_VALUES.map((s) => ({
     value: s,
@@ -254,41 +254,37 @@ export function MemoryView() {
   return (
     <>
       <ModuleHeader title={t.page.memory} count={tab === 'list' ? filtered.length : undefined} icon={Brain} />
-      <WorkspacePage>
-        <WorkspaceHeader
-          eyebrow={t.page.memory}
-          title={t.page.memory}
-          count={allMemories.data?.length ?? 0}
-          description={t.memory.workspaceIntro}
-          icon={Brain}
-          status={!allMemories.isLoading && !allMemories.isError ? <span className="workspace-status">{t.memory.synchronized}</span> : undefined}
-          action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.memory.newMemory}</Button>}
-        />
-        <WorkspaceMetrics visual={<div className="memory-core" />} ariaLabel={t.memory.summary}>
+      <SpatialWorkspaceLayout
+        hero={{
+          eyebrow: t.page.memory,
+          title: t.page.memory,
+          count: allMemories.data?.length ?? 0,
+          description: t.memory.workspaceIntro,
+          mascotState: allMemories.isLoading ? 'saving' : allMemories.isError ? 'error' : 'idle',
+          status: !allMemories.isLoading && !allMemories.isError ? <span className="workspace-status">{t.memory.synchronized}</span> : undefined,
+          action: <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.memory.newMemory}</Button>,
+          metrics: <>
           <WorkspaceMetric label={t.memory.statusActive} value={summary.active} icon={CheckCircle2} />
           <WorkspaceMetric label={t.memory.metricDecisions} value={summary.decisions} icon={ListChecks} />
           <WorkspaceMetric label={t.memory.metricFacts} value={summary.facts} icon={Sparkles} />
           <WorkspaceMetric label={t.memory.categoriesTitle} value={categories.data?.length ?? 0} icon={Tags} />
-        </WorkspaceMetrics>
-        <div className="workspace-tabs">
-          <div className="min-w-0 overflow-x-auto">
-          <Segmented value={tab} onChange={(v) => setTab(v as Tab)} options={TAB_OPTIONS} aria-label={t.page.memory} nowrap variant="line" />
-          </div>
-        </div>
-
-      <div className="workspace-content">
+          </>,
+        }}
+        navigation={{ sections: TAB_OPTIONS, value: tab, onChange: (value) => setTab(value as Tab), ariaLabel: t.page.memory }}
+      >
+        <ControlSurfaceDocument>
         {tab === 'retrieval' ? <RetrievalDebugPanel />
           : tab === 'brain' ? (
-            memories.isLoading ? <LoadingState variant="cards" />
-            : memories.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => memories.refetch()} />
+            memories.isLoading ? <ControlSurfaceState><LoadingState variant="cards" /></ControlSurfaceState>
+            : memories.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => memories.refetch()} /></ControlSurfaceState>
             : <MemoryBrainMap memories={memories.data ?? []} categories={categories.data ?? []} onSelectMemory={(id) => { setSelectedId(id); setTab('list'); }} />
           )
-          : memories.isLoading ? <LoadingState variant="cards" />
-          : memories.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => memories.refetch()} />
+          : memories.isLoading ? <ControlSurfaceState><LoadingState variant="cards" /></ControlSurfaceState>
+          : memories.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => memories.refetch()} /></ControlSurfaceState>
           : (
           <div className="workspace-master-detail" data-detail={selectedId != null}>
           <div className="flex min-w-0 flex-col gap-4">
-            <div className="border-y border-border/80">
+            <ControlSurfaceToolbar className="flex-col items-stretch">
               <div className="flex min-w-0 flex-wrap items-center gap-2 py-3">
                 <div className="relative min-w-[15rem] flex-1">
                   <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
@@ -355,7 +351,7 @@ export function MemoryView() {
                   ) : null}
                 </div>
               ) : null}
-            </div>
+            </ControlSurfaceToolbar>
 
             {showCategories ? <CategoryManager memories={memories.data ?? []} /> : null}
 
@@ -447,8 +443,8 @@ export function MemoryView() {
             ) : null}
           </div>
           )}
-      </div>
-      </WorkspacePage>
+        </ControlSurfaceDocument>
+      </SpatialWorkspaceLayout>
 
       {/* Floating bulk toolbar. Merge needs ≥2; soft-delete shows outside the trash, restore inside it,
           permanent delete everywhere (behind a confirm). Kept a sibling of the layout so it's never
