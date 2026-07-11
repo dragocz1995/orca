@@ -219,7 +219,6 @@ html[data-effects='full'] .spatial-section-node--active .spatial-section-node__i
 .workspace-metric__label { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.65rem; color: var(--color-text-muted); font-size: 0.72rem; }
 .escalation-register-row:last-child { border-bottom: var(--hairline); }
 .onboarding-workspace { max-width: var(--content-max); margin-inline: auto; padding: 0 var(--shell-gutter) 3rem; }
-.onboarding-intro .elowen-presence { width: min(100%, 17rem); }
 .onboarding-step:last-of-type { border-bottom: var(--hairline); }
 .workspace-content { padding-top: 1rem; }
 .spatial-scroll-cue svg { animation: spatial-scroll-cue 1.8s ease-in-out infinite; }
