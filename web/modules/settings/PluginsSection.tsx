@@ -22,9 +22,8 @@ import { useTranslation } from '../../lib/i18n';
 import { usePlugins, useMarketplace } from '../../lib/queries';
 import { useTogglePlugin, useInstallPlugin, useUpdatePlugin, useUninstallPlugin, useRestorePlugin } from '../../lib/mutations';
 import type { PluginInfo, MarketplaceEntry } from '../../lib/types';
-import { EntityList, EntityRow } from '../../components/ui/EntityList';
-import { PageFrame } from '../../components/ui/PageFrame';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
+import { SettingsDocument, SettingsGroup, SettingsState, SettingsToolbar } from './SettingsSurface';
 
 /** Marketplace categories, derived from a plugin's `provides`/name (see `categorize`). */
 type Category = 'platforms' | 'tools' | 'memory' | 'automation' | 'ui' | 'security' | 'development';
@@ -89,11 +88,12 @@ function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, onC
   // so a healthy/disabled plugin shows nothing; errors always surface.
   const showHealth = health === 'error' || p.enabled;
   return (
-    <EntityRow
-      role="presentation"
-      busy={busy}
+    <div
+      role="listitem"
+      data-state={busy ? 'busy' : 'idle'}
+      aria-busy={busy || undefined}
       onContextMenu={onContextMenu}
-      className="group @container"
+      className={`group @container min-w-0 px-1 py-3.5 ${busy ? 'opacity-70' : ''}`}
       style={{ transitionDuration: 'var(--motion-fast)' }}
     >
       <div className="flex min-w-0 items-center gap-3 px-1 @sm:px-2">
@@ -137,7 +137,7 @@ function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, onC
           />
         </div>
       </div>
-    </EntityRow>
+    </div>
   );
 }
 
@@ -146,7 +146,7 @@ function PluginCard({ p, updatable, onDetail, onFlip, onUpdate, onUninstall, onC
 function MarketplaceCard({ e, onInstall, busy }: { e: MarketplaceEntry; onInstall: () => void; busy: boolean }) {
   const { t } = useTranslation();
   return (
-    <EntityRow role="presentation" busy={busy} interactive={false} className="@container">
+    <div role="listitem" data-state={busy ? 'busy' : 'idle'} aria-busy={busy || undefined} className={`@container min-w-0 px-1 py-3.5 ${busy ? 'opacity-70' : ''}`}>
       <div className="flex min-w-0 items-center gap-3 px-1 @sm:px-2">
         <PluginIcon name={e.name} size={38} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -160,7 +160,7 @@ function MarketplaceCard({ e, onInstall, busy }: { e: MarketplaceEntry; onInstal
           {busy ? t.plugins.installing : t.plugins.install}
         </Button>
       </div>
-    </EntityRow>
+    </div>
   );
 }
 
@@ -170,7 +170,7 @@ function RemovedCard({ p, onRestore, busy }: { p: PluginInfo; onRestore: () => v
   const { t, locale } = useTranslation();
   const description = p.i18n?.[locale]?.description ?? p.description;
   return (
-    <EntityRow role="presentation" busy={busy} interactive={false} className="@container">
+    <div role="listitem" data-state={busy ? 'busy' : 'idle'} aria-busy={busy || undefined} className={`@container min-w-0 px-1 py-3.5 ${busy ? 'opacity-70' : ''}`}>
       <div className="flex min-w-0 items-center gap-3 px-1 @sm:px-2">
         <PluginIcon name={p.name} hasIcon={p.hasIcon} size={38} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -184,7 +184,7 @@ function RemovedCard({ p, onRestore, busy }: { p: PluginInfo; onRestore: () => v
           {t.plugins.restore}
         </Button>
       </div>
-    </EntityRow>
+    </div>
   );
 }
 
@@ -255,8 +255,8 @@ export function PluginsSection() {
     });
   }, [available, query, category]);
 
-  if (detail) return <PageFrame width="fluid"><PluginDetail name={detail} onBack={() => setDetail(null)} /></PageFrame>;
-  if (isLoading) return <PageFrame width="fluid"><LoadingState variant="list" /></PageFrame>;
+  if (detail) return <PluginDetail name={detail} onBack={() => setDetail(null)} />;
+  if (isLoading) return <SettingsDocument><SettingsGroup density="compact"><SettingsState><LoadingState variant="list" /></SettingsState></SettingsGroup></SettingsDocument>;
 
   const flip = (p: PluginInfo, enabled: boolean) => toggle.mutate(
     { name: p.name, enabled },
@@ -317,86 +317,73 @@ export function PluginsSection() {
   // Whether the plugin pending removal is bundled (soft-remove) vs user (hard uninstall) — drives the confirm copy.
   const removeIsBundled = plugins.find((p) => p.name === confirmRemove)?.source === 'bundled';
 
+  const pluginList = (items: PluginInfo[], testId: string) => (
+    <div role="list" className="@container divide-y divide-border/70" data-testid={testId}>
+      <MotionPresence>
+        {items.map((p) => (
+          <MotionLayoutItem key={p.name} layoutId={`installed-plugin-${p.name}`}>
+            <PluginCard
+              p={p} updatable={updatable.has(p.name)}
+              busy={pending === p.name || (toggle.isPending && toggle.variables?.name === p.name)}
+              onFlip={(enabled) => flip(p, enabled)} onDetail={() => setDetail(p.name)}
+              onUpdate={() => doUpdate(p.name)} onUninstall={() => setConfirmRemove(p.name)}
+              onContextMenu={(e) => openMenu(e, p)}
+            />
+          </MotionLayoutItem>
+        ))}
+      </MotionPresence>
+    </div>
+  );
+
   return (
-    <PageFrame width="fluid">
-      <div className="flex items-center gap-2">
-        <Segmented variant="line" value={view} onChange={(v) => { setView(v as 'installed' | 'available'); setCategory('all'); }} options={viewOptions} aria-label={t.plugins.tabInstalled} />
-        <HelpTip>{t.help.pluginsManage}</HelpTip>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <div className="relative w-full @sm:max-w-xs">
-          <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-          <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.plugins.searchPlaceholder} className="pl-9" />
-        </div>
-        <Segmented variant="line" value={category} onChange={(v) => setCategory(v as Category | 'all')} options={categoryOptions} aria-label={t.plugins.catAll} />
-      </div>
-
-      {view === 'installed' ? (
-        installed.length === 0 ? (
-          <EmptyState title={t.plugins.empty} />
-        ) : filteredInstalled.length === 0 ? (
-          <EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} />
-        ) : (
-          <EntityList className="@container" data-testid="installed-plugins-list">
-            <MotionPresence>
-              {filteredInstalled.map((p) => (
-                <MotionLayoutItem key={p.name} layoutId={`installed-plugin-${p.name}`} role="listitem">
-                  <PluginCard
-                    p={p} updatable={updatable.has(p.name)}
-                    busy={pending === p.name || (toggle.isPending && toggle.variables?.name === p.name)}
-                    onFlip={(enabled) => flip(p, enabled)} onDetail={() => setDetail(p.name)}
-                    onUpdate={() => doUpdate(p.name)} onUninstall={() => setConfirmRemove(p.name)}
-                    onContextMenu={(e) => openMenu(e, p)}
-                  />
-                </MotionLayoutItem>
-              ))}
-            </MotionPresence>
-          </EntityList>
-        )
-      ) : (
-        <div className="flex flex-col gap-5">
-          {/* Soft-removed bundled plugins live at the top of Available — where you'd look to add one back. */}
-          {removedBundled.length > 0 ? (
-            <div className="flex flex-col gap-3">
-              <span className="text-sm font-medium text-text">{t.plugins.removedSection}</span>
-              <EntityList className="@container" data-testid="removed-plugins-list">
-                <MotionPresence>
-                  {removedBundled.map((p) => (
-                    <MotionLayoutItem key={p.name} layoutId={`removed-plugin-${p.name}`} role="listitem">
-                      <RemovedCard p={p} busy={pending === p.name} onRestore={() => doRestore(p.name)} />
-                    </MotionLayoutItem>
-                  ))}
-                </MotionPresence>
-              </EntityList>
+    <SettingsDocument>
+      <SettingsGroup density="compact">
+        <SettingsToolbar>
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Segmented variant="line" value={view} onChange={(v) => { setView(v as 'installed' | 'available'); setCategory('all'); }} options={viewOptions} aria-label={t.plugins.tabInstalled} />
+              <HelpTip>{t.help.pluginsManage}</HelpTip>
             </div>
-          ) : null}
-          {marketplace.isLoading ? (
-            <LoadingState variant="cards" />
-          ) : marketplace.data?.registryError ? (
-            <EmptyState title={t.plugins.marketplaceError} description={marketplace.data.registryError} icon={Download} />
-          ) : available.length === 0 ? (
-            removedBundled.length === 0 ? <EmptyState title={t.plugins.marketplaceEmpty} icon={Download} /> : null
-          ) : filteredAvailable.length === 0 ? (
-            <EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} />
-          ) : (
-            <EntityList className="@container" data-testid="available-plugins-list">
-              <MotionPresence>
-                {filteredAvailable.map((e) => (
-                  <MotionLayoutItem key={e.name} layoutId={`available-plugin-${e.name}`} role="listitem">
-                    <MarketplaceCard e={e} busy={pending === e.name} onInstall={() => doInstall(e.name)} />
-                  </MotionLayoutItem>
-                ))}
-              </MotionPresence>
-            </EntityList>
-          )}
-        </div>
-      )}
+            <div className="flex min-w-0 flex-col gap-3 @xl:flex-row @xl:items-center">
+              <div className="relative w-full @xl:max-w-xs">
+                <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.plugins.searchPlaceholder} className="pl-9" />
+              </div>
+              <div className="min-w-0 overflow-x-auto">
+                <Segmented variant="line" value={category} onChange={(v) => setCategory(v as Category | 'all')} options={categoryOptions} aria-label={t.plugins.catAll} />
+              </div>
+            </div>
+          </div>
+        </SettingsToolbar>
 
+        {view === 'installed' ? (
+          installed.length === 0 ? <SettingsState><EmptyState title={t.plugins.empty} /></SettingsState>
+            : filteredInstalled.length === 0 ? <SettingsState><EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} /></SettingsState>
+              : pluginList(filteredInstalled, 'installed-plugins-list')
+        ) : (
+          <div className="flex flex-col">
+            {removedBundled.length > 0 ? (
+              <div className="border-b border-border/70">
+                <div className="px-5 pb-2 pt-5 text-sm font-medium text-text">{t.plugins.removedSection}</div>
+                <div role="list" className="@container divide-y divide-border/70" data-testid="removed-plugins-list">
+                  <MotionPresence>{removedBundled.map((p) => <MotionLayoutItem key={p.name} layoutId={`removed-plugin-${p.name}`}><RemovedCard p={p} busy={pending === p.name} onRestore={() => doRestore(p.name)} /></MotionLayoutItem>)}</MotionPresence>
+                </div>
+              </div>
+            ) : null}
+            {marketplace.isLoading ? <SettingsState><LoadingState variant="list" /></SettingsState>
+              : marketplace.data?.registryError ? <SettingsState tone="danger"><EmptyState title={t.plugins.marketplaceError} description={marketplace.data.registryError} icon={Download} /></SettingsState>
+                : available.length === 0 ? (removedBundled.length === 0 ? <SettingsState><EmptyState title={t.plugins.marketplaceEmpty} icon={Download} /></SettingsState> : null)
+                  : filteredAvailable.length === 0 ? <SettingsState><EmptyState title={t.plugins.noMatches} description={t.plugins.noMatchesHint} icon={Search} /></SettingsState>
+                    : (
+                      <div role="list" className="@container divide-y divide-border/70" data-testid="available-plugins-list">
+                        <MotionPresence>{filteredAvailable.map((e) => <MotionLayoutItem key={e.name} layoutId={`available-plugin-${e.name}`}><MarketplaceCard e={e} busy={pending === e.name} onInstall={() => doInstall(e.name)} /></MotionLayoutItem>)}</MotionPresence>
+                      </div>
+                    )}
+          </div>
+        )}
+      </SettingsGroup>
       <ConfirmDialog
         open={confirmRemove !== null}
-        // A bundled plugin soft-removes (restorable); a user plugin uninstalls (files deleted) — the
-        // wording/label reflects which, so the consequence is clear before confirming.
         title={removeIsBundled ? t.plugins.remove : t.plugins.uninstall}
         description={(removeIsBundled ? t.plugins.removeConfirm : t.plugins.uninstallConfirm).replace('{name}', confirmRemove ?? '')}
         confirmLabel={removeIsBundled ? t.plugins.remove : t.plugins.uninstall}
@@ -404,6 +391,6 @@ export function PluginsSection() {
         onClose={() => setConfirmRemove(null)}
       />
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
-    </PageFrame>
+    </SettingsDocument>
   );
 }

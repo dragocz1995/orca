@@ -51,6 +51,16 @@ describe('PluginsSection catalog', () => {
     expect(screen.getByRole('radio', { name: en.plugins.catPlatforms })).toBeInTheDocument();
   });
 
+  it('uses the shared settings document, group and toolbar grammar', () => {
+    usePlugins.mockReturnValue({ data: [plugin({ name: 'files' })], isLoading: false });
+    const { container } = renderSection();
+    expect(container.querySelectorAll('[data-settings-document]')).toHaveLength(1);
+    expect(container.querySelector('[data-settings-group]')).toBeInTheDocument();
+    expect(container.querySelector('.settings-toolbar')).toBeInTheDocument();
+    expect(container.querySelector('.page-frame')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid="installed-plugins-list"]')).not.toHaveClass('border-y');
+  });
+
   it('filters the list by the search query and shows the no-matches empty state', async () => {
     usePlugins.mockReturnValue({ data: [plugin({ name: 'files' }), plugin({ name: 'discord', provides: { platforms: ['discord'] } })], isLoading: false });
     renderSection();

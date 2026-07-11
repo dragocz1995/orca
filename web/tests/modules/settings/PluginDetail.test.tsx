@@ -37,7 +37,7 @@ const plugin = (over: Partial<PluginInfo>): PluginInfo => ({
 });
 
 const renderDetail = () => {
-  render(<EffectsProvider><ThemeProvider><LanguageProvider><PluginDetail name="testy" onBack={() => {}} /></LanguageProvider></ThemeProvider></EffectsProvider>);
+  return render(<EffectsProvider><ThemeProvider><LanguageProvider><PluginDetail name="testy" onBack={() => {}} /></LanguageProvider></ThemeProvider></EffectsProvider>);
 };
 
 beforeEach(() => {
@@ -66,6 +66,14 @@ describe('PluginDetail model field', () => {
 });
 
 describe('PluginDetail workspace', () => {
+  it('uses the shared settings document and group grammar', () => {
+    usePluginDetail.mockReturnValue({ data: detail([], {}), isLoading: false });
+    const { container } = renderDetail();
+    expect(container.querySelectorAll('[data-settings-document]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-settings-group]').length).toBeGreaterThan(0);
+    expect(container.querySelector('.settings-toolbar')).toBeInTheDocument();
+  });
+
   it('exposes the five focused workspace tabs and a live preview', () => {
     usePluginDetail.mockReturnValue({ data: detail([], {}), isLoading: false });
     renderDetail();

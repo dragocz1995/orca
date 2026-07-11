@@ -18,6 +18,7 @@ import { PluginDataPanel } from './PluginDataPanel';
 import { PluginLogsPanel } from './PluginLogsPanel';
 import { PluginLivePreview } from './PluginLivePreview';
 import { usePluginConfigDraft } from './usePluginConfigDraft';
+import { SettingsDocument, SettingsGroup, SettingsState, SettingsToolbar } from './SettingsSurface';
 
 type WorkspaceTab = 'setup' | 'behavior' | 'capabilities' | 'activity' | 'advanced';
 
@@ -103,16 +104,22 @@ function PluginWorkspace({ name, detail, contributions, logs, hookExecutions, on
   const preview = <PluginLivePreview detail={detail} values={draft.values} fieldLabel={fieldLabel} />;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div><Button variant="ghost" icon={ArrowLeft} onClick={onBack}>{t.pluginCfg.back}</Button></div>
-      <PluginHero name={name} detail={detail} description={pluginDescription} toolCount={toolCount} />
-
-      <div className="flex flex-col gap-3 border-y border-border/80 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <Segmented variant="line" value={tab} onChange={changeTab} options={tabs} aria-label={t.pluginDetail.workspaceNav} />
-        <AutoSaveStatus status={draft.status} onRetry={draft.retry} />
-      </div>
-
-      <WorkspacePanel id="setup" active={tab} visited={visitedTabs}>
+    <SettingsDocument>
+      <SettingsGroup>
+        <div className="flex flex-col gap-5 p-5 sm:p-6">
+          <div><Button variant="ghost" icon={ArrowLeft} onClick={onBack}>{t.pluginCfg.back}</Button></div>
+          <PluginHero name={name} detail={detail} description={pluginDescription} toolCount={toolCount} />
+        </div>
+      </SettingsGroup>
+      <SettingsGroup>
+        <SettingsToolbar>
+          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 overflow-x-auto"><Segmented variant="line" value={tab} onChange={changeTab} options={tabs} aria-label={t.pluginDetail.workspaceNav} /></div>
+            <AutoSaveStatus status={draft.status} onRetry={draft.retry} />
+          </div>
+        </SettingsToolbar>
+        <div className="p-5 sm:p-6">
+          <WorkspacePanel id="setup" active={tab} visited={visitedTabs}>
         <PluginEditorLayout preview={preview}>
           <section className="border-y border-border/80 py-5">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -129,28 +136,30 @@ function PluginWorkspace({ name, detail, contributions, logs, hookExecutions, on
           </section>
           <PluginConfigEditor {...editorProps} mode="setup" />
         </PluginEditorLayout>
-      </WorkspacePanel>
+          </WorkspacePanel>
 
-      <WorkspacePanel id="behavior" active={tab} visited={visitedTabs}>
+          <WorkspacePanel id="behavior" active={tab} visited={visitedTabs}>
         <PluginEditorLayout preview={preview}>
           <PluginConfigEditor {...editorProps} mode="behavior" />
         </PluginEditorLayout>
-      </WorkspacePanel>
-      <WorkspacePanel id="capabilities" active={tab} visited={visitedTabs}>
+          </WorkspacePanel>
+          <WorkspacePanel id="capabilities" active={tab} visited={visitedTabs}>
         <div className="flex flex-col gap-4">
           <PluginToolsPanel contributions={contributions} />
           <PluginHooksPanel contributions={contributions} hookExecutions={hookExecutions} />
           <PluginPermissionsPanel detail={detail} fieldLabel={fieldLabel} riskText={riskText} toolCount={toolCount} platformCount={platformCount} />
         </div>
-      </WorkspacePanel>
-      <WorkspacePanel id="activity" active={tab} visited={visitedTabs}><PluginLogsPanel logs={logs} /></WorkspacePanel>
-      <WorkspacePanel id="advanced" active={tab} visited={visitedTabs}>
+          </WorkspacePanel>
+          <WorkspacePanel id="activity" active={tab} visited={visitedTabs}><PluginLogsPanel logs={logs} /></WorkspacePanel>
+          <WorkspacePanel id="advanced" active={tab} visited={visitedTabs}>
         <div className="flex flex-col gap-4">
           <PluginConfigEditor {...editorProps} mode="advanced" />
           <PluginDataPanel name={name} summary={detail.data} />
         </div>
-      </WorkspacePanel>
-    </div>
+          </WorkspacePanel>
+        </div>
+      </SettingsGroup>
+    </SettingsDocument>
   );
 }
 
@@ -161,6 +170,6 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
   const { data: contributions } = usePluginContributions(name);
   const { data: logs } = usePluginLogs(name);
   const { data: hookExecutions } = usePluginHookExecutions(name);
-  if (isLoading || !data) return <LoadingState />;
+  if (isLoading || !data) return <SettingsDocument><SettingsGroup><SettingsState><LoadingState /></SettingsState></SettingsGroup></SettingsDocument>;
   return <PluginWorkspace key={name} name={name} detail={data} contributions={contributions} logs={logs} hookExecutions={hookExecutions} onBack={onBack} />;
 }
