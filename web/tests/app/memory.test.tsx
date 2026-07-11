@@ -85,6 +85,7 @@ describe('MemoryPage', () => {
     expect(row).toHaveClass('interactive-row');
     expect(row).not.toHaveClass('rounded-lg');
     expect(row).not.toHaveClass('bg-surface');
+    expect(row.closest('.control-surface-register')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Kind' })).toBeNull();
 
@@ -95,6 +96,16 @@ describe('MemoryPage', () => {
     const menu = screen.getByRole('listbox', { name: 'Kind' });
     expect(menu).toHaveClass('bg-surface');
     expect(screen.getByRole('option', { name: 'preference' }).querySelector('svg')).toBeTruthy();
+  });
+
+  it('uses the same padded heading and body contract for retrieval search', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);
+    fireEvent.click(screen.getByRole('radio', { name: 'Retrieval' }));
+
+    const heading = screen.getByRole('heading', { name: 'Retrieval debug' });
+    expect(heading.closest('.control-surface-toolbar')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Try a query the assistant might face…').closest('.control-surface-register')).toBeInTheDocument();
   });
 
   it('prunes the merge selection when a filter hides the selected row', async () => {

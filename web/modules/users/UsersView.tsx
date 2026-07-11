@@ -22,7 +22,7 @@ import { UserDetailPane } from './UserDetailPane';
 import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
 import { DataTable, DataTableCell, DataTableRow } from '../../components/ui/DataTable';
 import { WorkspaceDetailRail, WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 export function UsersView() {
   const users = useUsers();
@@ -191,6 +191,7 @@ export function UsersView() {
           : users.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.users.loadError} onRetry={() => users.refetch()} /></ControlSurfaceState>
           : data.length === 0 ? <ControlSurfaceState><EmptyState title={t.users.empty} description={t.users.emptyDescription} icon={Users} action={<Button variant="accent" icon={UserPlus} onClick={() => setCreating(true)}>{t.users.newUser}</Button>} /></ControlSurfaceState>
           : (
+            <ControlSurfaceRegister>
             <div className="workspace-master-detail users-workspace-grid" data-detail={selected != null}>
               <div className="min-w-0">
                 {filteredUsers.length === 0 ? <ControlSurfaceState><EmptyState title={t.users.noMatches} icon={Search} /></ControlSurfaceState> : (
@@ -219,6 +220,7 @@ export function UsersView() {
               </div>
               {selected ? <WorkspaceDetailRail label={t.users.detailTitle} closeLabel={t.common.close} onClose={() => setSelectedId(null)}><UserDetailPane user={selected} projects={projects.data ?? []} globalExecs={globalExecs} customModels={customModels} /></WorkspaceDetailRail> : null}
             </div>
+            </ControlSurfaceRegister>
           )}
         </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>

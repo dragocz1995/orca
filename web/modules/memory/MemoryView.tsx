@@ -17,7 +17,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
 import { DataTable, DataTableCell, DataTableRow } from '../../components/ui/DataTable';
 import { WorkspaceDetailRail, WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -353,6 +353,7 @@ export function MemoryView() {
               ) : null}
             </ControlSurfaceToolbar>
 
+            <ControlSurfaceRegister className="flex flex-col gap-4">
             {showCategories ? <CategoryManager memories={memories.data ?? []} /> : null}
 
             {(memories.data?.length ?? 0) === 0 ? (
@@ -435,6 +436,7 @@ export function MemoryView() {
                 ) : null}
               </div>
             )}
+            </ControlSurfaceRegister>
             </div>
             {selectedId != null ? (
               <WorkspaceDetailRail label={t.memory.detailTitle} closeLabel={t.common.close} onClose={() => setSelectedId(null)}>

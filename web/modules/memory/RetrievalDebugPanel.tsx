@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { useTranslation } from '../../lib/i18n';
 import { pct01 } from './memoryMeta';
+import { ControlSurfaceRegister, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 /** Retrieval inspector: run a query through the real recall pipeline and show every candidate's score
  *  breakdown (semantic / importance / recency / usage) and whether it was picked — the "why did the
@@ -39,12 +40,15 @@ export function RetrievalDebugPanel() {
   const submit = () => { const q = query.trim(); if (q) run.mutate(q); };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <h2 className="text-sm font-semibold text-text">{t.memory.retrievalHeading}</h2>
+    <div className="flex flex-col">
+      <ControlSurfaceToolbar>
+        <div className="flex flex-col gap-1">
+        <h2 className="text-base font-semibold text-text">{t.memory.retrievalHeading}</h2>
         <p className="text-xs text-text-muted">{t.memory.retrievalIntro}</p>
-      </div>
+        </div>
+      </ControlSurfaceToolbar>
 
+      <ControlSurfaceRegister className="flex flex-col gap-4">
       <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <div className="relative min-w-0 flex-1">
           <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
@@ -86,6 +90,7 @@ export function RetrievalDebugPanel() {
           })()}
         </div>
       ) : null}
+      </ControlSurfaceRegister>
     </div>
   );
 }

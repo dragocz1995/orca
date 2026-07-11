@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { Plus } from 'lucide-react';
 import { SpatialWorkspaceHero, SpatialWorkspaceLayout, WorkspaceMetric } from '../../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../../components/ui/ControlSurface';
 
 describe('SpatialWorkspaceHero', () => {
   it('composes one mascot, identity, status, primary action and metrics', () => {
@@ -30,11 +30,13 @@ describe('SpatialWorkspaceHero', () => {
     const { container } = render(
       <ControlSurfaceDocument>
         <ControlSurfaceToolbar>Filters</ControlSurfaceToolbar>
+        <ControlSurfaceRegister>Rows</ControlSurfaceRegister>
         <ControlSurfaceState>Empty</ControlSurfaceState>
       </ControlSurfaceDocument>,
     );
     expect(container.querySelectorAll('[data-control-surface]')).toHaveLength(1);
     expect(screen.getByText('Filters')).toHaveClass('control-surface-toolbar');
+    expect(screen.getByText('Rows')).toHaveClass('control-surface-register');
     expect(screen.getByText('Empty')).toHaveClass('control-surface-state');
   });
 
