@@ -580,6 +580,40 @@ describe('LspManager', () => {
     expect(spawns).toBe(1);
   });
 
+  it('gives every parallel cold-start check the startup timeout until the server proves warm', async () => {
+    let onMsg: (message: JsonRpcMessage) => void = () => {};
+    let spawns = 0;
+    const transport: LspTransport = {
+      send: (framed) => {
+        const msg = JSON.parse(framed.split('\r\n\r\n')[1]!) as JsonRpcMessage;
+        if (msg.method === 'initialize' && typeof msg.id === 'number') {
+          queueMicrotask(() => onMsg({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } }));
+        } else if (msg.method === 'textDocument/didOpen') {
+          const uri = (msg.params as { textDocument: { uri: string } }).textDocument.uri;
+          const delay = uri.endsWith('/a.ts') ? 10 : 80;
+          setTimeout(() => onMsg({
+            jsonrpc: '2.0', method: 'textDocument/publishDiagnostics',
+            params: { uri, diagnostics: [] },
+          }), delay);
+        }
+      },
+      onMessage: (callback) => { onMsg = callback; }, onExit: () => {}, dispose: () => {},
+    };
+    const mgr = new LspManager({
+      root: '/proj', readFile: () => 'code', spawn: () => { spawns++; return transport; },
+      firstCheckTimeoutMs: 200, recheckTimeoutMs: 30, settleMs: 5,
+    });
+
+    const results = await Promise.all([
+      mgr.checkFile('/proj/a.ts'),
+      mgr.checkFile('/proj/b.ts'),
+      mgr.checkFile('/proj/c.ts'),
+    ]);
+
+    expect(results.map((result) => result.skipped)).toEqual([undefined, undefined, undefined]);
+    expect(spawns).toBe(1);
+  });
+
   it('pools one server per nearest project root while reusing it inside that project', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'elowen-lsp-roots-'));
     try {

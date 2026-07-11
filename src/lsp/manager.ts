@@ -89,6 +89,9 @@ interface ManagedClient {
   client: LspClient;
   activeChecks: number;
   retired: boolean;
+  /** Becomes true only after this server has returned a real publishDiagnostics verdict. Merely finding
+   *  an already-created client does not mean its project index has finished its cold start. */
+  warmed: boolean;
 }
 
 /** Owns the live language-server clients (one per server binary + project root, lazily spawned and reused) and turns a
@@ -169,7 +172,7 @@ export class LspManager {
     try {
       // A fresh server gets the generous first-check window (it's loading the project); warm re-checks
       // use the short one so a broken edit surfaces fast.
-      const timeoutMs = found.fresh ? this.firstCheckTimeoutMs : this.recheckTimeoutMs;
+      const timeoutMs = found.entry.warmed ? this.recheckTimeoutMs : this.firstCheckTimeoutMs;
       const { diagnostics, published } = await found.entry.client.diagnose(path, text, language, timeoutMs, this.settleMs);
       // No verdict within the window: say so instead of a false "no problems" — the worst possible
       // answer for an agent probe is a wrong all-clear.
@@ -180,6 +183,7 @@ export class LspManager {
         this.retire(found.entry);
         return { path, language, server: spec.label, diagnostics: [], skipped: 'no-response' };
       }
+      found.entry.warmed = true;
       return { path, language, server: spec.label, diagnostics };
     } catch {
       // The server crashed/timed out — drop the client so the next check re-spawns, and say so honestly
@@ -215,7 +219,7 @@ export class LspManager {
     if (!transport) return null;
     this.makeRoomForClient();
     const client = new LspClient(transport, root);
-    const entry: ManagedClient = { key, command: spec.command, client, activeChecks: 0, retired: false };
+    const entry: ManagedClient = { key, command: spec.command, client, activeChecks: 0, retired: false, warmed: false };
     this.clients.set(key, entry);
     return { entry, fresh: true };
   }
