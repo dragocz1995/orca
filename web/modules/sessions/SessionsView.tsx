@@ -14,7 +14,8 @@ import { SessionCard } from './SessionCard';
 import { BrainSessionsPanel } from './BrainSessionsPanel';
 import { EntityList } from '../../components/ui/EntityList';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
-import { WorkspaceHeader, WorkspaceMetric, WorkspaceMetrics, WorkspacePage } from '../../components/ui/WorkspacePrimitives';
+import { SpatialWorkspaceLayout, WorkspaceMetric } from '../../components/ui/WorkspacePrimitives';
+import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 export function SessionsView() {
   const sessions = useSessionInfos();
@@ -49,39 +50,26 @@ export function SessionsView() {
   return (
     <>
       <ModuleHeader title={t.page.sessions} icon={TerminalSquare} />
-      <WorkspacePage>
-        <WorkspaceHeader
-          eyebrow={t.sessions.workspaceEyebrow}
-          title={t.page.sessions}
-          count={infos.length}
-          description={t.sessions.workspaceIntro}
-          icon={TerminalSquare}
-          status={!sessions.isLoading && !sessions.isError ? <span className="workspace-status">{t.sessions.workspaceReady}</span> : undefined}
-        />
-        <WorkspaceMetrics visual={<div className="sessions-core"><TerminalSquare size={28} strokeWidth={1.25} /></div>} ariaLabel={t.sessions.summary}>
-          <WorkspaceMetric label={t.sessions.metricLive} value={infos.length} icon={Activity} />
-          <WorkspaceMetric label={t.sessions.metricNeedsInput} value={needsInputCount} icon={Bell} />
-          <WorkspaceMetric label={t.sessions.metricWorkers} value={workerCount} icon={Bot} />
-          <WorkspaceMetric label={t.sessions.metricControl} value={controlCount} icon={Eye} />
-        </WorkspaceMetrics>
-        <div className="workspace-tabs">
-          <Segmented
-            size="sm"
-            value={view}
-            onChange={(value) => setView(value as 'live' | 'brain')}
-            options={[
-              { value: 'live', label: t.sessions.liveTitle, icon: TerminalSquare },
-              { value: 'brain', label: t.sessionsPanel.tab, icon: MessageSquare },
-            ]}
-            variant="line"
-            nowrap
-            aria-label={t.page.sessions}
-          />
-        </div>
-
-        <div className="workspace-content">
+      <SpatialWorkspaceLayout
+        hero={{
+          eyebrow: t.sessions.workspaceEyebrow,
+          title: t.page.sessions,
+          count: infos.length,
+          description: t.sessions.workspaceIntro,
+          mascotState: sessions.isLoading ? 'saving' : sessions.isError ? 'error' : 'idle',
+          status: !sessions.isLoading && !sessions.isError ? <span className="workspace-status">{t.sessions.workspaceReady}</span> : undefined,
+          metrics: <>
+            <WorkspaceMetric label={t.sessions.metricLive} value={infos.length} icon={Activity} />
+            <WorkspaceMetric label={t.sessions.metricNeedsInput} value={needsInputCount} icon={Bell} />
+            <WorkspaceMetric label={t.sessions.metricWorkers} value={workerCount} icon={Bot} />
+            <WorkspaceMetric label={t.sessions.metricControl} value={controlCount} icon={Eye} />
+          </>,
+        }}
+        navigation={{ sections: [{ id: 'live', label: t.sessions.liveTitle, icon: TerminalSquare }, { id: 'brain', label: t.sessionsPanel.tab, icon: MessageSquare }], value: view, onChange: (id) => setView(id as 'live' | 'brain'), ariaLabel: t.page.sessions }}
+      >
+        <ControlSurfaceDocument>
         {view === 'live' ? <section className="min-w-0">
-          <div className="flex flex-col gap-3 border-b border-border/80 pb-3 sm:flex-row sm:items-end sm:justify-between">
+          <ControlSurfaceToolbar className="flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex min-w-0 flex-col gap-1">
               <div className="flex items-baseline gap-2">
                 <h2 className="text-base font-semibold text-text">{t.sessions.liveTitle}</h2>
@@ -92,10 +80,10 @@ export function SessionsView() {
             {allNames.length > 0 ? (
               <Segmented size="sm" value={filter} onChange={setFilter} options={[{ value: 'all', label: t.sessions.filterAll, icon: List }, { value: 'needs_input', label: t.sessions.filterNeedsInput, icon: Bell }]} nowrap />
             ) : null}
-          </div>
+          </ControlSurfaceToolbar>
 
-          {sessions.isLoading ? <LoadingState variant="list" />
-            : sessions.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => sessions.refetch()} />
+          {sessions.isLoading ? <ControlSurfaceState><LoadingState variant="list" /></ControlSurfaceState>
+            : sessions.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => sessions.refetch()} /></ControlSurfaceState>
             : names.length > 0 ? (
               <EntityList data-testid="live-sessions-list">
                 <MotionPresence>
@@ -125,8 +113,8 @@ export function SessionsView() {
                 </div>
               )}
         </section> : <BrainSessionsPanel />}
-        </div>
-      </WorkspacePage>
+        </ControlSurfaceDocument>
+      </SpatialWorkspaceLayout>
 
       {openTerm && <TerminalModal session={openTerm} onClose={() => setOpenTerm(null)} />}
     </>

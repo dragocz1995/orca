@@ -56,6 +56,16 @@ const server = setupServer(
 beforeAll(() => server.listen()); afterAll(() => server.close());
 
 describe('SessionsPage', () => {
+  it('uses the spatial workspace shell with one mascot and primary rail navigation', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    const { container } = render(<Wrapper><ToastProvider><SessionsPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByText('SwiftLake')).toBeInTheDocument());
+    expect(screen.getByTestId('spatial-workspace-layout')).toBeInTheDocument();
+    expect(screen.getAllByTestId('workspace-hero-mascot')).toHaveLength(1);
+    expect(container.querySelector('.workspace-tabs')).toBeNull();
+    expect(container.querySelector('[data-control-surface]')).toBeInTheDocument();
+  });
+
   it('kills a session', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><SessionsPage /></ToastProvider></Wrapper>);
