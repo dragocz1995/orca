@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { vi } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
@@ -35,6 +35,7 @@ vi.mock('next/dynamic', () => ({
 }));
 
 let killed = false;
+let admin = false;
 const conversations = Array.from({ length: 13 }, (_, index) => ({
   id: `brain-${index + 1}`,
   title: `Conversation ${index + 1}`,
@@ -44,15 +45,17 @@ const conversations = Array.from({ length: 13 }, (_, index) => ({
   active: index === 0,
 }));
 const server = setupServer(
-  http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 2, username: 'user', is_admin: false } })),
+  http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 2, username: 'user', is_admin: admin } })),
   http.get('*/api/tasks', () => HttpResponse.json([])),
   http.get('*/api/projects', () => HttpResponse.json([{ id: 1, slug: 'elowen', path: '/var/www/elowen', notes: '', icon: '', pr_enabled: null }])),
   http.get('*/api/projects/1/git', () => HttpResponse.json({ isRepo: false, status: null, branches: [], commits: [] })),
   http.get('*/api/sessions', () => HttpResponse.json([{ name: 'elowen-SwiftLake', role: 'agent', agent: 'SwiftLake' }])),
   http.get('*/api/sessions/elowen-SwiftLake/pane', () => HttpResponse.json({ pane: 'line a\nline b' })),
   http.get('*/api/brain/sessions', () => HttpResponse.json(conversations)),
+  http.get('*/api/brain/managed-sessions', () => HttpResponse.json(conversations.map((session) => ({ ...session, kind: 'conversation', tokens: 1200 })) )),
   http.delete('*/api/sessions/elowen-SwiftLake', () => { killed = true; return HttpResponse.json({ ok: true }); }),
 );
+beforeEach(() => { admin = false; });
 beforeAll(() => server.listen()); afterAll(() => server.close());
 
 describe('SessionsPage', () => {
@@ -92,6 +95,19 @@ describe('SessionsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByText('Conversation 13')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Conversation 1')).not.toBeInTheDocument());
+  });
+
+  it('uses the shared table heading and keeps Delete all in its action zone', async () => {
+    admin = true;
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><SessionsPage /></ToastProvider></Wrapper>);
+    fireEvent.click(screen.getByRole('radio', { name: 'Conversations' }));
+    await waitFor(() => expect(screen.getByText('Conversation 1')).toBeInTheDocument());
+
+    const toolbar = screen.getByTestId('brain-sessions-toolbar');
+    expect(toolbar).toHaveClass('control-surface-toolbar');
+    expect(within(toolbar).getByRole('heading', { name: 'Conversations' })).toHaveClass('text-base');
+    expect(within(toolbar).getByRole('button', { name: 'Delete all' })).toHaveClass('spatial-inline-action');
   });
 
   it('opens terminal in modal and closes via modal close button', async () => {

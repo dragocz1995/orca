@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trash2, MessageSquare, Circle, FileCode, FileJson, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { Trash2, Circle, FileCode, FileJson, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { elowenClient } from '../../lib/elowenClient';
 import { openBrainSession } from '../../lib/brainDock';
 import { localDateTime } from '../../lib/format';
@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { EntityList, EntityRow } from '../../components/ui/EntityList';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 const PAGE_SIZE = 12;
 
@@ -79,12 +80,11 @@ export function BrainSessionsPanel() {
 
   return (
     <section className="flex min-w-0 flex-col">
-      <div className="flex flex-col gap-3 border-b border-border/80 pb-3 sm:flex-row sm:items-end sm:justify-between">
+      <ControlSurfaceToolbar testId="brain-sessions-toolbar" className="flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex items-center gap-2 text-base font-semibold text-text">
-            <MessageSquare size={16} className="text-text-muted" aria-hidden />
-            <h2>{t.sessionsPanel.tab}</h2>
-            {sessions.length > 0 ? <span className="font-mono text-xs font-normal text-text-muted">{sessions.length}</span> : null}
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-base font-semibold text-text">{t.sessionsPanel.tab}</h2>
+            {sessions.length > 0 ? <span className="font-mono text-xs text-text-muted">{sessions.length}</span> : null}
             <HelpTip align="right">{t.help.sessionsPanel}</HelpTip>
           </div>
           <p className="text-xs text-text-muted">{t.sessionsPanel.hint}</p>
@@ -100,12 +100,12 @@ export function BrainSessionsPanel() {
             />
           ) : null}
           {isAdmin && view === 'all' && sessions.length > 0 ? (
-            <button type="button" onClick={() => setConfirmAll(true)} className="h-9 px-2 text-xs text-text-muted transition-colors hover:text-danger">
-              {t.sessionsPanel.deleteAll}
+            <button type="button" onClick={() => setConfirmAll(true)} className="spatial-inline-action h-9 px-2 hover:!text-danger">
+              <Trash2 size={14} aria-hidden />{t.sessionsPanel.deleteAll}
             </button>
           ) : null}
         </div>
-      </div>
+      </ControlSurfaceToolbar>
 
       {q.isLoading ? <p className="py-8 text-xs italic text-text-muted">{t.common.loading}</p>
         : q.isError ? <p className="py-8 text-xs italic text-text-muted">{t.common.daemonUnreachable}</p>
