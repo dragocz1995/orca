@@ -86,6 +86,27 @@ describe('cli/chat/headless.runHeadless', () => {
     expect(calls).toContain('send:build:hello');
   });
 
+  it('waits for idle when HTTP admission resolves before the first SSE event', async () => {
+    const client = {
+      async start() { return { sessionId: 'sess-1' }; },
+      async stream(onFrame: (frame: BrainEvent) => void, signal: AbortSignal, _backoff: number, onOpen?: () => void) {
+        onOpen?.();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        if (!signal.aborted) {
+          onFrame({ type: 'text', delta: 'delayed answer' });
+          onFrame({ type: 'idle' });
+        }
+        if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+      },
+      async send() { /* HTTP 202 admission resolves immediately */ },
+      async history() { return [{ id: 'answer', role: 'assistant', text: 'delayed answer' }]; },
+    };
+    const { io: sink, out } = io();
+    const code = await runHeadless('http://x', {}, ['delayed'], { client: client as never, io: sink });
+    expect(code).toBe(0);
+    expect(out.join('')).toContain('delayed answer');
+  });
+
   it('recovers a reconnect snapshot tail without reprinting durable history or prior live text', async () => {
     const calls: string[] = [];
     let snapshotRequested: boolean | undefined;

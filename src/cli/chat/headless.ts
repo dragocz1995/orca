@@ -348,9 +348,7 @@ export async function runHeadless(
   // immediately starts its next run cannot race a previous turn's identity bookkeeping, and so a
   // truncated reconnect receives the complete durable assistant row before this command exits.
   let idleReconciliation = Promise.resolve();
-  let awaitingIdleReconciliation = false;
   const reconcileAtIdle = (): Promise<void> => {
-    awaitingIdleReconciliation = true;
     idleReconciliation = idleReconciliation.then(async () => {
       try { snapshots.reconcileDurableHistory(await c.history()); }
       catch (error) {
@@ -359,7 +357,7 @@ export async function runHeadless(
         // failure because a best-effort GET raced daemon shutdown.
         if (snapshots.needsDurableReconcile() && !o.json) io.stderr(`\n[unable to reconcile complete transcript: ${errMsg(error)}]\n`);
       }
-    }).finally(() => { awaitingIdleReconciliation = false; });
+    });
     return idleReconciliation;
   };
 
@@ -434,16 +432,13 @@ export async function runHeadless(
   const outResult = (human: string, obj: Record<string, unknown>): void =>
     io.stdout(o.json ? `${JSON.stringify({ type: 'result', ...obj })}\n` : `${human}\n`);
 
-  // Fire a turn WITHOUT blocking on its POST. `POST /brain/send` awaits the whole turn server-side, so on a
-  // long turn its response would trip undici's 300s headers timeout and reject — but the turn is fine and
-  // the stream keeps delivering events. So completion is driven by the `idle` event (ordered after all
-  // text); the POST resolving is only a fallback, and its rejection is a real error ONLY if nothing has
-  // streamed (e.g. "brain not started"), never the 300s timeout on a working turn.
+  // `POST /brain/send` is admission-only (HTTP 202): it may resolve before the first model/SSE event.
+  // Completion therefore comes ONLY from the ordered terminal stream event (`idle`/`error`), with the
+  // run's explicit --timeout as the bounded no-event failure path. Treating POST success as completion
+  // made a normal >300ms model start exit 0 without printing its answer.
   const fireTurn = (text: string, mode: 'build' | 'plan'): void => {
     void c.send(text, mode).then(
-      () => { if (!settled) setTimeout(() => {
-        if (!settled && !awaitingIdleReconciliation) { if (!o.json) io.stdout('\n'); finish(0); }
-      }, 300); },
+      () => { /* accepted; the stream owns completion */ },
       (e) => { if (!settled && !activity) { io.stderr(`\n${errMsg(e)}\n`); finish(1); } },
     );
   };
