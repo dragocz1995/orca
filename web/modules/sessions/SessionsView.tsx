@@ -15,7 +15,7 @@ import { BrainSessionsPanel } from './BrainSessionsPanel';
 import { EntityList } from '../../components/ui/EntityList';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { SpatialWorkspaceLayout, WorkspaceMetric } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 export function SessionsView() {
   const sessions = useSessionInfos();
@@ -82,6 +82,7 @@ export function SessionsView() {
             ) : null}
           </ControlSurfaceToolbar>
 
+          <ControlSurfaceRegister>
           {sessions.isLoading ? <ControlSurfaceState><LoadingState variant="list" /></ControlSurfaceState>
             : sessions.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => sessions.refetch()} /></ControlSurfaceState>
             : names.length > 0 ? (
@@ -112,6 +113,7 @@ export function SessionsView() {
                   <Button variant="accent" icon={ArrowRight} onClick={() => router.push('/tasks')}>{t.sessions.emptyAction}</Button>
                 </div>
               )}
+          </ControlSurfaceRegister>
         </section> : <BrainSessionsPanel />}
         </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>

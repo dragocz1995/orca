@@ -21,6 +21,8 @@ describe('ProjectsView', () => {
     expect(await screen.findByText('master')).toBeTruthy();
     expect(await screen.findByText('feat: x')).toBeTruthy();
     expect(screen.getByTestId('projects-register')).toHaveAttribute('role', 'table');
+    expect(screen.getByTestId('projects-register').closest('.control-surface-register')).toBeInTheDocument();
+    expect(screen.getByTestId('projects-register')).not.toHaveClass('border-t-0');
     expect(row.closest('[role="row"]')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('complementary', { name: 'Project detail' })).toBeInTheDocument();
   });

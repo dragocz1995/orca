@@ -40,6 +40,7 @@ describe('KanbanPage project pills', () => {
     expect(screen.getAllByTestId('workspace-hero-mascot')).toHaveLength(1);
     expect(container.querySelector('.workspace-tabs')).toBeNull();
     expect(container.querySelector('[data-control-surface]')).toBeInTheDocument();
+    expect(screen.getByTestId('column-in_progress').closest('.control-surface-register')).toBeInTheDocument();
   });
 
   it('narrow the board via /tasks?project_id=N and "All" resets it', async () => {

@@ -57,6 +57,7 @@ describe('StatsView', () => {
     expect(table.style.getPropertyValue('--data-table-compact-columns')).toBe('2rem minmax(0,1fr) auto');
     expect(row).toHaveClass('data-table-grid');
     expect(row).toHaveClass('interactive-row');
+    expect(table.closest('.control-surface-register')).toBeInTheDocument();
     expect(row.className).not.toContain('rounded-xl');
     expect(screen.getByLabelText('Total tokens: 150')).toBeTruthy();
     expect(screen.getByLabelText('Tracked cost: $1.5000')).toBeTruthy();

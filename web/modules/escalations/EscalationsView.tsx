@@ -14,7 +14,7 @@ import { EmptyState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState } from '../../components/ui/ControlSurface';
 
 /** One worker question parked on a human: shows the question and a reply box that unblocks the agent
  *  (POST /tasks/:id/ask/:askId/reply). Distinct from a review escalation — there's no gate to release,
@@ -121,7 +121,7 @@ export function EscalationsView() {
       {total === 0 ? (
         <ControlSurfaceState><EmptyState title={t.escalations.empty} description={t.escalations.emptyDesc} icon={ShieldCheck} /></ControlSurfaceState>
       ) : (
-        <div>
+        <ControlSurfaceRegister>
           {/* Agent questions waiting on a human come first — an agent is actively blocked on each. */}
           {pendingAsks.length > 0 ? <h2 className="border-b border-border/80 px-1 pb-3 font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-accent sm:px-3">{t.escalations.questionsSection}</h2> : null}
           {pendingAsks.map((a) => <PendingAskCard key={a.askId} ask={a} />)}
@@ -170,7 +170,7 @@ export function EscalationsView() {
               </article>
             );
           })}
-        </div>
+        </ControlSurfaceRegister>
       )}
       </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>

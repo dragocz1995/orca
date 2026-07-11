@@ -195,7 +195,7 @@ export function UsersView() {
             <div className="workspace-master-detail users-workspace-grid" data-detail={selected != null}>
               <div className="min-w-0">
                 {filteredUsers.length === 0 ? <ControlSurfaceState><EmptyState title={t.users.noMatches} icon={Search} /></ControlSurfaceState> : (
-                  <DataTable ariaLabel={t.users.tableLabel} columns="minmax(13rem,1.2fr) minmax(10rem,1fr) 8rem 10rem 3rem" compactColumns="minmax(0,1fr) 3rem" data-testid="users-register" className="border-t-0">
+                  <DataTable ariaLabel={t.users.tableLabel} columns="minmax(13rem,1.2fr) minmax(10rem,1fr) 8rem 10rem 3rem" compactColumns="minmax(0,1fr) 3rem" data-testid="users-register">
                     <DataTableRow header>
                       <DataTableCell header>{t.users.user}</DataTableCell>
                       <DataTableCell header priority="wide">{t.users.username}</DataTableCell>

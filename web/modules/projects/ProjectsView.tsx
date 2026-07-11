@@ -24,7 +24,7 @@ import { EntityList, EntityRow } from '../../components/ui/EntityList';
 import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
 import { DataTable, DataTableCell, DataTableRow } from '../../components/ui/DataTable';
 import { WorkspaceDetailRail, WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 type ProjectFilter = 'all' | 'inherit' | 'override';
 
@@ -208,12 +208,12 @@ export function ProjectsView() {
             : projects.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.projects.loadError} onRetry={() => projects.refetch()} /></ControlSurfaceState>
             : !projects.data || projects.data.length === 0 ? <ControlSurfaceState><EmptyState title={t.projects.empty} icon={FolderGit2} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.projects.newProject}</Button>} /></ControlSurfaceState>
             : (
-              <div className="workspace-master-detail" data-detail={selectedProject != null}>
+              <ControlSurfaceRegister className="workspace-master-detail" data-detail={selectedProject != null}>
                 <div className="min-w-0">
                   {filteredProjects.length === 0 ? (
                     <ControlSurfaceState><EmptyState title={t.projects.noMatches} icon={Search} /></ControlSurfaceState>
                   ) : (
-                    <DataTable ariaLabel={t.projects.tableLabel} columns="minmax(13rem,1.2fr) minmax(15rem,1.5fr) minmax(10rem,1fr) 8rem 3rem" compactColumns="minmax(0,1fr) 3rem" className="border-t-0" data-testid="projects-register">
+                    <DataTable ariaLabel={t.projects.tableLabel} columns="minmax(13rem,1.2fr) minmax(15rem,1.5fr) minmax(10rem,1fr) 8rem 3rem" compactColumns="minmax(0,1fr) 3rem" data-testid="projects-register">
                       <DataTableRow header>
                         <DataTableCell header>{t.projects.columnProject}</DataTableCell>
                         <DataTableCell header priority="wide">{t.projects.columnPath}</DataTableCell>
@@ -329,7 +329,7 @@ export function ProjectsView() {
                     {git.isError ? <ErrorState message={t.projects.gitError} onRetry={() => git.refetch()} /> : null}
                   </WorkspaceDetailRail>
                 ) : null}
-              </div>
+              </ControlSurfaceRegister>
             )}
         </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>

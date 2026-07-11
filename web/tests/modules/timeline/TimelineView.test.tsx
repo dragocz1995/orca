@@ -51,6 +51,7 @@ describe('TimelineView', () => {
     expect(screen.getAllByTestId('workspace-hero-mascot')).toHaveLength(1);
     expect(container.querySelector('.workspace-tabs')).toBeNull();
     expect(container.querySelector('[data-control-surface]')).toBeInTheDocument();
+    expect(screen.getAllByTestId('axis-dot')[0]?.closest('.control-surface-register')).toBeInTheDocument();
   });
 
   it('renders the timeline track tick labels', async () => {

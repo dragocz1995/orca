@@ -26,6 +26,7 @@ describe('UsersView', () => {
     expect(screen.getAllByTestId('workspace-hero-mascot')).toHaveLength(1);
     expect(screen.getByTestId('users-register').closest('[data-control-surface]')).toBeInTheDocument();
     expect(screen.getByTestId('users-register').closest('.control-surface-register')).toBeInTheDocument();
+    expect(screen.getByTestId('users-register')).not.toHaveClass('border-t-0');
   });
 
   it('selects rows with Space and keeps the always-visible action menu independent', async () => {

@@ -25,7 +25,7 @@ import { useProjectFilter } from '../../lib/useProjectFilter';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { Button } from '../../components/ui/Button';
 import { SpatialWorkspaceLayout, WorkspaceMetric } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 const KANBAN_DEFAULT_RANGE: DateRange = { preset: 'today', from: null, to: null };
 
@@ -113,7 +113,7 @@ export default function KanbanPage() {
             <DateRangeFilter value={range} onChange={(r) => setRangeRaw(serializeRange(r))} compact />
           </ControlSurfaceToolbar>
 
-          <div>
+          <ControlSurfaceRegister>
             {tasks.isLoading ? <ControlSurfaceState><LoadingState variant={view === 'board' ? 'kanban' : 'cards'} /></ControlSurfaceState> : tasks.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => tasks.refetch()} /></ControlSurfaceState>
               : <MotionPresence mode="wait">
                 {view === 'board' ? (
@@ -145,7 +145,7 @@ export default function KanbanPage() {
                 </MotionLayoutItem>
               )}
               </MotionPresence>}
-          </div>
+          </ControlSurfaceRegister>
         </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>
       {editing && <TaskModal task={editing} onClose={() => setEditing(null)} />}

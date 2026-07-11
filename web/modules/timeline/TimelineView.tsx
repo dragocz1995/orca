@@ -23,7 +23,7 @@ import { DateRangeFilter } from './DateRangeFilter';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { DEFAULT_RANGE, parseRange, serializeRange, isStoredRange, inRange, rangeWindowCapHours } from './dateRange';
 import { SpatialWorkspaceLayout, WorkspaceDetailRail, WorkspaceMetric } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 const TONE_DOT: Record<Tone, string> = {
   accent: 'bg-accent', danger: 'bg-danger', success: 'bg-success',
@@ -352,7 +352,7 @@ export function TimelineView() {
             <DateRangeFilter value={range} onChange={(next) => setRangeRaw(serializeRange(next))} />
           </ControlSurfaceToolbar>
 
-          <div className="workspace-master-detail timeline-workspace-grid" data-detail={picked != null}>
+          <ControlSurfaceRegister className="workspace-master-detail timeline-workspace-grid" data-detail={picked != null}>
             <div className="min-w-0">
               <section className="min-w-0 border-y border-border/80 px-1 py-4">
                 <div className="mb-4 flex items-center justify-between gap-2">
@@ -386,7 +386,7 @@ export function TimelineView() {
                 <EventDetail point={picked} display={resolve(picked)} />
               </WorkspaceDetailRail>
             ) : null}
-          </div>
+          </ControlSurfaceRegister>
         </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>
     </div>

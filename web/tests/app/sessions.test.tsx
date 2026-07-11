@@ -67,6 +67,7 @@ describe('SessionsPage', () => {
     expect(screen.getAllByTestId('workspace-hero-mascot')).toHaveLength(1);
     expect(container.querySelector('.workspace-tabs')).toBeNull();
     expect(container.querySelector('[data-control-surface]')).toBeInTheDocument();
+    expect(screen.getByTestId('live-sessions-list').closest('.control-surface-register')).toBeInTheDocument();
   });
 
   it('kills a session', async () => {
@@ -106,6 +107,7 @@ describe('SessionsPage', () => {
 
     const toolbar = screen.getByTestId('brain-sessions-toolbar');
     expect(toolbar).toHaveClass('control-surface-toolbar');
+    expect(screen.getByTestId('brain-sessions-list').closest('.control-surface-register')).toBeInTheDocument();
     expect(within(toolbar).getByRole('heading', { name: 'Conversations' })).toHaveClass('text-base');
     expect(within(toolbar).getByRole('button', { name: 'Delete all' })).toHaveClass('spatial-inline-action');
   });

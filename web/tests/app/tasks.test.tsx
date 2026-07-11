@@ -46,6 +46,7 @@ describe('TasksPage', () => {
     expect(screen.getByTestId('spatial-workspace-layout')).toBeInTheDocument();
     expect(container.querySelector('.workspace-tabs')).toBeNull();
     expect(screen.getByRole('button', { name: 'New task' })).toBeInTheDocument();
+    expect(screen.getByText('Build').closest('.control-surface-register')).toBeInTheDocument();
   });
 
   it('launches a task via the Launch action', async () => {

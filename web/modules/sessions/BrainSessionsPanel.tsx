@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { EntityList, EntityRow } from '../../components/ui/EntityList';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { ActionMenu } from '../../components/ui/ActionMenu';
-import { ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceRegister, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 const PAGE_SIZE = 12;
 
@@ -107,6 +107,7 @@ export function BrainSessionsPanel() {
         </div>
       </ControlSurfaceToolbar>
 
+      <ControlSurfaceRegister>
       {q.isLoading ? <p className="py-8 text-xs italic text-text-muted">{t.common.loading}</p>
         : q.isError ? <p className="py-8 text-xs italic text-text-muted">{t.common.daemonUnreachable}</p>
         : sessions.length === 0 ? <p className="py-8 text-xs italic text-text-muted">{t.sessionsPanel.empty}</p>
@@ -159,6 +160,7 @@ export function BrainSessionsPanel() {
             </MotionPresence>
           </EntityList>
         )}
+      </ControlSurfaceRegister>
 
       {sessions.length > 0 ? (
         <div className="flex flex-col gap-2 border-t border-border/80 pt-3 sm:flex-row sm:items-center sm:justify-between">

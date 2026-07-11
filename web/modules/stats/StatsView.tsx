@@ -15,7 +15,7 @@ import { useTranslation } from '../../lib/i18n';
 import { buildUsageSummary } from './usageBars';
 import { ResetUsageModal } from './ResetUsageModal';
 import { SpatialWorkspaceLayout, WorkspaceMetric } from '../../components/ui/WorkspacePrimitives';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 export function StatsView() {
   const { t } = useTranslation();
@@ -55,7 +55,7 @@ export function StatsView() {
         ) : usage.isError ? (
           <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => usage.refetch()} /></ControlSurfaceState>
         ) : (
-          <section className="flex flex-col gap-3 p-[clamp(1.25rem,2vw,2rem)]">
+          <ControlSurfaceRegister className="flex flex-col gap-3">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="flex flex-col gap-1">
                   <h2 className="text-sm font-semibold text-text">{t.stats.costByModel}</h2>
@@ -75,7 +75,7 @@ export function StatsView() {
                     columns="2rem minmax(0,12rem) minmax(8rem,1fr) 7rem 7rem"
                     compactColumns="2rem minmax(0,1fr) auto"
                   >
-                    <DataTableRow header className="px-1">
+                    <DataTableRow header>
                       <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
                       <DataTableCell header>{t.stats.cardModelsUsed}</DataTableCell>
                       <DataTableCell header priority="wide">{t.stats.pulseLabel}</DataTableCell>
@@ -91,7 +91,7 @@ export function StatsView() {
                             role="presentation"
                             className="border-b border-border/70 last:border-b-0"
                           >
-                            <DataTableRow data-testid="model-usage-row" interactive className="gap-y-2 px-1">
+                            <DataTableRow data-testid="model-usage-row" interactive className="gap-y-2">
                               <DataTableCell className="flex h-8 w-8 shrink-0 items-center justify-center text-text-muted">
                                 <ModelIcon name={row.exec} size={17} />
                               </DataTableCell>
@@ -121,7 +121,7 @@ export function StatsView() {
                   </DataTable>
                 </div>
               )}
-          </section>
+          </ControlSurfaceRegister>
         )}
         </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>

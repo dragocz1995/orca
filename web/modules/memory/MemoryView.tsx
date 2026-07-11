@@ -368,7 +368,7 @@ export function MemoryView() {
                     columns="2rem minmax(0,1fr) 11rem 8rem 6rem 7rem 1.25rem"
                     compactColumns="2rem minmax(0,1fr) 1.25rem"
                   >
-                    <DataTableRow header className="px-1">
+                    <DataTableRow header>
                       <DataTableCell header className="flex items-center justify-center">
                         <button
                           type="button"

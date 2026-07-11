@@ -31,7 +31,7 @@ import { dayKey } from '../kanban/calendar';
 import { MotionLayout, MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { WorkspaceDetailRail, WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
 import { type SpatialDeckSection } from '../../components/ui/SpatialControlDeck';
-import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 import { taskFilterCounts, type TaskWorkspaceFilter } from './taskFilters';
 
 type Filter = TaskWorkspaceFilter;
@@ -234,7 +234,7 @@ export function TasksView() {
             : !tasks.data || tasks.data.length === 0 ? <ControlSurfaceState><EmptyState title={t.tasks.empty} description={t.tasks.emptyDescription} icon={ListChecks} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>} /></ControlSurfaceState>
             : filtered.length === 0 ? <ControlSurfaceState><EmptyState title={t.tasks.noMatches} description={t.tasks.noMatchesDescription} icon={Search} /></ControlSurfaceState>
             : (
-              <div className="workspace-master-detail tasks-workspace-grid tasks-register" data-detail={selectedId != null}>
+              <ControlSurfaceRegister className="workspace-master-detail tasks-workspace-grid" data-detail={selectedId != null}>
                 <div className="min-w-0">
                   <MotionLayout className="flex flex-col gap-5">
                     <MotionPresence>
@@ -286,7 +286,7 @@ export function TasksView() {
                     })()}
                   </WorkspaceDetailRail>
                 ) : null}
-              </div>
+              </ControlSurfaceRegister>
             )}
           </ControlSurfaceDocument>
       </SpatialWorkspaceLayout>

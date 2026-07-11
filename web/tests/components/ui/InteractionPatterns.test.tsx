@@ -16,8 +16,9 @@ describe('interaction patterns', () => {
 
   it('provides one semantic entity-register contract', () => {
     render(<EntityList aria-label="Projects"><EntityRow selected>Elowen</EntityRow></EntityList>);
-    expect(screen.getByRole('list', { name: 'Projects' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Projects' })).toHaveClass('border', 'rounded-lg');
     expect(screen.getByRole('listitem')).toHaveAttribute('data-state', 'selected');
+    expect(screen.getByRole('listitem')).toHaveClass('px-4');
   });
 
   it('provides responsive table and page composition contracts', () => {
@@ -31,6 +32,8 @@ describe('interaction patterns', () => {
       </PageFrame>,
     );
     expect(screen.getByRole('table', { name: 'Usage' })).toHaveStyle({ '--data-table-columns': '1fr 8rem' });
+    expect(screen.getByRole('table', { name: 'Usage' })).toHaveClass('border', 'rounded-lg');
+    expect(screen.getByRole('row')).toHaveClass('px-4');
     expect(screen.getByRole('columnheader', { name: 'Tokens' })).toHaveAttribute('data-priority', 'wide');
     expect(screen.getByText('Detail')).toBeInTheDocument();
   });
