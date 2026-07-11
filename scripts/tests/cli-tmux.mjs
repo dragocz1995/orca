@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
 const fixture = join(here, 'fixtures/cli-tmux-brain.mjs');
+const editorFixture = join(here, 'fixtures/cli-editor.mjs');
 const cli = join(repo, 'dist/cli/bin.js');
 const size = { columns: 96, rows: 24 };
 const token = 'e2e-token';
@@ -18,9 +19,14 @@ if (spawnSync('tmux', ['-V'], { stdio: 'ignore' }).status !== 0) {
 }
 
 const temp = mkdtempSync(join(tmpdir(), 'elowen-cli-tmux-'));
+const artifactDir = mkdtempSync(join(tmpdir(), 'elowen-tui-e2e-artifacts-'));
 const home = join(temp, 'home');
 const config = join(temp, 'config');
 const logPath = join(temp, 'mock-requests.jsonl');
+const ttyStatePath = join(temp, 'tty-state.txt');
+const terminalWriteLog = join(artifactDir, 'terminal-writes.log');
+const perfLog = join(artifactDir, 'perf.jsonl');
+const reportPath = join(artifactDir, 'report.json');
 const session = `elowen-cli-test-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 mkdirSync(home, { recursive: true });
 mkdirSync(config, { recursive: true });
@@ -41,6 +47,19 @@ function hasSession() {
 function capture() {
   if (!hasSession()) return '';
   return tmux(['capture-pane', '-p', '-t', session]);
+}
+
+function captureAnsi() {
+  if (!hasSession()) return '';
+  return tmux(['capture-pane', '-p', '-e', '-t', session]);
+}
+
+function saveCapture(label) {
+  const plain = capture();
+  const ansi = captureAnsi();
+  writeFileSync(join(artifactDir, `${label}.txt`), plain);
+  writeFileSync(join(artifactDir, `${label}.ansi.txt`), ansi);
+  return plain;
 }
 
 function entries() {
@@ -85,6 +104,14 @@ function sendKey(key) {
   tmux(['send-keys', '-t', session, key]);
 }
 
+function sendHex(...bytes) {
+  tmux(['send-keys', '-H', '-t', session, ...bytes]);
+}
+
+function resize(columns, rows) {
+  tmux(['resize-window', '-t', session, '-x', String(columns), '-y', String(rows)]);
+}
+
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
@@ -100,7 +127,7 @@ function blankBetween(lines, fromPattern, toPattern) {
 async function startMock() {
   const child = spawn(process.execPath, [fixture], {
     cwd: repo,
-    env: { ...process.env, ELOWEN_TMUX_LOG: logPath },
+    env: { ...process.env, ELOWEN_TMUX_LOG: logPath, ELOWEN_TMUX_LONG: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
@@ -127,19 +154,31 @@ try {
   const started = await startMock();
   mock = started.child;
   const base = `http://127.0.0.1:${started.port}`;
-  const command = [
+  const cliCommand = [
     'env',
     `HOME=${shellQuote(home)}`,
     `XDG_CONFIG_HOME=${shellQuote(config)}`,
     `ELOWEN_URL=${shellQuote(base)}`,
     `ELOWEN_TOKEN=${shellQuote(token)}`,
     'ELOWEN_AUTOSTART=0',
+    `ELOWEN_TUI_PERF=1`,
+    `ELOWEN_TUI_LOG=${shellQuote(perfLog)}`,
+    `PI_TUI_WRITE_LOG=${shellQuote(terminalWriteLog)}`,
+    `EDITOR=${shellQuote(`${process.execPath} ${editorFixture}`)}`,
     'TERM=xterm-256color',
     shellQuote(process.execPath),
     shellQuote(cli),
     'chat',
     '--new',
   ].join(' ');
+  const command = [
+    'before=$(stty -g)',
+    cliCommand,
+    'after=$(stty -g)',
+    `printf '%s\\n%s\\n' "$before" "$after" > ${shellQuote(ttyStatePath)}`,
+    `printf '\\nE2E SHELL RESTORED\\n'`,
+    'sleep 2',
+  ].join('; ');
 
   tmux([
     'new-session', '-d', '-s', session,
@@ -153,10 +192,58 @@ try {
 
   await waitFor('bound SSE stream', () => requests('/brain/stream').length === 1);
   await waitFor('chat input readiness', () => capture().includes('E2E Harness'));
+  await waitFor('long history tail', () => capture().includes('E2E HISTORY MARKER 89'));
+  const initialCapture = saveCapture('01-initial-long-history');
+  assert.equal((initialCapture.match(/\bBuild\b/g) ?? []).length, 1, 'long-history frame must have one status row');
+
+  sendKey('PageUp');
+  await waitFor('PageUp history chip', () => capture().includes('History +'));
+  saveCapture('02-page-up');
+  sendKey('PageDown');
+  await waitFor('PageDown returns to tail', () => !capture().includes('History +'));
+
+  // Raw SGR wheel-up event through the same mouse path a real terminal uses.
+  sendHex('1b', '5b', '3c', '36', '34', '3b', '31', '30', '3b', '31', '30', '4d');
+  await waitFor('mouse wheel history chip', () => capture().includes('History +'));
+  sendHex('1b', '5b', '3c', '36', '35', '3b', '31', '30', '3b', '31', '30', '4d');
+  await waitFor('mouse wheel returns to tail', () => !capture().includes('History +'));
 
   sendLiteral('E2E FIRST USER');
   sendKey('Enter');
   await waitFor('first streaming tool', () => capture().includes('E2E LONG PHASE'));
+
+  // A real multiline prompt sent during the active turn must become one visible queued message.
+  sendLiteral('E2E QUEUED LINE 1');
+  sendKey('C-j');
+  sendLiteral('E2E QUEUED LINE 2');
+  sendKey('Enter');
+  await waitFor('queued message strip', () => capture().includes('QUEUED') && capture().includes('E2E QUEUED LINE'));
+  saveCapture('03-streaming-queued');
+
+  // Resize through telemetry, compact, and tiny-fallback thresholds while SSE continues.
+  resize(120, 30);
+  await waitFor('120x30 telemetry during stream', () => capture().split('\n').filter((_, i, all) => i < all.length - 1 || all[i] !== '').length === 30
+    && capture().includes('Context'));
+  saveCapture('04-streaming-120x30');
+  sendKey('C-p');
+  await waitFor('telemetry hidden', () => !capture().includes('Context'));
+  sendKey('C-p');
+  await waitFor('telemetry restored', () => capture().includes('Context'));
+
+  resize(40, 15);
+  await waitFor('40x15 frame', () => capture().includes('Build') && capture().split('\n').length >= 15);
+  const compactCapture = saveCapture('05-streaming-40x15');
+  assert.equal((compactCapture.match(/\bBuild\b/g) ?? []).length, 1, '40x15 frame must keep one status row');
+
+  resize(20, 10);
+  await waitFor('20x10 fallback', () => capture().includes('Terminal too smal'));
+  const tinyCapture = saveCapture('06-streaming-20x10');
+  assert.equal((tinyCapture.match(/\bBuild\b/g) ?? []).length, 1, 'tiny fallback must keep one status row');
+  assert.doesNotMatch(tinyCapture, /E2E HISTORY MARKER/, 'tiny fallback must not expose stale transcript rows');
+
+  resize(size.columns, size.rows);
+  await waitFor('96x24 restored streaming frame', () => capture().includes('E2E LONG PHASE') && !capture().includes('Terminal too smal'));
+  saveCapture('07-streaming-restored');
 
   sendKey('Escape');
   await waitFor('first-Esc confirmation footer', () => capture().includes('esc again to interrupt'), 1_000);
@@ -175,7 +262,40 @@ try {
     && entry.event?.type === 'idle' && entry.event?.usage?.totalTokens === 2345));
   await sleep(120);
 
-  const finalCapture = capture();
+  resize(120, 30);
+  await waitFor('Todo and telemetry panels after stream', () => capture().includes('Todos')
+    && capture().includes('Context') && capture().includes('E2E FINAL REPLY'));
+  saveCapture('08-panels-after-stream');
+
+  sendLiteral('/editor');
+  sendKey('Enter');
+  await waitFor('external editor resume', () => capture().includes('E2E EDITOR DRAFT')
+    && capture().includes('E2E FINAL REPLY'));
+  const editorCapture = saveCapture('09-external-editor-return');
+  assert.equal((editorCapture.match(/\bBuild\b/g) ?? []).length, 1, 'external-editor repaint must not duplicate status');
+  sendKey('C-u');
+
+  sendLiteral('/help');
+  sendKey('Enter');
+  await waitFor('commands modal', () => capture().includes('Commands') && capture().includes('enter run'));
+  saveCapture('10-help-modal');
+  sendKey('Escape');
+  await waitFor('commands modal closed', () => !capture().includes('enter run'));
+
+  sendKey('C-p');
+  await waitFor('post-stream telemetry hidden', () => !capture().includes('Context'));
+  sendKey('C-p');
+  await waitFor('post-stream telemetry shown', () => capture().includes('Context'));
+
+  sendKey('PageUp');
+  await waitFor('post-stream PageUp', () => capture().includes('History +'));
+  sendKey('PageDown');
+  await waitFor('post-stream PageDown', () => !capture().includes('History +'));
+
+  resize(size.columns, size.rows);
+  await waitFor('final 96x24 frame', () => capture().includes('E2E FINAL REPLY') && capture().split('\n').length >= size.rows);
+
+  const finalCapture = saveCapture('11-final-96x24');
   const finalLines = finalCapture.endsWith('\n') ? finalCapture.slice(0, -1).split('\n') : finalCapture.split('\n');
   assert.equal(finalLines.length, size.rows, `tmux pane must remain exactly ${size.rows} rows tall`);
   assert.equal((finalCapture.match(/\bBuild\b/g) ?? []).length, 1, 'status metadata must contain exactly one Build row');
@@ -187,7 +307,16 @@ try {
 
   sendKey('C-c');
   await waitFor('one session stop request', () => requests('/brain/session/stop').length === 1);
-  await waitFor('tmux pane exit', () => !hasSession(), 5_000);
+  await waitFor('restored shell marker', () => capture().includes('E2E SHELL RESTORED'), 5_000);
+  saveCapture('12-restored-shell');
+
+  const ttyStates = readFileSync(ttyStatePath, 'utf8').trim().split('\n');
+  assert.equal(ttyStates.length, 2, 'the harness must capture tty state before and after chat');
+  assert.equal(ttyStates[1], ttyStates[0], 'raw/canonical/echo tty state must be restored exactly');
+
+  const terminalWrites = readFileSync(terminalWriteLog, 'utf8');
+  assert.ok(terminalWrites.lastIndexOf('\x1b[?1049l') > terminalWrites.lastIndexOf('\x1b[?1049h'), 'alternate screen must be left last');
+  assert.ok(terminalWrites.lastIndexOf('\x1b[?1006l') > terminalWrites.lastIndexOf('\x1b[?1006h'), 'mouse reporting must be disabled last');
 
   const startRequests = requests('/brain/start');
   const streamRequests = requests('/brain/stream');
@@ -196,6 +325,8 @@ try {
   assert.equal(streamRequests.length, 1, 'the bound SSE must not duplicate or reconnect during the scenario');
   assert.equal(stopRequests.length, 1, 'Ctrl+C must send exactly one session stop');
   assert.equal(requests('/brain/abort').length, 1, 'only the confirmed double-Esc may abort');
+  assert.equal(requests('/brain/send').length, 3, 'normal, queued multiline, and final prompts must all reach the daemon');
+  assert.match(requests('/brain/send')[1].body.text, /E2E QUEUED LINE 1\nE2E QUEUED LINE 2/, 'queued prompt must preserve its newline');
 
   const startBody = startRequests[0].body;
   const streamQuery = streamRequests[0].query;
@@ -209,7 +340,26 @@ try {
   assert.equal(stopBody.session, 'e2e-session', 'Ctrl+C stop must target the bound session');
   assert.ok(entries().filter((entry) => entry.kind === 'request').every((entry) => entry.authorization === 'ok'), 'every mock request must be authenticated');
 
-  console.log('PASS test:cli-tmux — real 96x24 TUI, double-Esc, tool layout, single Build, and Ctrl+C stop verified.');
+  const perfFrames = readFileSync(perfLog, 'utf8').split('\n').filter(Boolean)
+    .map((line) => JSON.parse(line)).filter((entry) => entry.type === 'frame');
+  assert.ok(perfFrames.length > 0, 'perf diagnostics must capture real frames');
+  assert.ok(perfFrames.every((frame) => frame.rootRows <= frame.terminal.rows), 'every diagnosed root frame must fit terminal rows');
+  const frameTimes = perfFrames.map((frame) => Number(frame.totalMs)).filter(Number.isFinite).sort((a, b) => a - b);
+  const p95 = frameTimes[Math.min(frameTimes.length - 1, Math.floor(frameTimes.length * 0.95))] ?? 0;
+  const report = {
+    passed: true,
+    session,
+    captures: 12,
+    requests: entries().filter((entry) => entry.kind === 'request').length,
+    frames: perfFrames.length,
+    frameMs: { p95, max: frameTimes.at(-1) ?? 0 },
+    terminalStateRestored: true,
+    alternateScreenRestored: true,
+    mouseReportingDisabled: true,
+  };
+  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  console.log(`PASS test:cli-tmux — long history, stream/queue/panels, resize 20x10..120x30, scroll/modal, and terminal restore verified. Report: ${reportPath}`);
 } catch (error) {
   failed = true;
   const pane = capture();
@@ -217,6 +367,8 @@ try {
   process.stderr.write(`FAIL test:cli-tmux — ${error.stack ?? error}\n`);
   if (pane) process.stderr.write(`\n--- tmux capture ---\n${pane}\n`);
   if (log.length) process.stderr.write(`\n--- mock request tail ---\n${log.map((entry) => JSON.stringify(entry)).join('\n')}\n`);
+  try { writeFileSync(reportPath, `${JSON.stringify({ passed: false, error: error.stack ?? String(error) }, null, 2)}\n`); } catch { /* best effort */ }
+  process.stderr.write(`\nMachine report: ${reportPath}\n`);
   process.exitCode = 1;
 } finally {
   if (hasSession()) spawnSync('tmux', ['kill-session', '-t', session], { stdio: 'ignore' });

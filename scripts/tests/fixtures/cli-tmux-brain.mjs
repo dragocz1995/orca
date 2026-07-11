@@ -6,10 +6,16 @@ if (!logPath) throw new Error('ELOWEN_TMUX_LOG is required');
 
 const TOKEN = 'e2e-token';
 const SESSION_ID = 'e2e-session';
+const SCENARIO = process.env.ELOWEN_TMUX_SCENARIO ?? 'long';
 const streams = new Set();
 const firstTimers = new Set();
 let firstProgress = null;
 let sendCount = 0;
+let currentCards = [];
+const longHistory = Array.from({ length: 90 }, (_, index) => [
+  { role: 'user', text: `E2E HISTORY QUESTION ${index}` },
+  { role: 'assistant', text: `## E2E HISTORY ANSWER ${index}\n\n- stable row one\n- stable row two\n\nE2E HISTORY MARKER ${index}` },
+]).flat();
 
 function log(entry) {
   appendFileSync(logPath, `${JSON.stringify({ at: Date.now(), ...entry })}\n`);
@@ -25,6 +31,9 @@ function json(res, status, value) {
 }
 
 function emit(event) {
+  if (event.type === 'card') {
+    currentCards = [...currentCards.filter((card) => card.id !== event.card.id), event.card];
+  }
   log({ kind: 'event', event });
   const frame = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
   for (const stream of streams) stream.write(frame);
@@ -71,7 +80,24 @@ function runSecondTurn(text) {
     type: 'tool', id: 'final-tool', name: 'run_command',
     detail: 'npm run e2e-demo', command: 'npm run e2e-demo',
   }));
+  later(150, () => emit({ type: 'tool', id: 'delegate-e2e', name: 'delegate', detail: 'verify the CLI panels' }));
+  later(180, () => emit({
+    type: 'subagent', id: 'delegate-e2e', sessionId: 'e2e-child', status: 'running',
+    task: 'verify the CLI panels', detail: 'checking resize', tools: 2, tokens: 321, seconds: 4,
+    model: 'mock/e2e-child',
+  }));
   later(220, () => emit({ type: 'tool_progress', id: 'final-tool', text: 'E2E TOOL STREAMING' }));
+  later(240, () => emit({
+    type: 'card',
+    card: {
+      id: 'e2e-todos', title: 'Todos', pinned: true,
+      items: [
+        { text: 'stream response', status: 'completed' },
+        { text: 'survive resize', status: 'in_progress' },
+        { text: 'accept another input', status: 'pending' },
+      ],
+    },
+  }));
   later(320, () => emit({
     type: 'tool_output', id: 'final-tool',
     output: {
@@ -80,9 +106,53 @@ function runSecondTurn(text) {
     },
   }));
   later(420, () => emit({ type: 'text', delta: 'E2E FINAL REPLY' }));
+  later(460, () => emit({
+    type: 'subagent', id: 'delegate-e2e', sessionId: 'e2e-child', status: 'done',
+    task: 'verify the CLI panels', detail: 'done', tools: 3, tokens: 654, seconds: 7,
+    model: 'mock/e2e-child',
+  }));
   later(520, () => emit({
     type: 'idle', model: 'mock/e2e-model',
     usage: { tokens: 1234, contextWindow: 100000, percent: 1.2, totalTokens: 2345, cost: 0.0123 },
+  }));
+}
+
+function runShortTurn(text) {
+  later(20, () => emit({ type: 'user', text }));
+  later(35, () => emit({ type: 'text', delta: 'E2E SHORT REPLY' }));
+  later(55, () => emit({
+    type: 'idle', model: 'mock/e2e-model',
+    usage: { tokens: 24, contextWindow: 100000, percent: 0.02, totalTokens: 24, cost: 0.0001 },
+  }));
+}
+
+function runControlBurst(text) {
+  later(20, () => emit({ type: 'user', text }));
+  for (let index = 0; index < 14; index += 1) {
+    const id = `unsafe-tool-${index}`;
+    const delay = 30 + index * 4;
+    later(delay, () => emit({
+      type: 'tool', id, name: 'run_command',
+      detail: `column\t${index}\u001b[2J`,
+      command: `printf 'column\t${index}'\u001b[2J`,
+    }));
+    later(delay + 1, () => emit({
+      type: 'tool_progress', id,
+      text: `phase\t${index}\rprogress ${index}\u001b]0;unsafe-title\u0007`,
+    }));
+    later(delay + 2, () => emit({
+      type: 'tool_output', id,
+      output: {
+        title: `console\t${index}\u001b[31m`, kind: 'console',
+        text: `name\tvalue-${index}\nsecond\trow-${index}\rrewritten-${index}\u001b[2J\u001b]0;unsafe-title\u0007`,
+        status: `exit\t0`, tone: 'success',
+      },
+    }));
+  }
+  later(105, () => emit({ type: 'text', delta: 'E2E CONTROL BURST COMPLETE' }));
+  later(125, () => emit({
+    type: 'idle', model: 'mock/e2e-model',
+    usage: { tokens: 3456, contextWindow: 100000, percent: 3.4, totalTokens: 3456, cost: 0.02 },
   }));
 }
 
@@ -127,7 +197,7 @@ const server = createServer(async (req, res) => {
       fast: false,
       fastAvailable: false,
       pendingAsk: null,
-      cards: [],
+      cards: currentCards,
       queued: [],
       lspEnabled: true,
       yolo: false,
@@ -143,7 +213,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === 'GET' && url.pathname === '/brain/messages') {
-    json(res, 200, []);
+    json(res, 200, process.env.ELOWEN_TMUX_LONG === '1' ? longHistory : []);
     return;
   }
   if (req.method === 'GET' && url.pathname === '/brain/commands') {
@@ -173,12 +243,20 @@ const server = createServer(async (req, res) => {
     sendCount += 1;
     json(res, 200, { ok: true });
     const text = typeof body.value?.text === 'string' ? body.value.text : '';
+    if (SCENARIO === 'short-controls') {
+      if (sendCount === 1) runShortTurn(text);
+      else if (sendCount === 2) runControlBurst(text);
+      return;
+    }
     if (sendCount === 1) runFirstTurn(text);
-    else if (sendCount === 2) runSecondTurn(text);
+    else if (sendCount === 2) {
+      later(25, () => emit({ type: 'queue', items: [{ id: 'queued-e2e', text }] }));
+    } else if (sendCount === 3) runSecondTurn(text);
     return;
   }
   if (req.method === 'POST' && url.pathname === '/brain/abort') {
     stopFirstTurn();
+    emit({ type: 'queue', items: [] });
     emit({ type: 'idle', model: 'mock/e2e-model' });
     json(res, 200, { ok: true });
     return;
