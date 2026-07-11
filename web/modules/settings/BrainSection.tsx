@@ -21,7 +21,7 @@ import { useAutoSaveStatus, type SaveStatus } from '../../lib/useAutoSaveStatus'
 import { useSaveBrainProviders, useBrainOauthDisconnect } from '../../lib/mutations';
 import { elowenClient } from '../../lib/elowenClient';
 import type { BrainProvider, BrainProviderType, OAuthFlowState, BrainLimits } from '../../lib/types';
-import { SettingsDocument, SettingsGroup, SettingsRow, SettingsState } from './SettingsSurface';
+import { SettingsGroup, SettingsRow, SettingsState } from './SettingsSurface';
 
 const OAUTH_TYPES: { type: BrainProviderType; icon: string }[] = [
   { type: 'oauth-anthropic', icon: 'claude' },
@@ -333,7 +333,7 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
       .catch(() => toast(t.brain.connectError, 'error'));
 
   return (
-    <SettingsDocument>
+    <>
       {/* Identity + step ceiling on one row: the assistant's name (everywhere it speaks) and the max
           agent steps per run (Discord shows "Step N / MAX"). */}
       <SettingsGroup icon={BrainCircuit}>
@@ -479,6 +479,6 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
         onConfirm={() => { if (removeTarget) remove(removeTarget); setRemoveTarget(null); }}
         onClose={() => setRemoveTarget(null)}
       />
-    </SettingsDocument>
+    </>
   );
 }

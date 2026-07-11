@@ -35,11 +35,12 @@ const renderSection = () => render(<ToastProvider><BrainSection /></ToastProvide
 beforeEach(() => { saveProviders.mockClear(); disconnect.mockClear(); });
 
 describe('BrainSection — OAuth account model picker', () => {
-  it('uses the shared settings document pattern for identity, accounts, and providers', () => {
+  it('provides shared settings groups for the page-owned settings document', () => {
     const { container } = renderSection();
 
-    expect(container.querySelectorAll('[data-settings-document]')).toHaveLength(1);
+    expect(container.querySelector('[data-settings-document]')).toBeNull();
     expect(container.querySelectorAll('[data-settings-group]')).toHaveLength(3);
+    expect(container.querySelectorAll('.settings-row')).toHaveLength(6);
     expect(container.querySelector('.spatial-group')).toBeNull();
     expect(container.querySelector('.border-y.divide-y')).toBeNull();
   });
