@@ -23,7 +23,8 @@ import { DirectoryPicker } from './DirectoryPicker';
 import { EntityList, EntityRow } from '../../components/ui/EntityList';
 import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
 import { DataTable, DataTableCell, DataTableRow } from '../../components/ui/DataTable';
-import { WorkspaceDetailRail, WorkspaceHeader, WorkspaceMetric, WorkspaceMetrics, WorkspacePage } from '../../components/ui/WorkspacePrimitives';
+import { WorkspaceDetailRail, WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
+import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 type ProjectFilter = 'all' | 'inherit' | 'override';
 
@@ -177,40 +178,40 @@ export function ProjectsView() {
   return (
     <>
       <ModuleHeader title={t.page.projects} count={projects.data?.length} icon={FolderGit2} />
-      <WorkspacePage>
-        <WorkspaceHeader
-          eyebrow={t.projects.registry}
-          title={t.page.projects}
-          count={projects.data?.length ?? 0}
-          description={t.projects.workspaceIntro}
-          icon={FolderGit2}
-          status={!projects.isLoading && !projects.isError ? <span className="workspace-status">{t.projects.registryReady}</span> : undefined}
-          action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.projects.newProject}</Button>}
-        />
-        <WorkspaceMetrics visual={<div className="project-core"><FolderGit2 size={28} strokeWidth={1.25} /></div>} ariaLabel={t.projects.summary}>
-          <WorkspaceMetric label={t.projects.metricProjects} value={projects.data?.length ?? 0} icon={FolderGit2} />
-          <WorkspaceMetric label={t.projects.metricOverrides} value={summary.overrides} icon={GitBranch} />
-          <WorkspaceMetric label={t.projects.metricIcons} value={summary.icons} icon={ImageIcon} />
-          <WorkspaceMetric label={t.projects.metricDocumented} value={summary.documented} icon={FileText} />
-        </WorkspaceMetrics>
+      <SpatialWorkspaceLayout
+        hero={{
+          eyebrow: t.projects.registry,
+          title: t.page.projects,
+          count: projects.data?.length ?? 0,
+          description: t.projects.workspaceIntro,
+          mascotState: projects.isLoading ? 'saving' : projects.isError ? 'error' : 'idle',
+          status: !projects.isLoading && !projects.isError ? <span className="workspace-status">{t.projects.registryReady}</span> : undefined,
+          action: <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.projects.newProject}</Button>,
+          metrics: <>
+            <WorkspaceMetric label={t.projects.metricProjects} value={projects.data?.length ?? 0} icon={FolderGit2} />
+            <WorkspaceMetric label={t.projects.metricOverrides} value={summary.overrides} icon={GitBranch} />
+            <WorkspaceMetric label={t.projects.metricIcons} value={summary.icons} icon={ImageIcon} />
+            <WorkspaceMetric label={t.projects.metricDocumented} value={summary.documented} icon={FileText} />
+          </>,
+        }}
+      >
+        <ControlSurfaceDocument>
+          <ControlSurfaceToolbar className="flex-wrap">
+            <div className="relative min-w-[15rem] flex-1">
+              <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.projects.searchPlaceholder} className="pl-9" />
+            </div>
+            <SelectMenu value={filter} onChange={setFilter} options={FILTER_OPTIONS} label={t.projects.filterLabel} className="min-w-[11rem]" />
+          </ControlSurfaceToolbar>
 
-        <div className="workspace-content">
-          {projects.isLoading ? <LoadingState variant="list" />
-            : projects.isError ? <ErrorState message={t.projects.loadError} onRetry={() => projects.refetch()} />
-            : !projects.data || projects.data.length === 0 ? <EmptyState title={t.projects.empty} icon={FolderGit2} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.projects.newProject}</Button>} />
+          {projects.isLoading ? <ControlSurfaceState><LoadingState variant="list" /></ControlSurfaceState>
+            : projects.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.projects.loadError} onRetry={() => projects.refetch()} /></ControlSurfaceState>
+            : !projects.data || projects.data.length === 0 ? <ControlSurfaceState><EmptyState title={t.projects.empty} icon={FolderGit2} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.projects.newProject}</Button>} /></ControlSurfaceState>
             : (
               <div className="workspace-master-detail" data-detail={selectedProject != null}>
                 <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 border-y border-border/80 py-3">
-                    <div className="relative min-w-[15rem] flex-1">
-                      <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                      <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.projects.searchPlaceholder} className="pl-9" />
-                    </div>
-                    <SelectMenu value={filter} onChange={setFilter} options={FILTER_OPTIONS} label={t.projects.filterLabel} className="min-w-[11rem]" />
-                  </div>
-
                   {filteredProjects.length === 0 ? (
-                    <EmptyState title={t.projects.noMatches} icon={Search} />
+                    <ControlSurfaceState><EmptyState title={t.projects.noMatches} icon={Search} /></ControlSurfaceState>
                   ) : (
                     <DataTable ariaLabel={t.projects.tableLabel} columns="minmax(13rem,1.2fr) minmax(15rem,1.5fr) minmax(10rem,1fr) 8rem 3rem" compactColumns="minmax(0,1fr) 3rem" className="border-t-0" data-testid="projects-register">
                       <DataTableRow header>
@@ -330,8 +331,8 @@ export function ProjectsView() {
                 ) : null}
               </div>
             )}
-        </div>
-      </WorkspacePage>
+        </ControlSurfaceDocument>
+      </SpatialWorkspaceLayout>
 
       {editingId ? <ProjectEditor key={editingWorking ? 'working' : (editingCommit ?? 'files')} projectId={editingId} initialCommit={editingCommit} initialWorking={editingWorking} onClose={closeEditor} /> : null}
 
