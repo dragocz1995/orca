@@ -574,7 +574,7 @@ export class ChatViewport implements Component {
     if (estimatedAnchor) {
       const anchor = estimatedAnchor;
       this.restoreResetAnchor(anchor);
-      this.materializeEstimatedWindow(height + HISTORY_OVERSCAN_ROWS);
+      this.materializeEstimatedWindow(anchor, height + HISTORY_OVERSCAN_ROWS);
       this.restoreResetAnchor(anchor);
       this.pendingResetAnchor = null;
     }
@@ -734,22 +734,31 @@ export class ChatViewport implements Component {
     this.scrollOffset = Math.max(0, estimatedTotal - this.viewportHeight - topRow);
   }
 
-  private materializeEstimatedWindow(requiredRows: number): void {
+  private materializeEstimatedWindow(anchor: ViewportResetAnchor, requiredRows: number): void {
     if (!this.estimatedLayout || this.layout.length === 0) return;
-    const turnTotal = this.heightIndex.prefixSum(this.layout.length);
-    const topRow = Math.max(0, 1 + turnTotal + this.currentExtraRows.length
-      - this.viewportHeight - this.scrollOffset);
-    const turnOffset = Math.max(0, Math.min(Math.max(0, turnTotal - 1), topRow - 1));
-    const first = Math.min(this.layout.length - 1, this.heightIndex.lowerBoundOffset(turnOffset));
+    const first = Math.max(0, Math.min(
+      this.layout.length - 1,
+      Math.round(anchor.turnRatio * (this.layout.length - 1)),
+    ));
     let rows = 0;
     let visits = 0;
+    // A turn always renders at least its trailing boundary row. Budgeting one visit per requested row
+    // therefore covers even a very tall terminal full of one-row turns without tying work to history
+    // depth. The 64-turn floor preserves the normal small-terminal recovery bound and overscan cache.
+    const maxVisits = Math.max(64, requiredRows + 1);
     for (let index = first;
-      index < this.layout.length && rows < requiredRows && visits < 64; index += 1) {
+      index < this.layout.length && rows < requiredRows && visits < maxVisits; index += 1) {
       this.frameLayoutVisits++;
       visits++;
       const entry = this.layout[index]!;
       if (entry.height == null) this.renderAndRecord(index, true);
-      rows += entry.height ?? this.estimatedTurnHeight;
+      const height = entry.height ?? this.estimatedTurnHeight;
+      // The logical anchor can sit deep inside a tall turn. Only the rows remaining below that
+      // intra-turn position cover the frozen window; counting the whole turn would stop the prepass
+      // before a following cold entry that collectWindow is about to consume.
+      rows += index === first
+        ? Math.max(0, height - Math.floor(anchor.withinTurnRatio * height))
+        : height;
     }
   }
 
@@ -857,9 +866,14 @@ export class ChatViewport implements Component {
     return rows;
   }
 
-  private rowsFor(index: number): TranscriptRow[] {
+  /** Compose a frame only from heights made exact before total/start/selection/scrollbar geometry was
+   *  frozen. The viewport-sized prepass guarantees this invariant independent of history depth. */
+  private rowsForFrozenWindow(index: number): TranscriptRow[] {
     const entry = this.layout[index]!;
     if (entry.rows) { this.touchRows(entry); return entry.rows; }
+    if (entry.height == null && this.estimatedLayout) {
+      throw new Error('estimated viewport prepass left a visible turn cold');
+    }
     return this.renderAndRecord(index, true);
   }
 
@@ -939,7 +953,7 @@ export class ChatViewport implements Component {
         const turnStart = this.heightIndex.prefixSum(index) - knownBase;
         const chunkStart = leadingBlank + turnStart;
         if (chunkStart >= end || turnStart >= localEnd) break;
-        append(this.rowsFor(index), chunkStart);
+        append(this.rowsForFrozenWindow(index), chunkStart);
       }
     }
     append(this.currentExtraRows, leadingBlank + turnTotal);

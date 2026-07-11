@@ -334,9 +334,9 @@ export class TranscriptModel implements TranscriptRead {
     }
     // Preserve the old reducer's handling of malformed lifecycle events: a streaming assistant exists,
     // but no unrelated tool row is patched when an explicit id is unknown.
-    const { index } = this.ensureAssistant();
+    const { index, fresh } = this.ensureAssistant();
     this.thinking = true;
-    this.publish({ kind: 'turn', index });
+    this.publish(fresh ? { kind: 'append', index } : { kind: 'turn', index });
     return true;
   }
 

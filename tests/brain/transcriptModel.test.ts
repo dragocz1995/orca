@@ -190,6 +190,22 @@ describe('TranscriptModel', () => {
     });
   });
 
+  it.each([
+    { type: 'tool_progress', id: 'missing', text: 'late output' } as const,
+    { type: 'diff', id: 'missing', diff: { title: 'late diff', oldText: 'before', newText: 'after' } } as const,
+    { type: 'tool_output', id: 'missing', output: { title: 'late result', kind: 'console', text: 'late output' } } as const,
+  ])('publishes a fresh assistant for an unmatched $type event as an appended suffix', (event) => {
+    const model = new TranscriptModel([{ role: 'assistant', text: 'settled' }]);
+    const revision = model.revision;
+
+    model.apply(event);
+
+    expect(model.turnCount).toBe(2);
+    expect(model.changesSince(revision)).toEqual({
+      kind: 'suffix', from: 1, revision: model.revision,
+    });
+  });
+
   it('visits at most one turn for a steady event at exactly 40,000 turns', () => {
     const history: HistoryMessage[] = Array.from({ length: 40_000 }, (_, index) => index === 0
       ? { role: 'assistant', text: '', segments: [{ kind: 'tool', id: 'old', name: 'delegate' }] }

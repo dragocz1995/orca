@@ -696,6 +696,7 @@ describe('progressive history layout', () => {
     );
     viewport.render(80);
     visits = 0;
+    viewport.resetHeightIndexOperationCount();
 
     transcript.apply(event);
     viewport.setState(transcriptState(transcript));
@@ -705,6 +706,33 @@ describe('progressive history layout', () => {
     expect(viewport.metrics().reconciledTurns).toBeLessThanOrEqual(1);
     expect(viewport.metrics().renderedTurns).toBeLessThanOrEqual(1);
     expect(viewport.metrics().layoutVisits).toBeLessThanOrEqual(1);
+    expect(viewport.metrics().heightIndexOperations).toBeLessThanOrEqual(512);
+    expect(visits).toBeLessThanOrEqual(3);
+  });
+
+  it.each([
+    ['tool_progress', { type: 'tool_progress', id: 'missing', text: 'late output' } satisfies BrainEvent],
+    ['diff', { type: 'diff', id: 'missing', diff: { title: 'late diff', oldText: 'before', newText: 'after' } } satisfies BrainEvent],
+    ['tool_output', { type: 'tool_output', id: 'missing', output: { title: 'late result', kind: 'console', text: 'late output' } } satisfies BrainEvent],
+  ])('keeps the first unmatched %s lifecycle append frame bounded', (_name, event) => {
+    let visits = 0;
+    const transcript = TranscriptModel.fromView(largeHistory(2_000), { onTurnVisit: () => { visits++; } });
+    const viewport = new ChatViewport(
+      transcriptState(transcript),
+      getMarkdownTheme(), () => 18, () => 1, () => 80,
+    );
+    viewport.render(80);
+    visits = 0;
+    viewport.resetHeightIndexOperationCount();
+
+    transcript.apply(event);
+    viewport.setState(transcriptState(transcript));
+    viewport.render(80);
+
+    expect(viewport.metrics().reconciledTurns).toBeLessThanOrEqual(1);
+    expect(viewport.metrics().renderedTurns).toBeLessThanOrEqual(1);
+    expect(viewport.metrics().layoutVisits).toBeLessThanOrEqual(1);
+    expect(viewport.metrics().heightIndexOperations).toBeLessThanOrEqual(512);
     expect(visits).toBeLessThanOrEqual(3);
   });
 
@@ -816,6 +844,112 @@ describe('progressive history layout', () => {
     expect(secondHits).toEqual(firstHits);
     expect(secondCopy).toBe(firstCopy);
     expect(firstCopy).toContain('marker 200');
+  });
+
+  it('materializes past a tall estimated anchor so a following short turn cannot mutate a frozen frame', () => {
+    const history = (rows: (index: number) => number) => Array.from({ length: 200 }, (_, index) => ({
+      role: 'assistant' as const,
+      text: [
+        `marker ${index}`,
+        ...Array.from({ length: Math.max(0, rows(index) - 1) }, (_, row) => `detail ${index}-${row}`),
+      ].join('\n'),
+    }));
+    const transcript = new TranscriptModel(history(() => 80));
+    let width = 80;
+    const viewport = new ChatViewport(
+      transcriptState(transcript),
+      getMarkdownTheme(), () => 18, () => 1, () => width,
+    );
+    viewport.render(width);
+    viewport.scroll(1_000_000);
+    viewport.render(width);
+
+    // Every original turn is 81 rendered rows. Position the viewport 94% through turn 50, then
+    // resize so the next history replacement must recover that logical intra-turn anchor.
+    const target = 50;
+    const targetTop = 1 + target * 81 + Math.floor(81 * 0.94);
+    viewport.scroll(-targetTop);
+    viewport.render(width);
+    width = 72;
+    viewport.render(width);
+
+    transcript.replaceHistory(history((index) => index === target ? 150 : index === target + 1 ? 1 : 80));
+    viewport.setState(transcriptState(transcript));
+
+    const capture = () => {
+      const frame = viewport.render(width);
+      const metrics = viewport.metrics();
+      const thumb = frame.map((line, index) => line.includes('█') ? index : -1).filter((index) => index >= 0);
+      const hits = thumb.map((index) => viewport.isScrollbarHit(width, index + 1));
+      expect(viewport.beginSelect(5, 1)).toBe(true);
+      viewport.dragSelect(2);
+      return {
+        frame,
+        geometry: {
+          transcriptRows: metrics.transcriptRows,
+          visibleRows: metrics.visibleRows,
+          scrollOffset: metrics.scrollOffset,
+          maxScrollOffset: metrics.maxScrollOffset,
+          indexedTurns: metrics.indexedTurns,
+        },
+        renderedTurns: metrics.renderedTurns,
+        layoutVisits: metrics.layoutVisits,
+        thumb,
+        hits,
+        copy: viewport.takeSelection(),
+      };
+    };
+
+    const first = capture();
+    const second = capture();
+
+    expect(first.frame.some((line) => line.includes('detail 50-'))).toBe(true);
+    expect(second.frame).toEqual(first.frame);
+    expect(second.geometry).toEqual(first.geometry);
+    expect(second.thumb).toEqual(first.thumb);
+    expect(first.hits.every(Boolean)).toBe(true);
+    expect(second.hits).toEqual(first.hits);
+    expect(second.copy).toBe(first.copy);
+    expect(first.copy).toContain('detail 50-');
+    expect(first.renderedTurns).toBeLessThanOrEqual(64);
+    expect(first.layoutVisits).toBeLessThanOrEqual(64);
+    expect(second.renderedTurns).toBe(0);
+  });
+
+  it('bounds a viewport spanning more than 64 estimated turns by visible rows, not history depth', () => {
+    const transcript = new TranscriptModel(Array.from({ length: 40_000 }, (_, index) => ({
+      role: 'assistant' as const,
+      text: `marker ${index}`,
+    })));
+    let width = 80;
+    const height = 160;
+    const visibleWorkBound = height + 8 + 1;
+    const viewport = new ChatViewport(
+      transcriptState(transcript),
+      getMarkdownTheme(), () => height, () => 1, () => width,
+    );
+    viewport.render(width);
+    viewport.scroll(500);
+    viewport.render(width);
+
+    // The deep viewport spans eighty two-row turns. Resizing cold-resets a 40k history, but the
+    // Markdown work must depend only on the 160 visible rows plus overscan.
+    width = 72;
+
+    const first = viewport.render(width);
+    const firstMetrics = viewport.metrics();
+    const second = viewport.render(width);
+    const secondMetrics = viewport.metrics();
+
+    expect(first.some((line) => line.includes('marker'))).toBe(true);
+    expect(second).toEqual(first);
+    expect(secondMetrics.transcriptRows).toBe(firstMetrics.transcriptRows);
+    expect(secondMetrics.scrollOffset).toBe(firstMetrics.scrollOffset);
+    expect(secondMetrics.maxScrollOffset).toBe(firstMetrics.maxScrollOffset);
+    expect(firstMetrics.renderedTurns).toBeLessThanOrEqual(visibleWorkBound);
+    expect(firstMetrics.layoutVisits).toBeLessThanOrEqual(visibleWorkBound);
+    expect(secondMetrics.renderedTurns).toBe(0);
+    expect(secondMetrics.layoutVisits).toBeLessThanOrEqual(visibleWorkBound);
   });
 
   it('reads turns and sparse revisions directly from TranscriptModel', () => {
