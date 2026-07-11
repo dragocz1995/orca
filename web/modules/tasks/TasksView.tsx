@@ -1,8 +1,8 @@
 'use client';
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Plus, ListChecks, Search, Archive, Trash2, X, ChevronLeft, ChevronRight, CalendarDays, List, Activity, Ban, Rocket } from 'lucide-react';
-import type { Task, TaskStatus } from '../../lib/types';
+import { Plus, ListChecks, Search, Archive, Trash2, X, ChevronLeft, ChevronRight, CalendarDays, List, Activity, Ban, Rocket, Circle } from 'lucide-react';
+import type { Task } from '../../lib/types';
 import { useTasks, useAllDeps, useSessions, useSessionSignals, useMissions } from '../../lib/queries';
 import { taskBlockers, taskSessionName } from '../../lib/agentUtils';
 import { epicChildren, phaseIds, epicLive, epicEffectiveStatus } from '../../lib/taskTree';
@@ -13,7 +13,6 @@ import { EpicGroup } from './EpicGroup';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
-import { Segmented } from '../../components/ui/Segmented';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
@@ -30,10 +29,13 @@ import { DEFAULT_RANGE, serializeRange, parseRange, isStoredRange, inRange } fro
 import { taskDayMs } from './dateRange';
 import { dayKey } from '../kanban/calendar';
 import { MotionLayout, MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
-import { WorkspaceDetailRail, WorkspaceHeader, WorkspaceMetric, WorkspaceMetrics, WorkspacePage } from '../../components/ui/WorkspacePrimitives';
+import { WorkspaceDetailRail, WorkspaceMetric, WorkspacePage, SpatialWorkspaceHero } from '../../components/ui/WorkspacePrimitives';
+import { SpatialSectionRail, type SpatialDeckSection } from '../../components/ui/SpatialControlDeck';
+import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
+import { taskFilterCounts, type TaskWorkspaceFilter } from './taskFilters';
 
-type Filter = 'all' | TaskStatus | 'autopilot';
-const FILTER_VALUES: readonly Filter[] = ['all', 'open', 'in_progress', 'blocked', 'closed', 'cancelled', 'autopilot'];
+type Filter = TaskWorkspaceFilter;
+const FILTER_VALUES: readonly Filter[] = ['in_progress', 'open', 'blocked', 'closed', 'autopilot', 'all'];
 const PAGE_SIZE = 12;
 
 /** Day key from epoch ms — delegates to the canonical local YYYY-MM-DD key (single source of truth). */
@@ -72,15 +74,6 @@ export function TasksView() {
   const phaseSet = useMemo(() => phaseIds(tasks.data ?? []), [tasks.data]);
   const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set());
   const toggleEpic = (id: string) => setExpandedEpics((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
-  const FILTERS: { value: Filter; label: string }[] = [
-    { value: 'in_progress', label: t.tasks.filterActive },
-    { value: 'open', label: t.tasks.filterOpen },
-    { value: 'blocked', label: t.tasks.filterBlocked },
-    { value: 'closed', label: t.tasks.filterClosed },
-    { value: 'autopilot', label: t.tasks.filterAutopilot },
-    { value: 'all', label: t.tasks.filterAll },
-  ];
 
   // Command palette: /tasks?new=1 opens the create modal; ?select=<id> opens its detail pane.
   const router = useRouter();
@@ -195,57 +188,53 @@ export function TasksView() {
     return out;
   }, [pageItems, dayLabel]);
 
-  const summary = useMemo(() => {
-    const items = tasks.data ?? [];
-    return {
-      active: items.filter((task) => task.status === 'in_progress').length,
-      blocked: items.filter((task) => task.status === 'blocked').length,
-      autopilot: items.filter((task) => task.type === 'epic' && (childMap.get(task.id)?.length ?? 0) > 0).length,
-      closed: items.filter((task) => task.status === 'closed').length,
-    };
-  }, [childMap, tasks.data]);
+  const counts = useMemo(() => taskFilterCounts(tasks.data ?? [], missions.data ?? []), [tasks.data, missions.data]);
+  const filterSections: SpatialDeckSection[] = [
+    { id: 'in_progress', label: t.tasks.filterActive, icon: Activity, count: counts.in_progress },
+    { id: 'open', label: t.tasks.filterOpen, icon: Circle, count: counts.open },
+    { id: 'blocked', label: t.tasks.filterBlocked, icon: Ban, count: counts.blocked },
+    { id: 'closed', label: t.tasks.filterClosed, icon: Archive, count: counts.closed },
+    { id: 'autopilot', label: t.tasks.filterAutopilot, icon: Rocket, count: counts.autopilot },
+    { id: 'all', label: t.tasks.filterAll, icon: List, count: counts.all },
+  ];
 
   return (
     <>
       <ModuleHeader title={t.page.tasks} count={filtered.length} icon={ListChecks} />
       <WorkspacePage>
-        <WorkspaceHeader
+        <SpatialWorkspaceHero
           eyebrow={t.tasks.workspaceEyebrow}
           title={t.page.tasks}
-          count={tasks.data?.length ?? 0}
+          count={counts.all}
           description={t.tasks.workspaceIntro}
-          icon={ListChecks}
+          mascotState={tasks.isLoading ? 'saving' : tasks.isError ? 'error' : 'idle'}
           status={!tasks.isLoading && !tasks.isError ? <span className="workspace-status">{t.tasks.workspaceReady}</span> : undefined}
           action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>}
-        />
-        <WorkspaceMetrics visual={<div className="task-core"><ListChecks size={28} strokeWidth={1.25} /></div>} ariaLabel={t.tasks.summary}>
-          <WorkspaceMetric label={t.tasks.metricActive} value={summary.active} icon={Activity} />
-          <WorkspaceMetric label={t.tasks.metricBlocked} value={summary.blocked} icon={Ban} />
-          <WorkspaceMetric label={t.tasks.metricAutopilot} value={summary.autopilot} icon={Rocket} />
-          <WorkspaceMetric label={t.tasks.metricClosed} value={summary.closed} icon={Archive} />
-        </WorkspaceMetrics>
-        <div className="workspace-tabs">
-          <div className="min-w-0 overflow-x-auto">
-            <Segmented size="sm" value={filter} onChange={(v) => setFilter(v as Filter)} options={FILTERS} variant="line" nowrap aria-label={t.tasks.filterLabel} />
-          </div>
-        </div>
+        >
+          <WorkspaceMetric label={t.tasks.metricActive} value={counts.in_progress} icon={Activity} />
+          <WorkspaceMetric label={t.tasks.metricBlocked} value={counts.blocked} icon={Ban} />
+          <WorkspaceMetric label={t.tasks.metricAutopilot} value={counts.autopilot} icon={Rocket} />
+          <WorkspaceMetric label={t.tasks.metricClosed} value={counts.closed} icon={Archive} />
+        </SpatialWorkspaceHero>
+        <SpatialSectionRail sections={filterSections} value={filter} onChange={(value) => setFilter(value as TaskWorkspaceFilter)} ariaLabel={t.tasks.filterLabel} />
 
         <div className="workspace-content">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 border-y border-border/80 py-3">
+          <ControlSurfaceDocument className="tasks-control-surface">
+          <ControlSurfaceToolbar className="flex-wrap">
             <div className="relative min-w-[15rem] flex-1">
               <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.tasks.searchPlaceholder} className="pl-9" />
             </div>
             <ProjectFilterPills value={selectedProject} onChange={setProject} variant="dropdown" />
             <DateRangeFilter value={range} onChange={(r) => setRangeRaw(serializeRange(r))} compact />
-          </div>
+          </ControlSurfaceToolbar>
 
-          {tasks.isLoading ? <LoadingState variant="list" />
-            : tasks.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => tasks.refetch()} />
-            : !tasks.data || tasks.data.length === 0 ? <EmptyState title={t.tasks.empty} description={t.tasks.emptyDescription} icon={ListChecks} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>} />
-            : filtered.length === 0 ? <EmptyState title={t.tasks.noMatches} description={t.tasks.noMatchesDescription} icon={Search} />
+          {tasks.isLoading ? <ControlSurfaceState><LoadingState variant="list" /></ControlSurfaceState>
+            : tasks.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => tasks.refetch()} /></ControlSurfaceState>
+            : !tasks.data || tasks.data.length === 0 ? <ControlSurfaceState><EmptyState title={t.tasks.empty} description={t.tasks.emptyDescription} icon={ListChecks} action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>} /></ControlSurfaceState>
+            : filtered.length === 0 ? <ControlSurfaceState><EmptyState title={t.tasks.noMatches} description={t.tasks.noMatchesDescription} icon={Search} /></ControlSurfaceState>
             : (
-              <div className="workspace-master-detail tasks-workspace-grid mt-4" data-detail={selectedId != null}>
+              <div className="workspace-master-detail tasks-workspace-grid tasks-register" data-detail={selectedId != null}>
                 <div className="min-w-0">
                   <MotionLayout className="flex flex-col gap-5">
                     <MotionPresence>
@@ -299,6 +288,7 @@ export function TasksView() {
                 ) : null}
               </div>
             )}
+          </ControlSurfaceDocument>
         </div>
       </WorkspacePage>
 
