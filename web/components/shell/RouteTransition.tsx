@@ -1,14 +1,14 @@
 'use client';
 
-import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import { usePathname } from 'next/navigation';
 import { useRef, type ReactNode } from 'react';
 import { useEffects } from '../../lib/useEffects';
 
 /**
- * Keeps the outgoing page visible long enough to make the change legible, then softly reveals the
- * next route. The shell and spatial navigation stay mounted, so only the working surface crossfades.
+ * Softly reveals one live route tree. We deliberately do not overlap whole pages: overlapping client
+ * pages duplicates their data hooks and heavy scenes (Settings briefly created two WebGL mascots).
+ * Starting above half opacity keeps the new route continuously visible without a black frame.
  */
 export function RouteTransition({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -27,23 +27,19 @@ export function RouteTransition({ children }: { children: ReactNode }) {
   const routeKey = `${pathname}:${routeSequence.current}`;
 
   return (
-    <div className="grid h-full">
-      <AnimatePresence initial={false} mode="sync">
-        <m.div
-          key={routeKey}
-          data-testid="route-transition"
-          className="h-full [grid-area:1/1]"
-          initial={disabled ? false : { opacity: 0 }}
-          animate={{ opacity: 1, transition: disabled
-            ? { duration: 0 }
-            : reduced
-              ? { duration: 0.12, ease: 'linear' }
-              : { duration: 0.32, ease: [0.16, 1, 0.3, 1] } }}
-          exit={disabled ? undefined : { opacity: 0, transition: { duration: reduced ? 0.08 : 0.2, ease: 'linear' } }}
-        >
-          {children}
-        </m.div>
-      </AnimatePresence>
-    </div>
+    <m.div
+      key={routeKey}
+      data-testid="route-transition"
+      className="h-full"
+      initial={disabled ? false : { opacity: reduced ? 0.86 : 0.62 }}
+      animate={{ opacity: 1 }}
+      transition={disabled
+        ? { duration: 0 }
+        : reduced
+          ? { duration: 0.14, ease: 'linear' }
+          : { duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {children}
+    </m.div>
   );
 }

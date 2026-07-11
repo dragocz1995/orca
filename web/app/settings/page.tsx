@@ -408,8 +408,8 @@ export default function SettingsPage() {
         onRetry={activeFeedback.retry}
       >
         <SettingsPanel id="models" active={category} visited={visitedCategories}>
-          <div className="settings-model-catalog">
-            <div className="settings-model-catalog__tools">
+          <>
+            <div className="flex flex-col gap-2.5 pb-2">
               <div className="relative w-full">
                 <Search size={15} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                 <Input
@@ -443,18 +443,18 @@ export default function SettingsPage() {
               const groupExecs = [...allCliItems.map((m) => m.exec), ...allElowenItems.map((m) => m.exec)];
               const enabledCount = groupExecs.filter((e) => allowed.includes(e)).length;
               return (
-                <section key={prov.id} className="settings-model-group">
-                  <header className="settings-model-group__header">
+                <div key={prov.id} className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2.5">
                     <ProviderLogo meta={prov} size={28} />
                     <span className="text-sm font-semibold text-text">{prov.label}</span>
                     <span className="font-mono text-tiny text-text-muted">{enabledCount}/{groupExecs.length}</span>
                     {prov.embedded ? <HelpTip align="left">{t.help.elowenModels}</HelpTip> : null}
-                  </header>
-                  <div className="settings-model-register divide-y divide-border/70">
+                  </div>
+                  <div className="@container divide-y divide-border/70 border-y border-border/80">
                     {cliItems.map((p) => {
                       const isCustom = !isPresetExec(p.exec);
                       return (
-                        <div data-testid="model-row" key={p.exec} className="settings-model-row group flex min-w-0 items-center gap-3 transition-colors">
+                        <div data-testid="model-row" key={p.exec} className="group flex min-w-0 items-center gap-3 px-1 py-3.5 transition-colors hover:bg-elevated/30">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted">
                             <ModelIcon name={p.exec} size={20} />
                           </span>
@@ -505,7 +505,7 @@ export default function SettingsPage() {
                       const override = modelWindows[winKey];
                       const overridden = override != null;
                       return (
-                      <div data-testid="model-row" key={m.exec} className="settings-model-row flex min-w-0 items-center gap-3 transition-colors">
+                      <div data-testid="model-row" key={m.exec} className="flex min-w-0 items-center gap-3 px-1 py-3.5 transition-colors hover:bg-elevated/30">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted"><ModelIcon name={m.model} size={20} /></span>
                           <div className="min-w-0 flex-1">
                             <span className="truncate text-sm font-medium text-text">{m.model}</span>
@@ -529,7 +529,7 @@ export default function SettingsPage() {
                       );
                     })}
                   </div>
-                </section>
+                </div>
               );
             })}
 
@@ -545,7 +545,7 @@ export default function SettingsPage() {
                 {t.settings.addModel}
               </Button>
             </div>
-          </div>
+          </>
         </SettingsPanel>
 
         {showAddForm && (

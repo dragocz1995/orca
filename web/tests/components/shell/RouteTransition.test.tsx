@@ -7,7 +7,7 @@ const navigation = vi.hoisted(() => ({ pathname: '/projects' }));
 vi.mock('next/navigation', () => ({ usePathname: () => navigation.pathname }));
 
 describe('RouteTransition', () => {
-  it('mounts the incoming route immediately so a slow or repeated navigation cannot leave a blank frame', () => {
+  it('keeps exactly one incoming route tree through a rapid A → B → A navigation', () => {
     const { wrapper: Wrapper } = createWrapper();
     const view = render(<Wrapper><RouteTransition><span>projects-content</span></RouteTransition></Wrapper>);
     expect(screen.getByText('projects-content')).toBeInTheDocument();
@@ -15,15 +15,12 @@ describe('RouteTransition', () => {
     navigation.pathname = '/memory';
     view.rerender(<Wrapper><RouteTransition><span>memory-content</span></RouteTransition></Wrapper>);
     expect(screen.getByText('memory-content')).toBeInTheDocument();
-    // During the crossfade both layers share one grid area: the old surface remains visible while the
-    // new surface is already mounted, so even another immediate navigation has no empty interval.
-    expect(screen.getAllByTestId('route-transition')).toHaveLength(2);
+    expect(screen.getAllByTestId('route-transition')).toHaveLength(1);
 
     navigation.pathname = '/projects';
     view.rerender(<Wrapper><RouteTransition><span>projects-returned</span></RouteTransition></Wrapper>);
-    // Returning before the first /projects layer has finished exiting creates a fresh keyed layer;
-    // the current page can never inherit the old layer's opacity: 0 exit animation.
+    // Returning before the reveal finishes still replaces the tree instead of overlapping it.
     expect(screen.getByText('projects-returned')).toBeInTheDocument();
-    expect(screen.getAllByTestId('route-transition')).toHaveLength(3);
+    expect(screen.getAllByTestId('route-transition')).toHaveLength(1);
   });
 });

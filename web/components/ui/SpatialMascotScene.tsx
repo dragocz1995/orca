@@ -14,6 +14,8 @@ function EmberScene({ state, onReady }: { state: SpatialMascotState; onReady: ()
   const particleGroup = useRef<Group>(null);
   const sprite = useRef<Sprite>(null);
   const pointer = useRef({ x: 0, y: 0 });
+  const readySent = useRef(false);
+  const readyFrame = useRef<number | null>(null);
   const particles = useMemo(() => Array.from({ length: 20 }, (_, index) => {
     const angle = (index / 20) * Math.PI * 2;
     const radius = 1.65 + ((index * 37) % 9) * 0.13;
@@ -25,7 +27,9 @@ function EmberScene({ state, onReady }: { state: SpatialMascotState; onReady: ()
     };
   }), []);
 
-  useEffect(() => onReady(), [onReady]);
+  useEffect(() => () => {
+    if (readyFrame.current !== null) window.cancelAnimationFrame(readyFrame.current);
+  }, []);
 
   useEffect(() => {
     const move = (event: PointerEvent) => {
@@ -37,6 +41,12 @@ function EmberScene({ state, onReady }: { state: SpatialMascotState; onReady: ()
   }, []);
 
   useFrame(({ clock }, delta) => {
+    if (!readySent.current) {
+      readySent.current = true;
+      // Wait until the texture-backed scene has completed one R3F frame. The wrapper then crossfades
+      // the already-painted canvas over the fallback instead of swapping before WebGL has pixels.
+      readyFrame.current = window.requestAnimationFrame(onReady);
+    }
     const target = group.current;
     if (!target) return;
     const time = clock.elapsedTime;

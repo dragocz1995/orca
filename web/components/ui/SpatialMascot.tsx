@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { SpatialMascotState } from './SpatialMascot.types';
 
 export type { SpatialMascotState } from './SpatialMascot.types';
@@ -26,10 +26,18 @@ const SpatialMascotScene = dynamic(
 export function SpatialMascot({ state = 'idle' }: { state?: SpatialMascotState }) {
   const renderWebGl = process.env.NODE_ENV !== 'test';
   const [ready, setReady] = useState(false);
+  const [fallbackVisible, setFallbackVisible] = useState(true);
   const markReady = useCallback(() => setReady(true), []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const timer = window.setTimeout(() => setFallbackVisible(false), 460);
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+
   return (
-    <div className="spatial-mascot" role="img" aria-label="Elowen">
-      {!ready ? <StaticMascot state={state} /> : null}
+    <div className={`spatial-mascot ${ready ? 'spatial-mascot--ready' : ''}`} role="img" aria-label="Elowen">
+      {fallbackVisible ? <StaticMascot state={state} /> : null}
       {renderWebGl ? (
         <div className="spatial-mascot__webgl" aria-hidden>
           <SpatialMascotScene state={state} onReady={markReady} />
