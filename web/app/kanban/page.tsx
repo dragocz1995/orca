@@ -15,7 +15,6 @@ import { inRange, isStoredRange, serializeRange, parseRange } from '../../lib/da
 import type { DateRange } from '../../lib/dateRange';
 import { taskDayMs, isUnscheduled } from '../../modules/tasks/dateRange';
 import { ModuleHeader } from '../../components/ui/ModuleHeader';
-import { Segmented } from '../../components/ui/Segmented';
 import { ProjectFilterPills } from '../../components/ui/ProjectFilterPills';
 import { LoadingState, ErrorState } from '../../components/ui/states';
 import { ModuleShell } from '../../components/shell/ModuleShell';
@@ -25,7 +24,8 @@ import { usePersistentState } from '../../lib/usePersistentState';
 import { useProjectFilter } from '../../lib/useProjectFilter';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { Button } from '../../components/ui/Button';
-import { WorkspaceHeader, WorkspaceMetric, WorkspaceMetrics, WorkspacePage } from '../../components/ui/WorkspacePrimitives';
+import { SpatialWorkspaceLayout, WorkspaceMetric } from '../../components/ui/WorkspacePrimitives';
+import { ControlSurfaceDocument, ControlSurfaceState, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 const KANBAN_DEFAULT_RANGE: DateRange = { preset: 'today', from: null, to: null };
 
@@ -89,43 +89,32 @@ export default function KanbanPage() {
   return (
     <ModuleShell moduleId="kanban">
       <ModuleHeader title={t.page.kanban} count={filteredTasks.length} icon={KanbanSquare} />
-      <WorkspacePage>
-        <WorkspaceHeader
-          eyebrow={t.kanban.workspaceEyebrow}
-          title={t.page.kanban}
-          count={filteredTasks.length}
-          description={t.kanban.workspaceIntro}
-          icon={KanbanSquare}
-          status={!tasks.isLoading && !tasks.isError ? <span className="workspace-status">{t.kanban.workspaceReady}</span> : undefined}
-          action={<Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>}
-        />
-        <WorkspaceMetrics visual={<div className="kanban-core"><KanbanSquare size={28} strokeWidth={1.25} /></div>} ariaLabel={t.kanban.summary}>
-          <WorkspaceMetric label={t.tasks.filterOpen} value={summary.open} icon={Columns3} />
-          <WorkspaceMetric label={t.tasks.filterActive} value={summary.active} icon={Activity} />
-          <WorkspaceMetric label={t.tasks.filterBlocked} value={summary.blocked} icon={Ban} />
-          <WorkspaceMetric label={t.tasks.filterClosed} value={summary.closed} icon={CheckCircle2} />
-        </WorkspaceMetrics>
-        <div className="workspace-tabs">
-          <Segmented
-            value={view}
-            onChange={(v) => setView(v as 'board' | 'calendar')}
-            options={[
-              { value: 'board', label: t.kanban.board, icon: Columns3 },
-              { value: 'calendar', label: t.kanban.calendar, icon: CalendarRange },
-            ]}
-            variant="line"
-            nowrap
-            aria-label={t.page.kanban}
-          />
-        </div>
-        <div className="workspace-content">
-          <div className="flex flex-wrap items-center justify-end gap-2 border-y border-border/80 py-3">
+      <SpatialWorkspaceLayout
+        hero={{
+          eyebrow: t.kanban.workspaceEyebrow,
+          title: t.page.kanban,
+          count: filteredTasks.length,
+          description: t.kanban.workspaceIntro,
+          mascotState: tasks.isLoading ? 'saving' : tasks.isError ? 'error' : 'idle',
+          status: !tasks.isLoading && !tasks.isError ? <span className="workspace-status">{t.kanban.workspaceReady}</span> : undefined,
+          action: <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.tasks.newTask}</Button>,
+          metrics: <>
+            <WorkspaceMetric label={t.tasks.filterOpen} value={summary.open} icon={Columns3} />
+            <WorkspaceMetric label={t.tasks.filterActive} value={summary.active} icon={Activity} />
+            <WorkspaceMetric label={t.tasks.filterBlocked} value={summary.blocked} icon={Ban} />
+            <WorkspaceMetric label={t.tasks.filterClosed} value={summary.closed} icon={CheckCircle2} />
+          </>,
+        }}
+        navigation={{ sections: [{ id: 'board', label: t.kanban.board, icon: Columns3 }, { id: 'calendar', label: t.kanban.calendar, icon: CalendarRange }], value: view, onChange: (id) => setView(id as 'board' | 'calendar'), ariaLabel: t.page.kanban }}
+      >
+        <ControlSurfaceDocument>
+          <ControlSurfaceToolbar className="flex-wrap justify-end">
             <ProjectFilterPills value={selectedProject} onChange={setProject} variant="dropdown" />
             <DateRangeFilter value={range} onChange={(r) => setRangeRaw(serializeRange(r))} compact />
-          </div>
+          </ControlSurfaceToolbar>
 
-          <div className="mt-4">
-            {tasks.isLoading ? <LoadingState variant={view === 'board' ? 'kanban' : 'cards'} /> : tasks.isError ? <ErrorState message={t.common.daemonUnreachable} onRetry={() => tasks.refetch()} />
+          <div>
+            {tasks.isLoading ? <ControlSurfaceState><LoadingState variant={view === 'board' ? 'kanban' : 'cards'} /></ControlSurfaceState> : tasks.isError ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => tasks.refetch()} /></ControlSurfaceState>
               : <MotionPresence mode="wait">
                 {view === 'board' ? (
                 <MotionLayoutItem key="board">
@@ -157,8 +146,8 @@ export default function KanbanPage() {
               )}
               </MotionPresence>}
           </div>
-        </div>
-      </WorkspacePage>
+        </ControlSurfaceDocument>
+      </SpatialWorkspaceLayout>
       {editing && <TaskModal task={editing} onClose={() => setEditing(null)} />}
       {viewing && <TaskResultsModal task={viewing} onClose={() => setViewing(null)} />}
       {creating && <TaskModal onClose={() => setCreating(false)} defaultProjectId={selectedProject === 'all' ? undefined : selectedProject} />}

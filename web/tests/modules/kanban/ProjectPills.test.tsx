@@ -32,6 +32,16 @@ beforeAll(() => server.listen({ onUnhandledRequest })); afterAll(() => server.cl
 beforeEach(() => { localStorage.clear(); lastTasksUrl = ''; });
 
 describe('KanbanPage project pills', () => {
+  it('uses the spatial workspace shell with one mascot and rail navigation', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    const { container } = render(<Wrapper><ToastProvider><KanbanPage /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    expect(screen.getByTestId('spatial-workspace-layout')).toBeInTheDocument();
+    expect(screen.getAllByTestId('workspace-hero-mascot')).toHaveLength(1);
+    expect(container.querySelector('.workspace-tabs')).toBeNull();
+    expect(container.querySelector('[data-control-surface]')).toBeInTheDocument();
+  });
+
   it('narrow the board via /tasks?project_id=N and "All" resets it', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><KanbanPage /></ToastProvider></Wrapper>);
