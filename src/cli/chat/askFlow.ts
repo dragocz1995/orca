@@ -32,6 +32,7 @@ export class AskChoiceDock implements Component, Focusable {
   private selectedIndex = 0;
   private selected: Set<string>;
   private _focused = false;
+  private maxRows: number | null = null;
 
   constructor(private opts: AskChoiceDockOpts) {
     this.selected = new Set(opts.selected ?? []);
@@ -39,6 +40,10 @@ export class AskChoiceDock implements Component, Focusable {
 
   get focused(): boolean { return this._focused; }
   set focused(value: boolean) { this._focused = value; }
+
+  setMaxRows(rows: number | null): void {
+    this.maxRows = rows == null ? null : Math.max(1, Math.floor(rows));
+  }
 
   invalidate(): void { /* stateless render from current selection */ }
 
@@ -117,7 +122,7 @@ export class AskChoiceDock implements Component, Focusable {
     const gutter = 4; // '  ' indent + marker + ' '
     const cont = ' '.repeat(gutter);
     const wrapInner = Math.max(1, innerWidth - gutter);
-    const choiceRows = this.rows().flatMap((item, i) => {
+    const choiceGroups = this.rows().map((item, i) => {
       const picked = this.selected.has(item.value);
       const marker = item.other ? '✎' : selectedGlyph(picked);
       const labelLines = wrapTextWithAnsi(item.label, wrapInner);
@@ -132,19 +137,49 @@ export class AskChoiceDock implements Component, Focusable {
         ? `${border('│')}${color.selected(padAnsi(v.text, innerWidth))}${border('│')}`
         : row(open(v.muted ? theme.muted : labelColor, v.text)));
     });
+    const choiceRows = choiceGroups.flat();
     const progress = `${this.opts.index + 1}/${this.opts.total}`;
-    return [
+    const titleRow = row(`  ${open(theme.text, 'Elowen needs a decision')}  ${open(theme.faint, inlineText(this.opts.question.header || 'ask_user_question'))}  ${open(theme.faint, progress)}`);
+    const questionRows = wrapTextWithAnsi(terminalPlainText(this.opts.question.question), Math.max(1, innerWidth - 4))
+      .map((line) => row(`  ${open(theme.text, line)}`));
+    const actionRow = row(`  ${open(theme.text, 'space')} ${open(theme.muted, 'toggle')}  ${open(theme.text, 'enter')} ${open(theme.muted, 'send')}  ${open(theme.text, 'esc')} ${open(theme.muted, 'cancel')}`);
+    const full = [
       top,
-      row(`  ${open(theme.text, 'Elowen needs a decision')}  ${open(theme.faint, inlineText(this.opts.question.header || 'ask_user_question'))}  ${open(theme.faint, progress)}`),
+      titleRow,
       // The question wraps across as many rows as it needs — truncating it made long questions unanswerable.
-      ...wrapTextWithAnsi(terminalPlainText(this.opts.question.question), Math.max(1, innerWidth - 4)).map((line) => row(`  ${open(theme.text, line)}`)),
+      ...questionRows,
       row(''),
       ...choiceRows,
       row(''),
       row(open(theme.accent, truncateToWidth(`  ${selectedText}`, innerWidth, ''))),
-      row(`  ${open(theme.text, 'space')} ${open(theme.muted, 'toggle')}  ${open(theme.text, 'enter')} ${open(theme.muted, 'send')}  ${open(theme.text, 'esc')} ${open(theme.muted, 'cancel')}`),
+      actionRow,
       bottom,
     ];
+    if (this.maxRows == null || full.length <= this.maxRows) return full;
+
+    // A blocking dock on a short terminal borrows as much space as the central budget allows. If the
+    // complete question still cannot fit, keep stable chrome plus the active option and move a bounded
+    // choice window with keyboard selection. Nothing important disappears permanently below a slice.
+    const cap = Math.max(1, this.maxRows);
+    if (cap <= 4) return [top, titleRow, actionRow, bottom].slice(0, cap);
+    const contentRows = Math.max(0, cap - 4); // top + title + actions + bottom
+    const questionBudget = Math.min(questionRows.length, Math.max(questionRows.length > 0 ? 1 : 0, Math.floor(contentRows / 3)));
+    let choiceBudget = Math.max(0, contentRows - questionBudget);
+    const selectedGroup = choiceGroups[this.selectedIndex] ?? [];
+    const selectedRows = selectedGroup.slice(0, choiceBudget);
+    choiceBudget -= selectedRows.length;
+    const visibleGroups = new Map<number, string[]>();
+    visibleGroups.set(this.selectedIndex, selectedRows);
+    for (let distance = 1; choiceBudget > 0 && distance < choiceGroups.length; distance++) {
+      for (const index of [this.selectedIndex - distance, this.selectedIndex + distance]) {
+        const group = choiceGroups[index];
+        if (!group || group.length > choiceBudget) continue;
+        visibleGroups.set(index, group);
+        choiceBudget -= group.length;
+      }
+    }
+    const visibleChoices = [...visibleGroups.entries()].sort(([a], [b]) => a - b).flatMap(([, rows]) => rows);
+    return [top, titleRow, ...questionRows.slice(0, questionBudget), ...visibleChoices, actionRow, bottom].slice(0, cap);
   }
 }
 

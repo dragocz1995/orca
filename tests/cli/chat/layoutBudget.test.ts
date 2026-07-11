@@ -61,6 +61,21 @@ describe('central chat layout budget', () => {
     expect(budget.rootRows).toBe(12);
   });
 
+  it('gives a blocking ask dock priority over transcript cards and hints', () => {
+    const budget = computeLayoutBudget({
+      columns: 80, rows: 24, hasTranscript: true, telemetryRequested: false,
+      editorPriority: true,
+      desired: { editor: 14, queue: 4, attachments: 1, cards: 6, subagents: 4 },
+    });
+    expect(budget.sections.editor).toBe(14);
+    expect(budget.sections.transcript).toBeGreaterThanOrEqual(1);
+    expect(budget.sections.queue).toBe(0);
+    expect(budget.sections.cards).toBe(0);
+    expect(budget.sections.subagents).toBe(0);
+    expect(budget.sections.hints).toBe(0);
+    expect(budget.rootRows).toBe(24);
+  });
+
   it('only reserves telemetry when the panel fits beside a usable chat column', () => {
     const narrow = computeLayoutBudget({
       columns: 80, rows: 24, hasTranscript: true, telemetryRequested: true,

@@ -267,6 +267,9 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
   const panelLeftEdge = (): number => term.columns - panelWidth;
   let currentBudget: LayoutBudget | null = null;
   let preparedInput: { width: number; queue: string[]; attachments: string[]; editor: string[] } | null = null;
+  const activeInputComponent = (): (Component & { setMaxRows?: (rows: number | null) => void }) | undefined =>
+    editorSlot.children[0] as (Component & { setMaxRows?: (rows: number | null) => void }) | undefined;
+  const hasPriorityInput = (): boolean => activeInputComponent() !== editor;
   const budgetedInput: Component = {
     invalidate: () => { inputStack.invalidate?.(); preparedInput = null; },
     render: (width: number): string[] => {
@@ -290,6 +293,7 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
     // Reset the queue's presentation cap before measuring its desired compact height; a previous short
     // frame must not permanently pin it after the terminal grows again.
     rt.queuedMessages.setMaxRows(4);
+    activeInputComponent()?.setMaxRows?.(null);
     preparedInput = {
       width,
       queue: rt.queuedMessages.render(width),
@@ -301,6 +305,7 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
       rows: term.rows,
       hasTranscript: hasMessages(),
       telemetryRequested: panelVisible(),
+      editorPriority: hasPriorityInput(),
       telemetryColumns: panelWidth,
       desired: {
         editor: preparedInput.editor.length,
@@ -311,12 +316,13 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
       },
     });
     currentBudget = budget;
+    activeInputComponent()?.setMaxRows?.(budget.sections.editor);
+    preparedInput.editor = editorSlot.render(width);
     cardPanel.setMaxRows(budget.sections.cards);
     subPanel.setMaxRows(budget.sections.subagents);
     return budget;
   };
   const rowBudget = (): LayoutBudget => currentBudget ?? refreshLayoutBudget();
-  const fixedRows = (): number => term.rows - rowBudget().sections.transcript;
 
   const parentViewport = new ChatViewport(
     { view: rt.view, notice: rt.notice, modelName: rt.modelName, thinkingSeconds: 0 },
@@ -571,11 +577,18 @@ export function createShell(rt: ChatRuntime, stream: StreamController, mdTheme: 
       });
     }
     const reserve = panelReserve();
+    const budget = rowBudget();
+    // Suggestions are transient overlays: reserve only the actual composer/footer below them and allow
+    // the popup to cover transcript/cards above. Reserving every fixed section made a 15-row menu clip
+    // to a handful of rows on short terminals.
+    const bottom = budget.sections.queue + budget.sections.attachments + budget.sections.editor
+      + budget.sections.status + budget.sections.hints;
+    const available = Math.max(1, term.rows - TOP_RULE_ROWS - bottom);
     return tui.showOverlay(overlay, {
       anchor: 'bottom-left',
-      width: Math.max(50, term.columns - reserve - 1),
-      maxHeight: 15,
-      margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom: fixedRows() },
+      width: Math.max(1, term.columns - reserve - 1),
+      maxHeight: Math.min(15, available),
+      margin: { top: TOP_RULE_ROWS, left: 0, right: reserve, bottom },
       nonCapturing: true,
     });
   };

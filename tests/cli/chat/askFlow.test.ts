@@ -109,6 +109,33 @@ describe('AskChoiceDock', () => {
     expect(onSubmit).toHaveBeenCalledWith(['Run focused tests', 'Run typecheck']);
   });
 
+  it('keeps chrome and the highlighted option visible inside a constrained row budget', () => {
+    const dock = new AskChoiceDock({
+      tui: fakeTui(),
+      question: {
+        ...question(),
+        options: Array.from({ length: 12 }, (_, i) => ({
+          label: `Choice ${i + 1}`,
+          description: `Detailed explanation ${i + 1}`,
+        })),
+      },
+      index: 0,
+      total: 1,
+      onSubmit: vi.fn(),
+      onOther: vi.fn(),
+      onCancel: vi.fn(),
+    });
+    dock.setMaxRows(10);
+    for (let i = 0; i < 10; i++) dock.handleInput('\x1b[B');
+    const rendered = stripAnsi(dock.render(72).join('\n'));
+    expect(dock.render(72).length).toBeLessThanOrEqual(10);
+    expect(rendered).toContain('Elowen needs a decision');
+    expect(rendered).toContain('Choice 11');
+    expect(rendered).toContain('enter send');
+    expect(rendered).toContain('╭');
+    expect(rendered).toContain('╰');
+  });
+
   it('submits the highlighted row on enter for single-select questions', () => {
     const onSubmit = vi.fn();
     const dock = new AskChoiceDock({
