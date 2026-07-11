@@ -648,8 +648,10 @@ describe('progressive history layout', () => {
     expect(viewport.indexedHistoryTurns()).toBeLessThan(20);
     expect(viewport.indexedHistoryTurns()).toBeLessThan(view.turns.length);
     expect(viewport.isHistoryIndexComplete()).toBe(false);
-    expect(viewport.isScrollbarHit(60, 3)).toBe(false); // no approximate thumb/hit target
-    expect(first).toContain('█'); // approximate visual thumb stays visible while exact drag remains disabled
+    const thumbRow = viewport.render(60).findIndex((line) => line.includes('█')) + 1;
+    expect(thumbRow).toBeGreaterThan(0);
+    expect(viewport.isScrollbarHit(60, thumbRow)).toBe(true);
+    expect(first).toContain('█');
 
     const afterFirstPaint = viewport.indexedHistoryTurns();
     await vi.runAllTimersAsync();
@@ -673,9 +675,37 @@ describe('progressive history layout', () => {
     expect(viewport.isHistoryIndexComplete()).toBe(false);
     const beforeDrag = viewport.render(60).map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
     expect(beforeDrag).toContain('History +30 lines');
-    viewport.setScrollFromRow(1); // incomplete total: scrollbar drag is a strict no-op
+    const beforeDragIndexed = viewport.indexedHistoryTurns();
+    viewport.setScrollFromRow(1);
     const afterDrag = viewport.render(60).map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
-    expect(afterDrag).toContain('History +30 lines');
+    expect(viewport.indexedHistoryTurns()).toBeGreaterThan(beforeDragIndexed);
+    expect(afterDrag).toMatch(/History \+([3-9]\d|\d{3,}) lines/);
+  });
+
+  it('finishes a normal history index on grab so the thumb becomes exact', () => {
+    const viewport = new ChatViewport(
+      { view: largeHistory(12), notice: '', modelName: 'kimi', thinkingSeconds: 0 },
+      getMarkdownTheme(), () => 6, () => 1, () => 60,
+    );
+    viewport.render(60);
+    expect(viewport.isHistoryIndexComplete()).toBe(false);
+    viewport.setScrollFromRow(1);
+    expect(viewport.isHistoryIndexComplete()).toBe(true);
+    expect(viewport.render(60).join('\n')).toMatch(/History.*\+\d+ lines/);
+  });
+
+  it('bounds progressive indexing for a huge history on each drag sample', () => {
+    const view = largeHistory(5_000);
+    const viewport = new ChatViewport(
+      { view, notice: '', modelName: 'kimi', thinkingSeconds: 0 },
+      getMarkdownTheme(), () => 12, () => 1, () => 80,
+    );
+    viewport.render(80);
+    const before = viewport.indexedHistoryTurns();
+    viewport.setScrollFromRow(1);
+    expect(viewport.indexedHistoryTurns()).toBeGreaterThan(before);
+    expect(viewport.indexedHistoryTurns()).toBeLessThan(view.turns.length);
+    expect(viewport.render(80).join('\n')).toMatch(/History.*\+\d+ lines/);
   });
 
   it('invalidates only the turn that owns an expanded Thought', () => {

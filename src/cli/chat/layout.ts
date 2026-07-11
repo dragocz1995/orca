@@ -107,6 +107,8 @@ interface TurnLayoutEntry {
 }
 
 const HISTORY_OVERSCAN_ROWS = 8;
+const SCROLLBAR_DRAG_INDEX_TURNS = 128;
+const SCROLLBAR_DRAG_INDEX_MS = 12;
 /** Soft bound: one exceptionally tall visible turn may exceed it, but off-screen rows are evicted. */
 export const CHAT_VIEWPORT_ROW_CACHE_LIMIT = 2_048;
 
@@ -285,6 +287,13 @@ export interface ChatViewportMetrics {
   cachedRows: number;
 }
 
+interface VisualScrollMetrics {
+  total: number;
+  maxOffset: number;
+  thumbSize: number;
+  thumbTop: number;
+}
+
 export class ChatViewport implements Component {
   private state: ChatViewportState;
   private scrollOffset = 0;
@@ -445,27 +454,38 @@ export class ChatViewport implements Component {
 
   isScrollbarHit(x: number, y: number): boolean {
     const localRow = y - this.getTopRow() + 1;
-    return this.isHistoryIndexComplete()
-      && this.totalLines > this.viewportHeight
+    const metrics = this.visualScrollMetrics(this.viewportHeight);
+    return metrics.total > this.viewportHeight
       && localRow >= 1
       && localRow <= this.viewportHeight
-      && Math.abs(x - this.scrollbarColumn) <= 1;
+      && Math.abs(x - this.scrollbarColumn) <= 1
+      && localRow - 1 >= metrics.thumbTop
+      && localRow - 1 < metrics.thumbTop + metrics.thumbSize;
   }
 
   setScrollFromRow(absRow: number): void {
-    // A thumb ratio is meaningful only after every older turn has an exact height. PageUp/wheel remain
-    // available while indexing because their bottom-relative offsets can be satisfied incrementally.
-    if (!this.isHistoryIndexComplete()) return;
-    if (this.totalLines <= this.viewportHeight || this.maxOffset <= 0) {
+    if (this.viewportHeight <= 0) return;
+    let metrics = this.visualScrollMetrics(this.viewportHeight);
+    if (metrics.total <= this.viewportHeight || metrics.maxOffset <= 0) {
       this.scrollOffset = 0;
       return;
     }
-    const thumbSize = this.thumbSize(this.viewportHeight, this.totalLines);
-    const maxTop = Math.max(1, this.viewportHeight - thumbSize);
     const localRow = absRow - this.getTopRow() + 1;
-    const targetTop = Math.max(0, Math.min(maxTop, localRow - 1 - Math.floor(thumbSize / 2)));
-    const ratio = targetTop / maxTop;
-    this.scrollOffset = Math.max(0, Math.min(this.maxOffset, Math.round(this.maxOffset - ratio * this.maxOffset)));
+    const targetOffset = (visual: VisualScrollMetrics): number => {
+      const maxTop = Math.max(1, this.viewportHeight - visual.thumbSize);
+      const targetTop = Math.max(0, Math.min(maxTop, localRow - 1 - Math.floor(visual.thumbSize / 2)));
+      return Math.round(visual.maxOffset - (targetTop / maxTop) * visual.maxOffset);
+    };
+
+    // The estimated thumb is a real control. Index only a bounded older slice when the requested
+    // position lies beyond the exact suffix. Small histories become exact on first grab; large ones
+    // make progressive forward progress without turning one pointer sample into an unbounded frame.
+    if (!this.isHistoryIndexComplete() && targetOffset(metrics) > this.maxOffset) {
+      this.indexOlderBounded(SCROLLBAR_DRAG_INDEX_TURNS, SCROLLBAR_DRAG_INDEX_MS);
+      this.refreshMetrics();
+      metrics = this.visualScrollMetrics(this.viewportHeight);
+    }
+    this.scrollOffset = Math.max(0, Math.min(this.maxOffset, targetOffset(metrics)));
   }
 
   render(width: number): string[] {
@@ -497,6 +517,7 @@ export class ChatViewport implements Component {
     this.lastRows = visible.map((r) => r.line);
     this.lastPlainRows = this.lastRows.map((line) => terminalPlainText(line));
     this.lastTotal = totalRows;
+    const scrollMetrics = this.visualScrollMetrics(height);
     const rendered = visible.map((entry, i) => {
       if ((entry.kind === 'thought' || entry.kind === 'expandable') && entry.key && entry.turnIndex != null) {
         this.expandableRows.set(i + 1, { key: entry.key, turnIndex: entry.turnIndex });
@@ -512,7 +533,7 @@ export class ChatViewport implements Component {
       if (this.selAnchor != null && this.selHead != null && bottomOffset >= selLo && bottomOffset <= selHi) {
         cell = `\x1b[7m${cell.split('\x1b[0m').join('\x1b[0m\x1b[7m')}\x1b[27m`;
       }
-      return padAnsi(`${cell} ${this.scrollbar(i, height, totalRows)}`, width);
+      return padAnsi(`${cell} ${this.scrollbar(i, scrollMetrics)}`, width);
     });
     this.lastRenderMs = performance.now() - startedAt;
     return rendered;
@@ -731,6 +752,16 @@ export class ChatViewport implements Component {
     this.refreshMetrics();
   }
 
+  private indexOlderBounded(maxTurns: number, maxMs: number): void {
+    const startedAt = performance.now();
+    let indexed = 0;
+    while (this.knownStart > 0 && indexed < maxTurns) {
+      this.indexPrevious(true);
+      indexed++;
+      if (performance.now() - startedAt >= maxMs) break;
+    }
+  }
+
   private refreshMetrics(): void {
     const leadingBlank = this.knownStart === 0 ? 1 : 0;
     this.totalLines = leadingBlank + this.knownSuffixRows + this.currentExtraRows.length;
@@ -925,25 +956,33 @@ export class ChatViewport implements Component {
     return truncateToWidth(`${chip}${plain}`, width, '');
   }
 
-  private scrollbar(index: number, height: number, total: number): string {
-    let visualTotal = total;
-    let visualMaxOffset = this.maxOffset;
+  private visualScrollMetrics(height: number): VisualScrollMetrics {
+    let visualTotal = this.totalLines;
     if (!this.isHistoryIndexComplete()) {
       // Virtualized history knows that `knownStart` older turns exist even before their Markdown heights
-      // are materialized. Estimate only the visual thumb; scrolling and thumb dragging remain exact-only.
+      // are materialized. Painting and pointer hit-testing share this geometry, so the visible control
+      // and the area the user can grab cannot diverge.
       const averageTurnRows = this.indexedTurnCount > 0
         ? Math.max(1, this.knownSuffixRows / this.indexedTurnCount)
         : Math.max(1, height / 2);
       visualTotal = Math.max(height + 1, Math.ceil(
         this.knownSuffixRows + averageTurnRows * this.knownStart + this.currentExtraRows.length + 1,
       ));
-      visualMaxOffset = Math.max(1, visualTotal - height);
     }
-    if (visualTotal <= height) return color.faint('│');
+    const visualMaxOffset = Math.max(0, visualTotal - height);
     const thumbSize = this.thumbSize(height, visualTotal);
     const visualOffset = Math.min(this.scrollOffset, visualMaxOffset);
-    const top = Math.floor(((visualMaxOffset - visualOffset) / visualMaxOffset) * (height - thumbSize));
-    return index >= top && index < top + thumbSize ? color.accent('█') : color.faint('│');
+    const thumbTop = visualMaxOffset > 0
+      ? Math.floor(((visualMaxOffset - visualOffset) / visualMaxOffset) * (height - thumbSize))
+      : 0;
+    return { total: visualTotal, maxOffset: visualMaxOffset, thumbSize, thumbTop };
+  }
+
+  private scrollbar(index: number, metrics: VisualScrollMetrics): string {
+    if (metrics.total <= this.viewportHeight) return color.faint('│');
+    return index >= metrics.thumbTop && index < metrics.thumbTop + metrics.thumbSize
+      ? color.accent('█')
+      : color.faint('│');
   }
 
   private thumbSize(height: number, total: number): number {
