@@ -58,26 +58,26 @@ function history(turns) {
 }
 
 async function loadRuntime(root) {
-  const [{ initTheme, getMarkdownTheme }, { ChatViewport }, transcript] = await Promise.all([
+  const [{ initTheme, getMarkdownTheme }, { ChatViewport }, { TranscriptModel }] = await Promise.all([
     import('@earendil-works/pi-coding-agent'),
     import(pathToFileURL(resolve(root, 'dist/cli/chat/layout.js')).href),
-    import(pathToFileURL(resolve(root, 'dist/brain/transcript.js')).href),
+    import(pathToFileURL(resolve(root, 'dist/brain/transcriptModel.js')).href),
   ]);
-  return { initTheme, getMarkdownTheme, ChatViewport, fromHistory: transcript.fromHistory, reduce: transcript.reduce };
+  return { initTheme, getMarkdownTheme, ChatViewport, TranscriptModel };
 }
 
 export async function runPipelineBenchmark({ root = process.cwd(), samples = 20, runtime } = {}) {
   root = resolve(root);
   samples = parsePositiveInteger(samples, 20);
-  const { initTheme, getMarkdownTheme, ChatViewport, fromHistory, reduce } = runtime ?? await loadRuntime(root);
+  const { initTheme, getMarkdownTheme, ChatViewport, TranscriptModel } = runtime ?? await loadRuntime(root);
   initTheme();
 
   const results = [];
   for (const historyTurns of PIPELINE_HISTORY_TURNS) {
-    let parentView = fromHistory(history(historyTurns));
-    const state = { parentView, childView: null };
+    const parentTranscript = new TranscriptModel(history(historyTurns));
+    const state = { parentTranscript, childTranscript: null };
     const viewport = new ChatViewport(
-      { view: parentView, notice: '', modelName: 'benchmark', thinkingSeconds: 0 },
+      { view: parentTranscript.view, notice: '', modelName: 'benchmark', thinkingSeconds: 0 },
       getMarkdownTheme(), () => 18, () => 1, () => 80,
     );
     viewport.render(80);
@@ -97,13 +97,13 @@ export async function runPipelineBenchmark({ root = process.cwd(), samples = 20,
       };
       const eventStarted = performance.now();
       const reducerStarted = performance.now();
-      parentView = reduce(parentView, event);
+      parentTranscript.apply(event);
       reducerSamples.push(performance.now() - reducerStarted);
 
       // This deliberately mirrors the current application handoff instead of calling render in
-      // isolation: reduce the BrainEvent, publish parent state, select the active view, then frame it.
-      state.parentView = parentView;
-      const activeView = state.childView?.view ?? state.parentView;
+      // isolation: apply the BrainEvent, publish parent state, select the active view, then frame it.
+      state.parentTranscript = parentTranscript;
+      const activeView = (state.childTranscript ?? state.parentTranscript).view;
       viewport.setState({ view: activeView, notice: '', modelName: 'benchmark', thinkingSeconds: 0 });
       viewport.render(80);
       eventToFrameSamples.push(performance.now() - eventStarted);

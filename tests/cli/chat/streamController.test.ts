@@ -5,11 +5,20 @@ import type { ChatRuntime } from '../../../src/cli/chat/runtime.js';
 import type { Flows } from '../../../src/cli/chat/flows.js';
 import { BrainClient } from '../../../src/cli/chat/brainClient.js';
 import type { BrainEvent } from '../../../src/brain/events.js';
+import { TranscriptModel } from '../../../src/brain/transcriptModel.js';
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;
   const promise = new Promise<T>((r) => { resolve = r; });
   return { promise, resolve };
+}
+
+/** Task-2 bridge for legacy pure-view fixtures; production runtimes construct the model directly. */
+function attachTranscript(rt: ChatRuntime): ChatRuntime {
+  const transcript = TranscriptModel.fromView(rt.view);
+  Object.defineProperty(rt, 'transcript', { value: transcript });
+  Object.defineProperty(rt, 'view', { configurable: true, get: () => transcript.view });
+  return rt;
 }
 
 describe('streamController — idle rollover', () => {
@@ -35,6 +44,7 @@ describe('streamController — idle rollover', () => {
       render: () => {},
       refreshMeta: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const flows = { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows;
 
     const stream = createStreamController(rt, flows);
@@ -73,6 +83,7 @@ describe('streamController — idle rollover', () => {
       render: () => {},
       refreshMeta: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const flows = { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows;
 
     const stream = createStreamController(rt, flows);
@@ -116,6 +127,7 @@ describe('streamController — idle rollover', () => {
       render: () => {},
       refreshMeta: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const flows = { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows;
 
     const stream = createStreamController(rt, flows);
@@ -152,6 +164,7 @@ describe('streamController — idle rollover', () => {
       render: () => {},
       refreshMeta: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const flows = { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows;
 
     const stream = createStreamController(rt, flows);
@@ -189,6 +202,7 @@ describe('streamController — idle rollover', () => {
       render: () => {},
       refreshMeta: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const flows = { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows;
 
     const stream = createStreamController(rt, flows);
@@ -219,6 +233,7 @@ describe('streamController — idle rollover', () => {
       refreshMeta: async () => {},
       refreshRateLimits: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const stream = createStreamController(rt, { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows);
     stream.openStream(oldAc);
     rt.streamAc = new AbortController();
@@ -259,6 +274,7 @@ describe('streamController — parent snapshot hydration', () => {
       refreshMeta: async () => {},
       refreshRateLimits: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const stream = createStreamController(rt, { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows);
     stream.openStream(ac);
 
@@ -310,6 +326,7 @@ describe('streamController — parent snapshot hydration', () => {
       streamAc: ac, notice: '', conversationTitle: '', workMode: 'build', render: () => {},
       refreshMeta: async () => {}, refreshRateLimits: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const stream = createStreamController(rt, { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows);
     stream.openStream(ac);
 
@@ -357,6 +374,7 @@ describe('streamController — concurrent parent switches', () => {
       refreshMeta: async () => {},
       refreshRateLimits: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const flows = { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows;
     const stream = createStreamController(rt, flows);
 
@@ -390,12 +408,13 @@ describe('streamController — cached sub-agent projection', () => {
       notice: '', conversationTitle: '', workMode: 'build', render: () => {},
       refreshMeta: async () => {}, refreshRateLimits: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
     const controller = createStreamController(rt, { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows);
     const first = controller.subagentStates();
     expect(first).toHaveLength(1);
     expect(controller.subagentStates()).toBe(first);
 
-    rt.view = reduce(rt.view, { type: 'text', delta: 'unrelated parent token' });
+    rt.transcript.apply({ type: 'text', delta: 'unrelated parent token' });
     expect(controller.subagentStates()).toBe(first);
   });
 
@@ -408,7 +427,6 @@ describe('streamController — cached sub-agent projection', () => {
         task: `child ${index}`, tools: index, seconds: index,
       });
     }
-    const parentView = view;
     const client = {
       stream: (
         onFrame: (frame: { type: 'snapshot'; cursor: number; history: { role: string; text: string }[]; events: BrainEvent[] }) => void,
@@ -430,6 +448,8 @@ describe('streamController — cached sub-agent projection', () => {
       notice: '', conversationTitle: '', workMode: 'build', render: () => {},
       refreshMeta: async () => {}, refreshRateLimits: async () => {},
     } as unknown as ChatRuntime;
+    attachTranscript(rt);
+    const parentView = rt.view;
     const controller = createStreamController(rt, { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows);
 
     controller.cycleSubagent();
@@ -445,7 +465,7 @@ describe('streamController — cached sub-agent projection', () => {
 });
 
 describe('streamController — sub-agent drill-in hydration', () => {
-  const runtime = (client: BrainClient): ChatRuntime => ({
+  const runtime = (client: BrainClient): ChatRuntime => attachTranscript({
     client,
     view: fromHistory([]),
     childView: null,

@@ -625,7 +625,7 @@ export class ChatViewport implements Component {
       return;
     }
 
-    if (this.layoutTurnsRef !== turns || this.layout.length !== turns.length) {
+    if (this.layoutViewRef !== this.state.view || this.layoutTurnsRef !== turns || this.layout.length !== turns.length) {
       const change = this.layoutViewRef
         ? getChatViewChange(this.state.view, this.layoutViewRef)
         : undefined;

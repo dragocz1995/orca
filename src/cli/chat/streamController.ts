@@ -1,5 +1,6 @@
 import { color } from './theme.js';
-import { emptyView, fromHistory, reduce, upsertCard } from '../../brain/transcript.js';
+import { upsertCard } from '../../brain/transcript.js';
+import { TranscriptModel } from '../../brain/transcriptModel.js';
 import type { BrainEvent } from '../../brain/events.js';
 import type { BrainStreamSnapshot } from '../../brain/session/liveEventReplay.js';
 import type { BrainStreamFrame } from './brainClient.js';
@@ -30,42 +31,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
   // can overlap; a late A response must never overwrite the later B selection's bound view or stream.
   let switchGeneration = 0;
 
-  const collectSubagentStates = (): SubagentPanelEntry[] => {
-    const seen = new Map<string, SubagentPanelEntry>();
-    for (const turn of rt.view.turns) {
-      if (turn.role !== 'elowen') continue;
-      for (const seg of turn.segments) {
-        if (seg.kind !== 'tools') continue;
-        for (const item of seg.items) {
-          if (!item.sub) continue;
-          const s = item.sub;
-          seen.set(s.sessionId, { sessionId: s.sessionId, task: s.task, status: s.status, detail: s.detail, tools: s.tools, tokens: s.tokens, seconds: s.seconds, model: s.model });
-        }
-      }
-    }
-    return [...seen.values()];
-  };
-  let subagentProjection = collectSubagentStates();
-  const rebuildSubagentProjection = (): void => { subagentProjection = collectSubagentStates(); };
-  const updateSubagentProjection = (event: Extract<BrainEvent, { type: 'subagent' }>): void => {
-    const next: SubagentPanelEntry = {
-      sessionId: event.sessionId,
-      task: event.task,
-      status: event.status,
-      detail: event.detail,
-      tools: event.tools,
-      tokens: event.tokens,
-      seconds: event.seconds,
-      model: event.model,
-    };
-    const index = subagentProjection.findIndex((entry) => entry.sessionId === event.sessionId);
-    if (index < 0) subagentProjection = [...subagentProjection, next];
-    else {
-      subagentProjection = subagentProjection.slice();
-      subagentProjection[index] = next;
-    }
-  };
-  const subagentStates = (): SubagentPanelEntry[] => subagentProjection;
+  const subagentStates = (): SubagentPanelEntry[] => rt.transcript.subagents();
   const subagentSessions = (): { sessionId: string; running: boolean }[] =>
     subagentStates().map((s) => ({ sessionId: s.sessionId, running: s.status === 'running' }));
 
@@ -78,7 +44,8 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
     rt.childAc?.abort();
     const ac = new AbortController();
     rt.childAc = ac;
-    rt.childView = { sessionId, view: emptyView(), loading: true };
+    const transcript = new TranscriptModel();
+    rt.childView = { sessionId, transcript, get view() { return transcript.view; }, loading: true };
     rt.render();
 
     let hydrating = true;
@@ -107,7 +74,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
       if (e.type === 'ask') { flows.launchAsk(e.id, e.questions, e.kind); return; }
       if (durableRefreshBuffer) { durableRefreshBuffer.push(e); return; }
       const repairTruncatedAtTerminal = truncatedSnapshotPending && (e.type === 'idle' || e.type === 'error');
-      rt.childView.view = reduce(rt.childView.view, e);
+      rt.childView.transcript.apply(e);
       rt.render();
       if (repairTruncatedAtTerminal) {
         truncatedSnapshotPending = false;
@@ -123,7 +90,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
           if (!current() || !rt.childView) return;
           const replay = durableRefreshBuffer ?? [];
           durableRefreshBuffer = null;
-          rt.childView.view = fromHistory(history);
+          rt.childView.transcript.replaceHistory(history);
           for (const event of replay) fold(event);
           rt.render();
         })
@@ -144,7 +111,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
       const terminalSnapshot = snapshot.events.some((event) => event.type === 'idle' || event.type === 'error');
       if (terminalSnapshot) truncatedSnapshotPending = false;
       else if (snapshot.truncated) truncatedSnapshotPending = true;
-      rt.childView.view = fromHistory(snapshot.history);
+      rt.childView.transcript.replaceHistory(snapshot.history);
       hydrating = false;
       rt.childView.loading = false;
       for (const event of snapshot.events) fold(event);
@@ -170,7 +137,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
             replay = buffered.slice(lastIdle + 1);
           }
           if (!current() || snapshotApplied || !rt.childView) return;
-          rt.childView.view = fromHistory(history);
+          rt.childView.transcript.replaceHistory(history);
           hydrating = false;
           rt.childView.loading = false;
           for (const e of replay) fold(e);
@@ -259,8 +226,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
       void client.history()
         .then((h) => {
           if (current() && epoch === historyEpoch) {
-            rt.view = fromHistory(h);
-            rebuildSubagentProjection();
+            rt.transcript.replaceHistory(h);
           }
         })
         .catch(() => { /* best-effort: keep the stale view */ })
@@ -308,8 +274,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
         // Plan mode: the agent just delivered a <proposed_plan> — offer to implement it right away
         // instead of leaving the user to flip modes and phrase the follow-up themselves.
         if (rt.workMode === 'plan' && !rt.childView) {
-          const last = rt.view.turns[rt.view.turns.length - 1];
-          const text = last?.role === 'elowen' ? last.segments.filter((s) => s.kind === 'text').map((s) => (s as { text: string }).text).join('') : '';
+          const text = rt.transcript.lastAssistantText();
           if (/<proposed_plan>/i.test(text)) flows.openPlanDecision();
         }
       }
@@ -331,10 +296,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
         rt.notice = color.dim('previous conversation was idle — continuing in a fresh one');
         void rt.refreshMeta().then(() => rt.render('metadata:session-rollover'));
       }
-      const previousView = rt.view;
-      rt.view = reduce(rt.view, e);
-      if (e.type === 'subagent' && rt.view !== previousView) updateSubagentProjection(e);
-      else if (e.type === 'session') rebuildSubagentProjection();
+      rt.transcript.apply(e);
       rt.render(`stream:${e.type}`);
       if (repairTruncatedAtIdle) {
         truncatedSnapshotPending = false;
@@ -361,8 +323,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
         rt.notice = color.dim('previous conversation was idle — continuing in a fresh one');
         void rt.refreshMeta().then(() => rt.render('metadata:snapshot-session'));
       }
-      rt.view = fromHistory(snapshot.history);
-      rebuildSubagentProjection();
+      rt.transcript.replaceHistory(snapshot.history);
       for (const event of snapshot.events) onEvent(event, true);
       rt.render('stream:snapshot');
     };
@@ -399,8 +360,7 @@ export function createStreamController(rt: ChatRuntime, flows: Flows): StreamCon
     if (!current()) return;
     const hist = await client.history(started.sessionId).catch(() => []);
     if (!current()) return;
-    rt.view = fromHistory(hist);
-    rebuildSubagentProjection();
+    rt.transcript.replaceHistory(hist);
     await rt.refreshMeta(); // also refreshes the card panel from the new conversation's status
     if (!current()) return;
     openStream(ac);

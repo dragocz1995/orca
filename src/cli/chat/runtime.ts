@@ -6,6 +6,7 @@ import type { PromptStash } from './promptHistory.js';
 import type { LocalShellBuffer } from './localShell.js';
 import type { FileIndex, FrecencyMap, PendingImage } from './mentions.js';
 import type { ChatView } from '../../brain/transcript.js';
+import type { TranscriptModel } from '../../brain/transcriptModel.js';
 import type { BrainCard } from '../../brain/events.js';
 import type { ProcessInfo } from '../../brain/processRegistry.js';
 import type { SlashCommandDef } from '../../brain/slashCommands.js';
@@ -42,11 +43,13 @@ export interface ChatRuntime {
   readonly branchLabel: string;
 
   // ── mutable session state ──
-  view: ChatView;
+  readonly transcript: TranscriptModel;
+  /** Cheap renderer snapshot backed by `transcript`; production code must mutate the model, not this view. */
+  readonly view: ChatView;
   /** Drill-in to a delegated sub-agent's session (opened by clicking its row/panel entry or ctrl+o).
    *  Fully interactive: its own live tap stream feeds the view and the input steers the child. The
    *  server's ACTIVE conversation stays the parent — Esc returns without any server round-trip. */
-  childView: { sessionId: string; view: ChatView; loading: boolean } | null;
+  childView: { sessionId: string; transcript: TranscriptModel; readonly view: ChatView; loading: boolean } | null;
   childAc: AbortController | null;
   streamAc: AbortController;
   /** Transient system lines (help, session list, errors) rendered under the conversation. */

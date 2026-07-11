@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getMarkdownTheme, initTheme } from '@earendil-works/pi-coding-agent';
-import { fromHistory, reduce } from '../../../src/brain/transcript.js';
+import { TranscriptModel } from '../../../src/brain/transcriptModel.js';
 import { ChatViewport } from '../../../src/cli/chat/layout.js';
 // The benchmark is an executable repository script rather than compiled application source.
 // @ts-expect-error JavaScript benchmark modules intentionally have no declaration file.
@@ -44,7 +44,7 @@ describe('CLI whole-pipeline benchmark contract', () => {
   });
 
   it('executes reduction, state handoff and viewport rendering at every required history size', async () => {
-    const visits = { reduce: 0, setState: 0, render: 0 };
+    const visits = { apply: 0, setState: 0, render: 0 };
     class InstrumentedViewport extends ChatViewport {
       override setState(next: Parameters<ChatViewport['setState']>[0]): void {
         visits.setState++;
@@ -55,10 +55,12 @@ describe('CLI whole-pipeline benchmark contract', () => {
         return super.render(width);
       }
     }
-    const instrumentedReduce: typeof reduce = (view, event) => {
-      visits.reduce++;
-      return reduce(view, event);
-    };
+    class InstrumentedTranscriptModel extends TranscriptModel {
+      override apply(event: Parameters<TranscriptModel['apply']>[0]): boolean {
+        visits.apply++;
+        return super.apply(event);
+      }
+    }
 
     const report = await runPipelineBenchmark({
       samples: 1,
@@ -66,14 +68,13 @@ describe('CLI whole-pipeline benchmark contract', () => {
         initTheme,
         getMarkdownTheme,
         ChatViewport: InstrumentedViewport,
-        fromHistory,
-        reduce: instrumentedReduce,
+        TranscriptModel: InstrumentedTranscriptModel,
       },
     });
 
     expect(report.results.map((result: { historyTurns: number }) => result.historyTurns))
       .toEqual([200, 10_000, 40_000]);
-    expect(visits).toEqual({ reduce: 3, setState: 3, render: 6 });
+    expect(visits).toEqual({ apply: 3, setState: 3, render: 6 });
     expect(report.results.every((result: { reducerMs: { average: number }; eventToFrameMs: { average: number } }) =>
       result.reducerMs.average >= 0 && result.eventToFrameMs.average >= result.reducerMs.average)).toBe(true);
   });

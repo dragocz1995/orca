@@ -17,7 +17,8 @@ import { createShell } from './shell.js';
 import { createPickers } from './pickers.js';
 import { wireSubmit } from './commands.js';
 import type { ChatRuntime } from './runtime.js';
-import { fromHistory, groupToolItems, type ChatView } from '../../brain/transcript.js';
+import { groupToolItems, type ChatView } from '../../brain/transcript.js';
+import { TranscriptModel } from '../../brain/transcriptModel.js';
 import { commandsFor } from '../../brain/slashCommands.js';
 import { createTuiDiagnostics } from './tuiDiagnostics.js';
 import { TerminalLifecycle } from './terminalLifecycle.js';
@@ -221,13 +222,15 @@ export async function runChat(opts: RunChatOpts): Promise<void> {
 
   /** The shared runtime: all mutable chat state + the render/refreshMeta/quit callbacks, threaded
    *  through every module factory below (see ChatRuntime). */
+  const transcript = new TranscriptModel(history0);
   const rt: ChatRuntime = {
     client, tui, term, editor, editorSlot, inputStack, attachmentChips, queuedMessages,
     promptStash: new PromptStash(),
     shellContext: new LocalShellBuffer(),
     mentionIndex: new FileIndex(process.cwd()),
     commandDefs, termSettings, cwdLabel, branchLabel,
-    view: fromHistory(history0),
+    transcript,
+    get view() { return transcript.view; },
     childView: null,
     childAc: null,
     streamAc: new AbortController(),

@@ -111,7 +111,8 @@ interface ChatViewChangeRevision {
 const MAX_CHAT_VIEW_CHANGE_NODES = 4_096;
 const chatViewChanges = new WeakMap<ChatView, ChatViewChangeRevision>();
 
-function withChange(view: ChatView, change: ChatViewChange, previous?: ChatView): ChatView {
+/** @internal Transitional renderer bridge for the indexed CLI transcript model. */
+export function withChatViewChange(view: ChatView, change: ChatViewChange, previous?: ChatView): ChatView {
   const prior = previous ? chatViewChanges.get(previous) : undefined;
   const history: ChatViewChangeHistory = prior?.history ?? { nextRevision: 0, nodes: new Map() };
   const revision = history.nextRevision++;
@@ -124,6 +125,8 @@ function withChange(view: ChatView, change: ChatViewChange, previous?: ChatView)
   chatViewChanges.set(view, { history, revision });
   return view;
 }
+
+const withChange = withChatViewChange;
 
 /** Renderer-facing immutable change hint. It stays in a WeakMap so the shared/public ChatView data shape
  * remains unchanged and serialized history never leaks UI bookkeeping. Unknown externally-built views
@@ -167,14 +170,10 @@ export interface HistoryMessage {
   segments?: ({ kind: 'text'; text: string } | { kind: 'tool'; name: string; id?: string; detail?: string; diff?: string; output?: ToolOutputView; command?: string; sub?: SubagentState })[];
 }
 
-export const emptyView = (): ChatView => withChange({ turns: [], thinking: false }, { kind: 'reset' });
-
-/** Build the initial view from stored history. Assistant turns keep their server-built segments
- *  (ordered text + tool calls with diffs), so a resumed conversation looks exactly like a live one. */
-export function fromHistory(msgs: HistoryMessage[]): ChatView {
+/** Parse the durable wire/storage transcript into render turns without adding runtime bookkeeping. */
+export function turnsFromHistory(msgs: HistoryMessage[]): ChatTurn[] {
   const turns: ChatTurn[] = [];
   for (const m of msgs) {
-    // A compaction boundary → a divider turn (the pre-compaction history was summarized away).
     if (m.role === 'compaction') { turns.push({ role: 'divider' }); continue; }
     if (m.role === 'user') {
       if (m.text.trim()) turns.push({ role: 'you', text: m.text });
@@ -193,7 +192,15 @@ export function fromHistory(msgs: HistoryMessage[]): ChatView {
     }
     if (segments.length > 0) turns.push({ role: 'elowen', segments, streaming: false });
   }
-  return withChange({ turns, thinking: false }, { kind: 'reset' });
+  return turns;
+}
+
+export const emptyView = (): ChatView => withChange({ turns: [], thinking: false }, { kind: 'reset' });
+
+/** Build the initial view from stored history. Assistant turns keep their server-built segments
+ *  (ordered text + tool calls with diffs), so a resumed conversation looks exactly like a live one. */
+export function fromHistory(msgs: HistoryMessage[]): ChatView {
+  return withChange({ turns: turnsFromHistory(msgs), thinking: false }, { kind: 'reset' });
 }
 
 /** Append the user's turn (finalized) — called optimistically when they hit enter. */

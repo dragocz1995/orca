@@ -5,7 +5,6 @@ import { localShellTurn, parseBangCommand, runLocalShell } from './localShell.js
 import { editTextExternally } from './externalEditor.js';
 import { composeWithAttachments, expandMentions, MAX_IMAGES_PER_MESSAGE, readClipboardImage, type PendingImage } from './mentions.js';
 import { sessionItems, openPicker, openTextInput } from './picker.js';
-import { reduce } from '../../brain/transcript.js';
 import type { BrainClient } from './brainClient.js';
 import type { ChatRuntime } from './runtime.js';
 import type { StreamController } from './streamController.js';
@@ -147,7 +146,7 @@ export function wireSubmit(rt: ChatRuntime, deps: { stream: StreamController; pi
       rt.render();
       void runLocalShell(localCmd, process.cwd()).then((result) => {
         shellContext.add(result);
-        rt.view = { ...rt.view, turns: [...rt.view.turns, localShellTurn(result)] };
+        rt.transcript.appendLocalTurn(localShellTurn(result));
         if (rt.notice.includes('running locally')) rt.notice = '';
         rt.render();
       });
@@ -461,7 +460,7 @@ export function wireSubmit(rt: ChatRuntime, deps: { stream: StreamController; pi
     const promptCmd = pm ? rt.commandDefs.find((c) => c.name === pm[1] && c.kind === 'prompt' && c.prompt) : undefined;
     if (pm && promptCmd) {
       rt.render();
-      void client.send(trimmed, rt.workMode).catch((e: Error) => { rt.view = reduce(rt.view, { type: 'error', message: e.message }); rt.render(); });
+      void client.send(trimmed, rt.workMode).catch((e: Error) => { rt.transcript.apply({ type: 'error', message: e.message }); rt.render(); });
       return;
     }
     // `@path` mentions expand HERE, not in the visible transcript: text files ride inside the prompt
@@ -487,7 +486,7 @@ export function wireSubmit(rt: ChatRuntime, deps: { stream: StreamController; pi
         rt.workMode,
         images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
         echo,
-      ).catch((e: Error) => { rt.view = reduce(rt.view, { type: 'error', message: e.message }); rt.render(); });
+      ).catch((e: Error) => { rt.transcript.apply({ type: 'error', message: e.message }); rt.render(); });
     };
     if (mentions.wantsClipboard) {
       void readClipboardImage().then((r) => {
