@@ -924,6 +924,9 @@ describe('progressive history layout', () => {
     viewport.scroll(1_000_000);
     viewport.render(80);
     expect(viewport.isHistoryIndexComplete()).toBe(true);
+    viewport.scroll(-1_000_000);
+    viewport.render(80);
+    const bottomBefore = [...(viewport as unknown as { lastPlainRows: string[] }).lastPlainRows];
 
     view = reduce(view, {
       type: 'subagent', id: 'delegate-old', sessionId: 'child-old', status: 'running',
@@ -931,9 +934,11 @@ describe('progressive history layout', () => {
     });
     viewport.setState({ view, notice: '', modelName: 'kimi', thinkingSeconds: 0 });
     viewport.render(80);
+    const bottomAfter = (viewport as unknown as { lastPlainRows: string[] }).lastPlainRows;
 
     expect(viewport.metrics().reconciledTurns).toBeLessThanOrEqual(1);
     expect(viewport.metrics().renderedTurns).toBeLessThanOrEqual(1);
     expect(viewport.metrics().layoutVisits).toBeLessThanOrEqual(1);
+    expect(bottomAfter).toEqual(bottomBefore);
   });
 });

@@ -876,18 +876,19 @@ export class ChatViewport implements Component {
     this.prefixHeights = prefix;
   }
 
-  private firstTurnEndingAfter(offset: number): number {
+  private adjustedPrefixHeight(index: number): number {
     const prefix = this.prefixHeights!;
-    const at = (index: number): number => {
-      let value = prefix[index] ?? 0;
-      for (const [turnIndex, delta] of this.prefixHeightDeltas) if (turnIndex < index) value += delta;
-      return value;
-    };
+    let value = prefix[index] ?? 0;
+    for (const [turnIndex, delta] of this.prefixHeightDeltas) if (turnIndex < index) value += delta;
+    return value;
+  }
+
+  private firstTurnEndingAfter(offset: number): number {
     let lo = 0;
     let hi = this.layout.length;
     while (lo < hi) {
       const mid = Math.floor((lo + hi) / 2);
-      if (at(mid + 1) <= offset) lo = mid + 1;
+      if (this.adjustedPrefixHeight(mid + 1) <= offset) lo = mid + 1;
       else hi = mid;
     }
     return lo;
@@ -903,13 +904,14 @@ export class ChatViewport implements Component {
 
     if (this.knownStart === 0 && this.prefixHeights) {
       append([{ line: '' }], 0);
-      const turnTotal = this.prefixHeights[this.layout.length]!;
+      const turnTotal = this.adjustedPrefixHeight(this.layout.length);
       const localStart = Math.max(0, start - 1);
       const localEnd = Math.min(turnTotal, end - 1);
       if (localStart < localEnd) {
         for (let i = this.firstTurnEndingAfter(localStart); i < this.layout.length; i++) {
-          const chunkStart = 1 + this.prefixHeights[i]!;
-          if (chunkStart >= end || this.prefixHeights[i]! >= localEnd) break;
+          const turnStart = this.adjustedPrefixHeight(i);
+          const chunkStart = 1 + turnStart;
+          if (chunkStart >= end || turnStart >= localEnd) break;
           append(this.rowsFor(i), chunkStart);
         }
       }
