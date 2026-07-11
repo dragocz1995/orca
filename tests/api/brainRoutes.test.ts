@@ -23,9 +23,21 @@ function fakeBrain() {
   const startCalls: { id: number; opts?: { fresh?: boolean; clientId?: string; clientGeneration?: number } }[] = [];
   const tapSnapshotCalls: { id: number; session: string }[] = [];
   const subagentSends: { id: number; session: string; text: string }[] = [];
+  const acceptedSendFailures: { session: string; message: string }[] = [];
   let subagentPreflightError: Error | null = null;
+  let sendBeforeAdmissionError: Error | null = null;
+  let sendAfterAdmissionError: Error | null = null;
   let blockSends = false;
   const queues = new Map<number, { id: string; text: string }[]>();
+  const send = async (id: number, text: string, _images?: unknown, mode?: string, _internal?: unknown, _cwd?: string, session?: string, _display?: string, client?: { id: string; generation: number }, onAdmitted?: (sessionId: string) => void) => {
+    if (!started.has(id)) throw new Error('brain not started for user');
+    if (sendBeforeAdmissionError) throw sendBeforeAdmissionError;
+    sends.push({ id, text, mode });
+    boundSendCalls.push({ session, client });
+    onAdmitted?.(session ?? `brain-${id}`);
+    if (sendAfterAdmissionError) throw sendAfterAdmissionError;
+    if (blockSends) await new Promise(() => {});
+  };
   return {
     sends,
     boundSendCalls,
@@ -34,7 +46,10 @@ function fakeBrain() {
     startCalls,
     tapSnapshotCalls,
     subagentSends,
+    acceptedSendFailures,
     __failSubagentPreflight: (message: string | null) => { subagentPreflightError = message ? new Error(message) : null; },
+    __failSendBeforeAdmission: (message: string | null) => { sendBeforeAdmissionError = message ? new Error(message) : null; },
+    __failSendAfterAdmission: (message: string | null) => { sendAfterAdmissionError = message ? new Error(message) : null; },
     __blockSends: () => { blockSends = true; },
     /** Test helper: seed a user's pending mid-turn queue. */
     __enqueue: (id: number, item: { id: string; text: string }) => { queues.set(id, [...(queues.get(id) ?? []), item]); },
@@ -45,11 +60,24 @@ function fakeBrain() {
       return { sessionId: `brain-${id}` };
     },
     preflightSend: (id: number) => { if (!started.has(id)) throw new Error('brain not started for user'); },
-    send: async (id: number, text: string, _images?: unknown, mode?: string, _internal?: unknown, _cwd?: string, session?: string, _display?: string, client?: { id: string; generation: number }) => {
-      if (!started.has(id)) throw new Error('brain not started for user');
-      sends.push({ id, text, mode });
-      boundSendCalls.push({ session, client });
-      if (blockSends) await new Promise(() => {});
+    send,
+    startSend: (id: number, text: string, images?: unknown, mode?: string, internal?: unknown, cwd?: string, session?: string, display?: string, client?: { id: string; generation: number }) => {
+      let resolveAdmitted!: (sessionId: string) => void;
+      let rejectAdmitted!: (error: unknown) => void;
+      let settled = false;
+      const admitted = new Promise<string>((resolve, reject) => { resolveAdmitted = resolve; rejectAdmitted = reject; });
+      const completed = send(id, text, images, mode, internal, cwd, session, display, client, (sessionId) => {
+        settled = true;
+        resolveAdmitted(sessionId);
+      }).then(
+        () => { if (!settled) rejectAdmitted(new Error('turn completed before admission')); },
+        (error) => { if (!settled) rejectAdmitted(error); throw error; },
+      );
+      return { admitted, completed };
+    },
+    publishAcceptedSendFailure: (session: string, error: unknown) => {
+      acceptedSendFailures.push({ session, message: error instanceof Error ? error.message : String(error) });
+      return true;
     },
     queueList: (id: number) => queues.get(id) ?? [],
     queueRemove: (id: number, qid: string) => {
@@ -145,6 +173,25 @@ describe('brain routes', () => {
     const response = await app.request('/brain/send', post(amyTok, { text: 'long diagnostics turn' }));
     expect(response.status).toBe(202);
     expect(brain.sends.at(-1)?.text).toBe('long diagnostics turn');
+  });
+
+  it('does not acknowledge a send that fails before durable admission', async () => {
+    const { app, amyTok, brain } = setup();
+    await app.request('/brain/start', post(amyTok, {}));
+    brain.__failSendBeforeAdmission('provider setup failed');
+    const response = await app.request('/brain/send', post(amyTok, { text: 'keep this prompt' }));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'provider setup failed' });
+  });
+
+  it('publishes a visible stream error when an admitted turn later fails', async () => {
+    const { app, amyTok, brain } = setup();
+    await app.request('/brain/start', post(amyTok, {}));
+    brain.__failSendAfterAdmission('model turn failed');
+    const response = await app.request('/brain/send', post(amyTok, { text: 'accepted prompt' }));
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(brain.acceptedSendFailures).toEqual([{ session: 'brain-2', message: 'model turn failed' }]);
   });
 
   it('passes the authenticated stable client identity through start', async () => {

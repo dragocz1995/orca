@@ -411,14 +411,25 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     // the clean text the daemon echoes back as the authoritative `user` turn (the client no longer echoes
     // optimistically); absent → the model-facing text is shown.
     const boundClient = session && client && generation ? { id: client, generation } : undefined;
-    let target: string;
-    try { target = d.brain.preflightSend(c.get('user').id, session, boundClient); }
+    try { d.brain.preflightSend(c.get('user').id, session, boundClient); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); } // not started yet / unknown session
     // A model/tool turn can outlive nginx/SSH proxy request timeouts while its authoritative output is
-    // already flowing over SSE. Treat POST as admission, not completion: holding it open caused the CLI
-    // to append a false `[error: fetch failed]` after otherwise successful long Diagnostics runs.
-    void d.brain.send(c.get('user').id, text, images, mode, undefined, cwd, session, display, boundClient)
-      .catch((error) => logger('brain-send').error(`accepted turn failed for ${target}`, error));
+    // already flowing over SSE. Wait only until the user row + stream echo are durable, then return 202.
+    // A failure before that boundary is an HTTP error; a later failure is an ordered SSE error so an
+    // attached TUI/headless client cannot silently lose an accepted prompt.
+    const operation = d.brain.startSend(c.get('user').id, text, images, mode, undefined, cwd, session, display, boundClient);
+    void operation.completed.catch(async (error) => {
+      try {
+        const admittedSession = await operation.admitted;
+        logger('brain-send').error(`accepted turn failed for ${admittedSession}`, error);
+        d.brain?.publishAcceptedSendFailure(admittedSession, error);
+      } catch { /* pre-admission failure is returned by this request below */ }
+    });
+    try { await operation.admitted; }
+    catch (error) {
+      logger('brain-send').error('turn admission failed', error);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
     return c.json({ ok: true, accepted: true }, 202);
   });
 

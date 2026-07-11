@@ -88,7 +88,13 @@ export class BrainTurnRunner {
    *  behavior, unchanged); with `session` (a bound CLI) it targets exactly that conversation, wherever
    *  the active pointer points, and never moves the pointer. A bound target that is not live (daemon
    *  restart between turns) is respawned in place first. */
-  async send(userId: number, text: string, images?: { data: string; mimeType: string }[], mode: 'build' | 'plan' = 'build', internal?: { goalKickoff?: boolean; goalContinue?: boolean; systemNudge?: boolean }, clientCwd?: string, session?: string, display?: string, client?: BoundClientRequest): Promise<void> {
+  async send(userId: number, text: string, images?: { data: string; mimeType: string }[], mode: 'build' | 'plan' = 'build', internal?: { goalKickoff?: boolean; goalContinue?: boolean; systemNudge?: boolean }, clientCwd?: string, session?: string, display?: string, client?: BoundClientRequest, onAdmitted?: (sessionId: string) => void): Promise<void> {
+    let admitted = false;
+    const admit = (sessionId: string): void => {
+      if (admitted) return;
+      admitted = true;
+      onAdmitted?.(sessionId);
+    };
     const assertClientCurrent = (sessionId: string): void => {
       if (client && !this.d.lifecycle.authorizeClientRequest(userId, client.id, client.generation, sessionId)) {
         throw new Error('client session has stopped');
@@ -132,6 +138,7 @@ export class BrainTurnRunner {
       // Route through the mirror so the image attachments survive a later positional queue-remove (PI's
       // clearQueue drops them). PI's queue_update then reconciles the mirror.
       await enqueueMirrored(active, 'steer', text, images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })));
+      admit(active.sessionId);
       return;
     }
     // Run ONE user turn on `live`. Refactored out of send() so the flush loop below can replay it for the
@@ -164,7 +171,13 @@ export class BrainTurnRunner {
       // from the stream — no client-side optimistic echo / busy heuristic that could drop or duplicate it.
       // Internal goal kickoff/continuation turns aren't user messages, so they emit nothing. `echoDisplay`
       // is the client's clean rendering (before @mention/prompt expansion); it falls back to persistText.
-      if (isUserTurn) { const shown = echoDisplay ?? persistText; live.replay.publish({ type: 'user', text: shown, durableId }); }
+      if (isUserTurn) {
+        const shown = echoDisplay ?? persistText;
+        live.replay.publish({ type: 'user', text: shown, durableId });
+        // HTTP callers may acknowledge now: the prompt is durable and attached streams have its
+        // authoritative user event. Everything below is model/tool execution and may run for minutes.
+        admit(live.sessionId);
+      }
       const options = turnImages?.length
         ? { images: turnImages.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })) }
         : undefined;

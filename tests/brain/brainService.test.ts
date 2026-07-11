@@ -214,6 +214,53 @@ describe('BrainService', () => {
     expect(stored).toContain('also check the logs');
   });
 
+  it('startSend admits a normal turn after the durable user event without waiting for model completion', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const seen: { type: string; text?: string }[] = [];
+    svc.subscribe(1, (event) => seen.push(event as { type: string; text?: string }));
+    const prompt = d.session.prompt.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    d.session.prompt.mockImplementationOnce(async (...args) => { await gate; return prompt(...args); });
+
+    const operation = svc.startSend(1, 'durable before 202');
+    let completed = false;
+    void operation.completed.then(() => { completed = true; });
+    await expect(operation.admitted).resolves.toBe('brain-1');
+    expect(completed).toBe(false);
+    expect(seen.some((event) => event.type === 'user' && event.text === 'durable before 202')).toBe(true);
+    expect(d.store.getMessages('brain-1').filter((row) => row.role === 'user')).toHaveLength(1);
+
+    release();
+    await operation.completed;
+  });
+
+  it('startSend admits a mid-turn steer only after PI accepts it', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.isStreaming = true;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    d.session.steer.mockImplementationOnce(async (text: string) => {
+      await gate;
+      d.session.__queue.push(text);
+      d.session.__emitQueue();
+    });
+
+    const operation = svc.startSend(1, 'queued steer');
+    let admitted = false;
+    void operation.admitted.then(() => { admitted = true; });
+    await Promise.resolve();
+    expect(admitted).toBe(false);
+    release();
+    await expect(operation.admitted).resolves.toBe('brain-1');
+    await operation.completed;
+    expect(d.session.steer).toHaveBeenCalledWith('queued steer', undefined);
+  });
+
   it('two mid-turn messages are each STEERED into the running turn (no follow-up turn)', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

@@ -629,6 +629,51 @@ export class BrainService {
     return this.turnRunner.send(userId, text, images, mode, internal, clientCwd, session, display, client);
   }
 
+  /** Start a user turn and expose its two real lifecycle boundaries. `admitted` resolves only after the
+   * prompt is durable and its authoritative user event has been published; `completed` covers the full
+   * model/tool turn. This lets HTTP acknowledge safely without holding the request for a long turn. */
+  startSend(userId: number, text: string, images?: { data: string; mimeType: string }[], mode: 'build' | 'plan' = 'build', internal?: { goalKickoff?: boolean; goalContinue?: boolean; systemNudge?: boolean }, clientCwd?: string, session?: string, display?: string, client?: BoundClientRequest): { admitted: Promise<string>; completed: Promise<void> } {
+    let resolveAdmitted!: (sessionId: string) => void;
+    let rejectAdmitted!: (error: unknown) => void;
+    let admissionSettled = false;
+    const admitted = new Promise<string>((resolve, reject) => {
+      resolveAdmitted = resolve;
+      rejectAdmitted = reject;
+    });
+    const completed = this.turnRunner.send(
+      userId, text, images, mode, internal, clientCwd, session, display, client,
+      (sessionId) => {
+        if (admissionSettled) return;
+        admissionSettled = true;
+        resolveAdmitted(sessionId);
+      },
+    ).then(
+      () => {
+        if (admissionSettled) return;
+        admissionSettled = true;
+        rejectAdmitted(new Error('turn completed before admission'));
+      },
+      (error) => {
+        if (!admissionSettled) {
+          admissionSettled = true;
+          rejectAdmitted(error);
+        }
+        throw error;
+      },
+    );
+    return { admitted, completed };
+  }
+
+  /** Surface a failure that happened after HTTP admission through the same ordered replay stream the
+   * TUI/headless client already consumes. Returns false only if teardown removed the live session. */
+  publishAcceptedSendFailure(sessionId: string, error: unknown): boolean {
+    const live = this.sessions.get(sessionId);
+    if (!live) return false;
+    const message = error instanceof Error ? error.message : String(error);
+    live.replay.publish({ type: 'error', message: message || 'accepted turn failed' });
+    return true;
+  }
+
   /** Synchronous admission check for the HTTP send route. Model turns may run for minutes; the route
    * acknowledges immediately after this check so reverse-proxy timeouts cannot turn a healthy streamed
    * tool-heavy response into a client-side `fetch failed` transcript row. */
