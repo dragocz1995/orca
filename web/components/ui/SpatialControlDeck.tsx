@@ -20,7 +20,7 @@ function mascotState(status: SaveStatus): SpatialMascotState {
   return 'idle';
 }
 
-export function SpatialSectionHero({ status = 'idle', onRetry, children }: {
+function SpatialSectionHero({ status = 'idle', onRetry, children }: {
   status?: SaveStatus;
   onRetry?: () => void;
   children?: ReactNode;
@@ -36,7 +36,7 @@ export function SpatialSectionHero({ status = 'idle', onRetry, children }: {
   );
 }
 
-export function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
+function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
   sections: SpatialDeckSection[];
   value: string;
   onChange: (id: string) => void;
@@ -101,7 +101,7 @@ export function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
   );
 }
 
-export function SpatialContentSurface({ children }: { children: ReactNode }) {
+function SpatialContentSurface({ children }: { children: ReactNode }) {
   return <section data-testid="spatial-content-surface" className="spatial-content-surface">{children}</section>;
 }
 

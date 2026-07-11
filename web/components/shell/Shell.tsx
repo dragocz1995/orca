@@ -69,7 +69,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
         {/* Frameless page heading + global actions. In drawer mode it also opens mobile navigation. */}
         <TopBar
           onMenuClick={mode === 'drawer' ? () => setDrawerOpen(true) : undefined}
-          showLocation={mode === 'drawer'}
+          showLocation={false}
         />
         <div className="px-2 pb-8"><RouteTransition>{children}</RouteTransition></div>
       </main>

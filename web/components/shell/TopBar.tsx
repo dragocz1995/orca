@@ -29,7 +29,7 @@ export function TopBar({ onMenuClick, showLocation = true }: { onMenuClick?: () 
 
   return (
     <header data-testid="future-page-header" className="relative z-30 flex min-h-16 shrink-0 items-start justify-between gap-4 px-4 pb-2 pt-3">
-      <div className={`min-w-0 items-start gap-3 ${showLocation ? 'flex' : 'hidden'}`}>
+      <div className={`min-w-0 items-start gap-3 ${showLocation || onMenuClick ? 'flex' : 'hidden'}`}>
         {onMenuClick ? (
           <button
             type="button"
@@ -40,14 +40,18 @@ export function TopBar({ onMenuClick, showLocation = true }: { onMenuClick?: () 
             <Menu size={19} aria-hidden />
           </button>
         ) : null}
-        {Icon && onMenuClick ? <span className="mt-1.5 hidden h-9 w-9 shrink-0 place-items-center rounded-full border border-accent/20 bg-accent/[0.07] text-accent sm:grid"><Icon size={17} strokeWidth={1.5} aria-hidden /></span> : null}
-        <div className="flex min-w-0 flex-col gap-1">
-          {context ? <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[.16em] text-accent/75">{context}{context && title ? <ChevronRight size={11} aria-hidden /> : null}</span> : null}
-          <div className="flex min-w-0 items-baseline gap-3">
-            {title ? <h1 className="truncate font-display text-2xl font-semibold tracking-[-0.035em] text-text">{title}</h1> : null}
-            {count !== undefined ? <span className="shrink-0 font-mono text-xs text-text-muted">{count}</span> : null}
-          </div>
-        </div>
+        {showLocation ? (
+          <>
+            {Icon && onMenuClick ? <span className="mt-1.5 hidden h-9 w-9 shrink-0 place-items-center rounded-full border border-accent/20 bg-accent/[0.07] text-accent sm:grid"><Icon size={17} strokeWidth={1.5} aria-hidden /></span> : null}
+            <div className="flex min-w-0 flex-col gap-1">
+              {context ? <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[.16em] text-accent/75">{context}{context && title ? <ChevronRight size={11} aria-hidden /> : null}</span> : null}
+              <div className="flex min-w-0 items-baseline gap-3">
+                {title ? <h1 className="truncate font-display text-2xl font-semibold tracking-[-0.035em] text-text">{title}</h1> : null}
+                {count !== undefined ? <span className="shrink-0 font-mono text-xs text-text-muted">{count}</span> : null}
+              </div>
+            </div>
+          </>
+        ) : null}
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-black/45 p-1 backdrop-blur-xl">
