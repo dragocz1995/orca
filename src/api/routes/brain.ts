@@ -411,8 +411,15 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     // the clean text the daemon echoes back as the authoritative `user` turn (the client no longer echoes
     // optimistically); absent → the model-facing text is shown.
     const boundClient = session && client && generation ? { id: client, generation } : undefined;
-    try { await d.brain.send(c.get('user').id, text, images, mode, undefined, cwd, session, display, boundClient); return c.json({ ok: true }); }
+    let target: string;
+    try { target = d.brain.preflightSend(c.get('user').id, session, boundClient); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); } // not started yet / unknown session
+    // A model/tool turn can outlive nginx/SSH proxy request timeouts while its authoritative output is
+    // already flowing over SSE. Treat POST as admission, not completion: holding it open caused the CLI
+    // to append a false `[error: fetch failed]` after otherwise successful long Diagnostics runs.
+    void d.brain.send(c.get('user').id, text, images, mode, undefined, cwd, session, display, boundClient)
+      .catch((error) => logger('brain-send').error(`accepted turn failed for ${target}`, error));
+    return c.json({ ok: true, accepted: true }, 202);
   });
 
   // The caller's pending mid-turn backlog (messages sent while a turn streams are STEERED into it and

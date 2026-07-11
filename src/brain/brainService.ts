@@ -629,6 +629,21 @@ export class BrainService {
     return this.turnRunner.send(userId, text, images, mode, internal, clientCwd, session, display, client);
   }
 
+  /** Synchronous admission check for the HTTP send route. Model turns may run for minutes; the route
+   * acknowledges immediately after this check so reverse-proxy timeouts cannot turn a healthy streamed
+   * tool-heavy response into a client-side `fetch failed` transcript row. */
+  preflightSend(userId: number, session?: string, client?: BoundClientRequest): string {
+    const target = session
+      ? this.lifecycle.ownedUserSession(userId, session)
+      : this.lifecycle.activeSessionId(userId);
+    const row = this.d.store.getSession(target);
+    if (!row || row.user_id !== userId) throw new Error('brain not started for user');
+    if (client && !this.lifecycle.authorizeClientRequest(userId, client.id, client.generation, target)) {
+      throw new Error('client session has stopped');
+    }
+    return target;
+  }
+
   /** Restart a user's live session so changed settings apply — see ConversationLifecycle.restart. */
   async restart(userId: number): Promise<void> {
     return this.lifecycle.restart(userId);

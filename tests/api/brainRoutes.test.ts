@@ -24,6 +24,7 @@ function fakeBrain() {
   const tapSnapshotCalls: { id: number; session: string }[] = [];
   const subagentSends: { id: number; session: string; text: string }[] = [];
   let subagentPreflightError: Error | null = null;
+  let blockSends = false;
   const queues = new Map<number, { id: string; text: string }[]>();
   return {
     sends,
@@ -34,6 +35,7 @@ function fakeBrain() {
     tapSnapshotCalls,
     subagentSends,
     __failSubagentPreflight: (message: string | null) => { subagentPreflightError = message ? new Error(message) : null; },
+    __blockSends: () => { blockSends = true; },
     /** Test helper: seed a user's pending mid-turn queue. */
     __enqueue: (id: number, item: { id: string; text: string }) => { queues.set(id, [...(queues.get(id) ?? []), item]); },
     status: (id: number) => ({ running: started.has(id), sessionId: started.has(id) ? `brain-${id}` : null, model: 'm', queued: queues.get(id) ?? [], fast: false, fastAvailable: true }),
@@ -42,10 +44,12 @@ function fakeBrain() {
       started.add(id);
       return { sessionId: `brain-${id}` };
     },
+    preflightSend: (id: number) => { if (!started.has(id)) throw new Error('brain not started for user'); },
     send: async (id: number, text: string, _images?: unknown, mode?: string, _internal?: unknown, _cwd?: string, session?: string, _display?: string, client?: { id: string; generation: number }) => {
       if (!started.has(id)) throw new Error('brain not started for user');
       sends.push({ id, text, mode });
       boundSendCalls.push({ session, client });
+      if (blockSends) await new Promise(() => {});
     },
     queueList: (id: number) => queues.get(id) ?? [],
     queueRemove: (id: number, qid: string) => {
@@ -131,7 +135,16 @@ describe('brain routes', () => {
     expect(start.status).toBe(201);
     expect((await start.json() as { sessionId: string }).sessionId).toBe('brain-2');
     expect((await (await app.request('/brain/status', auth(amyTok))).json() as { running: boolean }).running).toBe(true);
-    expect((await app.request('/brain/send', post(amyTok, { text: 'hi' }))).status).toBe(200);
+    expect((await app.request('/brain/send', post(amyTok, { text: 'hi' }))).status).toBe(202);
+  });
+
+  it('acknowledges an accepted send before the model turn settles', async () => {
+    const { app, amyTok, brain } = setup();
+    await app.request('/brain/start', post(amyTok, {}));
+    brain.__blockSends();
+    const response = await app.request('/brain/send', post(amyTok, { text: 'long diagnostics turn' }));
+    expect(response.status).toBe(202);
+    expect(brain.sends.at(-1)?.text).toBe('long diagnostics turn');
   });
 
   it('passes the authenticated stable client identity through start', async () => {
@@ -146,7 +159,7 @@ describe('brain routes', () => {
   it('passes plan mode through /brain/send', async () => {
     const { app, amyTok, brain } = setup();
     await app.request('/brain/start', post(amyTok, {}));
-    expect((await app.request('/brain/send', post(amyTok, { text: 'outline', mode: 'plan' }))).status).toBe(200);
+    expect((await app.request('/brain/send', post(amyTok, { text: 'outline', mode: 'plan' }))).status).toBe(202);
     expect(brain.sends.at(-1)).toEqual({ id: 2, text: 'outline', mode: 'plan' });
   });
 
@@ -156,7 +169,7 @@ describe('brain routes', () => {
     const res = await app.request('/brain/send', post(amyTok, {
       text: 'late-safe', session: 'brain-2', client: 'cli-a', generation: 7,
     }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(brain.boundSendCalls.at(-1)).toEqual({
       session: 'brain-2', client: { id: 'cli-a', generation: 7 },
     });
