@@ -4,6 +4,7 @@ import { LanguageProvider } from '../../../lib/i18n';
 import { en } from '../../../lib/i18n/dictionaries/en';
 import type { PluginInfo, MarketplaceEntry } from '../../../lib/types';
 import { EffectsProvider } from '../../../lib/useEffects';
+import { SettingsDocument } from '../../../modules/settings/SettingsSurface';
 
 const usePlugins = vi.hoisted(() => vi.fn());
 const useMarketplace = vi.hoisted(() => vi.fn());
@@ -31,7 +32,7 @@ const entry = (over: Partial<MarketplaceEntry>): MarketplaceEntry => ({
   name: 'weather', version: '1.0.0', description: 'Weather tools', status: 'available', ...over,
 });
 
-const renderSection = () => render(<EffectsProvider><LanguageProvider><PluginsSection /></LanguageProvider></EffectsProvider>);
+const renderSection = () => render(<EffectsProvider><LanguageProvider><SettingsDocument><PluginsSection /></SettingsDocument></LanguageProvider></EffectsProvider>);
 
 describe('PluginsSection catalog', () => {
   beforeEach(() => {

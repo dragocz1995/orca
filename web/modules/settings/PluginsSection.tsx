@@ -23,7 +23,7 @@ import { usePlugins, useMarketplace } from '../../lib/queries';
 import { useTogglePlugin, useInstallPlugin, useUpdatePlugin, useUninstallPlugin, useRestorePlugin } from '../../lib/mutations';
 import type { PluginInfo, MarketplaceEntry } from '../../lib/types';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
-import { SettingsDocument, SettingsGroup, SettingsState, SettingsToolbar } from './SettingsSurface';
+import { SettingsGroup, SettingsState, SettingsToolbar } from './SettingsSurface';
 
 /** Marketplace categories, derived from a plugin's `provides`/name (see `categorize`). */
 type Category = 'platforms' | 'tools' | 'memory' | 'automation' | 'ui' | 'security' | 'development';
@@ -256,7 +256,7 @@ export function PluginsSection() {
   }, [available, query, category]);
 
   if (detail) return <PluginDetail name={detail} onBack={() => setDetail(null)} />;
-  if (isLoading) return <SettingsDocument><SettingsGroup density="compact"><SettingsState><LoadingState variant="list" /></SettingsState></SettingsGroup></SettingsDocument>;
+  if (isLoading) return <SettingsGroup density="compact"><SettingsState><LoadingState variant="list" /></SettingsState></SettingsGroup>;
 
   const flip = (p: PluginInfo, enabled: boolean) => toggle.mutate(
     { name: p.name, enabled },
@@ -336,7 +336,7 @@ export function PluginsSection() {
   );
 
   return (
-    <SettingsDocument>
+    <>
       <SettingsGroup density="compact">
         <SettingsToolbar>
           <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -391,6 +391,6 @@ export function PluginsSection() {
         onClose={() => setConfirmRemove(null)}
       />
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
-    </SettingsDocument>
+    </>
   );
 }

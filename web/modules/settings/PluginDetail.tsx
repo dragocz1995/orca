@@ -18,7 +18,7 @@ import { PluginDataPanel } from './PluginDataPanel';
 import { PluginLogsPanel } from './PluginLogsPanel';
 import { PluginLivePreview } from './PluginLivePreview';
 import { usePluginConfigDraft } from './usePluginConfigDraft';
-import { SettingsDocument, SettingsGroup, SettingsState, SettingsToolbar } from './SettingsSurface';
+import { SettingsGroup, SettingsState, SettingsToolbar } from './SettingsSurface';
 
 type WorkspaceTab = 'setup' | 'behavior' | 'capabilities' | 'activity' | 'advanced';
 
@@ -104,7 +104,7 @@ function PluginWorkspace({ name, detail, contributions, logs, hookExecutions, on
   const preview = <PluginLivePreview detail={detail} values={draft.values} fieldLabel={fieldLabel} />;
 
   return (
-    <SettingsDocument>
+    <>
       <SettingsGroup>
         <div className="flex flex-col gap-5 p-5 sm:p-6">
           <div><Button variant="ghost" icon={ArrowLeft} onClick={onBack}>{t.pluginCfg.back}</Button></div>
@@ -159,7 +159,7 @@ function PluginWorkspace({ name, detail, contributions, logs, hookExecutions, on
           </WorkspacePanel>
         </div>
       </SettingsGroup>
-    </SettingsDocument>
+    </>
   );
 }
 
@@ -170,6 +170,6 @@ export function PluginDetail({ name, onBack }: { name: string; onBack: () => voi
   const { data: contributions } = usePluginContributions(name);
   const { data: logs } = usePluginLogs(name);
   const { data: hookExecutions } = usePluginHookExecutions(name);
-  if (isLoading || !data) return <SettingsDocument><SettingsGroup><SettingsState><LoadingState /></SettingsState></SettingsGroup></SettingsDocument>;
+  if (isLoading || !data) return <SettingsGroup><SettingsState><LoadingState /></SettingsState></SettingsGroup>;
   return <PluginWorkspace key={name} name={name} detail={data} contributions={contributions} logs={logs} hookExecutions={hookExecutions} onBack={onBack} />;
 }

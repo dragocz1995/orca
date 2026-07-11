@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { LanguageProvider } from '../../../lib/i18n';
 import { ThemeProvider } from '../../../lib/useTheme';
 import { EffectsProvider } from '../../../lib/useEffects';
+import { SettingsDocument } from '../../../modules/settings/SettingsSurface';
 import { en } from '../../../lib/i18n/dictionaries/en';
 import type { PluginDetail as PluginDetailData, PluginConfigField, PluginInfo } from '../../../lib/types';
 
@@ -37,7 +38,7 @@ const plugin = (over: Partial<PluginInfo>): PluginInfo => ({
 });
 
 const renderDetail = () => {
-  return render(<EffectsProvider><ThemeProvider><LanguageProvider><PluginDetail name="testy" onBack={() => {}} /></LanguageProvider></ThemeProvider></EffectsProvider>);
+  return render(<EffectsProvider><ThemeProvider><LanguageProvider><SettingsDocument><PluginDetail name="testy" onBack={() => {}} /></SettingsDocument></LanguageProvider></ThemeProvider></EffectsProvider>);
 };
 
 beforeEach(() => {
