@@ -1173,6 +1173,37 @@ describe('BrainService', () => {
     expect(d.session.prompt).toHaveBeenCalled();
   });
 
+  it('keeps the selected Codex chat model while refreshing its configured compaction route on switch', async () => {
+    const d = fakeDeps();
+    d.config = { providers: [{
+      id: 'codex', label: 'ChatGPT', type: 'oauth-openai-codex' as const, baseUrl: '',
+      models: ['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol'], apiKey: null,
+    }] };
+    const loaderRoutes: { fallback?: string; thinking?: () => string | undefined }[] = [];
+    d.resourceLoaderFactory = ((o: {
+      compactionFallbackModel?: { id: string };
+      compactionThinkingLevel?: () => string | undefined;
+    }) => {
+      loaderRoutes.push({
+        fallback: o.compactionFallbackModel?.id,
+        thinking: o.compactionThinkingLevel,
+      });
+      return undefined;
+    }) as never;
+    const svc = new BrainService(d as never);
+
+    await svc.start(1, { provider: 'codex', model: 'gpt-5.6-luna' });
+    expect((d.createSession.mock.calls[0]![0] as { model: { id: string } }).model.id).toBe('gpt-5.6-luna');
+    expect(loaderRoutes[0]?.thinking?.()).toBe('');
+    await svc.setThinkingLevel(1, 'high');
+    expect(loaderRoutes[0]?.thinking?.()).toBe('high');
+    await svc.switchModel(1, { provider: 'codex', model: 'gpt-5.6-sol' });
+    expect((d.createSession.mock.calls[1]![0] as { model: { id: string } }).model.id).toBe('gpt-5.6-sol');
+    expect(loaderRoutes.map((route) => route.fallback)).toEqual(['gpt-5.5', 'gpt-5.5']);
+    await svc.setThinkingLevel(1, 'xhigh');
+    expect(loaderRoutes[1]?.thinking?.()).toBe('xhigh');
+  });
+
   it('fresh start opens a new conversation; session param resumes; list shows both', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
