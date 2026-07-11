@@ -32,6 +32,16 @@ function seed(client: ReturnType<typeof createWrapper>['client']) {
 }
 
 describe('EscalationsView', () => {
+  it('uses one spatial workspace hero and one bordered escalation register', () => {
+    const { wrapper: Wrapper, client } = createWrapper();
+    seed(client);
+    const { container } = render(<Wrapper><ToastProvider><EscalationsView /></ToastProvider></Wrapper>);
+
+    expect(screen.getByTestId('spatial-workspace-layout')).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: 'Elowen' })).toHaveLength(1);
+    expect(container.querySelectorAll('[data-control-surface]')).toHaveLength(1);
+  });
+
   it('shows the overseer rationale, the rejected phase and the blocked dependent', () => {
     const { wrapper: Wrapper, client } = createWrapper();
     seed(client);

@@ -13,7 +13,8 @@ import { Input } from '../../components/ui/Input';
 import { EmptyState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
-import { WorkspaceHeader, WorkspaceMetric, WorkspaceMetrics, WorkspacePage } from '../../components/ui/WorkspacePrimitives';
+import { WorkspaceMetric, SpatialWorkspaceLayout } from '../../components/ui/WorkspacePrimitives';
+import { ControlSurfaceDocument, ControlSurfaceState } from '../../components/ui/ControlSurface';
 
 /** One worker question parked on a human: shows the question and a reply box that unblocks the agent
  *  (POST /tasks/:id/ask/:askId/reply). Distinct from a review escalation — there's no gate to release,
@@ -100,26 +101,27 @@ export function EscalationsView() {
   return (
     <>
       <ModuleHeader title={t.escalations.title} count={escalations.length + pendingAsks.length} icon={ShieldAlert} />
-      <WorkspacePage>
-        <WorkspaceHeader
-          eyebrow={t.escalations.workspaceEyebrow}
-          title={t.escalations.title}
-          count={total}
-          description={t.escalations.workspaceIntro}
-          icon={ShieldAlert}
-          status={<span className="workspace-status">{total > 0 ? t.escalations.workspaceWaiting : t.escalations.workspaceReady}</span>}
-        />
-        <WorkspaceMetrics visual={<div className="escalations-core"><Inbox size={28} strokeWidth={1.25} /></div>} ariaLabel={t.escalations.summary}>
-          <WorkspaceMetric label={t.escalations.metricTotal} value={total} icon={Inbox} />
-          <WorkspaceMetric label={t.escalations.metricQuestions} value={pendingAsks.length} icon={MessagesSquare} />
-          <WorkspaceMetric label={t.escalations.metricReviews} value={escalations.length} icon={ShieldAlert} />
-          <WorkspaceMetric label={t.escalations.metricBlocked} value={blockedCount} icon={GitBranch} />
-        </WorkspaceMetrics>
+      <SpatialWorkspaceLayout
+        hero={{
+          eyebrow: t.escalations.workspaceEyebrow,
+          title: t.escalations.title,
+          count: total,
+          description: t.escalations.workspaceIntro,
+          status: <span className="workspace-status">{total > 0 ? t.escalations.workspaceWaiting : t.escalations.workspaceReady}</span>,
+          metrics: <>
+            <WorkspaceMetric label={t.escalations.metricTotal} value={total} icon={Inbox} />
+            <WorkspaceMetric label={t.escalations.metricQuestions} value={pendingAsks.length} icon={MessagesSquare} />
+            <WorkspaceMetric label={t.escalations.metricReviews} value={escalations.length} icon={ShieldAlert} />
+            <WorkspaceMetric label={t.escalations.metricBlocked} value={blockedCount} icon={GitBranch} />
+          </>,
+        }}
+      >
+      <ControlSurfaceDocument>
 
       {total === 0 ? (
-        <div className="workspace-content"><EmptyState title={t.escalations.empty} description={t.escalations.emptyDesc} icon={ShieldCheck} /></div>
+        <ControlSurfaceState><EmptyState title={t.escalations.empty} description={t.escalations.emptyDesc} icon={ShieldCheck} /></ControlSurfaceState>
       ) : (
-        <div className="workspace-content">
+        <div>
           {/* Agent questions waiting on a human come first — an agent is actively blocked on each. */}
           {pendingAsks.length > 0 ? <h2 className="border-b border-border/80 px-1 pb-3 font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-accent sm:px-3">{t.escalations.questionsSection}</h2> : null}
           {pendingAsks.map((a) => <PendingAskCard key={a.askId} ask={a} />)}
@@ -170,7 +172,8 @@ export function EscalationsView() {
           })}
         </div>
       )}
-      </WorkspacePage>
+      </ControlSurfaceDocument>
+      </SpatialWorkspaceLayout>
     </>
   );
 }
