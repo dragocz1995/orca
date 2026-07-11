@@ -34,7 +34,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Toggle } from '../../components/ui/Toggle';
 import { Segmented } from '../../components/ui/Segmented';
 import { SpatialControlDeck } from '../../components/ui/SpatialControlDeck';
-import { SpatialGroup, SpatialRow } from '../../components/ui/SpatialPrimitives';
+import { SettingsDocument, SettingsGroup, SettingsRow, SettingsToolbar, SettingsState } from '../../modules/settings/SettingsSurface';
 import { MotionReveal } from '../../components/ui/Motion';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { HelpTip } from '../../components/ui/HelpTip';
@@ -93,7 +93,7 @@ function SettingsPanel({ id, active, visited, children }: {
   if (id !== active && !visited.has(id)) return null;
   return (
     <Activity mode={id === active ? 'visible' : 'hidden'}>
-      <MotionReveal data-settings-panel={id}>{children}</MotionReveal>
+      <MotionReveal data-settings-panel={id}><SettingsDocument>{children}</SettingsDocument></MotionReveal>
     </Activity>
   );
 }
@@ -445,8 +445,8 @@ export default function SettingsPage() {
         )}
       >
         <SettingsPanel id="models" active={category} visited={visitedCategories}>
-          <div className="settings-model-catalog">
-            <div className="settings-model-catalog__tools">
+          <>
+            <SettingsToolbar>
               <div className="relative w-full">
                 <Search size={15} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                 <Input
@@ -467,7 +467,7 @@ export default function SettingsPage() {
                 <Link2 size={12} aria-hidden />
                 {t.settings.embeddedProviderLink}
               </button>
-            </div>
+            </SettingsToolbar>
             {/* One catalog, grouped by the engine that runs the model — the same grouping the
              *  executor picker uses, so what admins configure here matches what users pick. */}
             {PROVIDERS.map((prov) => {
@@ -480,18 +480,22 @@ export default function SettingsPage() {
               const groupExecs = [...allCliItems.map((m) => m.exec), ...allElowenItems.map((m) => m.exec)];
               const enabledCount = groupExecs.filter((e) => allowed.includes(e)).length;
               return (
-                <section key={prov.id} className="settings-provider-rack">
-                  <header className="settings-provider-rack__header">
-                    <ProviderLogo meta={prov} size={28} />
-                    <span className="text-sm font-semibold text-text">{prov.label}</span>
-                    <span className="font-mono text-tiny text-text-muted">{enabledCount}/{groupExecs.length}</span>
-                    {prov.embedded ? <HelpTip align="left">{t.help.elowenModels}</HelpTip> : null}
+                <SettingsGroup key={prov.id} density="compact">
+                  <header className="settings-group__header">
+                    <div className="settings-group__heading">
+                      <ProviderLogo meta={prov} size={28} />
+                      <div className="flex items-center gap-2">
+                        <h2>{prov.label}</h2>
+                        <span className="font-mono text-tiny text-text-muted">{enabledCount}/{groupExecs.length}</span>
+                        {prov.embedded ? <HelpTip align="left">{t.help.elowenModels}</HelpTip> : null}
+                      </div>
+                    </div>
                   </header>
-                  <div className="settings-provider-rack__rows @container">
+                  <div className="settings-model-rows @container">
                     {cliItems.map((p) => {
                       const isCustom = !isPresetExec(p.exec);
                       return (
-                        <div data-testid="model-row" key={p.exec} className="settings-provider-rack__row group flex min-w-0 items-center gap-3 transition-colors">
+                        <div data-testid="model-row" key={p.exec} className="settings-model-row group flex min-w-0 items-center gap-3 transition-colors">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted">
                             <ModelIcon name={p.exec} size={20} />
                           </span>
@@ -542,7 +546,7 @@ export default function SettingsPage() {
                       const override = modelWindows[winKey];
                       const overridden = override != null;
                       return (
-                      <div data-testid="model-row" key={m.exec} className="settings-provider-rack__row flex min-w-0 items-center gap-3 transition-colors">
+                      <div data-testid="model-row" key={m.exec} className="settings-model-row flex min-w-0 items-center gap-3 transition-colors">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted"><ModelIcon name={m.model} size={20} /></span>
                           <div className="min-w-0 flex-1">
                             <span className="truncate text-sm font-medium text-text">{m.model}</span>
@@ -566,7 +570,7 @@ export default function SettingsPage() {
                       );
                     })}
                   </div>
-                </section>
+                </SettingsGroup>
               );
             })}
 
@@ -574,15 +578,15 @@ export default function SettingsPage() {
               ...models.map((m) => `${PROVIDERS.find((provider) => provider.id === execProvider(m.exec))?.label ?? ''} ${m.label} ${m.exec} ${execModel(m.exec)} ${modelNotes[m.exec] ?? ''}`),
               ...(brainModels.data ?? []).map((m) => `${PROVIDERS.find((provider) => provider.id === 'elowen')?.label ?? ''} ${m.model} ${m.exec} ${m.providerLabel}`),
             ].some((value) => value.toLocaleLowerCase().includes(modelQuery.trim().toLocaleLowerCase())) ? (
-              <p className="border-y border-border/80 py-8 text-center text-sm text-text-muted">{t.settings.modelNoMatches}</p>
+              <SettingsState>{t.settings.modelNoMatches}</SettingsState>
             ) : null}
 
-            <div>
+            <div className="settings-document__footer">
               <Button variant="ghost" icon={Plus} onClick={() => { setEditingExec(null); setShowAddForm(true); }}>
                 {t.settings.addModel}
               </Button>
             </div>
-          </div>
+          </>
         </SettingsPanel>
 
         {showAddForm && (
@@ -618,8 +622,8 @@ export default function SettingsPage() {
         <SettingsPanel id="autopilot" active={category} visited={visitedCategories}>
             <div className="flex flex-col gap-4">
               {/* One clear choice: how the planner + overseer reason. Relay (API) OR CLI agents. */}
-              <SpatialGroup>
-                <SpatialRow title={t.settings.backendMode} description={t.help.backendMode} icon={Radio}>
+              <SettingsGroup>
+                <SettingsRow label={t.settings.backendMode} description={t.help.backendMode} icon={Radio}>
                   <div className="flex flex-col gap-2">
                     <Segmented
                       value={reasoningMode}
@@ -631,13 +635,13 @@ export default function SettingsPage() {
                     />
                     <p className="text-xs text-text-muted">{reasoningMode === 'relay' ? t.settings.modeRelayDesc : t.settings.modeAgentsDesc}</p>
                   </div>
-                </SpatialRow>
-              </SpatialGroup>
+                </SettingsRow>
+              </SettingsGroup>
 
-              <SpatialGroup>
+              <SettingsGroup>
               {reasoningMode === 'relay' ? (
                 <>
-                  <SpatialRow title={t.settings.apProvider} description={t.help.apProvider} icon={KeyRound}>
+                  <SettingsRow label={t.settings.apProvider} description={t.help.apProvider} icon={KeyRound}>
                     <ProviderPicker
                       providers={(config.data?.brain?.providers ?? []).filter((p) => p.apiKeySet).map((p) => ({ id: p.id, label: p.label }))}
                       value={apProviderId}
@@ -645,115 +649,112 @@ export default function SettingsPage() {
                       label={t.settings.apProvider}
                       emptyText={t.settings.apNoProviders}
                     />
-                  </SpatialRow>
-                  <SpatialRow title={t.settings.plannerModel} description={t.help.plannerModel} icon={Bot}>
+                  </SettingsRow>
+                  <SettingsRow label={t.settings.plannerModel} description={t.help.plannerModel} icon={Bot}>
                     {apProviderId && apCatalog.length > 0
                       ? <ModelCatalogField value={model} onChange={setModel} catalog={apCatalog} title={t.settings.plannerModel} subtitle={t.help.plannerModel} />
                       : <ModelInput value={model} onChange={setModel} placeholder={t.settings.plannerPlaceholder} />}
-                  </SpatialRow>
-                  <SpatialRow title={t.settings.overseerModel} description={t.help.overseerModel} icon={Eye}>
+                  </SettingsRow>
+                  <SettingsRow label={t.settings.overseerModel} description={t.help.overseerModel} icon={Eye}>
                     {apProviderId && apCatalog.length > 0
                       ? <ModelCatalogField value={overseerModel} onChange={setOverseerModel} catalog={apCatalog} title={t.settings.overseerModel} subtitle={t.help.overseerModel} />
                       : <ModelInput value={overseerModel} onChange={setOverseerModel} placeholder={t.settings.overseerPlaceholder} />}
-                  </SpatialRow>
+                  </SettingsRow>
                   {/* No provider picked → enter an endpoint + key directly. A chosen provider supplies both,
                       so these fields simply don't render (no redundant "inherited" note). */}
                   {apProviderId === '' ? (
                     <>
-                      <SpatialRow title={t.settings.apiUrl} description={t.help.apiUrl} icon={Link2}>
+                      <SettingsRow label={t.settings.apiUrl} description={t.help.apiUrl} icon={Link2}>
                         <input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className={inputClass} />
-                      </SpatialRow>
-                      <SpatialRow title={t.settings.apiKey} description={apiKeySet ? t.help.apiKey : t.help.apiKeyNotSet} icon={KeyRound}>
+                      </SettingsRow>
+                      <SettingsRow label={t.settings.apiKey} description={apiKeySet ? t.help.apiKey : t.help.apiKeyNotSet} icon={KeyRound}>
                         <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeySet ? t.settings.apiKeySetPlaceholder : t.settings.apiKeyPlaceholder} className={inputClass} />
-                      </SpatialRow>
+                      </SettingsRow>
                     </>
                   ) : null}
                 </>
               ) : (
                 <>
-                  <SpatialRow title={t.settings.plannerModel} description={t.help.plannerModel} icon={Bot}>
+                  <SettingsRow label={t.settings.plannerModel} description={t.help.plannerModel} icon={Bot}>
                     <BackendPicker value={pilotExec} onChange={setPilotExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
-                  </SpatialRow>
-                  <SpatialRow title={t.settings.overseerModel} description={t.help.overseerModel} icon={Eye}>
+                  </SettingsRow>
+                  <SettingsRow label={t.settings.overseerModel} description={t.help.overseerModel} icon={Eye}>
                     <BackendPicker value={overseerExec} onChange={setOverseerExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
-                  </SpatialRow>
-                  <SpatialRow title={t.settings.reviewOnDone} description={t.help.reviewOnDone} icon={Eye}>
+                  </SettingsRow>
+                  <SettingsRow label={t.settings.reviewOnDone} description={t.help.reviewOnDone} icon={Eye}>
                     <Toggle checked={reviewOnDone} onChange={setReviewOnDone} label={t.settings.reviewOnDone} />
-                  </SpatialRow>
+                  </SettingsRow>
                 </>
               )}
-              <SpatialRow title={t.settings.notes} description={t.help.notes} icon={FileText}>
+              <SettingsRow label={t.settings.notes} description={t.help.notes} icon={FileText}>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={`${inputClass} resize-none`} />
-              </SpatialRow>
-              </SpatialGroup>
+              </SettingsRow>
+              </SettingsGroup>
 
               {/* Default mission run — what the pilot actually launches: the worker executor, the
                   autonomy level and how many agents run in parallel. These apply in both reasoning
                   modes, so they live below the relay/agents split. */}
-              <SpatialGroup title={t.settings.runDefaults} icon={Cpu}>
-                <SpatialRow title={t.settings.executor} description={t.help.executor} icon={Cpu}>
+              <SettingsGroup title={t.settings.runDefaults} icon={Cpu}>
+                <SettingsRow label={t.settings.executor} description={t.help.executor} icon={Cpu}>
                   {/* Same worker + Elowen AI split the task picker uses, in the unified manage-selection
                       modal, so the default executor can also be a brain model. A saved value missing
                       from the catalog stays selectable as a pinned row. */}
                   <BackendPicker value={defExec} onChange={setDefExec} models={models} relayLabel={t.settings.relayOption} allowRelay={false} />
-                </SpatialRow>
-                <SpatialRow title={t.settings.autonomy} description={t.help.autonomy} icon={Gauge}>
+                </SettingsRow>
+                <SettingsRow label={t.settings.autonomy} description={t.help.autonomy} icon={Gauge}>
                   <div>
                   <Segmented options={['L0', 'L1', 'L2', 'L3'].map((l) => ({ value: l, label: l }))} value={defAutonomy} onChange={setDefAutonomy} />
                   <p className="mt-2 text-xs leading-relaxed text-text-muted">
                     {({ L0: t.missions.autonomyL0Desc, L1: t.missions.autonomyL1Desc, L2: t.missions.autonomyL2Desc, L3: t.missions.autonomyL3Desc } as Record<string, string>)[defAutonomy]}
                   </p>
                   </div>
-                </SpatialRow>
-                <SpatialRow title={t.settings.maxSessions} description={t.help.maxSessions} icon={Layers}>
+                </SettingsRow>
+                <SettingsRow label={t.settings.maxSessions} description={t.help.maxSessions} icon={Layers}>
                   <input type="number" min={1} value={defMaxSessions} onChange={(e) => setDefMaxSessions(Number(e.target.value))} className={inputClass} />
-                </SpatialRow>
+                </SettingsRow>
                 {/* TDD mission mode applies to every worker (standalone, mission phase, embedded) regardless
                     of the relay/agents split, so it lives here with the run defaults — persisted via the
                     autopilot patch (saveAutopilot). */}
-                <SpatialRow title={t.settings.tddMode} description={t.help.tddMode} icon={FlaskConical}>
+                <SettingsRow label={t.settings.tddMode} description={t.help.tddMode} icon={FlaskConical}>
                   <Toggle checked={tddMode} onChange={setTddMode} label={t.settings.tddMode} />
-                </SpatialRow>
-              </SpatialGroup>
+                </SettingsRow>
+              </SettingsGroup>
             </div>
         </SettingsPanel>
 
         <SettingsPanel id="github" active={category} visited={visitedCategories}>
-          <div className="flex flex-col gap-4">
-            <GithubStatusBanner />
-            <SpatialGroup>
-            <SpatialRow title={t.settings.ghToken} description={ghTokenSet ? t.help.ghToken : t.help.ghTokenNotSet} icon={KeyRound}>
+          <>
+            <SettingsGroup><GithubStatusBanner /></SettingsGroup>
+            <SettingsGroup>
+            <SettingsRow label={t.settings.ghToken} description={ghTokenSet ? t.help.ghToken : t.help.ghTokenNotSet} icon={KeyRound}>
               <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={ghTokenSet ? t.settings.apiKeySetPlaceholder : t.settings.ghTokenPlaceholder} className={inputClass} />
-            </SpatialRow>
-            <SpatialRow title={t.settings.prEnabled} description={t.help.prEnabled} icon={GitPullRequest}>
+            </SettingsRow>
+            <SettingsRow label={t.settings.prEnabled} description={t.help.prEnabled} icon={GitPullRequest}>
               <Toggle checked={prEnabled} onChange={setPrEnabled} label={t.settings.prEnabled} />
-            </SpatialRow>
-            <SpatialRow title={t.settings.prBaseBranch} description={t.help.prBaseBranch} icon={GitBranch}>
+            </SettingsRow>
+            <SettingsRow label={t.settings.prBaseBranch} description={t.help.prBaseBranch} icon={GitBranch}>
               <input value={prBaseBranch} onChange={(e) => setPrBaseBranch(e.target.value)} placeholder={t.settings.prBaseBranchPlaceholder} className={inputClass} />
-            </SpatialRow>
-            <SpatialRow title={t.settings.prAutoOpen} description={t.help.prAutoOpen} icon={GitPullRequest}>
+            </SettingsRow>
+            <SettingsRow label={t.settings.prAutoOpen} description={t.help.prAutoOpen} icon={GitPullRequest}>
               <Toggle checked={prAutoOpen} onChange={setPrAutoOpen} label={t.settings.prAutoOpen} />
-            </SpatialRow>
-            <SpatialRow title={t.settings.prVerifyCommand} description={t.help.prVerifyCommand} icon={TerminalSquare}>
+            </SettingsRow>
+            <SettingsRow label={t.settings.prVerifyCommand} description={t.help.prVerifyCommand} icon={TerminalSquare}>
               <input value={prVerifyCommand} onChange={(e) => setPrVerifyCommand(e.target.value)} placeholder={t.settings.prVerifyCommandPlaceholder} className={`${inputClass} font-mono text-xs`} />
-            </SpatialRow>
-            </SpatialGroup>
-          </div>
+            </SettingsRow>
+            </SettingsGroup>
+          </>
         </SettingsPanel>
 
         <SettingsPanel id="providers" active={category} visited={visitedCategories}>
-          <div className="flex flex-col gap-5">
+          <>
             {/* Agent skills sit at the top of CLI Agents — they install/verify the `elowen-workflow`
                 skill into the very CLI agents this section configures. The daemon self-installs on
                 startup; this is the on-demand re-apply + per-provider status. */}
-            <section className="flex w-full flex-col gap-4 border-y border-border/80 py-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <Sparkles size={16} className="text-text-muted" aria-hidden />
-                  <span className="text-sm font-medium text-text">{t.settings.agentSkills}</span>
-                  <HelpTip align="left">{t.help.agentSkills}</HelpTip>
-                </div>
-                <Button
+            <SettingsGroup
+              title={t.settings.agentSkills}
+              description={t.help.agentSkills}
+              icon={Sparkles}
+              actions={<Button
                   variant="accent"
                   className="h-8 shrink-0"
                   disabled={installSkills.isPending || !(systemSkills.data?.skills ?? []).some((s) => s.present && !s.upToDate)}
@@ -763,10 +764,10 @@ export default function SettingsPage() {
                   })}
                 >
                   {installSkills.isPending ? t.settings.skillInstalling : t.settings.skillInstall}
-                </Button>
-              </div>
+                </Button>}
+            >
               {/* Per-provider status pills, laid out to wrap side by side so the block stays compact. */}
-              <div className="flex flex-wrap gap-x-6 gap-y-2.5">
+              <div className="settings-skill-statuses">
                 {(systemSkills.data?.skills ?? []).map((s) => {
                   const tone = !s.present ? 'muted' : s.upToDate ? 'success' : s.installed ? 'warning' : 'default';
                   const label = !s.present ? t.settings.skillProviderAbsent : s.upToDate ? t.settings.skillUpToDate : s.installed ? t.settings.skillOutdated : t.settings.skillMissing;
@@ -778,14 +779,14 @@ export default function SettingsPage() {
                   );
                 })}
               </div>
-            </section>
-            <div className="flex flex-col divide-y divide-border/70 border-y border-border/80">
+            </SettingsGroup>
+            <SettingsGroup title={t.settings.providers} density="compact">
               {PROVIDERS.map((p) => {
                 const cur = providers[p.id] ?? { bin: p.binHint, args: '', skipPermissions: true, resume: true };
                 const set = (patch: Partial<{ bin: string; args: string; skipPermissions: boolean; resume: boolean }>) => setProviders((prev) => ({ ...prev, [p.id]: { ...cur, ...patch } }));
                 return (
-                  <div key={p.id} className="@container">
-                  <div className="flex flex-col gap-3 py-5 @sm:flex-row @sm:items-start">
+                  <div key={p.id} className="settings-agent-row @container">
+                  <div className="flex flex-col gap-3 @sm:flex-row @sm:items-start">
                     <div className="flex items-center gap-3 @sm:w-44 @sm:shrink-0 @sm:pt-1">
                       <ProviderLogo meta={p} alt={t.providers[p.id as keyof typeof t.providers]} size={56} />
                       <div className="min-w-0">
@@ -836,50 +837,50 @@ export default function SettingsPage() {
                   </div>
                 );
               })}
-            </div>
-          </div>
+            </SettingsGroup>
+          </>
         </SettingsPanel>
 
 
         <SettingsPanel id="system" active={category} visited={visitedCategories}>
           <div className="settings-system-content">
-            <section className="settings-control-region" data-settings-surface="services">
-              <h2>{t.settings.servicesAndUpdates}</h2>
+            <SettingsGroup title={t.settings.servicesAndUpdates} icon={Server} density="compact" className="settings-system-services">
               {[
                 { name: t.settings.serviceDaemon, port: ':4400', up: !system.isError, target: 'daemon' as const, restartLabel: t.settings.restartDaemon },
                 { name: t.settings.serviceWeb, port: ':4500', up: true, target: 'web' as const, restartLabel: t.settings.restartWeb },
               ].map((service) => (
-                <div key={service.port} className="settings-control-row">
-                  <span className="settings-control-row__icon"><Server size={18} strokeWidth={1.45} aria-hidden /></span>
-                  <strong>{service.name} <span>{service.port}</span></strong>
+                <SettingsRow
+                  key={service.port}
+                  label={service.name}
+                  status={<span className="font-mono">{service.port}</span>}
+                  icon={Server}
+                  actions={<button type="button" className="spatial-inline-action" disabled={systemRestart.isPending} onClick={() => setRestartTarget(service.target)}>{service.restartLabel}<RotateCcw size={13} aria-hidden /></button>}
+                >
                   <span className={`settings-control-row__status ${service.up ? '' : 'settings-control-row__status--down'}`}><i aria-hidden />{service.up ? t.settings.serviceUp : t.settings.serviceDown}</span>
-                  <button type="button" className="spatial-inline-action" disabled={systemRestart.isPending} onClick={() => setRestartTarget(service.target)}>{service.restartLabel}<RotateCcw size={13} aria-hidden /></button>
-                </div>
+                </SettingsRow>
               ))}
-              <div className="settings-control-row">
-                <span className="settings-control-row__icon"><RefreshCw size={18} strokeWidth={1.45} aria-hidden /></span>
-                <strong>{t.settings.autoUpdate}</strong>
-                <span className="settings-control-row__control"><Toggle checked={autoUpdate} onChange={setAutoUpdate} label={t.settings.autoUpdate} /><span>{autoUpdate ? t.settings.on : t.settings.off}</span></span>
-                {system.data?.updateAvailable ? (
+              <SettingsRow
+                label={t.settings.autoUpdate}
+                icon={RefreshCw}
+                actions={system.data?.updateAvailable ? (
                   <button type="button" className="spatial-inline-action text-accent" disabled={systemUpdate.isPending} onClick={() => systemUpdate.mutate(undefined, {
                     onSuccess: () => toast(t.settings.updateStarted),
                     onError: (e) => toast(e instanceof ElowenApiError && e.code === 'mission_running' ? t.settings.updateBlockedMission : String(e), 'error'),
                   })}>{systemUpdate.isPending ? t.settings.updating : t.settings.updateNow}<RefreshCw size={13} className={systemUpdate.isPending ? 'animate-spin' : ''} aria-hidden /></button>
-                ) : <span />}
-              </div>
-            </section>
+                ) : undefined}
+              >
+                <span className="settings-control-row__control"><Toggle checked={autoUpdate} onChange={setAutoUpdate} label={t.settings.autoUpdate} /><span>{autoUpdate ? t.settings.on : t.settings.off}</span></span>
+              </SettingsRow>
+            </SettingsGroup>
 
-            <section className="settings-control-region settings-control-region--security" data-settings-surface="security">
-              <h2>{t.settings.sessionsAndSecurity}</h2>
-              <div className="settings-security-control">
-                <span className="settings-control-row__icon"><KeyRound size={18} strokeWidth={1.45} aria-hidden /></span>
-                <div><strong>{t.settings.tokenTtl}</strong><p>{t.help.tokenTtl}</p></div>
+            <SettingsGroup title={t.settings.sessionsAndSecurity} icon={KeyRound} className="settings-system-security">
+              <SettingsRow label={t.settings.tokenTtl} description={t.help.tokenTtl} icon={KeyRound}>
                 <input type="number" min={1} value={defTokenTtl} onChange={(e) => setDefTokenTtl(Number(e.target.value))} className={inputClass} />
-              </div>
-            </section>
+              </SettingsRow>
+            </SettingsGroup>
 
-            <section className="settings-diagnostics" data-settings-surface="diagnostics" aria-busy={!diagnostics}>
-              <h2><Gauge size={23} strokeWidth={1.45} aria-hidden />{t.settings.systemDiagnostics}<HelpTip align="left">{t.settings.systemSectionHint}</HelpTip></h2>
+            <SettingsGroup title={t.settings.systemDiagnostics} description={t.settings.systemSectionHint} icon={Gauge} className="settings-diagnostics">
+              <div className="settings-diagnostics__metrics" aria-busy={!diagnostics}>
               {[
                 { label: t.settings.diagnosticCpu, value: diagnostics ? `${diagnostics.cpuPercent}%` : '—', level: diagnostics?.cpuPercent ?? 0 },
                 { label: t.settings.diagnosticMemory, value: diagnostics ? formatMemory(diagnostics.memoryUsedBytes, diagnostics.memoryTotalBytes) : '—', level: diagnostics?.memoryTotalBytes ? (diagnostics.memoryUsedBytes / diagnostics.memoryTotalBytes) * 100 : 0 },
@@ -890,18 +891,19 @@ export default function SettingsPage() {
                   <i aria-hidden><b style={{ width: `${diagnostics ? Math.min(100, Math.max(4, metric.level)) : 28}%` }} /></i>
                 </div>
               ))}
-            </section>
+              </div>
+            </SettingsGroup>
           </div>
         </SettingsPanel>
 
         <SettingsPanel id="brain" active={category} visited={visitedCategories}>
           <>
             {/* Cross-link to the model catalog (enable / context-window per model) — the Models section. */}
-            <p className="-mb-2 text-xs">
+            <SettingsToolbar>
               <button type="button" onClick={() => setCategory('models')} className="font-medium text-accent hover:underline">
                 {t.settings.brainModelsLink}
               </button>
-            </p>
+            </SettingsToolbar>
             <BrainSection onSaveState={reportSaveState} />
           </>
         </SettingsPanel>
@@ -911,17 +913,17 @@ export default function SettingsPage() {
         <SettingsPanel id="plugins" active={category} visited={visitedCategories}><PluginsSection /></SettingsPanel>
 
         <SettingsPanel id="data" active={category} visited={visitedCategories}>
-          <div className="flex flex-col gap-4">
-            <div className="rounded-xl border border-danger/40 bg-danger/[0.04] p-5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-danger">
-                <Trash2 size={15} aria-hidden /> {t.settings.dangerZone}
-              </div>
-              <p className="mt-2 max-w-prose text-sm text-text-muted">{t.settings.cleanupDesc}</p>
-              <Button variant="danger" icon={Trash2} className="mt-4 self-start" disabled={cleanup.isPending} onClick={() => setCleanupOpen(true)}>
+          <SettingsGroup
+            title={t.settings.dangerZone}
+            description={t.settings.cleanupDesc}
+            icon={Trash2}
+            tone="danger"
+            actions={<Button variant="danger" icon={Trash2} disabled={cleanup.isPending} onClick={() => setCleanupOpen(true)}>
                 {t.settings.cleanupButton}
-              </Button>
-            </div>
-          </div>
+              </Button>}
+          >
+            <SettingsState tone="danger">{t.settings.cleanupConfirmDesc}</SettingsState>
+          </SettingsGroup>
         </SettingsPanel>
 
       </SpatialControlDeck>

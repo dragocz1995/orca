@@ -34,15 +34,30 @@ describe('SettingsPage', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'System' })).toBeInTheDocument();
     const rail = screen.getByRole('radiogroup', { name: 'Settings sections' });
     expect(Array.from(rail.querySelectorAll('[role="radio"]')).map((node) => node.textContent)).toEqual([
-      'System', 'Models', 'CLI Agents', 'Data', 'GitHub', 'Autopilot', 'Plugins', 'Memory', 'Elowen AI',
+      'System', 'Elowen AI', 'Models', 'CLI Agents', 'Data', 'GitHub', 'Autopilot', 'Plugins', 'Memory',
     ]);
     expect(screen.getByText('System diagnostics')).toBeInTheDocument();
     expect(screen.getByText('12%')).toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: 'Elowen' })).toHaveLength(1);
 
     const systemPanel = screen.getByText('System diagnostics').closest('[data-settings-panel="system"]');
-    expect(systemPanel?.querySelectorAll('[data-settings-surface]')).toHaveLength(3);
-    expect(systemPanel?.querySelector('[data-settings-surface="diagnostics"]')).toHaveClass('settings-diagnostics');
+    expect(systemPanel?.querySelectorAll('[data-settings-group]')).toHaveLength(3);
+    expect(screen.getByText('System diagnostics').closest('[data-settings-group]')).toHaveClass('settings-diagnostics');
+  });
+
+  it('renders every settings section inside the same document contract', async () => {
+    localStorage.setItem('elowen.settings.category', 'system');
+    const { wrapper: Wrapper } = createWrapper();
+    const { container } = render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+
+    await screen.findByRole('heading', { level: 1, name: 'System' });
+    for (const name of ['System', 'Elowen AI', 'Models', 'CLI Agents', 'Data', 'GitHub', 'Autopilot', 'Plugins', 'Memory']) {
+      fireEvent.click(screen.getByRole('radio', { name }));
+      await waitFor(() => {
+        const activePanel = container.querySelector(`[data-settings-panel]:not([style*="display: none"])`);
+        expect(activePanel?.querySelectorAll(':scope > [data-settings-document]')).toHaveLength(1);
+      });
+    }
   });
 
   it('auto-saves a changed model allowlist on toggle (no manual save button)', async () => {
