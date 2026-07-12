@@ -96,6 +96,19 @@ describe('KanbanBoard', () => {
     expect(screen.getByText('Phase Two')).toBeTruthy();
   });
 
+  it('offers mission actions from right click on an epic card', () => {
+    const epicTasks: Task[] = [
+      { id: 'e', title: 'Autopilot Epic', status: 'open', type: 'epic' },
+      { id: 'p1', title: 'Phase One', status: 'open', parent_id: 'e' },
+    ];
+    const { wrapper: W } = wrap();
+    render(<KanbanBoard tasks={epicTasks} onMove={() => {}} />, { wrapper: W });
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Autopilot Epic/ }));
+
+    expect(screen.getByRole('menuitem', { name: 'Delete mission' })).toBeInTheDocument();
+  });
+
   it('dropping on the same column does not call onMove', () => {
     const onMove = vi.fn();
     const { wrapper: W } = wrap();

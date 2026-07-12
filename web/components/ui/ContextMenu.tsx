@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 import { uiZoom } from '../../lib/uiZoom';
 
@@ -46,7 +47,7 @@ export function ContextMenu({ state, onClose }: { state: ContextMenuState; onClo
     return () => { window.clearTimeout(id); window.removeEventListener('mousedown', close); window.removeEventListener('keydown', onKey); window.removeEventListener('resize', close); };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       ref={ref}
       role="menu"
@@ -55,7 +56,8 @@ export function ContextMenu({ state, onClose }: { state: ContextMenuState; onClo
       style={{ left: pos.x, top: pos.y, boxShadow: 'var(--shadow-card)' }}
     >
       {state.items.map((item, i) => <MenuRow key={i} entry={item} index={i} onClose={onClose} />)}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

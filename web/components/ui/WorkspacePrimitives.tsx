@@ -119,6 +119,10 @@ export function WorkspaceDetailRail({ label, closeLabel, onClose, children }: { 
     document.body.style.overflow = 'hidden';
     setPortal(document.body);
     const keydown = (event: KeyboardEvent) => {
+      // A picker/modal can be opened from inside this drawer. That newer modal owns Escape and the
+      // focus trap until it closes; letting the drawer react too would close both layers or pull
+      // keyboard focus back behind the modal.
+      if (document.querySelector('[data-elowen-modal]')) return;
       if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return; }
       if (event.key !== 'Tab' || !drawer.current) return;
       const focusable = [...drawer.current.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((node) => !node.hasAttribute('disabled'));

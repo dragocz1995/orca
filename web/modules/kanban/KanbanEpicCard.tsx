@@ -13,6 +13,7 @@ import { epicProgress, epicLive } from '../../lib/taskTree';
 import { useSessions, useSessionSignals } from '../../lib/queries';
 import { useDropTarget } from '../tasks/useTaskDrop';
 import { useTranslation } from '../../lib/i18n';
+import { ContextMenu, type ContextMenuState } from '../../components/ui/ContextMenu';
 
 /** Collapsible epic (autopilot) container on the board — header with progress + aggregate live
  *  state; its phases stay hidden until expanded so the board isn't flooded with sub-tasks. */
@@ -24,6 +25,7 @@ export function KanbanEpicCard({ epic, phases, expanded, onToggle, effectiveStat
   const { toast } = useToast();
   const deleteMission = useDeleteMission();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const { done, total } = epicProgress(phases);
   const { running, needsInput } = epicLive(phases, sessions.data ?? [], signals);
   const Icon = taskTypeMeta('epic').icon;
@@ -43,6 +45,15 @@ export function KanbanEpicCard({ epic, phases, expanded, onToggle, effectiveStat
       aria-label={`${epic.title} — ${expanded ? t.tasks.collapsePhases : t.tasks.expandPhases}`}
       title={titleText}
       onClick={onToggle}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setContextMenu({
+          x: event.clientX,
+          y: event.clientY,
+          items: [{ label: t.tasks.deleteMission, icon: Trash2, danger: true, onClick: () => setConfirmDelete(true) }],
+        });
+      }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
@@ -87,6 +98,7 @@ export function KanbanEpicCard({ epic, phases, expanded, onToggle, effectiveStat
           />
         </div>
       )}
+      {contextMenu ? <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} /> : null}
     </div>
   );
 }

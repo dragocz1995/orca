@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { EntityList, EntityRow } from '../../components/ui/EntityList';
 import { MotionLayoutItem, MotionPresence } from '../../components/ui/Motion';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { ContextMenu, type ContextMenuState } from '../../components/ui/ContextMenu';
 import { ControlSurfaceRegister, ControlSurfaceToolbar } from '../../components/ui/ControlSurface';
 
 const PAGE_SIZE = 12;
@@ -43,6 +44,7 @@ export function BrainSessionsPanel() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [page, setPage] = useState(0);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const managed = useQuery({ queryKey: ['brain-managed-sessions'], queryFn: elowenClient.brainManagedSessions, enabled: isAdmin && view === 'all' });
   const own = useQuery({ queryKey: ['brain-sessions'], queryFn: elowenClient.brainSessions, enabled: view === 'mine' });
@@ -76,6 +78,26 @@ export function BrainSessionsPanel() {
     setConfirmAll(false);
     try { const { deleted } = await elowenClient.brainDeleteAllManagedSessions(); await refresh(); toast(`${t.sessionsPanel.deletedAll} (${deleted})`, 'ok'); }
     catch { toast(t.common.error, 'error'); }
+  };
+
+  const rowActions = (session: Row) => [
+    { label: t.sessionsPanel.exportHtml, icon: FileCode, onSelect: () => { void doExport(session.id, 'html'); } },
+    { label: t.sessionsPanel.exportJsonl, icon: FileJson, onSelect: () => { void doExport(session.id, 'jsonl'); } },
+    { label: t.common.delete, icon: Trash2, tone: 'danger' as const, onSelect: () => setConfirmId(session.id) },
+  ];
+
+  const openRowContextMenu = (event: React.MouseEvent, session: Row) => {
+    event.preventDefault();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: rowActions(session).map((item) => ({
+        label: item.label,
+        icon: item.icon,
+        danger: item.tone === 'danger',
+        onClick: item.onSelect,
+      })),
+    });
   };
 
   return (
@@ -122,7 +144,7 @@ export function BrainSessionsPanel() {
                 const title = s.title || t.sessionsPanel.untitled;
                 return (
                   <MotionLayoutItem key={s.id} layoutId={`brain-session-${s.id}`} role="listitem">
-                    <EntityRow role="presentation" className="group">
+                    <EntityRow role="presentation" className="group" onContextMenu={(event) => openRowContextMenu(event, s)}>
                       <div className="flex min-w-0 items-center gap-3">
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-elevated/70">
                           <ModelIcon name={s.model} size={24} />
@@ -144,11 +166,7 @@ export function BrainSessionsPanel() {
                         </button>
                         <ActionMenu
                           label={`${title}: ${t.common.actions}`}
-                          items={[
-                            { label: t.sessionsPanel.exportHtml, icon: FileCode, onSelect: () => { void doExport(s.id, 'html'); } },
-                            { label: t.sessionsPanel.exportJsonl, icon: FileJson, onSelect: () => { void doExport(s.id, 'jsonl'); } },
-                            { label: t.common.delete, icon: Trash2, tone: 'danger', onSelect: () => setConfirmId(s.id) },
-                          ]}
+                          items={rowActions(s)}
                           trigger={<MoreHorizontal size={16} aria-hidden />}
                           triggerClassName="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
                         />
@@ -187,6 +205,7 @@ export function BrainSessionsPanel() {
         onConfirm={() => confirmId && void doDelete(confirmId)}
         onClose={() => setConfirmId(null)}
       />
+      {contextMenu ? <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} /> : null}
       <ConfirmDialog
         open={confirmAll}
         title={t.sessionsPanel.confirmDeleteAllTitle}

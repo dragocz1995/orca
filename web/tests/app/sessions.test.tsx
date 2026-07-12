@@ -98,6 +98,19 @@ describe('SessionsPage', () => {
     await waitFor(() => expect(screen.queryByText('Conversation 1')).not.toBeInTheDocument());
   });
 
+  it('offers the conversation row actions from right click', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><SessionsPage /></ToastProvider></Wrapper>);
+    fireEvent.click(screen.getByRole('radio', { name: 'Conversations' }));
+    await screen.findByText('Conversation 1');
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Open in web chat: Conversation 1' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Download as HTML' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Download as JSONL' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument();
+  });
+
   it('uses the shared table heading and keeps Delete all in its action zone', async () => {
     admin = true;
     const { wrapper: Wrapper } = createWrapper();

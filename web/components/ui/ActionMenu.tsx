@@ -50,7 +50,7 @@ export function ActionMenu({ items, label, trigger, triggerClassName, align = 'r
     // of flinging it off to the side. window.innerWidth is the unzoomed layout width → left as-is.
     const z = uiZoom();
     setPos(align === 'right'
-      ? { top: r.bottom / z, right: window.innerWidth - r.right / z }
+      ? { top: r.bottom / z, right: window.innerWidth / z - r.right / z }
       : { top: r.bottom / z, left: r.left / z });
   }, [align]);
 

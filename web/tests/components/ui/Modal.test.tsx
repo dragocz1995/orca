@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LanguageProvider } from '../../../lib/i18n';
 import { Modal } from '../../../components/ui/Modal';
+import { WorkspaceDetailRail } from '../../../components/ui/WorkspacePrimitives';
 
 function W({ children }: { children: React.ReactNode }) { return <LanguageProvider>{children}</LanguageProvider>; }
 
@@ -41,6 +42,27 @@ describe('Modal', () => {
     );
 
     expect(screen.getByRole('dialog', { name: 'Code diff' })).toHaveClass('max-w-[90rem]');
+  });
+
+  it('renders above workspace detail drawers and keeps the drawer open when the nested modal handles Escape', () => {
+    function Harness() {
+      const [drawerOpen, setDrawerOpen] = useState(true);
+      const [modalOpen, setModalOpen] = useState(true);
+      return (
+        <>
+          {drawerOpen ? <WorkspaceDetailRail label="User detail" closeLabel="Close detail" onClose={() => setDrawerOpen(false)}>detail</WorkspaceDetailRail> : null}
+          {modalOpen ? <Modal title="Manage tools" onClose={() => setModalOpen(false)}>picker</Modal> : null}
+        </>
+      );
+    }
+    render(<Harness />, { wrapper: W });
+    const modal = screen.getByRole('dialog', { name: 'Manage tools' });
+    expect(modal.parentElement).toHaveClass('z-[100]');
+
+    fireEvent.keyDown(modal, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'Manage tools' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'User detail' })).toBeInTheDocument();
   });
 
   it('calls onClose when close button is clicked', () => {

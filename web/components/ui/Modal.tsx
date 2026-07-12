@@ -143,7 +143,7 @@ export function Modal({ title, onClose, children, size = 'lg', icon: Icon, descr
   if (!mounted) return null;
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
       onClick={(event) => {
         if (event.target !== event.currentTarget) return;
         // Portal events still bubble through their React tree. Stop at this backdrop so clicking a
