@@ -23,6 +23,7 @@ import {
 
 const frame = (overrides = {}) => ({
   type: 'frame',
+  pid: 123,
   sequence: 1,
   at: 10,
   reasons: ['scroll:wheel'],
@@ -342,17 +343,21 @@ function writeRound(root, round, {
   for (const scenario of ['short', 'long']) {
     const dir = join(root, `round-${round}`, scenario);
     mkdirSync(dir, { recursive: true });
+    const captureFrame = frame({ totalMs: ordinaryMax < 50 ? ordinaryMax : 37, at: 10 });
+    const perfFrames = ordinaryMax < 50
+      ? [captureFrame]
+      : [captureFrame, frame({ sequence: 2, at: 11, totalMs: ordinaryMax })];
     const captures = EXPECTED_TMUX_CAPTURE_LABELS[scenario].map((label, captureIndex) => {
       const paths = { label };
       for (const kind of ['plain', 'ansi', 'state']) {
         const path = join(dir, `capture-${captureIndex}.${kind === 'state' ? 'json' : `${kind}.txt`}`);
         const analysis = analyzeActiveCapture({
           label, plain: validPane(), ansi: validPane(), columns: 40, rows: 10,
-          cursor: { x: 2, y: 6 }, frame: frame(), expectCursor: true,
+          cursor: { x: 2, y: 6 }, frame: captureFrame, expectCursor: true,
         });
         writeFileSync(path, kind === 'state'
           ? `${JSON.stringify({
-              columns: 40, rows: 10, cursor: { x: 2, y: 6 }, frame: frame(), analysis,
+              columns: 40, rows: 10, cursor: { x: 2, y: 6 }, frame: captureFrame, analysis,
               contract: { expectCursor: true, forbiddenMarkers: [], expectScrollbar: true, allowScrollbarOcclusion: false },
             })}\n`
           : validPane());
@@ -364,14 +369,13 @@ function writeRound(root, round, {
     const ttyState = join(dir, 'tty-state.txt');
     const terminalWrites = join(dir, 'terminal-writes.log');
     const restoredShell = join(dir, 'restored-shell.txt');
-    const rawFrame = frame({ totalMs: ordinaryMax, at: 10 });
     writeFileSync(perf, [
-      JSON.stringify({ type: 'lifecycle', action: 'start', at: 1 }),
-      JSON.stringify(rawFrame),
-      JSON.stringify({ type: 'lifecycle', action: 'stop', at: 20 }),
+      JSON.stringify({ type: 'lifecycle', action: 'start', pid: 123, at: 1 }),
+      ...perfFrames.map((entry) => JSON.stringify(entry)),
+      JSON.stringify({ type: 'lifecycle', action: 'stop', pid: 123, at: 20 }),
       ...(scenario === 'short' ? [
-        JSON.stringify({ type: 'lifecycle', action: 'start', at: 21 }),
-        JSON.stringify({ type: 'lifecycle', action: 'stop', at: 22 }),
+        JSON.stringify({ type: 'lifecycle', action: 'start', pid: 124, at: 21 }),
+        JSON.stringify({ type: 'lifecycle', action: 'stop', pid: 124, at: 22 }),
       ] : []),
       '',
     ].join('\n'));
@@ -386,7 +390,7 @@ function writeRound(root, round, {
     const scenarioRunId = mixedRunId && scenario === 'long' ? `${runId}-other` : runId;
     const tmuxServer = duplicateServer ? `tmux-${round}-shared` : `tmux-${round}-${scenario}`;
     const performance = ordinaryMax < 50
-      ? analyzeFrameDiagnostics([rawFrame])
+      ? analyzeFrameDiagnostics(perfFrames)
       : analyzeFrameDiagnostics([frame({ totalMs: 37, at: 10 })]);
     if (ordinaryMax >= 50) performance.ordinaryMs = { p95: ordinaryMax, max: ordinaryMax };
     if (nullTiming) performance.ordinaryMs.p95 = null;
@@ -404,15 +408,16 @@ function writeRound(root, round, {
     const cases = ['SIGTERM', 'SIGHUP'].map((signal) => {
       const caseDir = join(dir, signal.toLowerCase());
       mkdirSync(caseDir, { recursive: true });
+      const rawSignalFrame = frame({ forced: true, reasons: ['lifecycle:start'], totalMs: 10 });
       const before = ['plain', 'ansi', 'state'].reduce((paths, kind) => {
         const path = join(caseDir, `01-before-signal.${kind === 'state' ? 'json' : `${kind}.txt`}`);
         const analysis = analyzeActiveCapture({
           label: '01-before-signal', plain: validPane(), ansi: validPane(), columns: 40, rows: 10,
-          cursor: { x: 2, y: 6 }, frame: frame(), expectCursor: true,
+          cursor: { x: 2, y: 6 }, frame: rawSignalFrame, expectCursor: true,
         });
         writeFileSync(path, kind === 'state'
           ? `${JSON.stringify({
-              columns: 40, rows: 10, cursor: { x: 2, y: 6 }, frame: frame(), analysis,
+              columns: 40, rows: 10, cursor: { x: 2, y: 6 }, frame: rawSignalFrame, analysis,
               contract: { expectCursor: true, forbiddenMarkers: [], expectScrollbar: true, allowScrollbarOcclusion: false },
             })}\n`
           : validPane());
@@ -428,9 +433,9 @@ function writeRound(root, round, {
       writeFileSync(terminalWrites,
         '\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006hframe\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l');
       writeFileSync(perf, [
-        JSON.stringify({ type: 'lifecycle', action: 'start', at: 1 }),
-        JSON.stringify(frame({ forced: true, reasons: ['lifecycle:start'], totalMs: 10 })),
-        JSON.stringify({ type: 'lifecycle', action: 'stop', at: 20 }),
+        JSON.stringify({ type: 'lifecycle', action: 'start', pid: 123, at: 1 }),
+        JSON.stringify(rawSignalFrame),
+        JSON.stringify({ type: 'lifecycle', action: 'stop', pid: 123, at: 20 }),
         '',
       ].join('\n'));
       return {
@@ -440,7 +445,7 @@ function writeRound(root, round, {
           ...(generatedAt ? { generatedAt, completedAt: generatedAt } : {}),
         }),
         terminalStateRestored: true, shellReadable: true,
-        performance: analyzeFrameDiagnostics([frame({ forced: true, reasons: ['lifecycle:start'], totalMs: 10 })]),
+        performance: analyzeFrameDiagnostics([rawSignalFrame]),
         evidence: { before, restoredShell, ttyState, terminalWrites, perf },
       };
     });
@@ -507,6 +512,19 @@ test('aggregate analyzer rejects stale evidence and revalidates normal raw captu
     rmSync(captureRoot, { recursive: true, force: true });
   }
 
+  const framePayloadRoot = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-frame-payload-'));
+  try {
+    writeRound(framePayloadRoot, 1);
+    const report = JSON.parse(readFileSync(join(framePayloadRoot, 'round-1', 'short', 'report.json'), 'utf8'));
+    const statePath = report.captures[0].state;
+    const state = JSON.parse(readFileSync(statePath, 'utf8'));
+    state.frame = { ...state.frame, renderedTurns: 999, totalMs: 49 };
+    writeFileSync(statePath, `${JSON.stringify(state)}\n`);
+    assert.throws(() => aggregateTmuxReports(framePayloadRoot, aggregateOptions()), /capture|frame|raw|perf/iu);
+  } finally {
+    rmSync(framePayloadRoot, { recursive: true, force: true });
+  }
+
   const perfRoot = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-raw-perf-'));
   try {
     writeRound(perfRoot, 1);
@@ -524,9 +542,9 @@ test('aggregate analyzer rejects stale evidence and revalidates normal raw captu
     const report = JSON.parse(readFileSync(reportPath, 'utf8'));
     const corrupted = frame({ reasons: ['scroll:wheel'], renderedTurns: 999 });
     writeFileSync(report.evidence.perf, [
-      JSON.stringify({ type: 'lifecycle', action: 'start', at: 1 }),
+      JSON.stringify({ type: 'lifecycle', action: 'start', pid: 123, at: 1 }),
       JSON.stringify(corrupted),
-      JSON.stringify({ type: 'lifecycle', action: 'stop', at: 20 }),
+      JSON.stringify({ type: 'lifecycle', action: 'stop', pid: 123, at: 20 }),
       '',
     ].join('\n'));
     // Even a matching forged report must not weaken the long-history operation limits.
@@ -559,6 +577,24 @@ test('aggregate analyzer rejects a symlink supplied as the evidence root', {
     writeRound(real, 1);
     symlinkSync(real, link, 'dir');
     assert.throws(() => aggregateTmuxReports(link, aggregateOptions()), /symlink|root|contain/iu);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('aggregate analyzer rejects an evidence root reached through a symlinked parent', {
+  skip: process.platform === 'win32',
+}, () => {
+  const parent = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-parent-link-'));
+  const realParent = join(parent, 'real-parent');
+  const realRoot = join(realParent, 'evidence');
+  const aliasParent = join(parent, 'alias-parent');
+  try {
+    mkdirSync(realRoot, { recursive: true });
+    writeRound(realRoot, 1);
+    symlinkSync(realParent, aliasParent, 'dir');
+    assert.throws(() => aggregateTmuxReports(join(aliasParent, 'evidence'), aggregateOptions()),
+      /canonical|symlink|parent|root/iu);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
@@ -628,6 +664,20 @@ test('aggregate analyzer requires every checkpoint and owns the capture contract
     assert.throws(() => aggregateTmuxReports(contract, aggregateOptions()), /analysis|cursor|contract|state/iu);
   } finally {
     rmSync(contract, { recursive: true, force: true });
+  }
+
+  const identity = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-capture-frame-'));
+  try {
+    writeRound(identity, 1);
+    const report = JSON.parse(readFileSync(join(identity, 'round-1', 'short', 'report.json'), 'utf8'));
+    const statePath = report.captures[0].state;
+    const state = JSON.parse(readFileSync(statePath, 'utf8'));
+    state.frame.sequence += 100_000;
+    state.frame.pid = 999_999;
+    writeFileSync(statePath, JSON.stringify(state));
+    assert.throws(() => aggregateTmuxReports(identity, aggregateOptions()), /frame|perf|identity|absent/iu);
+  } finally {
+    rmSync(identity, { recursive: true, force: true });
   }
 });
 
@@ -727,6 +777,16 @@ test('aggregate analyzer revalidates contained signal capture, tty, shell, termi
       entries.find((entry) => entry.type === 'lifecycle' && entry.action === 'start').at = 30;
       writeFileSync(path, `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`);
     }, /lifecycle|timestamp|monotonic|start|stop/iu],
+    [(report) => {
+      const perfPath = report.cases[0].evidence.perf;
+      const entries = readFileSync(perfPath, 'utf8').trim().split('\n').map(JSON.parse);
+      entries.find((entry) => entry.type === 'frame').pid = 999_999;
+      writeFileSync(perfPath, `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`);
+      const statePath = report.cases[0].evidence.before.state;
+      const state = JSON.parse(readFileSync(statePath, 'utf8'));
+      state.frame.pid = 999_999;
+      writeFileSync(statePath, JSON.stringify(state));
+    }, /pid|lifecycle|process/iu],
   ];
   for (const [mutate, pattern] of mutations) {
     const root = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-signal-evidence-'));

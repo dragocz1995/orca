@@ -560,7 +560,7 @@ function expectedCaptureContract(scenario, captureLabel) {
   };
 }
 
-function captureEvidence(value, label, scenarioDir, scenario) {
+function captureEvidence(value, label, scenarioDir, scenario, rawFramesByIdentity) {
   assert.ok(Array.isArray(value) && value.length > 0, `${label} must contain capture evidence`);
   const expectedLabels = EXPECTED_TMUX_CAPTURE_LABELS[scenario];
   assert.ok(expectedLabels, `${label}: unknown capture scenario ${scenario}`);
@@ -581,6 +581,12 @@ function captureEvidence(value, label, scenarioDir, scenario) {
     assert.ok(state.analysis && typeof state.analysis === 'object' && !Array.isArray(state.analysis),
       `${label}[${index}].state must contain the capture-time analysis`);
     const contract = expectedCaptureContract(scenario, captureLabel);
+    const identity = frameIdentity(state.frame);
+    const rawFrame = identity ? rawFramesByIdentity.get(identity) : null;
+    assert.ok(rawFrame,
+      `${label}[${index}]: capture frame ${identity ?? 'missing'} is absent from raw perf evidence`);
+    assert.deepEqual(state.frame, rawFrame,
+      `${label}[${index}]: capture frame payload differs from its raw perf frame`);
     const analysis = analyzeActiveCapture({
       label: captureLabel,
       plain: readFileSync(plainPath, 'utf8'),
@@ -588,7 +594,7 @@ function captureEvidence(value, label, scenarioDir, scenario) {
       columns: state.columns,
       rows: state.rows,
       cursor: state.cursor,
-      frame: state.frame,
+      frame: rawFrame,
       expectCursor: contract.expectCursor,
       forbiddenMarkers: contract.forbiddenMarkers,
       allowScrollbarOcclusion: contract.allowScrollbarOcclusion,
@@ -599,8 +605,21 @@ function captureEvidence(value, label, scenarioDir, scenario) {
   return value.length;
 }
 
+function rawFrameMap(frames, label) {
+  const result = new Map();
+  for (const [index, frame] of frames.entries()) {
+    const identity = frameIdentity(frame);
+    assert.ok(identity, `${label}[${index}] is missing a frame identity`);
+    assert.ok(!result.has(identity), `${label} contains duplicate frame identity ${identity}`);
+    result.set(identity, frame);
+  }
+  return result;
+}
+
 function lifecycleEvidence(entries, label, expectedCycles) {
   let active = false;
+  let activePid = null;
+  let lastSequence = 0;
   let cycles = 0;
   let previousAt = -Infinity;
   for (const [index, entry] of entries.entries()) {
@@ -610,15 +629,25 @@ function lifecycleEvidence(entries, label, expectedCycles) {
     previousAt = at;
     if (entry.type === 'frame') {
       assert.ok(active, `${label}: frame ${entry.sequence ?? index} is outside an active lifecycle`);
+      const pid = nonNegativeNumber(entry.pid, `${label}[${index}].pid`, { integer: true, positive: true });
+      assert.equal(pid, activePid, `${label}: frame pid ${pid} differs from active lifecycle pid ${activePid}`);
+      const sequence = nonNegativeNumber(entry.sequence, `${label}[${index}].sequence`, { integer: true, positive: true });
+      assert.ok(sequence > lastSequence, `${label}: frame sequence must increase within one lifecycle`);
+      lastSequence = sequence;
       continue;
     }
     if (entry.action === 'start') {
       assert.equal(active, false, `${label}: lifecycle start cannot precede the prior stop`);
+      activePid = nonNegativeNumber(entry.pid, `${label}[${index}].pid`, { integer: true, positive: true });
       active = true;
+      lastSequence = 0;
       cycles++;
     } else if (entry.action === 'stop') {
       assert.equal(active, true, `${label}: lifecycle stop must follow a start`);
+      const pid = nonNegativeNumber(entry.pid, `${label}[${index}].pid`, { integer: true, positive: true });
+      assert.equal(pid, activePid, `${label}: lifecycle stop pid ${pid} differs from active pid ${activePid}`);
       active = false;
+      activePid = null;
     }
   }
   assert.equal(active, false, `${label}: final lifecycle did not stop`);
@@ -678,7 +707,7 @@ function normalScenarioEvidence(report, label, scenarioDir) {
   assert.doesNotMatch(shell, /MaxListenersExceededWarning|\bat\s+\S+\s+\([^)]*\.js:\d+/u,
     `${label}: restored shell contains a warning or stack trace`);
   terminalProtocolEvidence(writesPath, label);
-  return performance;
+  return { performance, rawFramesByIdentity: rawFrameMap(frames, `${label}.evidence.perf.frames`) };
 }
 
 function signalEvidence(signalCase, label, signalsDir) {
@@ -691,7 +720,6 @@ function signalEvidence(signalCase, label, signalsDir) {
     && caseRelative !== '..' && !isAbsolute(caseRelative), `${label} evidence directory must stay inside signals`);
   const evidence = signalCase.evidence;
   assert.ok(evidence && typeof evidence === 'object' && !Array.isArray(evidence), `${label}.evidence must be an object`);
-  const captures = captureEvidence([evidence.before], `${label}.evidence.before`, caseDir, 'signals');
   const shellPath = evidenceFile(evidence.restoredShell, `${label}.evidence.restoredShell`, caseDir);
   const ttyPath = evidenceFile(evidence.ttyState, `${label}.evidence.ttyState`, caseDir);
   const writesPath = evidenceFile(evidence.terminalWrites, `${label}.evidence.terminalWrites`, caseDir);
@@ -713,6 +741,10 @@ function signalEvidence(signalCase, label, signalsDir) {
   lifecycleEvidence(perfEntries, `${label}.evidence.perf`, 1);
   const frames = perfEntries.filter((entry) => entry.type === 'frame');
   const performance = analyzeFrameDiagnostics(frames);
+  const captures = captureEvidence(
+    [evidence.before], `${label}.evidence.before`, caseDir, 'signals',
+    rawFrameMap(frames, `${label}.evidence.perf.frames`),
+  );
   const reported = performanceSummary(signalCase.performance, `${label}.performance`);
   assert.deepEqual(reported.ordinaryMs, performance.ordinaryMs, `${label}: reported ordinary timing differs from raw perf`);
   assert.deepEqual(reported.forcedMs, performance.forcedMs, `${label}: reported forced timing differs from raw perf`);
@@ -730,7 +762,10 @@ export function aggregateTmuxReports(root, {
   maxEvidenceAgeMs = 60 * 60_000,
   clockSkewMs = 60_000,
 } = {}) {
-  const absolute = resolve(root);
+  const requestedRoot = resolve(root);
+  const absolute = realpathSync(requestedRoot);
+  assert.equal(absolute, requestedRoot,
+    `tmux evidence root and every parent component must be canonical (symlink found): ${requestedRoot}`);
   const command = (file, args) => execFileSync(file, args, { cwd: repo, encoding: 'utf8' }).trim();
   const requiredCommit = nonEmptyString(expectedCommit ?? command('git', ['rev-parse', 'HEAD']), 'expected commit');
   const requiredDistHash = nonEmptyString(expectedDistHash ?? distContentHash(join(repo, 'dist')), 'expected dist hash');
@@ -798,8 +833,12 @@ export function aggregateTmuxReports(root, {
         performance.push(raw.performance);
       }
     } else {
-      captures += captureEvidence(entry.value.captures, `${entry.path}.captures`, dirname(entry.path), entry.scenario);
-      performance.push(normalScenarioEvidence(entry.value, entry.path, dirname(entry.path)));
+      const raw = normalScenarioEvidence(entry.value, entry.path, dirname(entry.path));
+      captures += captureEvidence(
+        entry.value.captures, `${entry.path}.captures`, dirname(entry.path), entry.scenario,
+        raw.rawFramesByIdentity,
+      );
+      performance.push(raw.performance);
     }
   }
   const identityKeys = [...new Set(stableIdentities.map((identity) => JSON.stringify(identity)))];
