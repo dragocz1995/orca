@@ -30,12 +30,12 @@ For contributors and advanced users:
 
 | Document | Description |
 |----------|-------------|
-| [API Reference](API.md) | Full REST API documentation |
-| [Development](DEVELOPMENT.md) | Setup, scripts, conventions, CI |
-| [Deployment](DEPLOYMENT.md) | Production deploy, systemd, Docker, nginx |
+| [API Reference](API.md) | Current REST route-family reference and access model |
+| [Development](DEVELOPMENT.md) | Local setup, deterministic artifacts, source layout, and conventions |
+| [Deployment](DEPLOYMENT.md) | Production deployment reference |
 | [Guides](GUIDES.md) | Advanced patterns and internal mechanisms |
-| [Web UI](WEB.md) | Frontend architecture and component reference |
-| [Plugin Development](PLUGIN_DEV.md) | How to write brain plugins |
+| [Web UI](WEB.md) | App shell, workspace patterns, data layer, and UI conventions |
+| [Plugin Development](PLUGIN_DEV.md) | `elowen-plugin.json`, registry API, capabilities, and testing |
 | [Security](SECURITY.md) | Auth, access control, best practices |
 | [Testing](TESTING.md) | Test conventions and CI pipeline |
 

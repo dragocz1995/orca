@@ -1,376 +1,193 @@
 # API Reference
 
-The Elowen daemon exposes a REST API on port `4400`. All endpoints return JSON.
-CORS is enabled for the web frontend.
+Elowen exposes a Hono REST API from the daemon. The current implementation in
+`src/api/routes/` and its Zod schemas in `src/api/schemas/` are the executable
+contract; this page is the stable route-family reference.
 
 **Base URL:** `http://localhost:4400`
 
----
+## Authentication and access
 
-## Authentication & access control
+When a user store contains at least one user, requests require a bearer token:
 
-### Auth header
-
-Every route except `GET /health` and `POST /auth/login` requires:
-
-```
+```http
 Authorization: Bearer <token>
 ```
 
-The web UI uses the same-origin `/api` BFF proxy with an httpOnly session
-cookie — the token never reaches browser JS.
+The public probes are `GET /health`, `GET /setup`, `POST /auth/login`, and
+`GET /push/vapid-public-key`. A signed avatar URL and the single-use terminal
+WebSocket ticket have their own validation paths. During first-run setup, the
+daemon remains open until the first user is created.
 
-### Token scopes
+The browser does not expose a daemon token to JavaScript. It uses the
+same-origin `/api` proxy and an httpOnly session cookie; the CLI sends the
+bearer header directly.
 
-| Scope | Purpose |
-|-------|---------|
-| `full` | Interactive user sessions — full access |
-| `agent` | Spawned agents — restricted allow-list (close tasks, submit plans) |
-| `advisor` | Per-user assistant — mapped to `full` rights |
+Tokens have three scopes:
 
-### Multi-tenancy gates
+| Scope | Intended use |
+| --- | --- |
+| `full` | Interactive users |
+| `agent` | Spawned workers; a route and field allow-list limits this scope |
+| `advisor` | Per-user assistant sessions, with full interactive rights |
 
-With multi-user mode (user projects store):
+When project assignments are enabled, non-admin users are limited to their
+assigned projects. Per-user model and tool policy applies in addition to the
+global configuration. Route handlers make the final project-level check.
 
-1. **Global gate** — non-admin must be assigned to the home project
-2. **Per-project gate** — users only see assigned projects
-3. **Per-user exec allowlist** — restricts which executors a non-admin may use
+## Route families
 
-### Executor validation
+All request bodies are JSON unless a route documents a file upload. Validation
+errors return `{ "error": "…" }` with HTTP 400; authentication and policy
+failures use 401 and 403 respectively.
 
-Every `exec` string must be in `config.allowedExecs`. Non-admin users may
-be further restricted by their own `allowed_execs`.
+### Health, setup, configuration, and events
 
----
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Daemon health and version |
+| `GET` | `/setup` | Whether initial setup is required |
+| `GET`, `PUT` | `/config` | Read configuration; administrators update it |
+| `GET` | `/system` | Version, update posture, and diagnostics |
+| `GET` | `/system/readiness` | Administrator readiness checks |
+| `GET` | `/system/skills` | Installed workflow-skill status |
+| `POST` | `/system/skills/install` | Install or repair workflow skills |
+| `POST` | `/system/update` | Start a guarded update |
+| `POST` | `/system/restart` | Restart the selected service |
+| `GET` | `/events` | Global SSE event stream |
+| `POST` | `/mcp` | Stateless MCP request endpoint |
+| `GET` | `/push/vapid-public-key` | Public push key |
+| `POST` | `/push/subscribe`, `/push/unsubscribe` | Manage the caller's push devices |
 
-## Endpoints by group
+`GET /events` is an SSE stream. It emits state-change events such as `task`,
+`mission`, `signal`, `plan`, `review`, `decision`, and `ask`; the subscriber's
+project access filters its event set.
 
-### Health & setup
+### Authentication and users
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/health` | No | Daemon health check |
-| `GET` | `/setup` | No | Setup/install status |
-| `GET` | `/cli-status` | No | CLI tool detection status |
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/auth/login`, `/auth/logout` | Start or revoke a session |
+| `GET`, `PATCH` | `/auth/me` | Read or update the current profile |
+| `POST` | `/auth/me/password`, `/auth/me/avatar` | Change password or upload avatar |
+| `GET`, `PUT`, `DELETE` | `/auth/me/prompts/:name` | Read, save, or remove personal prompts |
+| `GET`, `PATCH` | `/auth/me/cli-settings` | CLI preferences |
+| `GET`, `PATCH` | `/auth/me/terminal-settings` | Terminal preferences |
+| `GET`, `PATCH` | `/auth/me/permissions` | Current-user permissions |
+| `GET`, `POST` | `/users` | List or create users (admin surface) |
+| `PATCH`, `DELETE` | `/users/:id` | Update or remove a user |
+| `GET` | `/users/:id/avatar`, `/users/:id/avatar/url` | Avatar content or signed URL |
+| `GET` | `/users/:id/tools`, `/users/:id/stats` | User policy and aggregate information |
+| `POST` | `/users/:id/impersonate` | Start admin impersonation |
+| `GET`, `POST` | `/users/:id/projects` | Read or add project assignments |
+| `DELETE` | `/users/:id/projects/:pid` | Remove a project assignment |
 
-```
-GET /health → 200 { "ok": true }
-GET /setup  → 200 { "freshInstall": { "noConfigPersisted": true, … } }
-```
+### Tasks, plans, usage, and asks
 
-### Auth
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET`, `POST` | `/tasks` | List or create tasks; `project_id` can narrow a list |
+| `GET` | `/tasks/ready`, `/tasks/deps` | Ready tasks and dependency edges |
+| `GET`, `PATCH`, `DELETE` | `/tasks/:id` | Read/update/delete task state |
+| `GET` | `/tasks/:id/usage`, `/tasks/:id/conversation` | Usage and embedded-brain transcript |
+| `GET` | `/tasks/:id/changed/diff`, `/tasks/:id/commits` | Settled-task changes and commits |
+| `GET` | `/tasks/:id/commit/:hash/diff` | File diff from a task commit |
+| `POST` | `/tasks/:id/approve-gate` | Approve a review gate |
+| `POST` | `/tasks/:id/ask` | Park a question for a human or overseer |
+| `GET` | `/tasks/:id/ask/:askId`, `/tasks/:id/guide`, `/tasks/:id/deps` | Ask status, worker guide, and dependencies |
+| `POST` | `/tasks/:id/ask/:askId/reply` | Answer a parked question |
+| `GET` | `/asks/pending` | Pending human questions |
+| `POST` | `/tasks/plan` | Start asynchronous mission planning |
+| `GET`, `POST` | `/plan/:jobId`, `/plan/:jobId/submit` | Read or submit a plan job |
+| `POST` | `/tasks/:epicId/phases` | Add planned phases to an epic |
+| `GET` | `/usage/by-model`, `/usage/by-day` | Aggregated task and caller chat usage |
+| `POST` | `/usage/reset` | Administrator usage reset |
+| `POST` | `/admin/cleanup` | Administrator cleanup of operational task state |
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/auth/login` | No | Login, returns bearer token |
-| `POST` | `/auth/logout` | Yes | Revoke current token |
-| `GET` | `/auth/me` | Yes | Current user profile |
-| `PATCH` | `/auth/me` | Yes | Update profile (name, email, default_exec) |
-| `POST` | `/auth/me/password` | Yes | Change password |
-| `POST` | `/auth/me/avatar` | Yes | Upload avatar image |
-| `PATCH` | `/auth/me/cli-settings` | Yes | Update brain CLI settings |
-
-```http
-POST /auth/login
-Content-Type: application/json
-{ "username": "admin", "password": "your-password" }
-→ 200 { "token": "abc123…", "user": { "id": 1, "username": "admin", … } }
-
-POST /auth/me/password
-Content-Type: application/json
-{ "currentPassword": "old", "newPassword": "new-secure-pass" }
-→ 200 { "ok": true }
-```
-
-Rate-limited: 10 attempts / 5 min / IP (prefers `x-real-ip`).
-
-### Tasks
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/tasks` | List tasks |
-| `GET` | `/tasks/:id` | Get task detail |
-| `POST` | `/tasks` | Create task |
-| `PATCH` | `/tasks/:id` | Update task (close, status, exec) |
-| `PATCH` | `/tasks/:id/approve-gate` | Approve review gate |
-| `DELETE` | `/tasks/:id` | Delete task |
-| `GET` | `/tasks/:id/changed/diff` | Get file diff for closed task |
-| `POST` | `/tasks/plan` | Autopilot plan decomposition |
-| `POST` | `/tasks/:epicId/phases` | Replan — add phases mid-mission |
-
-```http
-GET /tasks?project_id=1&status=open → 200 [ { "id": "task-abc", … } ]
-
-POST /tasks
-Content-Type: application/json
-{ "title": "Fix login bug", "labels": ["exec:sonnet"], "project_id": 1 }
-→ 201 { "id": "task-abc", "title": "Fix login bug", … }
-
-PATCH /tasks/elowen-abc123
-Content-Type: application/json
-{ "status": "closed", "outcome": "ok", "summary": "Fixed the issue" }
-→ 200 { "id": "elowen-abc123", "status": "closed", … }
-
-POST /tasks/plan
-Content-Type: application/json
-{ "goal": "Add a dark mode toggle", "project_id": 1, "engage": true }
-→ 202 { "jobId": "plan-job-xyz" }
-
-POST /tasks/elowen-epic123/phases
-Content-Type: application/json
-{ "goal": "Add tests for dark mode" }
-→ 201 { "tasks": [ … ] }
-```
+Task creation and updates use the schemas in `src/api/schemas/tasks.ts`.
+Agent-scoped tokens can only perform their restricted worker workflow, even
+inside an otherwise accessible project.
 
 ### Missions
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/missions` | List missions |
-| `GET` | `/missions/:id` | Get mission detail |
-| `PATCH` | `/missions/:id` | Update mission |
-| `PATCH` | `/missions/:id/state` | Engage / pause / resume / disengage |
-| `DELETE` | `/missions/:id` | Delete mission |
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET`, `POST` | `/missions` | List live or pending-PR missions; engage a mission |
+| `GET`, `PATCH`, `DELETE` | `/missions/:id` | Read, pause/resume, or disengage a mission |
+| `GET` | `/missions/:id/changed-files` | Aggregate phase change summary |
+| `POST` | `/missions/:id/pr`, `/missions/:id/merge-pr` | Open or merge a PR-native mission |
+| `GET`, `POST` | `/missions/:id/overseer/next`, `/missions/:id/overseer/decide` | Overseer decision protocol |
 
-```http
-PATCH /missions/m-abc123/state
-Content-Type: application/json
-{ "state": "paused" }
-→ 200 { "id": "m-abc123", "state": "paused", … }
-```
+### Sessions and terminal transport
 
-### Sessions
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET`, `POST` | `/sessions` | List or create a session |
+| `GET`, `DELETE` | `/sessions/:name` | Session state or termination |
+| `POST` | `/sessions/:name/keys`, `/sessions/:name/input`, `/sessions/:name/resize` | Send terminal input or resize |
+| `GET` | `/sessions/:name/pane`, `/sessions/:name/stream` | Snapshot or SSE terminal stream |
+| `POST` | `/sessions/:name/ws-ticket` | Mint a single-use PTY WebSocket ticket |
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/sessions` | List live sessions |
-| `GET` | `/sessions/:name/pane` | Get session terminal content |
-| `POST` | `/sessions/:name/keys` | Send keystrokes |
-| `DELETE` | `/sessions/:name` | Kill session |
-| `GET` | `/sessions/:name/stream` | SSE stream (terminal content) |
-| `POST` | `/sessions/:name/ws-ticket` | Mint WebSocket ticket for PTY |
+The ticket is consumed by `GET /ws/terminal?ticket=…`; clients should prefer
+the supported terminal components rather than treating that transport as a
+general-purpose public API.
 
+### Projects and repository files
 
-```http
-POST /sessions/elowen-Agent42/keys
-Content-Type: application/json
-{ "keys": ["C-c"] }
-→ 200 { "ok": true }
-```
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET`, `POST` | `/projects` | List or register projects |
+| `PATCH`, `DELETE` | `/projects/:id` | Edit or remove a project |
+| `GET` | `/fs/dirs` | Discover permitted directories |
+| `GET` | `/projects/:id/git`, `/projects/:id/files`, `/projects/:id/file` | Git, tree, or file content |
+| `PUT` | `/projects/:id/file` | Save a file |
+| `GET` | `/projects/:id/raw`, `/projects/:id/head` | Raw or HEAD file content |
+| `POST` | `/projects/:id/new-file`, `/projects/:id/dir`, `/projects/:id/rename`, `/projects/:id/copy` | File-system operations |
+| `DELETE` | `/projects/:id/entry` | Remove a file-system entry |
+| `GET` | `/projects/:id/diff`, `/projects/:id/changed`, `/projects/:id/changes` | Current change information |
+| `GET` | `/projects/:id/commits`, `/projects/:id/commit/:hash` | Commit history and detail |
+| `GET` | `/projects/:id/commit/:hash/diff` | Commit file diff |
 
-### Projects
+### Brain and advisor
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/projects` | List projects |
-| `POST` | `/projects` | Create project |
-| `PATCH` | `/projects/:id` | Update project |
-| `DELETE` | `/projects/:id` | Delete project |
-| `GET` | `/projects/:id/files` | List files |
-| `GET` | `/projects/:id/files/:path` | Get file content |
-| `PUT` | `/projects/:id/files/:path` | Write file |
-| `GET` | `/projects/:id/git` | Git status |
-| `GET` | `/projects/:id/changed` | Changed files |
-| `GET` | `/projects/:id/changes` | Working diff |
-| `GET` | `/projects/:id/head` | HEAD file content |
-| `GET` | `/projects/:id/commits` | Recent commits |
-| `GET` | `/projects/:id/commits/:hash` | Commit detail |
-| `GET` | `/projects/:id/commits/:hash/diff/:path` | Commit file diff |
-| `POST` | `/projects/:id/files` | Create file/directory |
-| `PATCH` | `/projects/:id/files` | Rename/copy file |
-| `DELETE` | `/projects/:id/files/:path` | Delete file |
-| `GET` | `/projects/:id/branches` | List branches |
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/advisor/status` | Current user's advisor state |
+| `POST` | `/advisor/start`, `/advisor/stop` | Start or stop the advisor |
+| `GET` | `/brain/status`, `/brain/rate-limits`, `/brain/models`, `/brain/commands` | Chat capability and catalog metadata |
+| `POST` | `/brain/start`, `/brain/send`, `/brain/abort`, `/brain/session/stop` | Start, send to, abort, or stop chat work |
+| `PATCH`, `DELETE` | `/brain/sessions/:id` | Update or remove a conversation |
+| `GET` | `/brain/sessions/:id/export` | Export a conversation |
+| `GET` | `/brain/sessions`, `/brain/managed-sessions`, `/brain/messages`, `/brain/search` | Conversation listings, messages, and search |
+| `DELETE` | `/brain/managed-sessions`, `/brain/managed-sessions/:id` | Remove managed conversations |
+| `POST` | `/brain/model`, `/brain/think`, `/brain/fast`, `/brain/yolo`, `/brain/compact` | Change current-turn controls |
+| `POST` | `/brain/command`, `/brain/answer`, `/brain/goal`, `/brain/goal/action`, `/brain/subgoal`, `/brain/subagent/send` | Commands, answers, goals, and subagents |
+| `GET`, `DELETE` | `/brain/queue`, `/brain/queue/:id` | Pending message queue |
+| `GET`, `POST`, `DELETE` | `/brain/processes`, `/brain/processes/:id/output`, `/brain/processes/:id` | Background process inspection and termination |
+| `GET`, `POST` | `/brain/lsp`, `/brain/lsp/install`, `/brain/lsp/uninstall` | Language-server controls |
+| `POST` | `/brain/providers/probe`, `/brain/test` | Provider discovery and test call |
+| `GET` | `/brain/images/:file`, `/brain/stream` | Stored image and SSE chat stream |
 
-### Config
+### Plugins, memory, personality, and integrations
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/config` | Get runtime config (API keys omitted) |
-| `PUT` | `/config` | Update runtime config |
+| Family | Route prefix | Purpose |
+| --- | --- | --- |
+| Plugins | `/plugins` | Discovery, install/update, configuration, runtime contributions, plugin data, logs, hooks, cron, skills, Discord, WhatsApp, and MCP server controls |
+| Memory | `/memory` | Entries, categories, events, merge/trash/purge, retrieval, categorization, and embedding configuration/test |
+| Personality | `/personality/profiles` | CRUD and activation of personality profiles |
+| Activity | `/activity`, `/notes` | Event history and project/mission notes |
+| Integrations | `/integrations/cli-status`, `/integrations/github-status` | Local integration readiness |
+| OAuth models | `/brain/oauth` | Status, catalog, interactive flow, and disconnect for supported providers |
 
-```http
-PUT /config
-Content-Type: application/json
-{ "allowedExecs": ["sonnet", "opencode:deepseek-v4-flash"], … }
-→ 200 { "allowedExecs": ["sonnet", …], … }
-```
-
-### Brain
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/brain/stream` | SSE chat stream |
-| `GET` | `/brain/messages` | Past messages for session |
-| `GET` | `/brain/sessions` | List brain sessions |
-| `POST` | `/brain/sessions` | Create new session |
-| `DELETE` | `/brain/sessions/:id` | Delete session |
-| `GET` | `/brain/search` | Fulltext search conversations |
-| `GET` | `/brain/models` | Aggregated model catalog |
-| `POST` | `/brain/providers/probe` | Probe provider endpoint for models |
-| `GET` | `/brain/oauth/status` | OAuth connection status |
-| `GET` | `/brain/oauth/:type/catalog` | OAuth provider model catalog |
-| `POST` | `/brain/oauth/:type/start` | Start OAuth connect flow |
-| `GET` | `/brain/oauth/flow/:id` | Poll OAuth flow status |
-| `POST` | `/brain/oauth/flow/:id/input` | Submit OAuth code |
-| `DELETE` | `/brain/oauth/:type` | Disconnect OAuth account |
-
-### Advisor (assistant)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/advisor/start` | Start assistant |
-| `POST` | `/advisor/stop` | Stop assistant |
-| `GET` | `/advisor/status` | Get assistant status |
-
-### Plugins
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/plugins` | List all plugins |
-| `PATCH` | `/plugins/:name/toggle` | Enable/disable plugin |
-| `GET` | `/plugins/:name/config` | Get plugin config |
-| `PUT` | `/plugins/:name/config` | Update plugin config |
-| `GET` | `/plugins/:name/logs` | Get plugin logs |
-| `GET` | `/plugins/:name/data/:path` | Get plugin data file |
-| `PUT` | `/plugins/:name/data/:path` | Write plugin data file |
-| `GET` | `/plugins/runtime` | Runtime contributions report |
-| `GET` | `/plugins/marketplace` | Plugin marketplace catalog |
-| `GET` | `/plugins/marketplace/:name` | Marketplace plugin detail |
-
-### Memory
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/memory` | List memories |
-| `POST` | `/memory` | Store memory |
-| `DELETE` | `/memory/:id` | Delete memory |
-| `GET` | `/memory/search` | Search memories |
-| `POST` | `/memory/reindex` | Reindex all memories |
-| `GET` | `/memory/categories` | List categories |
-| `POST` | `/memory/categories` | Create category |
-| `PATCH` | `/memory/categories/:id` | Update category |
-| `DELETE` | `/memory/categories/:id` | Delete category |
-| `POST` | `/memory/:id/classify` | Reclassify memory |
-| `GET` | `/memory/stats` | Memory statistics |
-| `POST` | `/memory/test-embed` | Test embedding connection |
-
-### Personality
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/personality/profiles` | List personalities |
-| `POST` | `/personality/profiles` | Create personality |
-| `PATCH` | `/personality/profiles/:id` | Update personality |
-| `DELETE` | `/personality/profiles/:id` | Delete personality |
-| `POST` | `/personality/profiles/:id/activate` | Activate personality |
-
-### Users
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/users` | List users |
-| `POST` | `/users` | Create user |
-| `PATCH` | `/users/:id` | Update user |
-| `DELETE` | `/users/:id` | Delete user |
-| `GET` | `/users/:id/projects` | Get user project assignments |
-| `POST` | `/users/:id/projects` | Assign project to user |
-| `DELETE` | `/users/:id/projects/:projectId` | Remove project assignment |
-| `GET` | `/users/:id/avatar/url` | Get avatar URL |
-
-### Activity & events
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/events` | List events (activity timeline) |
-| `GET` | `/activity` | Alias for events with optional type filter |
-
-### Notes
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/notes` | List notes (by scope + target) |
-| `POST` | `/notes` | Create note |
-
-### System
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/system` | Version info, update status |
-| `POST` | `/system/restart` | Restart daemon or web service |
-| `POST` | `/system/update` | Trigger update check |
-
-### Push notifications
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/push/vapid-public-key` | Get VAPID public key (no auth) |
-| `POST` | `/push/subscribe` | Subscribe to push |
-| `POST` | `/push/unsubscribe` | Unsubscribe from push |
-
-### MCP
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/mcp` | MCP tool execution |
-
-### Usage
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/usage/by-model` | Usage aggregated by model |
-| `POST` | `/usage/reset` | Reset usage data (admin) |
-
-### Integrations
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/integrations/cli-status` | Detect installed CLIs |
-| `GET` | `/integrations/github-status` | GitHub CLI auth status |
-
----
-
-## SSE events
-
-Connect to `GET /events` for real-time updates:
-
-```
-GET /events
-Authorization: Bearer <token>
-
-event: task
-data: {"type":"task","target":"elowen-abc123","detail":"closed"}
-
-event: mission
-data: {"type":"mission","target":"m-abc123","detail":"engaged"}
-
-event: signal
-data: {"type":"signal","target":"elowen-Agent42","detail":"needs_input"}
-
-event: plan
-data: {"type":"plan","target":"plan-job-xyz","detail":"done"}
-
-event: review
-data: {"type":"review","target":"elowen-abc123","detail":"approved"}
-
-event: decision
-data: {"type":"decision","taskId":"elowen-abc123","kind":"prompt","outcome":"approved","rationale":"Safe operation","confidence":0.92}
-```
-
-Two SSE connections are used by the web UI:
-
-1. **Event bus** (`/events`) — global state changes
-2. **Pane stream** (`/sessions/:name/stream`) — per-session terminal content
-
----
+For exact method/path pairs in these broader families, see the matching route
+modules: `plugins.ts`, `memory.ts`, `personality.ts`, `activity.ts`, and
+`integrations.ts` in `src/api/routes/`.
 
 ## Error responses
 
-```json
-{ "error": "unauthorized" }           // 401
-{ "error": "forbidden" }              // 403
-{ "error": "exec not allowed" }       // 400
-{ "error": "checkout busy" }          // 409
-{ "error": "autopilot_key_missing" }  // 400
-```
-
-All errors return a JSON body with an `error` string field.
+All handled failures return a JSON body with an `error` string. Typical status
+codes are 400 (invalid input), 401 (missing or invalid token), 403 (policy or
+project access), 404 (unknown resource), 409 (conflicting runtime state), and
+422 (an external workflow could not complete). Clients should branch on the
+HTTP status and treat the error text as human-readable diagnostics, not a
+stable enum.

@@ -1,94 +1,80 @@
 # Testing
 
-## Daemon tests
+Elowen has separate daemon and web test suites. Run them from their own
+dependency roots so Vitest resolves the intended configuration and test setup.
 
-Located in `tests/`, mirroring `src/` structure. Uses **Vitest**.
+## Daemon
 
-```bash
-npm test              # single run
-npm run test:watch    # watch mode
-```
-
-### Test count
-
-~1690 test cases across the daemon test suite.
-
-### Conventions
-
-- Tests mirror `src/` path structure
-- Fake implementations in test files (not shared)
-- Deterministic time via `FakeClock`
-- No real tmux or network calls
-- No real filesystem IO (mocked)
-
-### Test structure
-
-```
-tests/
-├── api/              API route tests
-├── cli/              CLI command tests
-├── daemon/           Bootstrap tests
-├── deriver/          Deriver tests
-├── inference/        Inference relay tests
-├── overseer/         Mission engine, planner, scheduler tests
-├── spawn/            Agent launcher tests
-├── store/            SQLite store tests
-├── tmux/             Tmux driver tests
-├── shared/           Utility tests
-└── mcp/              MCP server tests
-```
-
-## Web tests
-
-Located in `web/tests/`. Uses **Vitest** + **React Testing Library** + **MSW**
-for API mocking.
+Daemon tests live in `tests/` and cover API routes, CLI behavior, daemon
+wiring, brain/inference flows, missions, stores, plugins, terminal transport,
+and tmux abstractions.
 
 ```bash
-cd web
-npm test              # single run
+npm test
+npm run test:watch
 ```
 
-### Test count
+Use focused Vitest paths while iterating, then run the relevant full suite
+before handoff. `npm run test:cli-tmux` additionally builds the project and
+checks the built CLI/tmux path; it needs tmux available on the machine.
 
-~560 test cases across the web test suite.
+Tests should exercise behavior through real interfaces with controlled fakes:
 
-### Conventions
+- use fake clocks for time-sensitive behavior;
+- use fake tmux, inference, and transport dependencies instead of live remote
+  systems;
+- create isolated temporary data for store/integration cases rather than
+  relying on a developer's runtime state;
+- add regression coverage at the route, service, or CLI boundary where the bug
+  occurred.
 
-- Component tests render with RTL
-- API calls mocked via MSW
-- User interactions via `@testing-library/user-event`
-- No real browser or network
+## Web
 
-## Adding tests
+Web tests live in `web/tests/` and use Vitest, React Testing Library,
+`@testing-library/user-event`, and MSW.
 
-1. Create test file at `tests/<path>/<name>.test.ts` (mirroring `src/`)
-2. Import the module under test
-3. Use fake implementations for dependencies
-4. Test behavior, not implementation
-5. Run `npm test` to verify
-
-### Example
-
-```typescript
-import { describe, it, expect } from 'vitest';
-import { FakeInference } from '../../src/inference/client.js';
-
-describe('RelayClient', () => {
-  it('returns a response', async () => {
-    const client = new FakeInference();
-    const result = await client.decide('test prompt');
-    expect(result.text).toBeDefined();
-  });
-});
+```bash
+npm --prefix web test
+npm --prefix web run test:watch
 ```
 
-## CI pipeline
+The app uses React Query, so test loading, error, optimistic-update, and
+invalidation behavior rather than just static rendering. Mock daemon calls with
+the shared MSW setup; do not make real daemon or browser-network calls from
+unit tests.
 
-GitHub Actions runs on every push and PR to `main`:
+For UI changes, cover the interaction that matters: keyboard navigation and
+focus for overlays, selection/search for shared pickers, auto-save state for
+settings, and Czech/English text where applicable.
 
-| Job | Commands |
-|-----|----------|
-| **Daemon** | `npm ci` → `npm run build` → `npm test` |
-| **Web** | `npm ci` → `npm run build` → `npm test` |
+## Static and production checks
 
-Both jobs run in parallel on `ubuntu-latest` with Node 22.
+Run the smallest relevant set while developing, then use the full checks for a
+cross-cutting change:
+
+```bash
+npm run lint
+npm run typecheck
+npm run deadcode
+npm run depcruise
+npm run build
+npm run build:web
+```
+
+`npm run check` combines the four static checks. `npm run build` also verifies
+the daemon's deterministic `dist/` artifact; `npm run build:web` verifies the
+standalone `web-dist/` package artifact.
+
+## CI
+
+The GitHub Actions workflow for `main` runs three independent jobs:
+
+| Job | Verification |
+| --- | --- |
+| Lint | ESLint, Knip, and dependency-cruiser with both dependency trees installed |
+| Daemon | Build, daemon Vitest suite, and built CLI/tmux check |
+| Web | Next.js production build and the web Vitest suite |
+
+CI uses Node 22. A local change that touches both daemon and web code should
+normally run `npm run check`, `npm test`, `npm run build`, `npm --prefix web
+test`, and `npm run build:web` before review.

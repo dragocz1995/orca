@@ -1,259 +1,138 @@
 # Web UI
 
-Next.js 16 (App Router) frontend at `web/`. React 19, Tailwind CSS 4,
-TanStack React Query, Xterm.js, Monaco editor.
+The web application is a Next.js 16 App Router app in `web/`, built with React
+19, Tailwind CSS 4, TanStack React Query, Motion, Xterm.js, Monaco, and an
+optional React Three Fiber mascot scene.
+
+## Application structure
+
+`web/app/` owns Next route shells, the same-origin API proxy, and global CSS.
+`web/modules/` owns feature views; `web/components/` owns the app shell and
+shared controls; `web/lib/` owns the API client, query/mutation hooks, i18n,
+and UI state.
+
+Most page routes are client components with `dynamic = 'force-dynamic'` and
+render their feature inside `ModuleShell`. The global `Shell` provides auth,
+React Query, localization, effects preferences, navigation, route transitions,
+toast feedback, command palette, and the optional advisor dock. `/terminal/*`
+is intentionally chromeless while retaining the providers and auth gate.
 
 ## Routes
 
-Every page is a thin shell in `app/<route>/page.tsx` rendering a `*View` from
-`modules/` inside a `ModuleShell`. All pages are `'use client'` with
-`dynamic = 'force-dynamic'`.
-
-| Route | Module | View | Nav group |
-|-------|--------|------|-----------|
-| `/dash` | `dashboard/` | `DashboardView` | Operate |
-| `/stats` | `stats/` | `StatsView` | Operate |
-| `/tasks` | `tasks/` | `TasksView` | Operate |
-| `/kanban` | `kanban/` | `KanbanBoard` + `CalendarView` | Operate |
-| `/sessions` | `sessions/` | `SessionsView` | Operate |
-| `/timeline` | `timeline/` | `TimelineView` | Operate |
-| `/memory` | `memory/` | `MemoryView` | Operate |
-| `/escalations` | `escalations/` | `EscalationsView` | Operate |
-| `/projects` | `projects/` | `ProjectsView` | Operate |
-| `/editor` | `editor/` | `ProjectEditor` | Config |
-| `/terminal/[name]` | — | chromeless pop-out terminal | — |
-| `/settings` | — | inline in `app/settings/page.tsx` | Config |
-| `/users` | `users/` | `UsersView` | Config |
-| `/account` | `account/` | `AccountView` | — |
-| `/onboarding` | — | first-run wizard | — |
-
-Module metadata (id, route, icon, group) in each `modules/<name>/meta.ts`,
-registered in `modules/registry.ts`.
-
-Each view mounts a `ModuleHeader`, which publishes its title (+ optional count
-and icon) into the always-visible top strip and sets `document.title` to
-`Elowen — <Page>`, so per-page titles follow the route from one place. Its
-actions/filters row renders below the bar on a single line that scrolls
-horizontally on overflow rather than wrapping.
-
-## Auth
-
-- **LoginGate** — wraps the entire app, probes `/api/auth/me` on mount
-- **Token** — httpOnly session cookie, never in JS or `localStorage`. The
-  browser talks to the same-origin `/api` BFF proxy with
-  `credentials: 'same-origin'`. No `NEXT_PUBLIC_ELOWEN_URL`.
-- **Logout** — expires the cookie server-side, fires `elowen:auth-cleared` event
-- **EventBridge** — only mounted after auth
-
-### Role-based access
-
-- **Admin** — sees and manages everything
-- **Non-admin** — only assigned projects via `user_projects`
-- **Assignment management** — admin-only, in Users page
-- **Model allow-list** — admin restricts which models a non-admin may run
-
-## Key pages
-
-### Dashboard `/dash`
-
-`DashboardView` — bento-style home with: metric cards, live agent lanes,
-quick actions, recent tasks, active missions, autopilot spotlight, outcomes.
-
-Data refreshes via 5s polling + SSE events.
-
-### Tasks `/tasks`
-
-Day-grouped list, paginated (12/page). Task cards with model icon, status,
-quick run controls, right-click context menu. Epic rows with progress ribbon,
-lifecycle pills, rolled-up cost.
-
-**Modals:** TaskModal (create/edit), PlanModal (autopilot), AddPhaseModal.
-Supports deep-links (`?new=1`, `?select=<id>`).
-
-**MissionFlow** — redesigned mission detail with hero header, metric pills,
-phase log with state glyphs, result summary.
-
-### Kanban `/kanban`
-
-Board (5 columns, drag-and-drop) + Calendar (day/week/month). Epic cards
-with progress ribbon. Drag tasks to reschedule.
-
-### Sessions `/sessions`
-
-Live cards with status dot, ANSI-parsed tail, Allow/Reject buttons.
-Density toggle, terminal modal.
-
-### Timeline `/timeline`
-
-Axis (dot plot), Swimlanes (per-target), Feed (collapsible). Events within
-5 minutes collapse into `×N` groups. **ChangesOverTime** — commit stream,
-most active files, sparklines, clickable patches. Date range filter, project
-pills.
-
-### Memory `/memory`
-
-`MemoryView` — three tabs: List (search, category filter, create, merge, trash
-with restore/purge), Brain (map view), Retrieval (debug panel).
-
-### Escalations `/escalations`
-
-Inbox for overseer rejections awaiting human resolution. Self-clearing.
-
-### Projects `/projects`
-
-Cards with git status. Monaco editor: file tree, multi-file tabs, edit/diff
-modes, patch view, image/markdown preview.
-
-### Settings `/settings`
-
-Admin-only. Sections: Models, Autopilot, Brain, GitHub, Providers, Plugins
-(with per-plugin editors), Defaults, System, Data.
-
-### Users `/users`
-
-Admin-only user management with project assignment and model allow-list.
-
-### Account `/account`
-
-Tabs: Profile, Security, Notifications, CLI, Prompts. Per-user settings for
-brain model, reasoning effort, communication style, auto-compact.
-
-### Onboarding `/onboarding`
-
-First-run wizard: system deps, providers, autopilot, users.
-
-## Data layer
-
-### elowenClient (`lib/elowenClient.ts`)
-
-Thin fetch wrapper. Sets `BASE = '/api'`, `credentials: 'same-origin'`.
-On 401, clears token and throws `ElowenApiError`.
-
-### Queries (`lib/queries.ts`)
-
-All data via TanStack React Query hooks. Key patterns:
-
-| Hook | Key | Polling |
-|------|-----|---------|
-| `useTasks` | `['tasks']` | 5 s |
-| `useSessions` | `['sessions']` | 5 s |
-| `useMissions` | `['missions']` | — |
-| `useConfig` | `['config']` | — |
-| `useMe` | `['me']` | 5 min stale |
-| `useSystem` | `['system']` | 60 s |
-| `useAdvisorStatus` | `['advisor-status']` | 5 s |
-| `usePlanJob` | `['plan-job', id]` | 1 s while planning |
-| `useModelUsage` | `['usage-by-model']` | 30 s |
-
-### Mutations (`lib/mutations.ts`)
-
-Auto-invalidate related caches on success. Mutations for: tasks, missions,
-sessions, projects, config, users, plugins, brain, memory, advisor, system.
-
-### Real-time updates
-
-Two SSE connections:
-
-1. **Event bus** (`/events`) — global state changes via `useElowenEvents`
-2. **Pane stream** (`/sessions/:name/stream`) — per-session terminal content
-
-Events: `task`, `mission`, `signal`, `plan`, `review`.
-
-## Assistant dock (`modules/advisor/`)
-
-A resizable side panel (left or right) with two modes:
-
-- **Chat** — `BrainChat`, talking to the brain over SSE (`GET /brain/stream`).
-  Conversation picker, fulltext search, statusline. Grouped tool-call pills fold
-  consecutive same-tool runs into one `name detail ×N`, a labelled divider marks
-  context compaction, and messages sent mid-turn park as removable queue chips
-  above the composer.
-- **Terminal** — each pane is a tmux-spawned assistant or a live session view.
-
-Dock state persisted in `localStorage`. Floating `AdvisorLauncher` when closed.
-
-## Terminal (`components/terminal/`)
-
-| Component | Purpose |
-|-----------|---------|
-| `StreamTerminal` | Real-PTY via WebSocket + `tmux attach` + `node-pty` |
-| `Terminal` | Xterm.js with SSE snapshot stream fallback |
-| `LiveTail` | Inline live tail for dashboard lanes |
-
-**PTY streaming:** Single-use ticket via `POST /sessions/:name/ws-ticket`,
-then `wss://<host>/ws/terminal?ticket=…` straight to the daemon. Falls back
-to snapshot terminal when `node-pty` is absent.
-
-## Design system
-
-Tailwind CSS 4 with CSS-first config in `globals.css`. OLED-friendly dark
-theme, flat (no gradients). UI scaled ~25% via `html { font-size: 125% }`.
-
-### Colors
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| `bg` | `#000000` | True black for OLED |
-| `surface` | `#0a0a0a` | Card/surface background |
-| `elevated` | `#141414` | Elevated surfaces |
-| `accent` | `#ff5236` | Elowen-red brand accent |
-| `danger` | `oklch(0.55 0.20 25)` | Destructive red |
-| `success` | `#22c55e` | Success |
-| `warning` | `#f59e0b` | Warning |
-
-`accent` is the single brand hue across the whole UI — buttons, toggles, tabs,
-selected states, focus rings, the nav active line and links all read it. It sits
-at a mid lightness that stays legible on both black and white, so light theme
-overrides only the surface/text/border tokens and leaves the accent untouched.
-
-### Typography
-
-| Token | Size | Usage |
-|-------|------|-------|
-| `display` | `2rem` | Page titles |
-| `h1` | `1.5rem` | Section headers |
-| `h2` | `1.125rem` | Subsection headers |
-| `body` | `0.875rem` | Body text |
-| `caption` | `0.6875rem` | Labels, timestamps |
-
-### Responsive design
-
-| Breakpoint | Width | Behavior |
-|------------|-------|----------|
-| Mobile | `< 768px` | Single column, collapsible sidebar, touch-optimized |
-| Tablet | `768–1023px` | Sidebar auto-collapsed, 2-column grids |
-| Desktop | `≥ 1024px` | Full sidebar, multi-column grids |
-
-Container queries for content-aware layouts.
-
-### Light/dark theme
-
-Full light and dark mode support via `ThemeProvider`. OLED-optimized dark
-theme as default. Toggle in sidebar footer.
-
-### i18n
-
-Full Czech and English via `lib/i18n/`. Language toggle in sidebar footer.
-Every user-facing string in both CS and EN dictionaries.
-
-## PWA
-
-Elowen is installable as a PWA with offline-capable push notifications:
-
-- Service worker (`public/sw.js`) with VAPID push handler
-- Inline action buttons (Allow, Reject, Approve, Rerun)
-- Notification clicks mapped to API calls
-- Manifest with `display: standalone`
-
-## UI primitives (`components/ui/`)
-
-Key components: Button, IconButton, Input, Toggle, Segmented, ExecutorPicker,
-Modal, ConfirmDialog, Toast, Badge, ModuleHeader, Field, SettingCard, HelpTip,
-ActionMenu, ContextMenu, Avatar, Checkbox, states (Loading/Error/Empty),
-ModelIcon, ProjectPill, AgentStatusDot, CapacityMeter, ProgressRibbon,
-OutcomeBadge, UsageBadge.
-
-### Tone system
-
-All colored components use `Tone`: `'default' | 'accent' | 'muted' | 'danger'
-| 'success' | 'warning'`.
+| Route | Primary view | Notes |
+| --- | --- | --- |
+| `/dash` | `DashboardView` | Dashboard retains its dedicated overview composition |
+| `/stats` | `StatsView` | Usage, activity, and operational statistics |
+| `/tasks` | `TasksView` | Mission/task workspace, filters, and detail drawer |
+| `/kanban` | Kanban + calendar | Board/calendar switch in one route |
+| `/sessions` | `SessionsView` | Live agents and terminal access |
+| `/timeline` | `TimelineView` | Activity and commit context |
+| `/memory` | `MemoryView` | Memory list, retrieval, and graph-oriented views |
+| `/escalations` | `EscalationsView` | Pending reviews and parked questions |
+| `/projects` | `ProjectsView` | Projects, repository context, and detail drawer |
+| `/editor` | `EditorView` | Dedicated editor workspace |
+| `/terminal/[name]` | terminal pop-out | Chromeless terminal route |
+| `/settings` | settings control surface | Administrator-only configuration sections |
+| `/users` | `UsersView` | Administrator user and access management |
+| `/account` | `AccountView` | Per-user profile and preferences |
+| `/onboarding` | first-run wizard | Setup and readiness flow |
+
+Feature metadata lives in `web/modules/<feature>/meta.ts` and is registered in
+`web/modules/registry.ts`. `ModuleHeader` publishes a route's title/count to
+the shell state and browser title; it does not impose an additional fixed page
+header.
+
+## Shared layout patterns
+
+The product uses a small number of shared patterns rather than page-specific
+card stacks:
+
+- `SpatialWorkspaceLayout` combines the section hero, mascot/metrics, optional
+  section rail, responsive content, and a contextual detail drawer. Tasks,
+  projects, timeline, memory, users, Kanban, and escalations use it where a
+  data workspace benefits from the pattern.
+- Settings and Account use their dedicated spatial control decks. Their section
+  content is wide and scrollable; it is not rendered inside the orbit itself.
+- `ControlSurfaceDocument`, `ControlSurfaceToolbar`, and
+  `ControlSurfaceRegister` provide the common document/toolbar/register rhythm
+  for dense editable content.
+- `WorkspaceDetailRail` is portaled to the document body and becomes a focus-
+  managed drawer. It preserves context on desktop and mobile instead of
+  navigating away from the source list.
+- Dashboard, Editor, and Terminal keep their specialist compositions instead
+  of being forced into the workspace pattern.
+
+The shared `overlayStack` handles modal/drawer layering, body scroll lock,
+focus restoration, Escape behavior, and keyboard focus trapping. Menus share
+the same keyboard semantics through `MenuSurface`; new overlay code should
+reuse these primitives.
+
+## Data and real-time behavior
+
+`web/lib/elowenClient.ts` is the single browser client. It calls `/api`, uses
+`credentials: 'same-origin'`, and turns a daemon 401 into an auth-clear event.
+The catch-all `app/api/[...path]/route.ts` BFF reads the httpOnly session cookie
+and injects the daemon bearer server-side. Never add a browser-visible daemon
+token or a `NEXT_PUBLIC_*` secret.
+
+React Query hooks in `web/lib/queries.ts` own server reads and cache keys;
+`web/lib/mutations.ts` owns writes, narrow invalidation, and safe optimistic
+rollbacks. Prefer SSE invalidation to unnecessary polling. The global event
+stream keeps task, mission, session, signal, review, decision, and related
+views current; individual terminal panes also use their own stream.
+
+## Auth and authorization
+
+`LoginGate` probes `/api/auth/me` before rendering the authenticated app.
+Administrators can access configuration and user management; non-admin users
+only see data for their assigned projects and their permitted models/tools.
+Components should render the server's actual authorization result, not attempt
+to duplicate permission decisions in the browser.
+
+## UI conventions
+
+- The UI is OLED dark by design. Tokens and shared styles are imported from
+  `app/globals.css` via `app/styles/`; do not create feature-local color systems.
+- Use semantic tokens, compact hairline separation, and the red-orange accent
+  for active/primary states. Green indicates success; warning colors retain
+  their operational meaning.
+- Keep normal settings on auto-save with visible saving/saved/error feedback.
+  Explicit confirmation remains for destructive, OAuth, permission, and other
+  risky operations.
+- Reuse `HelpTip`, `ManageSelectionModal`, `SelectionSummary`, the shared model
+  picker, form fields, states, and menu/overlay primitives. Do not replace them
+  with pill-only selectors or bespoke modal stacks.
+- Use CSS Grid/Flexbox, CSS variables, and container queries. The shell adapts
+  its navigation using measured available width; content should adapt to its
+  own container rather than a global viewport guess.
+- Respect keyboard operation, visible focus, reduced motion, and the effects
+  preference. Motion should use transform/opacity and never capture pointer
+  input from content.
+
+## Mascot and effects
+
+`SpatialMascot` is lazy-rendered and has a static fallback. It belongs in the
+spatial decks, workspace heroes, meaningful empty states, and long-operation
+status—not as decoration on every surface. The Three scene caps pixel density,
+pauses offscreen/when hidden, ignores pointer events, and honors reduced-motion
+preferences. Keep new visual effects within the existing motion/token system.
+
+## Terminals and editor
+
+`StreamTerminal` uses a ticketed real-PTY WebSocket when available; `Terminal`
+uses the SSE snapshot fallback. Preserve both paths when changing terminal
+features. Monaco assets are copied into the standalone package artifact by the
+web build, so test the packaged build after changes to editor or asset wiring.
+
+## Testing web changes
+
+Use Vitest, React Testing Library, user-event, and MSW from `web/tests/`.
+Cover asynchronous loading/error states, auto-save, keyboard/focus behavior,
+selection dialogs, and i18n as relevant. Run:
+
+```bash
+npm --prefix web test
+npm run build:web
+```
+
+See [Testing](TESTING.md) for the full verification matrix.

@@ -2,202 +2,148 @@
 
 ## Prerequisites
 
-- **Node.js** ≥22 (ESM)
-- **tmux** ≥3.x (for running agents)
-- **npm**
-- **node-pty** is an **optional dependency** — terminals degrade to snapshot
-  mirror when the native addon can't build
+- Node.js 22 or newer
+- npm
+- tmux 3 or newer for agent and integration coverage
+- A separately installed dependency tree for `web/`
 
-## Setup
+`node-pty` is optional. When it cannot be built, the web terminal continues to
+work through its snapshot/SSE fallback rather than real PTY streaming.
+
+## Local setup
 
 ```bash
 git clone https://github.com/dragocz95/elowen.git
 cd elowen
 npm install
-npm run build
+npm install --prefix web
 ```
 
-## npm scripts
-
-| Command | What it does |
-|---------|--------------|
-| `npm run serve` | Run daemon directly from TS (no build) on `:4400` |
-| `npm run build` | `tsc` + copy `schema.sql` + copy `prompts/` |
-| `npm test` | `vitest run` — daemon test suite (~1690 cases) |
-| `npm run test:watch` | `vitest` — watch mode |
-| `npm run lint` | ESLint + dependency-cruiser |
-| `npm run deadcode` | `knip` — detect unused exports, files, deps |
-
-### CLI (without global link)
+Run the daemon directly from TypeScript during development:
 
 ```bash
-node dist/cli/index.js ls
-node dist/cli/index.js chat
-node dist/cli/index.js close <taskId>
+npm run serve
 ```
 
-Or `npm link` then `elowen ls`.
-
-### Web frontend
+Run the web app in a second terminal:
 
 ```bash
-cd web
-npm install
-npm run dev      # Next.js dev server (turbopack)
-npm test         # Vitest (~560 cases)
-npm run lint     # ESLint + dependency-cruiser
-npm run build    # Production build
-npm start        # Production server (default port 3000)
+npm --prefix web run dev
 ```
 
-Connects to the daemon via the same-origin `/api` BFF proxy.
+The Next.js application authenticates browser traffic through its same-origin
+`/api` route handler. Configure the daemon URL through the supported runtime
+configuration rather than adding browser-visible secrets.
 
-### CI pipeline
+## Commands
 
-GitHub Actions runs on every push and PR to `main`:
+Run these from the repository root unless noted.
 
-| Job | What it does |
-|-----|-------------|
-| **Daemon** (~1690 tests) | `npm ci` → `npm run build` → `npm test` |
-| **Web** (~560 tests) | `npm ci` → `npm run build` → `npm test` |
+| Command | Purpose |
+| --- | --- |
+| `npm run build` | Clean `dist/`, compile TypeScript, copy runtime schema/prompts/plugins, make CLI bins executable, and verify the daemon artifact |
+| `npm run build:web` | Build the standalone web server and assemble the package artifact in `web-dist/` |
+| `npm test` | Daemon Vitest suite |
+| `npm run test:watch` | Daemon tests in watch mode |
+| `npm run test:cli-tmux` | Build then run the built CLI/tmux integration check |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | Strict TypeScript check without emitting output |
+| `npm run deadcode` | Knip unused-code check |
+| `npm run depcruise` | Dependency-boundary and cycle check |
+| `npm run check` | Lint, dead-code, dependency-cruise, and typecheck gates |
+| `npm --prefix web test` | Web Vitest/RTL/MSW suite |
+| `npm --prefix web run build` | Next.js production build |
 
-Both run in parallel on `ubuntu-latest` with Node 22.
+For a built local CLI without a global link, invoke the declared executable:
 
----
+```bash
+node dist/cli/bin.js --help
+node dist/cli/bin.js chat
+```
 
-## Project conventions
+`elowen` and `elo` both point to that same built entry after installation.
 
-### Code style
+## Deterministic build artifacts
 
-- **TypeScript** strict mode with `noUncheckedIndexedAccess`
-- **ESM** only — no CommonJS
-- No `any` types
-- No static methods — constructor DI everywhere
-- No comments in source code
-- No dead code, no debug leftovers — `npm run deadcode` enforces
+`npm run build` starts by removing `dist/`. It emits the TypeScript source,
+then copies the daemon runtime inputs it needs: `src/store/schema.sql`,
+`prompts/`, and `plugins/`. The post-build integrity check fails if emitted or
+copied JavaScript differs from the expected artifact, so do not patch `dist/`
+by hand.
 
-### Architecture
+`npm run build:web` builds `web/` with Next.js standalone output and assembles
+`web-dist/`. It includes the standalone server, hashed `.next/static` assets,
+and `public/` assets (including Monaco) because Next's standalone directory
+does not include the latter two by itself.
 
-- **Thin controllers** (`src/api/`), business logic in services
-- **Constructor dependency injection** — services receive deps via constructor
-- **Interface-driven** — `TmuxDriver`, `Clock`, `InferenceClient` have real
-  and fake implementations
-- **Single source of truth** — no parallel logic or duplicate systems
-
-### Naming
-
-- Files: `camelCase.ts`
-- Classes: `PascalCase`
-- Functions/variables: `camelCase`
-- Constants: `UPPER_SNAKE_CASE`
-- SQL identifiers: `snake_case`
-
-### i18n
-
-User-facing strings use `useTranslation()` with CS and EN dictionaries in
-`web/lib/i18n/dictionaries/`. Every string must exist in both languages.
-
-### Testing
-
-- Tests mirror `src/` structure in `tests/`
-- Fake implementations in test files (not shared)
-- Deterministic time via `FakeClock`
-- No real tmux or network calls
-- Web tests use Vitest + React Testing Library + MSW
-
-### Commits
-
-- Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …)
-- No internal references (paths, hostnames, credentials)
-
----
-
-## Project structure
+## Source layout
 
 ```
 src/
-├── api/              Hono REST router + SSE event bus
-├── cli/              CLI client (commands + chat)
-├── daemon/           Bootstrap, DI wiring, timer loops
-├── deriver/          Agent terminal polling (5s)
-├── brain/            Brain worker, session registry, platform orchestrator
-├── embeddings/       Embedding service + background queue
-├── inference/        LLM inference relay
-├── advisor/          Brain assistant lifecycle
-├── mcp/              Built-in MCP server
-├── terminal/         Real-PTY WebSocket streaming
-├── integrations/     project files, CLI detection
-├── git/              Git reader (status, branches, commits)
-├── overseer/         Mission engine, routing, planner, scheduler,
-│                     stuck detector, janitor, checkout, snapshots
-├── plugins/          Plugin loader, policy resolver, registry
-├── prompts/          Prompt template system
-├── shared/           Utilities, clock, executor metadata, mutex
-├── spawn/            Agent launcher + resume strategies
-├── store/            SQLite data layer (tasks, missions, users, config, …)
-└── tmux/             tmux abstraction (real + fake)
-plugins/              Brain plugins (discord, cronjob, skills, files, …)
-prompts/              Prompt templates (planner, pilot, overseer, worker, …)
-tests/                Daemon test suite (~1690 tests)
-web/                  Next.js frontend (~560 tests)
-docs/                 Documentation
+├── api/              Hono server, route families, schemas, middleware, SSE
+├── brain/            Chat sessions, workers, events, tools, and turn state
+├── cli/              CLI commands, setup/install flows, and interactive chat
+├── daemon/           Bootstrap, dependency wiring, and recurring work
+├── embeddings/       Shared embedding service and queue
+├── inference/        Provider clients and relay integration
+├── integrations/     Git/project data, CLI detection, usage collection
+├── mcp/              Stateless MCP endpoint
+├── overseer/         Missions, planning, scheduling, review, and decisions
+├── plugins/          Manifest loader, registry, policy, hooks, marketplace
+├── prompts/          Prompt composition helpers
+├── shared/           Cross-cutting utilities and executor metadata
+├── spawn/            Agent launch and resume paths
+├── store/            SQLite stores and schema
+├── terminal/         PTY terminal transport
+└── tmux/             tmux driver abstraction and fakes
+plugins/              Bundled plugin folders with `elowen-plugin.json`
+prompts/              Runtime prompt templates copied into `dist/`
+tests/                Daemon tests, broadly mirroring source areas
+web/                  Next.js App Router frontend
+web/app/              Route shells, API proxy, and global styles
+web/components/       Shell, auth, terminal, control, and shared UI pieces
+web/modules/          Feature modules and their views
+web/lib/              Client, React Query hooks, i18n, and app state helpers
+web/tests/            Web tests using Vitest, RTL, and MSW
 ```
 
----
+## Conventions
 
-## Timer loops
+- Use strict TypeScript and ESM. Prefer constructor dependency injection and
+  narrow interfaces at daemon boundaries.
+- Keep HTTP glue in `src/api/routes/`; route context and dependencies belong in
+  `src/api/context.ts` and `src/api/deps.ts`. Reuse route schemas from
+  `src/api/schemas/` for request bodies.
+- Prefer existing PI-native skills, compaction, turn context, and plugin APIs
+  over parallel implementations.
+- Keep shared daemon behavior in `src/`; plugin-specific behavior belongs in
+  its plugin folder.
+- Web data flows through `web/lib/elowenClient.ts`, React Query hooks in
+  `web/lib/queries.ts`, and mutations in `web/lib/mutations.ts`. Reuse the
+  shared UI controls in `web/components/ui/`.
+- Add both Czech and English entries for user-facing web text. Plugin manifests
+  retain English as fallback; plugin-local translations live in
+  `plugins/<name>/i18n/<lang>.json`.
 
-Wired in `src/daemon/bootstrap.ts:startLoops()`:
+## Adding an API-backed web feature
 
-| Loop | Interval | Purpose |
-|------|----------|---------|
-| Overseer tick | 90 s | Tick active missions |
-| Scheduler | 30 s | Launch due scheduled tasks |
-| Janitor | 60 s | Kill zombie tmux sessions |
-| Stuck detector | 60 s | Revert dead agent tasks |
-| Deriver | 5 s | Poll tmux panes for state |
-| Overseer watchdog | 60 s | Re-park missing overseers + liveness sweep |
-| Decision sweep | 30 s | Sweep panic/check decisions on paused missions |
-| Token purge | 1 h | Delete expired auth tokens |
-| Event purge | 1 h | Drop old events (>30 days) |
-| Ticket sweep | 60 s | Expired WS ticket cleanup |
-| PR feedback | 60 s | Poll PR review comments |
-| Embed queue | 30 s | Process background embedding jobs |
-| Brain worker watchdog | 60 s | Recover stalled brain chat workers |
+1. Add or extend a route in the appropriate `src/api/routes/*.ts` family.
+2. Put validated request bodies in `src/api/schemas/` and wire dependencies
+   through the existing route context/bootstrap path.
+3. Add the matching client call in `web/lib/elowenClient.ts`.
+4. Expose cached reads or mutations through `web/lib/queries.ts` or
+   `web/lib/mutations.ts`, including precise invalidation/rollback behavior.
+5. Build the UI from shared components and add CS/EN translations.
+6. Add focused daemon and/or web tests, then run the relevant verification
+   commands in [Testing](TESTING.md).
 
----
+The `elowen api` CLI verb and the MCP endpoint share the daemon's API path;
+still review authentication, authorization, and agent-scope implications for
+every new route.
 
-## Auth system
+## Pull requests and commits
 
-Auth is optional. When the server factory receives a `UserStore`, it enables:
-
-- `POST /auth/login` — rate-limited (10 / 5 min / IP)
-- `POST /auth/logout` — revoke token
-- `GET /auth/me`, `PATCH /auth/me` — profile
-- `POST /auth/me/password` — change password
-- `POST /auth/me/avatar` — upload avatar
-- User management: `GET/POST/PATCH/DELETE /users`
-
-Passwords use scrypt with random 16-byte salt. Tokens are 32-byte hex strings.
-
-### Token scopes
-
-- `full` — interactive user sessions
-- `agent` — spawned agents (verb-restricted allow-list)
-- `advisor` — per-user assistant (mapped to full)
-
----
-
-## Adding a new endpoint
-
-1. Add handler in `src/api/server.ts`
-2. Add method in `web/lib/elowenClient.ts`
-3. Add query/mutation hooks in `web/lib/queries.ts` / `web/lib/mutations.ts`
-4. Add types in `web/lib/types.ts`
-5. Wire dependencies in `src/daemon/bootstrap.ts`
-6. Add tests in `tests/` (mirror `src/` path)
-7. Add i18n keys in both `cs.ts` and `en.ts`
-8. If agent-reachable, add to `agentAllowed()` in `server.ts`
-
-The `elowen api` CLI verb and MCP `elowen_request` tool both delegate to
-`callElowenApi`, so new endpoints work with zero CLI/MCP edits.
+Keep changes focused and conventional (`feat:`, `fix:`, `docs:`, `refactor:`,
+and so on). Do not commit generated runtime data, credentials, private paths,
+or hand-modified build artifacts. Run the proportionate tests before opening a
+pull request.
