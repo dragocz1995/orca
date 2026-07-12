@@ -49,7 +49,7 @@ describe('AdvisorService', () => {
     config.update({ brain: { agentName: 'Jarvis' } });
     await svc.start(u.id, 'sonnet');
     const prompt = spawnCalls[0].rawPrompt ?? '';
-    expect(prompt).toContain('Your name is Jarvis.');
+    expect(prompt).toContain('<name>Jarvis</name>');
     expect(prompt).not.toContain('{{agentName}}'); // token fully resolved
   });
 
