@@ -18,7 +18,7 @@ interface TurnLayoutEntry {
 }
 
 const HISTORY_OVERSCAN_ROWS = 8;
-const SCROLLBAR_DRAG_INDEX_TURNS = 128;
+const SCROLLBAR_DRAG_INDEX_TURNS = 40;
 const SCROLLBAR_DRAG_INDEX_MS = 16;
 /** A programmatic jump to an arbitrary history position is not a wheel burst; materialize it directly
  * so a following opposite-direction adjustment is relative to the real tail rather than a stale estimate. */

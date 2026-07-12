@@ -1237,7 +1237,7 @@ describe('progressive history layout', () => {
     expect(afterPointerEvent).toBeLessThan(view.turnCount);
 
     let continuations = 0;
-    while (pending && continuations < 200) {
+    while (pending && continuations < 400) {
       pending = viewport.continueScrollbarDrag();
       continuations++;
     }
@@ -1502,6 +1502,7 @@ describe('progressive history layout', () => {
     const afterDragFrame = viewport.metrics();
     expect(afterDragFrame.frameHeightIndexOperations)
       .toBe(afterDragFrame.heightIndexOperations - beforeDrag);
+    expect(afterDragFrame.frameHeightIndexOperations).toBeLessThanOrEqual(512);
 
     if (pending) {
       const beforeContinuation = afterDragFrame.heightIndexOperations;
