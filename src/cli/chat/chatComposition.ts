@@ -402,7 +402,7 @@ export function createChatComposition(
     branch: branchLabel,
     mcp: rt.mcpList,
     lspEnabled: rt.lspEnabled,
-    processes: rt.processes,
+    processes: rt.childView?.processes ?? rt.processes,
     subagents: currentAgents,
     rateLimits: rt.rateLimits,
     goal: rt.goal,
@@ -463,13 +463,19 @@ export function createChatComposition(
   // Kill a background process from the panel's ✕. Fire-and-forget: no optimistic local removal — the
   // daemon's `process` snapshot event is the single source of truth and drops it once the kill lands.
   const killProcess = (id: string): void => {
-    lifetime.runApplication(() => client.killProcess(id), (killed) => {
+    const processSession = rt.childView?.sessionId ?? client.boundSession;
+    lifetime.runApplication(() => client.killProcess(id, processSession), (killed) => {
       // Already gone → no `process` snapshot will fire, so refetch to drop the stale row the user clicked.
       if (!killed) {
         rt.notice = color.dim('process already finished');
         lifetime.runApplication(
-          () => client.processes(),
-          (p) => { rt.processes = p; render('process:refresh-after-kill'); },
+          () => client.processes(processSession),
+          (p) => {
+            const child = rt.childView;
+            if (child && child.sessionId === processSession) child.processes = p;
+            else rt.processes = p;
+            render('process:refresh-after-kill');
+          },
           () => { /* offline */ },
         );
       }

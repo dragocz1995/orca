@@ -41,14 +41,14 @@ const toInfo = (h: ProcessHandle): ProcessInfo => ({
 
 export class ProcessRegistry {
   private handles = new Map<string, ProcessHandle>();
-  private onChange?: () => void;
+  private onChange?: (sessionId: string | null) => void;
   private onExitFn?: (info: ProcessInfo, userId: number | null, sessionId: string | null) => void;
   private exited = new Set<string>();
 
   /** Register a callback fired whenever the set of processes changes (spawn/exit/kill/remove). Optional —
    *  the web ProcessPanel polls the list, so out-of-turn updates surface there regardless; a consumer that
    *  wants push (e.g. a future CLI card refresh outside a turn) can wire this. */
-  setChangeListener(fn: () => void): void { this.onChange = fn; }
+  setChangeListener(fn: (sessionId: string | null) => void): void { this.onChange = fn; }
 
   /** Register a callback fired once when a background process EXITS on its own (not via kill/remove — a
    *  killed process is dropped from the registry before its close fires, so it never notifies). The daemon
@@ -58,7 +58,7 @@ export class ProcessRegistry {
   register(handle: ProcessHandle): void {
     this.handles.set(handle.id, handle);
     this.exited.delete(handle.id);
-    this.onChange?.();
+    this.onChange?.(handle.sessionId ?? null);
   }
 
   /** The terminal plugin calls this from a child's close handler. Fires the exit listener exactly once for
@@ -68,7 +68,7 @@ export class ProcessRegistry {
     const h = this.handles.get(id);
     if (!h || this.exited.has(id)) return;
     this.exited.add(id);
-    this.onChange?.();
+    this.onChange?.(h.sessionId ?? null);
     this.onExitFn?.(toInfo(h), h.userId ?? null, h.sessionId ?? null);
   }
 
@@ -79,10 +79,21 @@ export class ProcessRegistry {
       .sort((a, b) => Number(b.running) - Number(a.running) || b.startedAt.localeCompare(a.startedAt));
   }
 
+  listForSession(sessionId: string): ProcessInfo[] {
+    return [...this.handles.values()]
+      .filter((handle) => handle.sessionId === sessionId)
+      .map(toInfo)
+      .sort((a, b) => Number(b.running) - Number(a.running) || b.startedAt.localeCompare(a.startedAt));
+  }
+
   get(id: string): ProcessHandle | undefined { return this.handles.get(id); }
 
   /** Full output buffer of a process, or null when unknown. */
   output(id: string): string | null { return this.handles.get(id)?.readAll() ?? null; }
+  outputForSession(sessionId: string, id: string): string | null {
+    const handle = this.handles.get(id);
+    return handle?.sessionId === sessionId ? handle.readAll() : null;
+  }
 
   /** Kill a process and drop it from the registry. Returns false when the id is unknown. */
   kill(id: string): boolean {
@@ -91,15 +102,21 @@ export class ProcessRegistry {
     h.kill();
     this.handles.delete(id);
     this.exited.delete(id);
-    this.onChange?.();
+    this.onChange?.(h.sessionId ?? null);
     return true;
+  }
+
+  killForSession(sessionId: string, id: string): boolean {
+    const handle = this.handles.get(id);
+    return handle?.sessionId === sessionId ? this.kill(id) : false;
   }
 
   /** Drop an entry without killing (e.g. an already-exited process cleared from the panel). */
   remove(id: string): boolean {
+    const sessionId = this.handles.get(id)?.sessionId ?? null;
     const existed = this.handles.delete(id);
     this.exited.delete(id);
-    if (existed) this.onChange?.();
+    if (existed) this.onChange?.(sessionId);
     return existed;
   }
 

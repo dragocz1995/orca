@@ -141,7 +141,28 @@ describe('terminal plugin background processes', () => {
       await new Promise((r) => setTimeout(r, 300));
       const out = asText(await read.execute('t', { id, all: true }, undefined as never, undefined as never));
       expect(out).toContain('hello-bg');
-    }, { identity: OWNER });
+    }, { identity: OWNER, sessionId: 'brain-terminal-test' });
+  });
+
+  it('keeps background process tools isolated between parent and child sessions', async () => {
+    const dataRoot = freshDataRoot();
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['terminal'], dataRoot, logger: log });
+    const run = reg.tools.find((t) => t.name === 'run_command')!;
+    const list = reg.tools.find((t) => t.name === 'list_processes')!;
+    const read = reg.tools.find((t) => t.name === 'read_process_output')!;
+    const kill = reg.tools.find((t) => t.name === 'kill_process')!;
+    const scoped = <T>(sessionId: string, fn: () => T): T => runWithPolicy(ADMIN, fn, { identity: OWNER, sessionId });
+
+    const parentText = await scoped('brain-parent', async () => asText(await run.execute('p', { command: 'sleep 5', cwd: '/tmp', background: true }, undefined as never, undefined as never)));
+    const childText = await scoped('brain-child', async () => asText(await run.execute('c', { command: 'sleep 5', cwd: '/tmp', background: true }, undefined as never, undefined as never)));
+    const parentId = /background process (\w+):/.exec(parentText)![1]!;
+    const childId = /background process (\w+):/.exec(childText)![1]!;
+    expect(await scoped('brain-parent', async () => asText(await list.execute('l', {}, undefined as never, undefined as never)))).toContain(parentId);
+    expect(await scoped('brain-parent', async () => asText(await list.execute('l', {}, undefined as never, undefined as never)))).not.toContain(childId);
+    expect(await scoped('brain-parent', async () => asText(await read.execute('r', { id: childId }, undefined as never, undefined as never)))).toMatch(/no background process/);
+    expect(await scoped('brain-parent', async () => asText(await kill.execute('k', { id: childId }, undefined as never, undefined as never)))).toMatch(/no background process/);
+    await scoped('brain-parent', async () => kill.execute('kp', { id: parentId }, undefined as never, undefined as never));
+    await scoped('brain-child', async () => kill.execute('kc', { id: childId }, undefined as never, undefined as never));
   });
 
   it('run_command is refused for a non-owner (role-scoped) identity', async () => {

@@ -31,7 +31,7 @@ export interface ChatStateSeed {
  * always a live projection from TranscriptModel rather than a separately assigned snapshot. */
 export class ChatState {
   readonly transcript: TranscriptModel;
-  childView: { sessionId: string; transcript: TranscriptModel; loading: boolean } | null = null;
+  childView: { sessionId: string; transcript: TranscriptModel; processes: ProcessInfo[]; loading: boolean } | null = null;
   childAc: AbortController | null = null;
   streamAc = new AbortController();
   notice: string;

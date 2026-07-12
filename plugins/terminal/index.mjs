@@ -125,6 +125,14 @@ async function runForeground(command, cwd, outputCap, timeoutMs, onProgress) {
 export function register(ctx) {
   const processes = new Map(); // id → BgProcess (local: powers the incremental read_process_output tool)
 
+  const currentSessionId = () => ctx.currentSessionId?.() ?? null;
+  const scopedProcesses = (sessionId = currentSessionId()) => [...processes.entries()]
+    .filter(([, bg]) => sessionId && bg.sessionId === sessionId);
+  const scopedProcess = (id) => {
+    const bg = processes.get(id);
+    return bg && bg.sessionId === currentSessionId() ? bg : undefined;
+  };
+
   // Mirror each background child into the daemon-level registry so the CLI + web can list/read/kill them
   // from a panel next to the todos (ctx.processes is the shared ProcessRegistry). The plugin still owns
   // the BgProcess (spawn/output/kill); the registry gets a thin handle.
@@ -136,8 +144,9 @@ export function register(ctx) {
   // Re-emit the pinned "Background processes" card listing what's still running (empty card → removed).
   // No-op outside an interactive turn (emitCard wires no emitter for worker/cron), which is fine — the
   // web panel reads the live list from GET /brain/processes.
-  const emitProcCard = () => {
-    const running = ctx.processes.list().filter((p) => p.running);
+  const emitProcCard = (sessionId = currentSessionId()) => {
+    if (!sessionId) return;
+    const running = ctx.processes.listForSession(sessionId).filter((p) => p.running);
     ctx.emitCard(running.length
       ? { id: 'bg-processes', title: `Background processes (${running.length})`, items: running.map((p) => ({ text: p.command, status: 'in_progress' })), pinned: true }
       : { id: 'bg-processes' });
@@ -184,15 +193,17 @@ export function register(ctx) {
           return ok(await runForeground(p.command, cwd, outputCap, commandTimeoutMs, onProgress));
         }
         // prune finished processes before the cap check so dead entries don't block new work
-        for (const [id, bg] of processes) { if (!bg.running) dropProc(id); }
-        if (processes.size >= MAX_BG) return ok(`Error: too many background processes (${MAX_BG}); kill one first.`);
+        const sessionId = currentSessionId();
+        if (!sessionId) return ok('Error: background processes require an authenticated conversation.');
+        for (const [id, bg] of scopedProcesses(sessionId)) { if (!bg.running) dropProc(id); }
+        if (scopedProcesses(sessionId).length >= MAX_BG) return ok(`Error: too many background processes (${MAX_BG}); kill one first.`);
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
         // The operator who started it (+ the session they started it in) → wake THAT conversation when it
         // exits (markExited on close). Field is `elowenUserId` (was mis-typed as the pre-rebrand `orcaUserId`,
         // which is undefined → the wake never fired).
         const userId = ctx.currentIdentity?.()?.elowenUserId ?? null;
-        const sessionId = ctx.currentSessionId?.() ?? null;
-        const bg = new BgProcess(id, p.command, cwd, outputCap, () => { emitProcCard(); ctx.processes.markExited(id); });
+        const bg = new BgProcess(id, p.command, cwd, outputCap, () => { emitProcCard(sessionId); ctx.processes.markExited(id); });
+        bg.sessionId = sessionId;
         processes.set(id, bg);
         ctx.processes.register(handleFor(id, bg, userId, sessionId));
         emitProcCard();
@@ -208,8 +219,9 @@ export function register(ctx) {
     execute: async () => {
       const denied = denyNonOwner();
       if (denied) return denied;
-      if (processes.size === 0) return ok('No background processes.');
-      return ok([...processes.values()].map((bg) =>
+      const own = scopedProcesses().map(([, bg]) => bg);
+      if (own.length === 0) return ok('No background processes.');
+      return ok(own.map((bg) =>
         `- ${bg.id} ${bg.running ? 'RUNNING' : `exited(${bg.exitCode})`} since ${bg.startedAt}\n  $ ${bg.command}`
       ).join('\n'));
     },
@@ -225,7 +237,7 @@ export function register(ctx) {
     execute: async (_id, p) => {
       const denied = denyNonOwner();
       if (denied) return denied;
-      const bg = processes.get(p.id);
+      const bg = scopedProcess(p.id);
       if (!bg) return ok(`Error: no background process ${p.id}.`);
       const text = p.all ? bg.output : bg.output.slice(bg.readOffset);
       bg.readOffset = bg.output.length;
@@ -242,7 +254,7 @@ export function register(ctx) {
     execute: async (_id, p) => {
       const denied = denyNonOwner();
       if (denied) return denied;
-      const bg = processes.get(p.id);
+      const bg = scopedProcess(p.id);
       if (!bg) return ok(`Error: no background process ${p.id}.`);
       bg.kill();
       dropProc(p.id);

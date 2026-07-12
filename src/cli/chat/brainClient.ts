@@ -255,8 +255,9 @@ export class BrainClient {
   /** The owner's background shell processes (terminal plugin's `run_command(background:true)` children)
    *  — the snapshot the process panel boot-seeds from; live spawn/exit/kill updates ride the `process`
    *  stream event. Owner-only server-side (403 for a non-owner). */
-  async processes(): Promise<ProcessInfo[]> {
-    const res = await this.f(`${this.o.base}/brain/processes`, { headers: this.headers() });
+  async processes(session = this.bound): Promise<ProcessInfo[]> {
+    const qs = session ? `?session=${encodeURIComponent(session)}` : '';
+    const res = await this.f(`${this.o.base}/brain/processes${qs}`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/processes`);
     return (await res.json()) as ProcessInfo[];
@@ -265,8 +266,9 @@ export class BrainClient {
   /** Kill one background process by id. On a real kill the daemon's `process` snapshot event drops it
    *  from the panel (the caller relies on that single source of truth). Returns `false` when the process
    *  was already gone — no snapshot fires in that case, so the caller must refetch to clear a stale row. */
-  async killProcess(id: string): Promise<boolean> {
-    const res = await this.f(`${this.o.base}/brain/processes/${encodeURIComponent(id)}`, { method: 'DELETE', headers: this.headers() });
+  async killProcess(id: string, session = this.bound): Promise<boolean> {
+    const qs = session ? `?session=${encodeURIComponent(session)}` : '';
+    const res = await this.f(`${this.o.base}/brain/processes/${encodeURIComponent(id)}${qs}`, { method: 'DELETE', headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/processes`);
     const body = (await res.json()) as { killed?: boolean };

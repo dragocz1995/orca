@@ -8,7 +8,6 @@ import { listBrainModels, fetchOpenAiModels } from '../../brain/models.js';
 import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
 import type { BrainEvent } from '../../brain/events.js';
 import { commandsWithPlugins, findCommand, type SlashSurface } from '../../brain/slashCommands.js';
-import { processRegistry } from '../../brain/processRegistry.js';
 import { logger } from '../../shared/logger.js';
 import { OpenAiCodexUsageService } from '../../brain/openaiCodexUsage.js';
 import { brainEventReplayCursor, withoutBrainEventReplayCursor } from '../../brain/session/liveEventReplay.js';
@@ -98,16 +97,20 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     forbidden(c as { get: (k: 'tokenScope') => string }) || !d.brain?.isOwner((c.get('user') as { id: number }).id);
   app.get('/brain/processes', c => {
     if (denyNonOwner(c)) return c.json({ error: 'forbidden' }, 403);
-    return c.json(processRegistry.list());
+    try { return c.json(d.brain!.processes(c.get('user').id, c.req.query('session'))); }
+    catch { return c.json({ error: 'unknown session' }, 404); }
   });
   app.get('/brain/processes/:id/output', c => {
     if (denyNonOwner(c)) return c.json({ error: 'forbidden' }, 403);
-    const out = processRegistry.output(c.req.param('id'));
+    let out: string | null;
+    try { out = d.brain!.processOutput(c.get('user').id, c.req.param('id'), c.req.query('session')); }
+    catch { return c.json({ error: 'unknown session' }, 404); }
     return out === null ? c.json({ error: 'unknown process' }, 404) : c.json({ output: out });
   });
   app.delete('/brain/processes/:id', c => {
     if (denyNonOwner(c)) return c.json({ error: 'forbidden' }, 403);
-    return c.json({ killed: processRegistry.kill(c.req.param('id')) });
+    try { return c.json({ killed: d.brain!.killProcess(c.get('user').id, c.req.param('id'), c.req.query('session')) }); }
+    catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
   // Fulltext search across the caller's own conversations (newest first). Queries under 2 chars

@@ -31,7 +31,7 @@ import { BrainStatusService } from './service/statusService.js';
 import { exportBrainSession } from './session/exportSession.js';
 import type { ExportFormat, SessionExport } from './session/exportSession.js';
 import type { BrainDeps } from './brainDeps.js';
-import type { ProcessInfo } from './processRegistry.js';
+import { processRegistry, type ProcessInfo } from './processRegistry.js';
 import type { BrainStreamSnapshot } from './session/liveEventReplay.js';
 import { delegatedToolPolicy, type DelegatedExecutionScope } from './delegatedScope.js';
 import { DEFAULT_BRAIN_LIMITS } from '../store/configStore.js';
@@ -697,11 +697,30 @@ export class BrainService {
    *  so it refreshes out of turn on every spawn/exit/kill. Wired to the process registry's change
    *  listener in the daemon. Owner-only: a command line can carry a secret, so the event is delivered
    *  ONLY to streams attached to the owner's own sessions, never a second admin's. */
-  broadcastProcesses(processes: ProcessInfo[]): void {
+  broadcastProcesses(sessionId: string, processes: ProcessInfo[]): void {
     const event: BrainEvent = { type: 'process', processes };
-    for (const [listener, sessionId] of this.attachments.clientStreams) {
-      if (this.isOwner(this.d.store.getSession(sessionId)?.user_id)) listener(event);
+    for (const [listener, attachedSessionId] of this.attachments.clientStreams) {
+      if (attachedSessionId === sessionId && this.isOwner(this.d.store.getSession(attachedSessionId)?.user_id)) listener(event);
     }
+  }
+
+  private ownedProcessSession(userId: number, sessionId: string | undefined): string {
+    const target = sessionId ?? this.lifecycle.activeSessionId(userId);
+    const row = target ? this.d.store.getSession(target) : undefined;
+    if (!target || !row || row.user_id !== userId) throw new Error('unknown session');
+    return target;
+  }
+
+  processes(userId: number, sessionId?: string): ProcessInfo[] {
+    return processRegistry.listForSession(this.ownedProcessSession(userId, sessionId));
+  }
+
+  processOutput(userId: number, processId: string, sessionId?: string): string | null {
+    return processRegistry.outputForSession(this.ownedProcessSession(userId, sessionId), processId);
+  }
+
+  killProcess(userId: number, processId: string, sessionId?: string): boolean {
+    return processRegistry.killForSession(this.ownedProcessSession(userId, sessionId), processId);
   }
 
   async send(request: TurnRequest): Promise<void> {

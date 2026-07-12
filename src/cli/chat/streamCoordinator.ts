@@ -246,7 +246,13 @@ export class StreamCoordinator implements StreamCoordinatorPort {
       const ac = new AbortController();
       rt.childAc = ac;
       const transcript = new TranscriptModel();
-      rt.childView = { sessionId, transcript, loading: true };
+      rt.childView = { sessionId, transcript, processes: [], loading: true };
+      const childProcesses = typeof client.processes === 'function' ? client.processes(sessionId) : Promise.resolve([]);
+      void childProcesses.then((processes) => {
+        if (rt.childView?.sessionId !== sessionId) return;
+        rt.childView.processes = processes;
+        render('child:processes');
+      }).catch(() => { /* child transcript still works while process snapshot is unavailable */ });
       render('child:opening');
 
       let resolveHydrated!: () => void;
@@ -288,7 +294,8 @@ export class StreamCoordinator implements StreamCoordinatorPort {
           if (buffered !== 'passthrough') return;
         }
         const repairAtTerminal = truncatedSnapshotPending && (event.type === 'idle' || event.type === 'error');
-        rt.childView.transcript.apply(event);
+        if (event.type === 'process') rt.childView.processes = event.processes;
+        else rt.childView.transcript.apply(event);
         render(`child:${event.type}`);
         if (repairAtTerminal) {
           truncatedSnapshotPending = false;

@@ -35,6 +35,21 @@ describe('ProcessRegistry', () => {
     expect(reg.output('nope')).toBeNull();
   });
 
+  it('isolates list, output, and kill operations by originating brain session', () => {
+    const reg = new ProcessRegistry();
+    const parent = fakeHandle('parent'); parent.handle.sessionId = 'brain-parent';
+    const child = fakeHandle('child'); child.handle.sessionId = 'brain-child';
+    reg.register(parent.handle); reg.register(child.handle);
+
+    expect(reg.listForSession('brain-parent').map((p) => p.id)).toEqual(['parent']);
+    expect(reg.listForSession('brain-child').map((p) => p.id)).toEqual(['child']);
+    expect(reg.outputForSession('brain-parent', 'child')).toBeNull();
+    expect(reg.killForSession('brain-parent', 'child')).toBe(false);
+    expect(child.state.killed).toBe(false);
+    expect(reg.killForSession('brain-child', 'child')).toBe(true);
+    expect(child.state.killed).toBe(true);
+  });
+
   it('kill() invokes the handle kill, drops it, and returns false for unknown ids', () => {
     const reg = new ProcessRegistry();
     const a = fakeHandle('1');
