@@ -33,6 +33,14 @@ const makeComposition = (h: Harness): ChatComposition => {
   return composition;
 };
 
+/** Inspect the component through the same production port used by PI: createChatComposition mounts one
+ * bounded root with `tui.addChild`; ChatComposition itself exposes no test-only root accessor. */
+const renderMountedRoot = (h: Harness): string[] => {
+  const root = h.tui.children[0];
+  if (!root) throw new Error('chat composition did not mount a root');
+  return root.render(h.term.columns);
+};
+
 function nativeOverlayHandle(hide = vi.fn()): OverlayHandle {
   let hidden = false;
   let focused = false;
@@ -230,13 +238,23 @@ describe('chat application shell ownership', () => {
     let listener!: (data: string) => { consume: true } | undefined;
     const remove = vi.fn();
     const tui = { addInputListener: vi.fn((next) => { listener = next; return remove; }) } as unknown as TUI;
-    const route = vi.fn(() => ({ consume: true } as const));
-    const router = new InputRouter(tui, route);
+    const quit = vi.fn();
+    const context = {
+      state: { childView: null },
+      term: { columns: 80, write: vi.fn() },
+      editor: { focused: true, getText: () => '' },
+      stream: {}, quit, renderForced: vi.fn(),
+      keymap: () => ({ matches: (_action: string, data: string) => data === 'x', isLeader: () => false, directAction: () => null }),
+      leader: () => ({ pending: () => false }), dispatchAction: vi.fn(), render: vi.fn(),
+      animations: { nudgeMascot: vi.fn() }, hasMessages: () => false,
+      panelVisible: () => false, slashOverlay: () => null, mentionOverlay: () => null,
+    } as unknown as ChatInputContext;
+    const router = new InputRouter(tui, context);
     router.attach();
     router.attach();
     expect(tui.addInputListener).toHaveBeenCalledOnce();
     expect(listener('x')).toEqual({ consume: true });
-    expect(route).toHaveBeenCalledWith('x');
+    expect(quit).toHaveBeenCalledOnce();
     router.stop();
     router.stop();
     expect(remove).toHaveBeenCalledOnce();
@@ -359,7 +377,7 @@ describe('chat application shell ownership', () => {
 
     expect(h.tui.children).toHaveLength(1);
     expect(h.tui.listeners.size).toBe(1);
-    const frame = composition.root.render(h.term.columns);
+    const frame = renderMountedRoot(h);
     expect(frame).toHaveLength(h.term.rows);
     expect(frame.every((line) => visibleWidth(line) === h.term.columns)).toBe(true);
     const plain = frame.map(terminalPlainText);
@@ -383,7 +401,7 @@ describe('chat application shell ownership', () => {
       h.rt, h.resources, { quit: vi.fn() }, h.stream, h.mdTheme, diagnostics,
     );
     composition.attachInput(noopInput);
-    const rendered = composition.root.render(h.term.columns);
+    const rendered = renderMountedRoot(h);
     const frame = events.find((event) => event.type === 'frame');
 
     expect(frame).toMatchObject({
@@ -416,7 +434,7 @@ describe('chat application shell ownership', () => {
       h.rt, h.resources, { quit: vi.fn() }, h.stream, h.mdTheme, diagnostics,
     );
     composition.attachInput(noopInput);
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     const frame = events.find((event) => event.type === 'frame');
     expect(Object.values(frame?.sections as Record<string, number>)
       .reduce((sum, value) => sum + value, 0)).toBe(frame?.rootRows);
@@ -440,13 +458,13 @@ describe('chat application shell ownership', () => {
     composition.renderShell.resume();
     composition.renderForced('test:normal');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
 
     h.term.columns = 20;
     h.term.rows = 10;
     composition.renderForced('test:compact');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
 
     const frames = events.filter((event) => event.type === 'frame');
     expect(frames.at(-2)?.renderedTurns).toBeGreaterThan(0);
@@ -478,7 +496,7 @@ describe('chat application shell ownership', () => {
     composition.renderShell.resume();
     composition.renderForced('test:start-screen');
     await vi.runOnlyPendingTimersAsync();
-    const frame = composition.root.render(h.term.columns).map(terminalPlainText).join('\n');
+    const frame = renderMountedRoot(h).map(terminalPlainText).join('\n');
     expect(frame).toContain('session-draft-1');
     expect(frame).toContain('session-draft-6');
     composition.dispose();
@@ -491,7 +509,7 @@ describe('chat application shell ownership', () => {
     composition.renderShell.resume();
     composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    const frame = composition.root.render(h.term.columns).map(terminalPlainText);
+    const frame = renderMountedRoot(h).map(terminalPlainText);
     const thumbRow = frame.findIndex((line) => line.includes('█'));
     expect(thumbRow).toBeGreaterThan(0);
     const x = frame[thumbRow]!.lastIndexOf('█') + 1;
@@ -500,7 +518,7 @@ describe('chat application shell ownership', () => {
     expect(h.tui.emit(`\x1b[<32;${x};${Math.max(2, y - 5)}M`)?.consume).toBe(true);
     expect(h.tui.emit(`\x1b[<0;${x};${Math.max(2, y - 5)}m`)?.consume).toBe(true);
     await vi.runOnlyPendingTimersAsync();
-    expect(composition.root.render(h.term.columns).map(terminalPlainText).join('\n')).toContain('History');
+    expect(renderMountedRoot(h).map(terminalPlainText).join('\n')).toContain('History');
     composition.dispose();
     composition.renderShell.stop();
   });
@@ -511,7 +529,7 @@ describe('chat application shell ownership', () => {
     composition.renderShell.resume();
     composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     h.resources.tui.showOverlay({ invalidate: () => {}, render: () => ['generic modal'] }, {
       anchor: 'center', width: 90, maxHeight: 24, margin: 2,
     });
@@ -521,7 +539,7 @@ describe('chat application shell ownership', () => {
     h.term.rows = 12;
     composition.renderForced('test:resize');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
 
     expect(h.tui.overlays.length).toBeGreaterThan(beforeResize.length);
     expect(beforeResize.every((overlay) => overlay.removed)).toBe(true);
@@ -542,7 +560,7 @@ describe('chat application shell ownership', () => {
     composition.renderShell.resume();
     composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     h.tui.emit(input);
     await vi.runOnlyPendingTimersAsync();
     const before = h.tui.overlays.filter((overlay) => !overlay.removed);
@@ -553,7 +571,7 @@ describe('chat application shell ownership', () => {
     h.term.rows = 14;
     composition.renderForced('test:resize');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     expect(before.every((overlay) => overlay.removed)).toBe(true);
     const reflowed = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'bottom-left');
@@ -570,10 +588,10 @@ describe('chat application shell ownership', () => {
     composition.renderShell.resume();
     composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     h.tui.emit('/');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
 
     const initial = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'bottom-left');
@@ -593,7 +611,7 @@ describe('chat application shell ownership', () => {
     expect(h.tui.emit('\x1b[<0;74;5M')?.consume).toBe(true);
     expect(h.tui.emit('\x1b[<32;60;5M')?.consume).toBe(true);
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
 
     const reflowed = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'bottom-left');
@@ -605,7 +623,7 @@ describe('chat application shell ownership', () => {
 
     const suggestionRecords = h.tui.overlays.filter((overlay) => overlay.options?.anchor === 'bottom-left').length;
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     expect(h.tui.overlays.filter((overlay) => overlay.options?.anchor === 'bottom-left')).toHaveLength(suggestionRecords);
     expect(vi.getTimerCount()).toBe(0);
     composition.dispose();
@@ -618,16 +636,16 @@ describe('chat application shell ownership', () => {
     composition.renderShell.resume();
     composition.renderForced('test:initial-small');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     h.tui.emit('/');
     h.resources.editor.setText(`/${'y'.repeat(420)}`);
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
 
     h.term.rows = 30;
     composition.renderForced('test:grow');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
 
     const active = h.tui.overlays.filter((overlay) => !overlay.removed)
       .find((overlay) => overlay.options?.anchor === 'top-left');
