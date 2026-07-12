@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync,
+  lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -10,6 +10,29 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { visibleWidth } from '@earendil-works/pi-tui';
 
 const STATUS_ROW = /^\s+(?:Build|Plan)(?:\s+·\s+\S+|…)/u;
+
+export const EXPECTED_TMUX_CAPTURE_LABELS = Object.freeze({
+  short: Object.freeze([
+    '01-one-short-message', '02-rapid-tool-control-burst', '03-page-up-after-burst',
+    '04-restored-after-resize', '05-reopened-same-conversation', '06-reopened-send-healthy',
+    '07-reopened-page-up',
+  ]),
+  long: Object.freeze([
+    '01-initial-long-history', '01b-multiline-1-rows', '01b-multiline-6-rows',
+    '01b-multiline-8-rows', '01c-multiline-up-reveals-head', '01d-multiline-down-returns-tail',
+    '01e-wrapped-cursor-40x15', '01f-wrapped-cursor-after-resize', '02-page-up',
+    '02b-drag-copy-complete', '03-streaming-queued', '04-streaming-20x10',
+    '04-streaming-32x12', '04-streaming-40x15', '04-streaming-80x24', '04-streaming-103x24',
+    '04-streaming-104x24', '04-streaming-120x30', '04-streaming-180x50',
+    '04b-streaming-telemetry-hidden', '07-streaming-restored', '08-panels-after-stream',
+    '08a-subagent-drill-in', '08b-subagent-return-parent', '08c-telemetry-36-columns',
+    '09-expanded-todos', '10-scrollbar-drag-with-panel', '10b-hidden-panel-idle-zero',
+    '10c-narrow-panel-idle-zero', '11-external-editor-return', '12-help-modal',
+    '13-short-slash-menu', '13b-open-slash-reflow-32x12', '14-short-ask-dock',
+    '14b-open-ask-reflow-32x12', '15-final-96x24',
+  ]),
+  signals: Object.freeze(['01-before-signal']),
+});
 
 export function paneLines(value) {
   if (value === '') return [];
@@ -96,12 +119,12 @@ export function createTmuxServer(label = 'e2e') {
   };
 }
 
-export function readJsonLines(path, { live = false } = {}) {
+export function readJsonLinesSnapshot(path, { live = false } = {}) {
   let source;
   try {
     source = readFileSync(path, 'utf8');
   } catch (error) {
-    if (live && error?.code === 'ENOENT') return [];
+    if (live && error?.code === 'ENOENT') return { values: [], trailingPartial: false };
     throw error;
   }
   const terminated = source.endsWith('\n');
@@ -117,15 +140,28 @@ export function readJsonLines(path, { live = false } = {}) {
       values.push(JSON.parse(line));
     } catch (error) {
       const trailingPartial = live && !terminated && index === lines.length - 1;
-      if (trailingPartial) break;
+      if (trailingPartial) {
+        // A completed older frame is not safe capture evidence while the next record is being appended.
+        // Expose this state to captureState so it retries instead of binding a new pane to stale metrics.
+        return { values, trailingPartial: true };
+      }
       throw new SyntaxError(`${path}:${index + 1}: invalid JSONL record (${error.message})`, { cause: error });
     }
   }
-  return values;
+  return { values, trailingPartial: false };
+}
+
+export function readJsonLines(path, options) {
+  return readJsonLinesSnapshot(path, options).values;
 }
 
 export function readFrames(path, options) {
   return readJsonLines(path, options).filter((entry) => entry.type === 'frame');
+}
+
+function readFrameSnapshot(path) {
+  const snapshot = readJsonLinesSnapshot(path, { live: true });
+  return { frames: snapshot.values.filter((entry) => entry.type === 'frame'), trailingPartial: snapshot.trailingPartial };
 }
 
 export function latestFrame(frames, columns, rows, since = 0) {
@@ -156,12 +192,15 @@ export function captureState({
 }) {
   let stable = null;
   for (let attempt = 1; attempt <= 6; attempt++) {
-    const before = readFrames(perfLog, { live: true }).at(-1) ?? null;
+    const beforeSnapshot = readFrameSnapshot(perfLog);
+    const before = beforeSnapshot.frames.at(-1) ?? null;
     const stateBefore = terminalState(tmux, session);
     const plain = tmux.run(['capture-pane', '-p', '-t', session]);
     const ansi = tmux.run(['capture-pane', '-p', '-e', '-t', session]);
     const stateAfter = terminalState(tmux, session);
-    const after = readFrames(perfLog, { live: true }).at(-1) ?? null;
+    const afterSnapshot = readFrameSnapshot(perfLog);
+    if (beforeSnapshot.trailingPartial || afterSnapshot.trailingPartial) continue;
+    const after = afterSnapshot.frames.at(-1) ?? null;
     const sameFrame = before && after && frameIdentity(before) === frameIdentity(after);
     const sameGeometry = stateBefore.columns === stateAfter.columns && stateBefore.rows === stateAfter.rows
       && after?.terminal?.columns === stateAfter.columns && after?.terminal?.rows === stateAfter.rows;
@@ -430,7 +469,10 @@ export function writeReport(path, report) {
 }
 
 function reportPaths(root) {
-  const realRoot = realpathSync(root);
+  const requestedRoot = resolve(root);
+  assert.ok(!lstatSync(requestedRoot).isSymbolicLink(),
+    `tmux evidence root must not be a symlink: ${requestedRoot}`);
+  const realRoot = realpathSync(requestedRoot);
   const found = [];
   const visit = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -503,15 +545,42 @@ function evidenceFile(value, label, scenarioDir) {
   return path;
 }
 
-function captureEvidence(value, label, scenarioDir) {
+function expectedCaptureContract(scenario, captureLabel) {
+  const forbiddenMarkers = captureLabel === '04-restored-after-resize'
+    ? ['Terminal too small']
+    : captureLabel === '04-streaming-20x10'
+      ? ['E2E HISTORY MARKER']
+      : /^04-streaming-(?:32x12|40x15|80x24|103x24|104x24|120x30|180x50)$/u.test(captureLabel)
+        ? ['Terminal too small']
+        : [];
+  return {
+    expectCursor: !['12-help-modal', '14-short-ask-dock', '14b-open-ask-reflow-32x12'].includes(captureLabel),
+    forbiddenMarkers,
+    allowScrollbarOcclusion: captureLabel === '12-help-modal',
+  };
+}
+
+function captureEvidence(value, label, scenarioDir, scenario) {
   assert.ok(Array.isArray(value) && value.length > 0, `${label} must contain capture evidence`);
+  const expectedLabels = EXPECTED_TMUX_CAPTURE_LABELS[scenario];
+  assert.ok(expectedLabels, `${label}: unknown capture scenario ${scenario}`);
+  assert.deepEqual(value.map((capture) => capture?.label), expectedLabels,
+    `${label}: every required ${scenario} checkpoint must appear exactly once and in order`);
+  const usedPaths = new Set();
   for (const [index, capture] of value.entries()) {
     const captureLabel = nonEmptyString(capture?.label, `${label}[${index}].label`);
     const plainPath = evidenceFile(capture?.plain, `${label}[${index}].plain`, scenarioDir);
     const ansiPath = evidenceFile(capture?.ansi, `${label}[${index}].ansi`, scenarioDir);
     const statePath = evidenceFile(capture?.state, `${label}[${index}].state`, scenarioDir);
+    for (const [field, path] of [['plain', plainPath], ['ansi', ansiPath], ['state', statePath]]) {
+      const realPath = realpathSync(path);
+      assert.ok(!usedPaths.has(realPath), `${label}[${index}].${field} reuses evidence path ${realPath}`);
+      usedPaths.add(realPath);
+    }
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
-    const contract = state.contract ?? {};
+    assert.ok(state.analysis && typeof state.analysis === 'object' && !Array.isArray(state.analysis),
+      `${label}[${index}].state must contain the capture-time analysis`);
+    const contract = expectedCaptureContract(scenario, captureLabel);
     const analysis = analyzeActiveCapture({
       label: captureLabel,
       plain: readFileSync(plainPath, 'utf8'),
@@ -521,14 +590,39 @@ function captureEvidence(value, label, scenarioDir) {
       cursor: state.cursor,
       frame: state.frame,
       expectCursor: contract.expectCursor,
-      forbiddenMarkers: contract.forbiddenMarkers ?? [],
-      expectScrollbar: contract.expectScrollbar,
-      allowScrollbarOcclusion: contract.allowScrollbarOcclusion ?? false,
+      forbiddenMarkers: contract.forbiddenMarkers,
+      allowScrollbarOcclusion: contract.allowScrollbarOcclusion,
     });
-    if (state.analysis) assert.deepEqual(analysis, state.analysis,
-      `${label}[${index}]: persisted capture analysis differs from raw evidence`);
+    assert.deepEqual(analysis, state.analysis,
+      `${label}[${index}]: persisted capture analysis differs from analyzer-owned raw evidence contract`);
   }
   return value.length;
+}
+
+function lifecycleEvidence(entries, label, expectedCycles) {
+  let active = false;
+  let cycles = 0;
+  let previousAt = -Infinity;
+  for (const [index, entry] of entries.entries()) {
+    if (entry.type !== 'frame' && entry.type !== 'lifecycle') continue;
+    const at = nonNegativeNumber(entry.at, `${label}[${index}].at`);
+    assert.ok(at >= previousAt, `${label}: lifecycle/frame timestamps must be monotonic`);
+    previousAt = at;
+    if (entry.type === 'frame') {
+      assert.ok(active, `${label}: frame ${entry.sequence ?? index} is outside an active lifecycle`);
+      continue;
+    }
+    if (entry.action === 'start') {
+      assert.equal(active, false, `${label}: lifecycle start cannot precede the prior stop`);
+      active = true;
+      cycles++;
+    } else if (entry.action === 'stop') {
+      assert.equal(active, true, `${label}: lifecycle stop must follow a start`);
+      active = false;
+    }
+  }
+  assert.equal(active, false, `${label}: final lifecycle did not stop`);
+  assert.equal(cycles, expectedCycles, `${label}: expected exactly ${expectedCycles} complete lifecycle cycles`);
 }
 
 function terminalProtocolEvidence(path, label) {
@@ -552,16 +646,35 @@ function normalScenarioEvidence(report, label, scenarioDir) {
   const ttyPath = evidenceFile(evidence.ttyState, `${label}.evidence.ttyState`, scenarioDir);
   const writesPath = evidenceFile(evidence.terminalWrites, `${label}.evidence.terminalWrites`, scenarioDir);
   const shellPath = evidenceFile(evidence.restoredShell, `${label}.evidence.restoredShell`, scenarioDir);
-  const frames = readFrames(perfPath);
+  const perfEntries = readJsonLines(perfPath);
+  lifecycleEvidence(perfEntries, `${label}.evidence.perf`, report.scenario === 'short' ? 2 : 1);
+  const frames = perfEntries.filter((entry) => entry.type === 'frame');
   const performance = analyzeFrameDiagnostics(frames);
   const reported = performanceSummary(report.performance, `${label}.performance`);
   assert.deepEqual(reported.ordinaryMs, performance.ordinaryMs, `${label}: reported ordinary timing differs from raw perf`);
   assert.deepEqual(reported.forcedMs, performance.forcedMs, `${label}: reported forced timing differs from raw perf`);
+  assert.deepEqual(report.performance, performance, `${label}: reported performance differs from raw perf evidence`);
+  if (report.scenario === 'long') {
+    assert.ok(performance.scroll.maxRenderedTurns <= 12,
+      `${label}: long scroll rendered too many turns (${performance.scroll.maxRenderedTurns})`);
+    assert.ok(performance.scroll.maxReconciledTurns <= 12,
+      `${label}: long scroll reconciled too many turns (${performance.scroll.maxReconciledTurns})`);
+    assert.ok(performance.scroll.maxLayoutVisits <= 64,
+      `${label}: long scroll layout work is not viewport-bounded (${performance.scroll.maxLayoutVisits})`);
+    assert.ok(performance.scroll.maxHeightIndexOperations <= 512,
+      `${label}: long scroll height-index work is not bounded (${performance.scroll.maxHeightIndexOperations})`);
+    assert.equal(performance.mascot.maxRenderedTurns, 0,
+      `${label}: mascot frames must not render settled turns`);
+  }
   const tty = readFileSync(ttyPath, 'utf8').trim().split('\n');
   assert.equal(tty.length, 2, `${label}: tty evidence must contain before and after states`);
   assert.ok(tty[0] && tty[1] && tty[0] === tty[1], `${label}: tty state was not restored exactly`);
   const shell = readFileSync(shellPath, 'utf8');
-  assert.match(shell, /E2E .*SHELL RESTORED/u, `${label}: restored shell marker is missing`);
+  const expectedShellMarker = report.scenario === 'short'
+    ? 'E2E SHORT SHELL RESTORED'
+    : report.scenario === 'long' ? 'E2E SHELL RESTORED' : null;
+  assert.ok(expectedShellMarker && shell.includes(expectedShellMarker),
+    `${label}: exact ${report.scenario} restored shell marker is missing`);
   assert.doesNotMatch(shell, /MaxListenersExceededWarning|\bat\s+\S+\s+\([^)]*\.js:\d+/u,
     `${label}: restored shell contains a warning or stack trace`);
   terminalProtocolEvidence(writesPath, label);
@@ -578,7 +691,7 @@ function signalEvidence(signalCase, label, signalsDir) {
     && caseRelative !== '..' && !isAbsolute(caseRelative), `${label} evidence directory must stay inside signals`);
   const evidence = signalCase.evidence;
   assert.ok(evidence && typeof evidence === 'object' && !Array.isArray(evidence), `${label}.evidence must be an object`);
-  const captures = captureEvidence([evidence.before], `${label}.evidence.before`, caseDir);
+  const captures = captureEvidence([evidence.before], `${label}.evidence.before`, caseDir, 'signals');
   const shellPath = evidenceFile(evidence.restoredShell, `${label}.evidence.restoredShell`, caseDir);
   const ttyPath = evidenceFile(evidence.ttyState, `${label}.evidence.ttyState`, caseDir);
   const writesPath = evidenceFile(evidence.terminalWrites, `${label}.evidence.terminalWrites`, caseDir);
@@ -597,16 +710,13 @@ function signalEvidence(signalCase, label, signalsDir) {
   terminalProtocolEvidence(writesPath, label);
 
   const perfEntries = readJsonLines(perfPath);
-  const starts = perfEntries.filter((entry) => entry.type === 'lifecycle' && entry.action === 'start');
-  const stops = perfEntries.filter((entry) => entry.type === 'lifecycle' && entry.action === 'stop');
-  assert.equal(starts.length, 1, `${label}: perf evidence must contain exactly one lifecycle start`);
-  assert.equal(stops.length, 1, `${label}: perf evidence must contain exactly one lifecycle stop`);
+  lifecycleEvidence(perfEntries, `${label}.evidence.perf`, 1);
   const frames = perfEntries.filter((entry) => entry.type === 'frame');
   const performance = analyzeFrameDiagnostics(frames);
-  assert.ok(frames.every((frame) => frame.at <= stops[0].at), `${label}: a frame rendered after lifecycle stop`);
   const reported = performanceSummary(signalCase.performance, `${label}.performance`);
   assert.deepEqual(reported.ordinaryMs, performance.ordinaryMs, `${label}: reported ordinary timing differs from raw perf`);
   assert.deepEqual(reported.forcedMs, performance.forcedMs, `${label}: reported forced timing differs from raw perf`);
+  assert.deepEqual(signalCase.performance, performance, `${label}: reported performance differs from raw perf evidence`);
   return { captures, performance };
 }
 
@@ -688,7 +798,7 @@ export function aggregateTmuxReports(root, {
         performance.push(raw.performance);
       }
     } else {
-      captures += captureEvidence(entry.value.captures, `${entry.path}.captures`, dirname(entry.path));
+      captures += captureEvidence(entry.value.captures, `${entry.path}.captures`, dirname(entry.path), entry.scenario);
       performance.push(normalScenarioEvidence(entry.value, entry.path, dirname(entry.path)));
     }
   }
