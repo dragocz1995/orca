@@ -297,6 +297,31 @@ describe('SubagentPanel', () => {
     expect(p.render(80)).toEqual([]);
     expect(p.isHeaderRow(0)).toBe(false);
   });
+
+  it('scrolls a capped running-agent window while keeping row targets aligned', () => {
+    const p = new SubagentPanel();
+    p.setMaxRows(3);
+    p.set(Array.from({ length: 8 }, (_, i) => ({
+      ...running, sessionId: `child-${i}`, task: `task ${i}`,
+    })));
+
+    const first = p.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
+    expect(first[0]).toContain('1–2/8');
+    expect(first.join('\n')).toContain('task 0');
+    expect(first.join('\n')).not.toContain('task 3');
+    expect(p.canScroll()).toBe(true);
+
+    expect(p.scroll(-3)).toBe(true); // wheel down
+    const scrolled = p.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
+    expect(scrolled[0]).toContain('4–5/8');
+    expect(scrolled.join('\n')).toContain('task 3');
+    expect(scrolled.join('\n')).toContain('task 4');
+    expect(p.targetAt(1)).toBe('child-3');
+    expect(p.targetAt(2)).toBe('child-4');
+
+    expect(p.scroll(3)).toBe(true); // wheel up
+    expect(p.render(46).join('\n')).toContain('task 0');
+  });
 });
 
 describe('ProcessPanel', () => {

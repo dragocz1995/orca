@@ -442,6 +442,7 @@ describe('chat layout components', () => {
     mcp: null,
     lspEnabled: null,
     processes: [],
+    subagents: [],
     rateLimits: null,
     floatOffset: 0,
     ...over,
@@ -544,6 +545,62 @@ describe('chat layout components', () => {
     expect(plain.join('\n')).toContain('Processes');
     const killColumn = plain[processRow]!.indexOf('✕') + 1;
     expect(panel.processKillAt(processRow, killColumn)).toBe('p-right');
+  });
+
+  it('renders a scrollable running Sub-agents section with aligned drill-in targets', () => {
+    const subagents = Array.from({ length: 8 }, (_, index) => ({
+      sessionId: `child-${index}`,
+      task: `agent-${index}`,
+      status: 'running' as const,
+      detail: `tool ${index}`,
+      tools: index,
+      tokens: 100 + index,
+      seconds: index + 1,
+      model: 'deepseek-v4-flash',
+    }));
+    const panel = new TelemetryPanel(() => telemetryState({ subagents }));
+
+    const first = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
+    const firstTaskRow = first.findIndex((line) => line.includes('agent-0'));
+    expect(first.join('\n')).toContain('Sub-agents');
+    expect(first.join('\n')).toContain('1–4/8');
+    expect(panel.subagentAt(firstTaskRow)).toBe('child-0');
+    expect(panel.canScrollSubagents()).toBe(true);
+
+    expect(panel.scrollSubagents(-3)).toBe(true);
+    const scrolled = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
+    const fourthTaskRow = scrolled.findIndex((line) => line.includes('agent-3'));
+    expect(scrolled.join('\n')).toContain('4–7/8');
+    expect(scrolled.join('\n')).not.toContain('agent-0');
+    expect(panel.subagentAt(fourthTaskRow)).toBe('child-3');
+  });
+
+  it('prioritizes one running sub-agent row over passive telemetry details on short rails', () => {
+    const panel = new TelemetryPanel(() => telemetryState({
+      subagents: Array.from({ length: 8 }, (_, index) => ({
+        sessionId: `child-active-${index}`, task: `active-${index}`, status: 'running' as const, detail: 'working',
+        tools: 2, tokens: 500, seconds: 9, model: 'deepseek-v4-flash',
+      })),
+      rateLimits: {
+        provider: 'openai-codex', planType: 'pro', fetchedAt: 123, stale: false,
+        primary: { usedPercent: 25, windowMinutes: 300, resetsAt: 1_900_000_000 },
+        secondary: { usedPercent: 80, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+      },
+      mcp: [{ name: 'github', status: 'connected' }],
+      lspEnabled: true,
+    }));
+    panel.setMaxRows(11);
+
+    const rendered = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
+    expect(rendered).toContain('Context');
+    expect(rendered).toContain('Sub-agents');
+    expect(rendered).toContain('1–2/8');
+    expect(rendered).toContain('active-0');
+    expect(rendered).toContain('active-1');
+    expect(rendered).not.toContain('active-2');
+    expect(rendered).toContain('Project');
+    expect(rendered).not.toContain('MCP');
+    expect(rendered).not.toContain('LSP');
   });
 
   it('lists connected MCP servers with a count and shows the LSP state', () => {

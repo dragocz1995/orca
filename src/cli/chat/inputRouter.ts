@@ -127,6 +127,13 @@ export class InputRouter {
     if (click && noModal && context.panelVisible() && click.x > context.panelLeftEdge()) {
       const localRow = click.y - TOP_RULE_ROWS - 1;
       const localX = click.x - context.panelLeftEdge();
+      if (context.telemetry.isSubagentHeaderRow(localRow)) {
+        context.telemetry.toggleSubagents();
+        context.render('input:subagents-toggle');
+        return { consume: true };
+      }
+      const subagent = context.telemetry.subagentAt(localRow);
+      if (subagent) { void stream.openSubagent(subagent); return { consume: true }; }
       if (context.telemetry.isProcessHeaderRow(localRow)) {
         context.telemetry.toggleProcesses();
         context.render('input:process-toggle');
@@ -169,6 +176,13 @@ export class InputRouter {
       }
     }
     const wheel = mouseWheel(data);
+    if (wheel && noModal && event && context.panelVisible() && event.x > context.panelLeftEdge()
+      && context.telemetry.canScrollSubagents()) {
+      if (context.telemetry.scrollSubagents(wheel)) context.render('scroll:subagents');
+      // Keep wheel ownership stable at both ends of the list: reaching its boundary must not suddenly
+      // start moving the transcript underneath the pointer.
+      return { consume: true };
+    }
     if (wheel && noModal) {
       context.render('scroll:wheel');
       context.activeViewport().scroll(wheel);

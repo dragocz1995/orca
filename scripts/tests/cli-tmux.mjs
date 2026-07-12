@@ -433,12 +433,54 @@ try {
     && entry.event?.type === 'idle' && entry.event?.usage?.totalTokens === 2345));
   await sleep(120);
 
+  await resizeDiagnosed(180, 50, 'settled multi-agent turn', (plain) => plain.includes('E2E SECOND USER')
+    && plain.includes('E2E TOOL OUTPUT') && plain.includes('E2E FINAL REPLY'));
+  const settledTurnCapture = saveCapture('07b-settled-multi-agent-turn');
+  const settledTurnLines = settledTurnCapture.endsWith('\n')
+    ? settledTurnCapture.slice(0, -1).split('\n')
+    : settledTurnCapture.split('\n');
+  assert.ok(blankBetween(settledTurnLines, /E2E SECOND USER/, /npm run e2e-demo/),
+    'user turn and tool block need a blank separator');
+  assert.ok(blankBetween(settledTurnLines, /E2E TOOL OUTPUT/, /E2E FINAL REPLY/),
+    'tool output and final answer need a blank separator');
+
   resize(120, 30);
   await waitFor('Todo and telemetry panels after stream', () => capture().includes('Todos')
     && capture().includes('Context') && capture().includes('Limits pro') && capture().includes('E2E FINAL REPLY'));
   const panelCapture = saveCapture('08-panels-after-stream');
-  assert.match(panelCapture, /Sub-agent click verify the CLI panels/u,
-    'settled delegated work must remain visible as a drill-in row');
+  assert.match(panelCapture, /Sub-agent click agent-[0-7] verify the CLI panels/u,
+    'delegated work must remain visible as a transcript drill-in row');
+  assert.match(panelCapture, /Sub-agents\s+1–4\/8/u,
+    'running delegated work must use the dedicated right-rail window');
+  assert.equal((panelCapture.match(/Sub-agents/gu) ?? []).length, 1,
+    'wide layouts must not duplicate running agents below Todos');
+
+  // Wheel input inside the right rail belongs to its running-agent window, never the transcript.
+  sendRaw('\x1b[<65;110;10M');
+  await waitFor('right-rail sub-agent scroll', () => capture().includes('4–7/8'));
+  const agentScrollCapture = saveCapture('08d-subagents-scrolled');
+  assert.match(agentScrollCapture, /agent-3/u, 'scrolled rail must reveal the fourth running agent');
+  assert.doesNotMatch(agentScrollCapture, /agent-0 verify/u, 'scrolled rail must move past the first agent');
+
+  // A row in the scrolled window must retain its session mapping and drill into that child.
+  const agentRow = agentScrollCapture.split('\n').findIndex((line) => line.indexOf('agent-3') > 74) + 1;
+  assert.ok(agentRow > 1, 'scrolled running-agent row must be present in the captured frame');
+  sendRaw(`\x1b[<0;110;${agentRow}M`);
+  sendRaw(`\x1b[<0;110;${agentRow}m`);
+  await waitFor('scrolled right-rail sub-agent drill-in', () => capture().includes('E2E CHILD UNIQUE HISTORY'));
+  saveCapture('08e-subagent-rail-drill-in');
+  sendKey('Escape');
+  await waitFor('return from rail sub-agent', () => capture().includes('E2E FINAL REPLY')
+    && !capture().includes('E2E CHILD UNIQUE HISTORY'));
+
+  // At a width where the rail cannot exist, retain one compact in-chat fallback instead of losing all
+  // visibility of live delegated work. Growing back restores the rail without duplication.
+  await resizeDiagnosed(96, 24, 'narrow running-agent fallback', (plain) => plain.includes('Sub-agents')
+    && !plain.includes('Context'));
+  const fallbackCapture = saveCapture('08f-subagents-narrow-fallback');
+  assert.match(fallbackCapture, /Sub-agents/u, 'narrow chat must retain the running-agent fallback');
+  await resizeDiagnosed(120, 30, 'restore running-agent rail', (plain) => plain.includes('Context')
+    && plain.includes('Sub-agents'));
 
   // Real ctrl+o follows the same production sub-agent cycle path as clicking the row. The child has a
   // unique persisted history fixture, and Esc must restore the untouched parent tail.
@@ -628,12 +670,10 @@ try {
   const finalLines = finalCapture.endsWith('\n') ? finalCapture.slice(0, -1).split('\n') : finalCapture.split('\n');
   assert.equal(finalLines.length, size.rows, `tmux pane must remain exactly ${size.rows} rows tall`);
   assert.equal((finalCapture.match(/\bBuild\b/g) ?? []).length, 1, 'status metadata must contain exactly one Build row');
-  assert.match(panelCapture, /E2E SECOND USER/, 'second user turn must render in its settled capture');
-  assert.match(panelCapture, /E2E TOOL OUTPUT/, 'final tool output must render in its settled capture');
-  assert.match(panelCapture, /E2E FINAL REPLY/, 'final assistant text must render in its settled capture');
-  assert.doesNotMatch(panelCapture, /\[?exit 0\]?/i, 'successful tool status must not render exit 0');
-  assert.ok(blankBetween(todoLines, /E2E SECOND USER/, /npm run e2e-demo/), 'user turn and tool block need a blank separator');
-  assert.ok(blankBetween(todoLines, /E2E TOOL OUTPUT/, /E2E FINAL REPLY/), 'tool output and final answer need a blank separator');
+  assert.match(settledTurnCapture, /E2E SECOND USER/, 'second user turn must render in its settled capture');
+  assert.match(settledTurnCapture, /E2E TOOL OUTPUT/, 'final tool output must render in its settled capture');
+  assert.match(settledTurnCapture, /E2E FINAL REPLY/, 'final assistant text must render in its settled capture');
+  assert.doesNotMatch(settledTurnCapture, /\[?exit 0\]?/i, 'successful tool status must not render exit 0');
   assert.match(finalCapture, /E2E ASK ANSWER ACCEPTED/, 'the resumed ask turn must remain at the final tail');
 
   sendKey('C-c');

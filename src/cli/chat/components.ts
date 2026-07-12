@@ -160,30 +160,49 @@ export interface SubagentPanelEntry {
   model?: string;
 }
 
-/** A slim fixed panel under the Todos card listing the conversation's delegated sub-agents — a
- *  spinner + task per row with the child's current tool and counters, each row clickable to open that
- *  child's session. Running agents only (settled ones live on as their transcript row); renders
- *  nothing when no sub-agent runs, so the bottom stack pays zero rows for the feature at rest. */
+/** A bounded live list shared by the telemetry rail and its narrow-terminal chat fallback — a spinner
+ *  + task per row with the child's current tool and counters, each row clickable to open that session.
+ *  Running agents only (settled ones live on as transcript rows); larger sets use a panel-local window. */
 export class SubagentPanel implements Component {
   private entries: SubagentPanelEntry[] = [];
   private collapsed = false;
   private maxRows = Number.POSITIVE_INFINITY;
+  private scrollOffset = 0;
   /** Row index (0-based within this panel's output) → the sub-agent session that row opens. */
   private rowTargets = new Map<number, string>();
   invalidate(): void { /* re-rendered on the next frame */ }
-  set(entries: readonly SubagentPanelEntry[]): void { this.entries = entries.filter((e) => e.status === 'running'); }
-  setMaxRows(rows: number): void { this.maxRows = Math.max(0, Math.floor(rows)); }
+  set(entries: readonly SubagentPanelEntry[]): void {
+    this.entries = entries.filter((e) => e.status === 'running');
+    this.clampScroll();
+  }
+  setMaxRows(rows: number): void {
+    this.maxRows = Math.max(0, Math.floor(rows));
+    this.clampScroll();
+  }
   desiredRows(): number { return this.entries.length === 0 ? 0 : this.collapsed ? 1 : this.entries.length + 1; }
   targetAt(index: number): string | null { return this.rowTargets.get(index) ?? null; }
+  canScroll(): boolean { return !this.collapsed && this.viewportRows() > 0 && this.entries.length > this.viewportRows(); }
+  scroll(delta: number): boolean {
+    if (!this.canScroll()) return false;
+    const previous = this.scrollOffset;
+    this.scrollOffset = Math.max(0, Math.min(this.maxScrollOffset(), this.scrollOffset - Math.trunc(delta)));
+    return this.scrollOffset !== previous;
+  }
   /** The header (row 0) toggles the agent list open/closed, mirroring the Todos card. */
   isHeaderRow(index: number): boolean { return index === 0 && this.entries.length > 0 && this.maxRows > 0; }
-  toggleCollapsed(): void { this.collapsed = !this.collapsed; }
+  toggleCollapsed(): void { this.collapsed = !this.collapsed; this.clampScroll(); }
   render(width = 80): string[] {
     this.rowTargets = new Map();
     if (this.entries.length === 0 || this.maxRows <= 0) return [];
-    const lines: string[] = [`  ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Sub-agents'))}${FAINTC(`  ${this.entries.length} running`)} ${FAINTC('click')}`];
+    const capacity = this.viewportRows();
+    this.clampScroll();
+    const range = this.canScroll()
+      ? `  ${this.scrollOffset + 1}–${Math.min(this.entries.length, this.scrollOffset + capacity)}/${this.entries.length} ↕`
+      : `  ${this.entries.length} running`;
+    const header = `  ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Sub-agents'))}${FAINTC(range)} ${FAINTC('click')}`;
+    const lines: string[] = [truncateToWidth(header, Math.max(1, width), '…')];
     if (this.collapsed) return lines;
-    const shownEntries = this.entries.slice(0, Math.max(0, this.maxRows - 1));
+    const shownEntries = this.entries.slice(this.scrollOffset, this.scrollOffset + capacity);
     for (const e of shownEntries) {
       const meta = [e.detail, e.model, formatDuration(e.seconds), e.tokens ? `${formatK(e.tokens)} tok` : '']
         .filter(Boolean).map((value) => inlineText(String(value))).join(' · ');
@@ -194,11 +213,14 @@ export class SubagentPanel implements Component {
       this.rowTargets.set(lines.length, e.sessionId);
       lines.push(`${row}${' '.repeat(gap)}${metaText}`);
     }
-    if (shownEntries.length < this.entries.length && lines.length < this.maxRows) {
-      lines.push(`    ${FAINTC(`… +${this.entries.length - shownEntries.length} more`)}`);
-    }
     return lines;
   }
+
+  private viewportRows(): number {
+    return Number.isFinite(this.maxRows) ? Math.max(0, this.maxRows - 1) : this.entries.length;
+  }
+  private maxScrollOffset(): number { return Math.max(0, this.entries.length - this.viewportRows()); }
+  private clampScroll(): void { this.scrollOffset = Math.min(this.scrollOffset, this.maxScrollOffset()); }
 }
 
 /** A slim fixed panel under the Sub-agents card listing the owner's live background shell processes

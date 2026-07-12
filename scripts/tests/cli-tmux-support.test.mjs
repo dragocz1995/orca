@@ -502,7 +502,11 @@ test('aggregate analyzer requires two complete goal+short+long+signals rounds wi
     const summary = aggregateTmuxReports(root, aggregateOptions(2));
     assert.equal(summary.rounds, 2);
     assert.equal(summary.scenarios, 8);
-    assert.equal(summary.captures, 108);
+    const capturesPerRound = Object.values(EXPECTED_TMUX_CAPTURE_LABELS)
+      .reduce((sum, labels) => sum + labels.length, 0)
+      // The one signal checkpoint is required independently for both SIGTERM and SIGHUP cases.
+      + EXPECTED_TMUX_CAPTURE_LABELS.signals.length;
+    assert.equal(summary.captures, capturesPerRound * 2);
     assert.equal(summary.ordinaryMs.max, 37);
     assert.deepEqual(summary.commits, ['abc']);
   } finally {

@@ -2,6 +2,7 @@ import { Container, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui
 import type { Component, MarkdownTheme, TUI } from '@earendil-works/pi-tui';
 import { color } from './theme.js';
 import { StatusBar, CardPanel, SubagentPanel, spinnerFrame } from './components.js';
+import type { SubagentPanelEntry } from './components.js';
 import { activeMention, CLIPBOARD_MENTION, imageMimeFor, rankMentionFiles, bumpMentionFrecency, mentionInsertText } from './mentions.js';
 import { isSlashCommandDraft } from './commands.js';
 import { activeKeymap, createLeaderState } from './keys.js';
@@ -180,14 +181,24 @@ export function createChatComposition(
     promptStash, shellContext, mentionIndex, commandDefs, cwdLabel, branchLabel, lifetime,
   } = resources;
   let renderOwner!: RenderShell;
+  let scheduledMessagePresence = rt.transcript.turnCount > 0;
   const render = (reason = 'state'): void => {
     // Process snapshots only feed the telemetry rail. Keep the state mutation in StreamCoordinator, but
     // do not wake and rebuild a long transcript while that rail cannot be seen; its latest snapshot is
     // read naturally by the next resize/toggle/ordinary frame.
     if ((reason === 'metadata:processes' || reason === 'stream:process') && !panelVisible()) return;
+    const messages = rt.transcript.turnCount > 0;
+    if (messages !== scheduledMessagePresence) {
+      scheduledMessagePresence = messages;
+      renderOwner.scheduleForcedRender(`geometry:conversation-surface:${reason}`);
+      return;
+    }
     renderOwner.scheduleRender(reason);
   };
-  const renderForced = (reason = 'geometry'): void => renderOwner.scheduleForcedRender(reason);
+  const renderForced = (reason = 'geometry'): void => {
+    scheduledMessagePresence = rt.transcript.turnCount > 0;
+    renderOwner.scheduleForcedRender(reason);
+  };
 
   // `let`, not `const`: the /keybinds editor swaps the live keymap (and its leader window) in place via
   // reloadKeymap below. Every closure here — the input dispatcher, the hint lines, the leader chip —
@@ -234,6 +245,9 @@ export function createChatComposition(
     preferredColumns: panelWidth,
   });
   const panelVisible = (): boolean => telemetryGeometry().columns > 0;
+  /** Physical rail availability ignores the user's show/hide preference. A compact sub-agent fallback
+   * belongs in the chat only when the terminal cannot host the rail, not when the user hid telemetry. */
+  const panelAvailable = (): boolean => telemetryGeometry(true).columns > 0;
   const panelReserve = (): number => {
     const geometry = telemetryGeometry();
     return geometry.columns + geometry.gutter;
@@ -253,6 +267,7 @@ export function createChatComposition(
   let preparedInput: { width: number; queue: string[]; attachments: string[]; editor: string[] } | null = null;
   let overlayGeometryRevision: string | null = null;
   let fullOverlayReflowPending = false;
+  let preparedMessagePresence = hasMessages();
   const activeInputComponent = (): (Component & { setMaxRows?: (rows: number | null) => void }) | undefined =>
     editorSlot.children[0] as (Component & { setMaxRows?: (rows: number | null) => void }) | undefined;
   const hasPriorityInput = (): boolean => activeInputComponent() !== editor;
@@ -378,6 +393,7 @@ export function createChatComposition(
   );
   const activeViewport = (): ChatViewport => rt.childView ? (childViewport ?? parentViewport) : parentViewport;
   let currentRunSeconds = 0;
+  let currentAgents: readonly SubagentPanelEntry[] = [];
   telemetry = new TelemetryPanel(() => ({
     usage: rt.usage,
     cwd: cwdLabel,
@@ -385,6 +401,7 @@ export function createChatComposition(
     mcp: rt.mcpList,
     lspEnabled: rt.lspEnabled,
     processes: rt.processes,
+    subagents: currentAgents,
     rateLimits: rt.rateLimits,
     floatOffset: animations.mascotOffset,
   }));
@@ -507,7 +524,8 @@ export function createChatComposition(
     }
     // Contextual footer: while streaming, Esc interrupts; inside a sub-agent view, input steers the child.
     const footerState = rt.childView ? 'child' : rt.transcript.thinking ? 'thinking' : 'idle';
-    const agents = stream.subagentStates(); // one transcript scan per frame (formerly two)
+    currentAgents = stream.subagentStates(); // one transcript scan per frame, shared by rail + fallback
+    const agents = currentAgents;
     bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now())}`)
       + (footerState === 'idle' && shellContext.pending ? `   ${color.warning('· ! output → next message')}` : ''));
     const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
@@ -531,7 +549,7 @@ export function createChatComposition(
     // actually visible. Narrow terminals cannot fit that rail; retaining the compact card there avoids
     // making background work disappear entirely while still preventing duplicates on wide layouts.
     cardPanel.set(rt.cards.filter((c) => c.id !== 'bg-processes' || !panelVisible()));
-    subPanel.set(agents);
+    subPanel.set(panelAvailable() ? [] : agents);
     // Pending mid-turn queue strip above the composer (with the remove-last keybind hint when bound).
     const removeChord = keymap.chordLabel('queue_remove');
     queuedMessages.set(rt.queued, rt.queued.length && removeChord ? `${removeChord} removes the last queued message` : null);
@@ -547,6 +565,14 @@ export function createChatComposition(
       fullOverlayReflowPending = true;
     },
     prepare: () => {
+      const messages = hasMessages();
+      if (messages !== preparedMessagePresence) {
+        preparedMessagePresence = messages;
+        // The rail is mounted while the start screen is still empty with maxHeight=1 and `visible=false`.
+        // Its first chat frame needs fresh native PI options; reserving chat width alone cannot update
+        // an already-mounted overlay's height/margins.
+        fullOverlayReflowPending = true;
+      }
       currentBudget = null;
       preparedInput = null;
       prepareFrame();

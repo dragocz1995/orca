@@ -915,6 +915,84 @@ describe('chat application shell ownership', () => {
     },
   );
 
+  it('moves running sub-agents into the rail, scrolls them with the panel wheel, and keeps a narrow fallback', async () => {
+    const h = compositionHarness({ columns: 120, rows: 24, turns: 40 });
+    const agents = Array.from({ length: 8 }, (_, index) => ({
+      sessionId: `child-${index}`,
+      task: `agent-${index}`,
+      status: 'running' as const,
+      detail: `tool-${index}`,
+      tools: index,
+      tokens: 100 + index,
+      seconds: index + 1,
+      model: 'deepseek-v4-flash',
+    }));
+    vi.spyOn(h.stream, 'subagentStates').mockReturnValue(agents);
+    const openSubagent = vi.spyOn(h.stream, 'openSubagent').mockResolvedValue(undefined);
+    const composition = makeComposition(h);
+    composition.resume();
+    composition.renderForced('test:running-agents');
+    await vi.runOnlyPendingTimersAsync();
+
+    const wideRoot = renderMountedRoot(h).map(terminalPlainText).join('\n');
+    expect(wideRoot).not.toContain('Sub-agents');
+    const telemetry = h.tui.overlays.find((overlay) => !overlay.removed
+      && overlay.options?.anchor === 'top-right')!;
+    const first = telemetry.component.render(46).map(terminalPlainText);
+    expect(first.join('\n')).toContain('Sub-agents');
+    expect(first.join('\n')).toContain('agent-0');
+    expect(first.join('\n')).toContain('1–4/8');
+
+    expect(h.tui.emit('\x1b[<65;110;10M')?.consume).toBe(true); // wheel down inside the rail
+    await vi.runOnlyPendingTimersAsync();
+    renderMountedRoot(h);
+    const scrolled = telemetry.component.render(46).map(terminalPlainText);
+    expect(scrolled.join('\n')).toContain('4–7/8');
+    expect(scrolled.join('\n')).toContain('agent-3');
+    expect(scrolled.join('\n')).not.toContain('agent-0');
+
+    const targetRow = scrolled.findIndex((line) => line.includes('agent-3'));
+    expect(targetRow).toBeGreaterThan(0);
+    expect(h.tui.emit(`\x1b[<0;110;${targetRow + TOP_RULE_ROWS + 1}M`)?.consume).toBe(true);
+    expect(openSubagent).toHaveBeenCalledWith('child-3');
+
+    h.term.columns = 96;
+    composition.renderForced('test:narrow-running-agents');
+    await vi.runOnlyPendingTimersAsync();
+    const narrowRoot = renderMountedRoot(h).map(terminalPlainText).join('\n');
+    expect(narrowRoot).toContain('Sub-agents');
+    expect(narrowRoot).toContain('agent-0');
+    composition.dispose();
+    composition.stop();
+  });
+
+  it('reflows the telemetry overlay when a new conversation receives its first message', async () => {
+    const h = compositionHarness({ columns: 120, rows: 24, turns: 0 });
+    const composition = makeComposition(h);
+    composition.resume();
+    composition.renderForced('test:empty-conversation');
+    await vi.runOnlyPendingTimersAsync();
+    renderMountedRoot(h);
+    const initial = h.tui.overlays.find((overlay) => !overlay.removed
+      && overlay.options?.anchor === 'top-right')!;
+    expect(initial.options?.maxHeight).toBe(1);
+
+    h.rt.transcript.apply({ type: 'user', text: 'first message' });
+    composition.render('stream:user');
+    await vi.runOnlyPendingTimersAsync();
+    expect(h.tui.renderRequests.at(-1)).toBe(true);
+    renderMountedRoot(h);
+
+    const active = h.tui.overlays.find((overlay) => !overlay.removed
+      && overlay.options?.anchor === 'top-right')!;
+    expect(active).not.toBe(initial);
+    expect(initial.removed).toBe(true);
+    expect(active.options?.maxHeight).toBe(23);
+    expect(active.component.render(46).map(terminalPlainText).join('\n')).toContain('Context');
+    composition.dispose();
+    composition.stop();
+  });
+
   it('does not arm mascot frames when the visible telemetry budget omits the mascot', async () => {
     const h = compositionHarness({ columns: 104, rows: 24, turns: 40 });
     const composition = makeComposition(h);

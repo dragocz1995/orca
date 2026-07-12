@@ -177,12 +177,25 @@ function runSecondTurn(text) {
     type: 'tool', id: 'final-tool', name: 'run_command',
     detail: 'npm run e2e-demo', command: 'npm run e2e-demo',
   }));
-  later(150, () => emit({ type: 'tool', id: 'delegate-e2e', name: 'delegate', detail: 'verify the CLI panels' }));
-  later(180, () => emit({
-    type: 'subagent', id: 'delegate-e2e', sessionId: 'e2e-child', status: 'running',
-    task: 'verify the CLI panels', detail: 'checking resize', tools: 2, tokens: 321, seconds: 4,
-    model: 'mock/e2e-child',
-  }));
+  later(150, () => {
+    for (let index = 0; index < 8; index += 1) {
+      emit({
+        type: 'tool', id: index === 0 ? 'delegate-e2e' : `delegate-e2e-${index}`,
+        name: 'delegate', detail: `agent-${index} verify the CLI panels`,
+      });
+    }
+  });
+  later(180, () => {
+    for (let index = 0; index < 8; index += 1) {
+      emit({
+        type: 'subagent', id: index === 0 ? 'delegate-e2e' : `delegate-e2e-${index}`,
+        sessionId: index === 0 ? 'e2e-child' : `e2e-child-${index}`,
+        status: 'running', task: `agent-${index} verify the CLI panels`,
+        detail: `checking panel ${index}`, tools: index + 1, tokens: 321 + index, seconds: 4 + index,
+        model: 'deepseek-v4-flash',
+      });
+    }
+  });
   later(220, () => emit({ type: 'tool_progress', id: 'final-tool', text: 'E2E TOOL STREAMING' }));
   later(240, () => emit({
     type: 'card',
@@ -208,11 +221,6 @@ function runSecondTurn(text) {
     },
   }));
   later(420, () => emit({ type: 'text', delta: 'E2E FINAL REPLY' }));
-  later(460, () => emit({
-    type: 'subagent', id: 'delegate-e2e', sessionId: 'e2e-child', status: 'done',
-    task: 'verify the CLI panels', detail: 'done', tools: 3, tokens: 654, seconds: 7,
-    model: 'mock/e2e-child',
-  }));
   later(520, () => emit({
     type: 'idle', model: 'mock/e2e-model',
     usage: { tokens: 1234, contextWindow: 100000, percent: 1.2, totalTokens: 2345, cost: 0.0123 },
@@ -370,7 +378,7 @@ const server = createServer(async (req, res) => {
   }
   if (req.method === 'GET' && url.pathname === '/brain/messages') {
     const requestedSession = url.searchParams.get('session');
-    const history = requestedSession === 'e2e-child'
+    const history = requestedSession?.startsWith('e2e-child')
       ? childHistory
       : process.env.ELOWEN_TMUX_LONG === '1' ? longHistory : shortHistory;
     json(res, 200, history);
