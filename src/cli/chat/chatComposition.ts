@@ -73,11 +73,12 @@ export function statusline(
   return parts.join('  ·  ');
 }
 
-/** The animated "model is generating" chip for the prompt meta line — a subtle spinner + elapsed
- *  seconds next to the reasoning level, replacing the old `thinking… Ns` transcript line (which kept
- *  pushing the conversation around). Time-based frame so every render advances it. */
-function generatingChip(seconds: number): string {
-  return `${color.accent(spinnerFrame())} ${color.faint(formatDuration(seconds))}`;
+/** One stable composer activity chip. Compaction is named explicitly because the agent run may already
+ * be idle while its summary request is still busy; ordinary generation keeps the compact spinner/time. */
+function activityChip(activity: 'agent' | 'compaction' | null, seconds: number): string | undefined {
+  if (!activity) return undefined;
+  const label = activity === 'compaction' ? `${color.warning('compacting')} ` : '';
+  return `${color.accent(spinnerFrame())} ${label}${color.faint(formatDuration(seconds))}`;
 }
 
 /** Active-goal status lives in the existing composer metadata row, so it consumes no layout height and
@@ -349,7 +350,7 @@ export function createChatComposition(
     {
       transcript: rt.transcript,
       conversationKey: client.boundSession,
-      transcriptNotice: rt.transcript.notice,
+      transcriptNotice: rt.transcript.activity === 'compaction' ? undefined : rt.transcript.notice,
       notice: rt.notice,
       modelName: rt.modelName,
       thinkingSeconds: 0,
@@ -365,7 +366,9 @@ export function createChatComposition(
     {
       transcript: rt.childView?.transcript ?? rt.transcript,
       conversationKey: rt.childView?.sessionId ?? client.boundSession,
-      transcriptNotice: rt.childView?.transcript.notice ?? rt.transcript.notice,
+      transcriptNotice: (rt.childView?.transcript ?? rt.transcript).activity === 'compaction'
+        ? undefined
+        : (rt.childView?.transcript.notice ?? rt.transcript.notice),
       notice: '', modelName: rt.modelName, thinkingSeconds: 0,
     },
     mdTheme,
@@ -474,7 +477,7 @@ export function createChatComposition(
     parentViewport.setState({
       transcript: rt.transcript,
       conversationKey: client.boundSession,
-      transcriptNotice: rt.transcript.notice,
+      transcriptNotice: rt.transcript.activity === 'compaction' ? undefined : rt.transcript.notice,
       notice: rt.notice,
       modelName: rt.modelName,
       thinkingSeconds: currentRunSeconds,
@@ -488,7 +491,7 @@ export function createChatComposition(
       childViewport.setState({
         transcript: rt.childView.transcript,
         conversationKey: rt.childView.sessionId,
-        transcriptNotice: rt.childView.transcript.notice,
+        transcriptNotice: rt.childView.transcript.activity === 'compaction' ? undefined : rt.childView.transcript.notice,
         notice: rt.childView.loading
           ? color.dim('· loading sub-agent transcript…')
           : (rt.notice || color.dim('· sub-agent session — your messages go to this agent')),
@@ -510,7 +513,15 @@ export function createChatComposition(
     const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
     const line = statusline(rt.lineCfg ? { ...rt.lineCfg, showModel: false } : null, rt.usage, rt.modelName);
     const activeGoal = goalMeta(rt.goal);
-    const metaLeft = modelMetaLine(rt.workMode, rt.modelName, rt.thinkingLevelLabels[rt.thinkingLevel] ?? rt.thinkingLevel, rt.transcript.thinking ? generatingChip(currentRunSeconds) : undefined, rt.yoloOn, rt.fastOn, activeGoal) + leaderChip();
+    const metaLeft = modelMetaLine(
+      rt.workMode,
+      rt.modelName,
+      rt.thinkingLevelLabels[rt.thinkingLevel] ?? rt.thinkingLevel,
+      activityChip(rt.transcript.activity, currentRunSeconds),
+      rt.yoloOn,
+      rt.fastOn,
+      activeGoal,
+    ) + leaderChip();
     const metaRight = panelVisible() || !line ? projectLine : `${color.faint(line)} ${color.faint('·')} ${projectLine}`;
     promptMeta.setLeft(metaLeft);
     // Project context yields only when the active-goal progress would otherwise be truncated. It remains

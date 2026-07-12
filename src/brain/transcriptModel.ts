@@ -35,6 +35,7 @@ export interface TranscriptRead {
   readonly revision: number;
   readonly turnCount: number;
   readonly thinking: boolean;
+  readonly activity: 'agent' | 'compaction' | null;
   readonly notice: string | undefined;
   turnAt(index: number): ChatTurn | undefined;
   changesSince(revision: number): TranscriptChange;
@@ -66,6 +67,7 @@ export class TranscriptModel implements TranscriptRead {
   private readonly sourceSessions = new Map<string, string>();
   private lastAssistant = '';
   private thinkingState = false;
+  private compactionActive = false;
   private noticeState: string | undefined;
   private currentRevision = 0;
 
@@ -81,7 +83,10 @@ export class TranscriptModel implements TranscriptRead {
 
   get revision(): number { return this.currentRevision; }
   get turnCount(): number { return this.turns.length; }
-  get thinking(): boolean { return this.thinkingState; }
+  get thinking(): boolean { return this.thinkingState || this.compactionActive; }
+  get activity(): 'agent' | 'compaction' | null {
+    return this.compactionActive ? 'compaction' : this.thinkingState ? 'agent' : null;
+  }
   get notice(): string | undefined { return this.noticeState; }
 
   turnAt(index: number): ChatTurn | undefined { return this.visit(index); }
@@ -121,6 +126,7 @@ export class TranscriptModel implements TranscriptRead {
         return true;
       }
       case 'notice':
+        if (event.kind === 'compaction') this.compactionActive = !event.done;
         this.noticeState = event.done ? undefined : event.message;
         this.publish({ kind: 'none' });
         return true;
@@ -189,6 +195,9 @@ export class TranscriptModel implements TranscriptRead {
         this.turns.length = 0;
         this.clearDerived();
         this.lastAssistant = '';
+        this.thinkingState = false;
+        this.compactionActive = false;
+        this.noticeState = undefined;
         this.publish({ kind: 'reset' });
         return true;
       case 'user': {
@@ -204,7 +213,7 @@ export class TranscriptModel implements TranscriptRead {
         const last = index >= 0 ? this.visit(index) : undefined;
         if (last?.role === 'elowen') this.turns[index] = { ...last, streaming: false };
         this.thinkingState = false;
-        this.noticeState = undefined;
+        if (!this.compactionActive) this.noticeState = undefined;
         this.publish(last?.role === 'elowen' ? { kind: 'turn', index } : { kind: 'none' });
         return true;
       }
@@ -215,6 +224,7 @@ export class TranscriptModel implements TranscriptRead {
         turn.streaming = false;
         this.lastAssistant = (fresh ? '' : this.lastAssistant) + text;
         this.thinkingState = false;
+        this.compactionActive = false;
         this.noticeState = undefined;
         this.publish(fresh ? { kind: 'append', index } : { kind: 'turn', index });
         return true;
@@ -262,6 +272,7 @@ export class TranscriptModel implements TranscriptRead {
     this.lastAssistant = tailAssistantText(this.turns);
     this.freezeSubagents();
     this.thinkingState = false;
+    this.compactionActive = false;
     this.noticeState = undefined;
   }
 

@@ -95,6 +95,30 @@ describe('TranscriptModel', () => {
     expect(model.lastAssistantText()).toBe('\n[error: fetch failed]');
   });
 
+  it('stays busy for the full compaction lifecycle even after the agent turn became idle', () => {
+    const model = new TranscriptModel();
+
+    model.apply({ type: 'user', text: 'run a long task' });
+    model.apply({ type: 'idle' });
+    expect(model.thinking).toBe(false);
+    expect(model.activity).toBeNull();
+
+    model.apply({ type: 'notice', kind: 'compaction', message: 'compacting conversation…' });
+    expect(model.thinking).toBe(true);
+    expect(model.activity).toBe('compaction');
+    expect(model.notice).toBe('compacting conversation…');
+
+    // A late terminal idle must not make the composer look sendable while the summary request runs.
+    model.apply({ type: 'idle' });
+    expect(model.thinking).toBe(true);
+    expect(model.activity).toBe('compaction');
+
+    model.apply({ type: 'notice', kind: 'compaction', message: 'conversation compacted', done: true });
+    expect(model.thinking).toBe(false);
+    expect(model.activity).toBeNull();
+    expect(model.notice).toBeUndefined();
+  });
+
   it('patches a settled old tool and updates the sub-agent projection incrementally', () => {
     const model = new TranscriptModel([
       { role: 'assistant', text: '', segments: [

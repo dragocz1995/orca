@@ -785,6 +785,30 @@ describe('chat application shell ownership', () => {
     expect(h.tui.children).toHaveLength(1);
   });
 
+  it('shows compaction as active work in the composer row until the daemon closes it', async () => {
+    const h = compositionHarness({ columns: 100, rows: 24, turns: 6 });
+    h.rt.transcript.apply({ type: 'idle' });
+    h.rt.transcript.apply({ type: 'notice', kind: 'compaction', message: 'compacting conversation…' });
+    const composition = makeComposition(h);
+    composition.resume();
+    composition.renderForced('test:compaction-start');
+    await vi.runOnlyPendingTimersAsync();
+
+    const active = renderMountedRoot(h).map(terminalPlainText);
+    expect(active.filter((line) => line.includes('compacting'))).toHaveLength(1);
+    expect(active.join('\n')).toContain('esc interrupt');
+    expect(composition.animations.timerCount).toBe(1);
+
+    h.rt.transcript.apply({ type: 'notice', kind: 'compaction', message: 'conversation compacted', done: true });
+    composition.render('test:compaction-end');
+    await vi.runOnlyPendingTimersAsync();
+    const settled = renderMountedRoot(h).map(terminalPlainText);
+    expect(settled.some((line) => line.includes('compacting'))).toBe(false);
+    expect(settled.join('\n')).toContain('⏎ send');
+    expect(composition.animations.timerCount).toBe(0);
+    composition.dispose();
+  });
+
   it('renders one compact active-goal chip in the existing prompt row and removes it on completion', async () => {
     vi.setSystemTime(new Date('2026-07-12T10:00:12.000Z'));
     const h = compositionHarness({ columns: 160, rows: 30, turns: 4 });
