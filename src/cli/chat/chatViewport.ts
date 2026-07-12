@@ -25,6 +25,10 @@ export const CHAT_VIEWPORT_ROW_CACHE_LIMIT = 2_048;
 
 export interface ChatViewportState {
   transcript: TranscriptRead;
+  /** Stable semantic identity of the conversation represented by `transcript`. Full history refreshes
+   * within one conversation preserve a deep logical anchor; changing this key is an explicit session
+   * boundary and resets the viewport to the new conversation's tail. */
+  conversationKey?: string;
   transcriptNotice?: string;
   notice: string;
   modelName: string;
@@ -89,6 +93,7 @@ export class ChatViewport implements Component {
   // LRU. `knownStart` means every entry from it through the tail has an exact height.
   private layout: TurnLayoutEntry[] = [];
   private layoutTranscript: TranscriptRead | null = null;
+  private layoutConversationKey: string | null = null;
   private layoutRevision = -1;
   private knownStart = 0;
   private suffixReconnect: { boundary: number; start: number } | null = null;
@@ -379,15 +384,33 @@ export class ChatViewport implements Component {
     const theme = chatTheme();
     const showThoughts = this.state.showThoughts !== false;
     const transcript = this.state.transcript;
+    const conversationKey = this.state.conversationKey ?? '';
     const transcriptChanged = this.layoutTranscript !== transcript;
+    const conversationChanged = this.layoutConversationKey !== null
+      && this.layoutConversationKey !== conversationKey;
     const contextChanged = this.layoutWidth !== width
       || this.layoutTheme !== theme
       || this.layoutShowsThoughts !== showThoughts;
 
-    if (transcriptChanged || contextChanged) {
-      const anchor = !transcriptChanged && contextChanged ? this.captureViewportAnchor(true) : null;
-      this.resetLayout(transcript.turnCount, transcriptChanged, anchor);
+    if (conversationChanged || transcriptChanged || contextChanged) {
+      const anchor = !conversationChanged && !transcriptChanged && contextChanged
+        ? this.captureViewportAnchor(true)
+        : null;
+      if (conversationChanged) {
+        // A revision/full replacement cannot tell compaction from /resume. The semantic key can: clear
+        // every pointer/selection coordinate before rebuilding so no old-session row can leak through.
+        this.scrollOffset = 0;
+        this.maxOffset = 0;
+        this.totalLines = 0;
+        this.scrollbarDrag = null;
+        this.lastRows = [];
+        this.lastPlainRows = [];
+        this.lastStart = 0;
+        this.lastTotal = 0;
+      }
+      this.resetLayout(transcript.turnCount, transcriptChanged || conversationChanged, anchor);
       this.layoutTranscript = transcript;
+      this.layoutConversationKey = conversationKey;
       this.layoutRevision = transcript.revision;
       this.layoutWidth = width;
       this.layoutTheme = theme;

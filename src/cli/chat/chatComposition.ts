@@ -303,7 +303,14 @@ export function createChatComposition(
   };
 
   const parentViewport = new ChatViewport(
-    { transcript: rt.transcript, transcriptNotice: rt.transcript.notice, notice: rt.notice, modelName: rt.modelName, thinkingSeconds: 0 },
+    {
+      transcript: rt.transcript,
+      conversationKey: client.boundSession,
+      transcriptNotice: rt.transcript.notice,
+      notice: rt.notice,
+      modelName: rt.modelName,
+      thinkingSeconds: 0,
+    },
     mdTheme,
     () => rowBudget().sections.transcript,
     () => TOP_RULE_ROWS + 1,
@@ -314,6 +321,7 @@ export function createChatComposition(
   const newChildViewport = (): ChatViewport => new ChatViewport(
     {
       transcript: rt.childView?.transcript ?? rt.transcript,
+      conversationKey: rt.childView?.sessionId ?? client.boundSession,
       transcriptNotice: rt.childView?.transcript.notice ?? rt.transcript.notice,
       notice: '', modelName: rt.modelName, thinkingSeconds: 0,
     },
@@ -415,6 +423,7 @@ export function createChatComposition(
     currentRunSeconds = thinkStart ? Math.max(0, Math.round((Date.now() - thinkStart) / 1000)) : 0;
     parentViewport.setState({
       transcript: rt.transcript,
+      conversationKey: client.boundSession,
       transcriptNotice: rt.transcript.notice,
       notice: rt.notice,
       modelName: rt.modelName,
@@ -428,6 +437,7 @@ export function createChatComposition(
       }
       childViewport.setState({
         transcript: rt.childView.transcript,
+        conversationKey: rt.childView.sessionId,
         transcriptNotice: rt.childView.transcript.notice,
         notice: rt.childView.loading
           ? color.dim('· loading sub-agent transcript…')

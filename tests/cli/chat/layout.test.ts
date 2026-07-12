@@ -898,6 +898,35 @@ describe('progressive history layout', () => {
     expect(visits).toBeLessThanOrEqual(96);
   });
 
+  it('drops a deep anchor when a full replacement belongs to a different conversation', () => {
+    const transcript = largeHistory(100);
+    const sessionState = (conversationKey: string): ChatViewportState => ({
+      ...transcriptState(transcript),
+      // This semantic key deliberately differs from a transcript revision: compaction replaces the
+      // same conversation and must preserve its anchor, while /resume opens another conversation at tail.
+      conversationKey,
+    });
+    const viewport = new ChatViewport(
+      sessionState('conversation-a'),
+      getMarkdownTheme(), () => 18, () => 1, () => 80,
+    );
+    viewport.render(80);
+    viewport.scroll(80);
+    expect(viewport.render(80).join('\n')).toContain('History');
+    expect(viewport.metrics().scrollOffset).toBeGreaterThan(0);
+
+    transcript.replaceHistory(largeMessages(100).map((message) => ({
+      ...message,
+      text: message.text?.replace('Newest marker', 'Conversation B marker'),
+    })));
+    viewport.setState(sessionState('conversation-b'));
+    const resumed = viewport.render(80).join('\n');
+
+    expect(viewport.metrics().scrollOffset).toBe(0);
+    expect(resumed).not.toContain('History');
+    expect(resumed).toContain('Conversation B marker 99');
+  });
+
   it('stabilizes estimated heterogeneous rows before freezing frame and pointer geometry', () => {
     const shortHistory = Array.from({ length: 1_000 }, (_, index) => ({
       role: 'assistant' as const, text: `marker ${index}`,
