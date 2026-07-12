@@ -8,6 +8,7 @@ import { isCanonicalThinkingLevel } from '../brain/modelCapabilities.js';
  *  `autoCompactAt` is the context-window fill percentage at which the conversation is auto-summarized.
  *  `advisorStyle` picks the advisor's communication style (the `{{personality}}` prompt paragraph). */
 export interface CliSettings { model: string; modelProvider: string; visionModel: string; visionModelProvider: string; thinkingLevel: string; autoCompact: boolean; autoCompactAt: number; advisorStyle: string; discordUserId: string; whatsappNumber: string; autoRecall: boolean; autoSave: boolean }
+export interface ProjectModelPreference { provider: string; model: string }
 // autoRecall/autoSave default to true so upgrading users keep the prior always-on memory behaviour.
 const CLI_DEFAULTS: CliSettings = { model: '', modelProvider: '', visionModel: '', visionModelProvider: '', thinkingLevel: '', autoCompact: false, autoCompactAt: 80, advisorStyle: DEFAULT_ADVISOR_STYLE, discordUserId: '', whatsappNumber: '', autoRecall: true, autoSave: true };
 
@@ -41,6 +42,21 @@ function isUniqueViolation(err: unknown): boolean {
 function clampPercent(n: number): number {
   if (!Number.isFinite(n)) return CLI_DEFAULTS.autoCompactAt;
   return Math.min(95, Math.max(30, Math.round(n)));
+}
+
+function projectModelPreferences(raw: string | null): Record<string, ProjectModelPreference> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).flatMap(([root, value]) => {
+      if (!root || !value || typeof value !== 'object') return [];
+      const { provider, model } = value as { provider?: unknown; model?: unknown };
+      return typeof provider === 'string' && provider && typeof model === 'string' && model
+        ? [[root, { provider, model }]]
+        : [];
+    }));
+  } catch { return {}; }
 }
 
 /** Per-user key/value settings. A row exists only for a value the user has explicitly set — absence means
@@ -144,6 +160,24 @@ export class UserSettingStore {
           }
         }
       }
+    })();
+  }
+
+  /** A user's explicitly selected provider/model for one canonical Git project root. The JSON map is
+   *  deliberately opaque to routes: only the brain lifecycle derives a root from an authorized cwd. */
+  projectModelPreference(userId: number, projectRoot: string): ProjectModelPreference | undefined {
+    const selection = projectModelPreferences(this.get(userId, 'projectModelPreferences'))[projectRoot];
+    return selection ? { ...selection } : undefined;
+  }
+
+  setProjectModelPreference(userId: number, projectRoot: string, selection: ProjectModelPreference): void {
+    const provider = selection.provider.trim();
+    const model = selection.model.trim();
+    if (!projectRoot || !provider || !model) return;
+    this.db.transaction(() => {
+      const next = projectModelPreferences(this.get(userId, 'projectModelPreferences'));
+      next[projectRoot] = { provider, model };
+      this.set(userId, 'projectModelPreferences', JSON.stringify(next));
     })();
   }
 

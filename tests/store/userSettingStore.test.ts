@@ -58,6 +58,16 @@ describe('UserSettingStore', () => {
     expect(s.cliSettings(2).model).toBe('b');
   });
 
+  it('round-trips project model preferences per user and ignores a corrupt map', () => {
+    const s = new UserSettingStore(openDb(':memory:'));
+    expect(s.projectModelPreference(1, '/var/www/kolin')).toBeUndefined();
+    s.setProjectModelPreference(1, '/var/www/kolin', { provider: 'codex', model: 'gpt-5.5' });
+    expect(s.projectModelPreference(1, '/var/www/kolin')).toEqual({ provider: 'codex', model: 'gpt-5.5' });
+    expect(s.projectModelPreference(2, '/var/www/kolin')).toBeUndefined();
+    s.set(1, 'projectModelPreferences', '{not json');
+    expect(s.projectModelPreference(1, '/var/www/kolin')).toBeUndefined();
+  });
+
   it('removeForUser drops a user\'s settings', () => {
     const s = new UserSettingStore(openDb(':memory:'));
     s.setCliSettings(1, { model: 'a', autoCompact: true });

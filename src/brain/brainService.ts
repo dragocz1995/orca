@@ -164,6 +164,8 @@ export class BrainService {
       spawn: (o) => this.spawner.spawn(o),
       get policy() { return d.policy; },
       get userSettings() { return d.userSettings; },
+      get projectModelPreference() { return d.projectModelPreference; },
+      get setProjectModelPreference() { return d.setProjectModelPreference; },
       selectionAllowed: (userId, sel) => this.permissionSvc.selectionAllowed(userId, sel),
     });
     this.turnRunner = new BrainTurnRunner({

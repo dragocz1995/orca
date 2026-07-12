@@ -493,6 +493,8 @@ export function buildApp(opts: BuildOpts) {
         hookAudit,
         policy: (userId) => resolvePolicy({ userProjects, projects }, userId),
         userSettings: (userId) => userSettings.cliSettings(userId),
+        projectModelPreference: (userId, projectRoot) => userSettings.projectModelPreference(userId, projectRoot),
+        setProjectModelPreference: (userId, projectRoot, selection) => { userSettings.setProjectModelPreference(userId, projectRoot, selection); },
         // Granular tool permissions (allow/ask/deny rules + the persisted YOLO default) and the
         // "Always allow" persistence behind the owner-chat approval prompt.
         permissions: (userId) => userSettings.permissionSettings(userId),

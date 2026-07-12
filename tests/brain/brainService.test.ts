@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { realpathSync, mkdtempSync, rmSync } from 'node:fs';
+import { realpathSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrainService } from '../../src/brain/brainService.js';
@@ -1173,6 +1173,64 @@ describe('BrainService', () => {
     // The conversation stays usable on the new session.
     await svc.send({ userId: 1, text: 'after switch' });
     expect(d.session.prompt).toHaveBeenCalled();
+  });
+
+  it('remembers a /model pick for every cwd within the same Git project after restart', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'elowen-model-project-'));
+    const nested = join(project, 'components');
+    mkdirSync(join(project, '.git'));
+    mkdirSync(nested);
+    try {
+      const d = fakeDeps();
+      d.config = { providers: [{ id: 'relay', label: 'Relay', type: 'openai' as const, baseUrl: 'http://x/v1', models: ['m', 'other'], apiKey: 'k' }] };
+      const selections = new Map<string, { provider: string; model: string }>();
+      (d as unknown as {
+        projectModelPreference: (userId: number, root: string) => { provider: string; model: string } | undefined;
+        setProjectModelPreference: (userId: number, root: string, selection: { provider: string; model: string }) => void;
+      }).projectModelPreference = (_userId, root) => selections.get(root);
+      (d as unknown as {
+        setProjectModelPreference: (userId: number, root: string, selection: { provider: string; model: string }) => void;
+      }).setProjectModelPreference = (_userId, root, selection) => { selections.set(root, selection); };
+      const svc = new BrainService(d as never);
+
+      await svc.start(1, { cwd: project });
+      await svc.switchModel(1, { provider: 'relay', model: 'other' });
+      await svc.restart(1);
+      expect((d.createSession.mock.calls[2]![0] as { model: { id: string } }).model.id).toBe('other');
+
+      await svc.start(1, { fresh: true, cwd: nested });
+      expect((d.createSession.mock.calls[3]![0] as { model: { id: string } }).model.id).toBe('other');
+      expect(selections.get(realpathSync(project))).toEqual({ provider: 'relay', model: 'other' });
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps project model preferences isolated, explicit starts winning and revoked picks falling back', async () => {
+    const first = mkdtempSync(join(tmpdir(), 'elowen-model-project-a-'));
+    const second = mkdtempSync(join(tmpdir(), 'elowen-model-project-b-'));
+    mkdirSync(join(first, '.git'));
+    mkdirSync(join(second, '.git'));
+    try {
+      const d = fakeDeps();
+      d.config = { providers: [{ id: 'relay', label: 'Relay', type: 'openai' as const, baseUrl: 'http://x/v1', models: ['m', 'other'], apiKey: 'k' }] };
+      const selections = new Map([[realpathSync(first), { provider: 'relay', model: 'other' }]]);
+      (d as unknown as { projectModelPreference: (userId: number, root: string) => { provider: string; model: string } | undefined }).projectModelPreference = (_userId, root) => selections.get(root);
+      const svc = new BrainService(d as never);
+
+      await svc.start(1, { cwd: first, provider: 'relay', model: 'm' });
+      expect((d.createSession.mock.calls[0]![0] as { model: { id: string } }).model.id).toBe('m');
+
+      await svc.start(1, { fresh: true, cwd: second });
+      expect((d.createSession.mock.calls[1]![0] as { model: { id: string } }).model.id).toBe('m');
+
+      (d as unknown as { execAllowed: (userId: number, exec: string) => boolean }).execAllowed = (_userId, exec) => exec === 'elowen:relay/m';
+      await svc.start(1, { fresh: true, cwd: first });
+      expect((d.createSession.mock.calls[2]![0] as { model: { id: string } }).model.id).toBe('m');
+    } finally {
+      rmSync(first, { recursive: true, force: true });
+      rmSync(second, { recursive: true, force: true });
+    }
   });
 
   it('keeps the selected Codex chat model while refreshing its configured compaction route on switch', async () => {

@@ -12,7 +12,7 @@ import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from '../s
 import type { BrainDeps } from '../brainDeps.js';
 import type { ClientAttachments } from './attachments.js';
 import type { GoalLoopService } from './goalLoop.js';
-import { clientDir } from './workDir.js';
+import { clientDir, gitProjectRoot } from './workDir.js';
 
 interface LifecycleDeps {
   store: BrainStore;
@@ -25,6 +25,8 @@ interface LifecycleDeps {
   spawn(opts: SpawnOpts): Promise<LiveBrain>;
   policy?: (userId: number) => Policy;
   userSettings?: BrainDeps['userSettings'];
+  projectModelPreference?: BrainDeps['projectModelPreference'];
+  setProjectModelPreference?: BrainDeps['setProjectModelPreference'];
   /** PermissionApprovalService.selectionAllowed — a saved model the user may no longer run falls back
    *  to the server default instead of blocking the brain. */
   selectionAllowed(userId: number, sel?: { provider?: string; model?: string }): boolean;
@@ -186,13 +188,22 @@ export class ConversationLifecycle {
         if (o.explicitResume) already.interactedAt = Date.now();
         return; // idempotent resume of a live conversation
       }
-      // Model selection: an explicit start option wins, else the user's saved provider+model override,
-      // else the first configured provider's first model. A saved model the user is no longer
-      // allowed to run falls back to the server default rather than blocking the brain.
+      // Model selection: an explicit start option wins, then a Git-project pick, then the user's
+      // global override, then the configured default. Each persisted candidate is validated so a model
+      // revoked from the user's allow-list falls through rather than blocking the brain.
       const userCfg = this.d.userSettings?.(userId);
-      let selection: { provider?: string; model?: string } = { provider: o.provider ?? userCfg?.modelProvider, model: o.model ?? userCfg?.model };
-      if (!this.d.selectionAllowed(userId, selection)) selection = {};
       const policy = this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] };
+      const projectRoot = gitProjectRoot(policy, o.clientCwd ?? o.spawnCwd);
+      const candidates = [
+        { provider: o.provider, model: o.model },
+        projectRoot ? this.d.projectModelPreference?.(userId, projectRoot) : undefined,
+        { provider: userCfg?.modelProvider, model: userCfg?.model },
+      ];
+      let selection: { provider?: string; model?: string } = {};
+      for (const candidate of candidates) {
+        if (!candidate || (!candidate.provider && !candidate.model)) continue;
+        if (this.d.selectionAllowed(userId, candidate)) { selection = candidate; break; }
+      }
       const live = await this.d.spawn({
         sessionId,
         ownerUserId: userId,
@@ -237,13 +248,14 @@ export class ConversationLifecycle {
       const previous = this.d.sessions.get(sessionId);
       const prevWorkDir = previous?.workDir; // the switch must not move the session cwd
       const prevFast = previous?.requestProfile.fast;
+      const policy = this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] };
       this.d.sessions.dispose(sessionId);
       const userCfg = this.d.userSettings?.(userId);
       const live = await this.d.spawn({
         sessionId,
         ownerUserId: userId,
         selection: sel, // the explicit pick wins over the user's saved default
-        policy: this.d.policy?.(userId) ?? { allowedProjectIds: 'all' as const, allowedPaths: () => [] },
+        policy,
         fast: prevFast,
         autoCompact: !!userCfg?.autoCompact,
         autoCompactAtPct: userCfg?.autoCompactAt ?? DEFAULT_AUTO_COMPACT_PCT,
@@ -251,6 +263,10 @@ export class ConversationLifecycle {
       });
       live.interactedAt = Date.now(); // a model switch is a deliberate touch — don't idle-roll it over
       this.d.sessions.set(sessionId, live);
+      const projectRoot = gitProjectRoot(policy, prevWorkDir);
+      if (projectRoot && sel.provider && sel.model) {
+        this.d.setProjectModelPreference?.(userId, projectRoot, { provider: sel.provider, model: sel.model });
+      }
       // A bound (explicit-session) switch must not move the active pointer — the two-tier rule.
       if (!session) this.d.sessions.setActive(userId, sessionId);
       return { model: live.model };

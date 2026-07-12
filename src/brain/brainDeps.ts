@@ -12,6 +12,7 @@ import type { InferenceClient } from '../inference/types.js';
 import type { PermissionScope, PermissionSettings } from './toolPermissions.js';
 import type { BrainLimits } from '../store/configStore.js';
 import type { BrainResourceLoaderOptions } from './session/factory.js';
+import type { ProjectModelPreference } from '../store/userSettingStore.js';
 
 // The daemon-wiring seam of the brain, in its own module so the service/* units can depend on it
 // without importing the BrainService facade back (keeps the dependency graph acyclic — depcruise
@@ -48,6 +49,9 @@ export interface BrainDeps {
   /** Per-user CLI/brain settings: an optional model override (empty → configured default) + auto-compact
    *  toggle and its user-tunable threshold percentage. */
   userSettings?: (userId: number) => { model?: string; modelProvider?: string; visionModel?: string; visionModelProvider?: string; thinkingLevel?: string; autoCompact?: boolean; autoCompactAt?: number; advisorStyle?: string; autoRecall?: boolean; autoSave?: boolean };
+  /** The CLI's per-user model choice for a canonical, policy-authorized Git project root. */
+  projectModelPreference?: (userId: number, projectRoot: string) => ProjectModelPreference | undefined;
+  setProjectModelPreference?: (userId: number, projectRoot: string, selection: ProjectModelPreference) => void;
   /** The user's active personality profile as a ready-to-append system-prompt chunk, or undefined when
    *  none is pinned (delegates to PersonalityService.activeAppend). Appended AFTER the persona in
    *  appendSystemPrompt — the cache-safe seam. For Discord `userId` is the channel owner and `platform`
