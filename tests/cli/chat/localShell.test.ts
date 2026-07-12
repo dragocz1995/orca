@@ -15,6 +15,19 @@ import {
   runLocalShell,
 } from '../../../src/cli/chat/localShell.js';
 
+async function expectProcessGone(pid: number, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0); }
+    catch { return; }
+    // SIGKILL is synchronous, but the kernel/libuv can expose the dead leader as a zombie until the
+    // close callback is reaped. Under the full parallel suite that can outlive the bounded settlement
+    // promise by a scheduler tick, so assert eventual disappearance rather than one exact tick.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  expect(() => process.kill(pid, 0)).toThrow();
+}
+
 describe('parseBangCommand', () => {
   it('extracts the command with or without a space after !', () => {
     expect(parseBangCommand('!ls -la')).toBe('ls -la');
@@ -116,7 +129,7 @@ describe('runLocalShell', () => {
       ]).finally(() => { if (timeout) clearTimeout(timeout); });
       expect(Date.now() - abortedAt).toBeLessThan(1_000);
       expect(result.exitCode).toBeNull();
-      expect(() => process.kill(childPid, 0)).toThrow();
+      await expectProcessGone(childPid);
     } finally {
       if (childPid > 0) {
         try { process.kill(childPid, 'SIGKILL'); } catch { /* already gone */ }
@@ -146,7 +159,7 @@ describe('runLocalShell', () => {
       ]);
       expect(result.exitCode).toBeNull();
       expect(result.output).toContain('timed out');
-      expect(() => process.kill(groupPid, 0)).toThrow();
+      await expectProcessGone(groupPid);
     } finally {
       lifecycle.abort();
       if (groupPid > 0) {
@@ -176,7 +189,7 @@ describe('runLocalShell', () => {
         new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('overflow did not escalate')), 1_000)),
       ]);
       expect(result.exitCode).toBeNull();
-      expect(() => process.kill(groupPid, 0)).toThrow();
+      await expectProcessGone(groupPid);
     } finally {
       lifecycle.abort();
       if (groupPid > 0) {
@@ -207,12 +220,7 @@ describe('runLocalShell', () => {
         pending,
         new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('aborted shell did not settle')), 1_000)),
       ]);
-      const goneBy = Date.now() + 1_000;
-      while (Date.now() < goneBy) {
-        try { process.kill(grandchildPid, 0); } catch { break; }
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      expect(() => process.kill(grandchildPid, 0)).toThrow();
+      await expectProcessGone(grandchildPid);
     } finally {
       lifecycle.abort();
       if (groupPid > 0) {
@@ -264,7 +272,7 @@ describe('runLocalShell', () => {
         killSpy.mockRestore();
       }
 
-      expect(() => process.kill(grandchildPid, 0)).toThrow();
+      await expectProcessGone(grandchildPid);
     } finally {
       if (groupPid > 0) {
         try { process.kill(-groupPid, 'SIGKILL'); } catch { /* already gone */ }
@@ -318,7 +326,7 @@ describe('runLocalShell', () => {
       }
 
       expect(latePid).toBeGreaterThan(0);
-      expect(() => process.kill(latePid, 0)).toThrow();
+      await expectProcessGone(latePid);
     } finally {
       if (groupPid > 0) {
         try { process.kill(-groupPid, 'SIGKILL'); } catch { /* already gone */ }
@@ -353,7 +361,7 @@ describe('runLocalShell', () => {
       await lifetime.stop();
 
       expect(Date.now() - abortedAt).toBeLessThan(150);
-      expect(() => process.kill(groupPid, 0)).toThrow();
+      await expectProcessGone(groupPid);
     } finally {
       if (groupPid > 0) {
         try { process.kill(-groupPid, 'SIGKILL'); } catch { /* already gone */ }
