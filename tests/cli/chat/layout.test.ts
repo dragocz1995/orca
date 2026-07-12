@@ -1134,6 +1134,8 @@ describe('progressive history layout', () => {
     expect(viewport.metrics().indexedTurns).toBe(afterFirstPaint); // no idle full-history CPU pass
     expect(viewport.metrics().transcriptRowsExact).toBe(false);
     viewport.scroll(30);
+    expect(viewport.metrics().indexedTurns).toBe(afterFirstPaint);
+    viewport.render(60);
     expect(viewport.metrics().indexedTurns).toBeGreaterThan(afterFirstPaint);
     expect(viewport.metrics().cachedRows).toBeLessThanOrEqual(CHAT_VIEWPORT_ROW_CACHE_LIMIT);
   });
@@ -1147,6 +1149,8 @@ describe('progressive history layout', () => {
     viewport.render(60);
     const initiallyIndexed = viewport.metrics().indexedTurns;
     viewport.scroll(30);
+    expect(viewport.metrics().indexedTurns).toBe(initiallyIndexed);
+    viewport.render(60);
     expect(viewport.metrics().indexedTurns).toBeGreaterThan(initiallyIndexed);
     expect(viewport.metrics().transcriptRowsExact).toBe(false);
     const beforeDrag = viewport.render(60).map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
@@ -1462,7 +1466,7 @@ describe('progressive history layout', () => {
     expect(after.frameHeightIndexOperations).toBeGreaterThanOrEqual(turnCount);
   });
 
-  it('charges pre-render scroll and drag indexing to the next frame exactly once', () => {
+  it('charges deferred scroll and synchronous drag indexing to their next frame exactly once', () => {
     const transcript = new TranscriptModel(Array.from({ length: 40_000 }, (_, index) => ({
       role: 'assistant' as const,
       text: `scroll evidence ${index}`,
@@ -1476,7 +1480,7 @@ describe('progressive history layout', () => {
 
     viewport.scroll(200);
     const afterSynchronousScroll = viewport.metrics().heightIndexOperations;
-    expect(afterSynchronousScroll).toBeGreaterThan(beforeScroll);
+    expect(afterSynchronousScroll).toBe(beforeScroll);
     viewport.render(80);
     const afterScrollFrame = viewport.metrics();
     expect(afterScrollFrame.frameHeightIndexOperations)
@@ -1508,5 +1512,21 @@ describe('progressive history layout', () => {
         .toBe(continued.heightIndexOperations - beforeContinuation);
     }
     viewport.endScrollbarDrag();
+  });
+
+  it('defers a coalesced wheel burst until its single render frame', () => {
+    const viewport = new ChatViewport(
+      transcriptState(largeHistory(180)),
+      getMarkdownTheme(), () => 18, () => 1, () => 80,
+    );
+    viewport.render(80);
+    const before = viewport.metrics().heightIndexOperations;
+
+    for (let index = 0; index < 12; index += 1) viewport.scroll(3);
+
+    expect(viewport.metrics().heightIndexOperations).toBe(before);
+    const rendered = viewport.render(80).join('\n');
+    expect(rendered).toContain('History');
+    expect(viewport.metrics().frameHeightIndexOperations).toBeGreaterThan(0);
   });
 });

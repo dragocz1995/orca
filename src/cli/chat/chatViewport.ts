@@ -20,6 +20,9 @@ interface TurnLayoutEntry {
 const HISTORY_OVERSCAN_ROWS = 8;
 const SCROLLBAR_DRAG_INDEX_TURNS = 128;
 const SCROLLBAR_DRAG_INDEX_MS = 16;
+/** A programmatic jump to an arbitrary history position is not a wheel burst; materialize it directly
+ * so a following opposite-direction adjustment is relative to the real tail rather than a stale estimate. */
+const DIRECT_SCROLL_JUMP_LINES = 1_024;
 /** Soft bound: one exceptionally tall visible turn may exceed it, but off-screen rows are evicted. */
 export const CHAT_VIEWPORT_ROW_CACHE_LIMIT = 2_048;
 
@@ -164,8 +167,15 @@ export class ChatViewport implements Component {
   }
 
   scroll(delta: number): void {
-    if (delta > 0) this.ensureScrollCapacity(this.scrollOffset + delta);
-    this.scrollOffset = Math.max(0, Math.min(this.maxOffset, this.scrollOffset + delta));
+    // PI may coalesce a burst of wheel events into one physical frame. Keep their final desired offset
+    // here and let render() materialize that window once; eagerly expanding history per event made one
+    // coalesced frame perform repeated Fenwick work proportional to input-event count.
+    if (delta >= DIRECT_SCROLL_JUMP_LINES) {
+      this.ensureScrollCapacity(this.scrollOffset + delta);
+      this.scrollOffset = Math.max(0, Math.min(this.maxOffset, this.scrollOffset + delta));
+      return;
+    }
+    this.scrollOffset = Math.max(0, this.scrollOffset + delta);
   }
 
   isThoughtRow(x: number, absRow: number): boolean {
