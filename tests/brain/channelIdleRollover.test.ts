@@ -31,7 +31,7 @@ function fakeBrain(sessionId = 'brain-ch-discord-c1') {
     turnSender: undefined as number | undefined,
     interactedAt: undefined as number | undefined,
     listeners: new Set<(e: unknown) => void>(),
-    turnContext: () => '',
+    turnContext: () => ({ beforeUser: '', afterUser: '' }),
   };
 }
 

@@ -17,7 +17,7 @@ function live(spec: { provider?: string; model: string; thinkingLevel?: string; 
     policy: { allowedProjectIds: 'all', allowedPaths: () => [] },
     listeners: new Set(),
     replay: { publish: vi.fn() } as never,
-    turnContext: () => '',
+    turnContext: () => ({ beforeUser: '', afterUser: '' }),
     pluginToolNames: new Set(),
   };
 }

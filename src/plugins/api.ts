@@ -207,6 +207,21 @@ export interface PluginCommand {
   surfaces?: ('cli' | 'discord' | 'whatsapp' | 'web')[];
 }
 
+/** Placement of volatile plugin context relative to the user's own text. Context is always ephemeral:
+ *  it is sent to the model for the current turn but is never persisted into conversation history. */
+export type TurnContextPlacement = 'before-user' | 'after-user';
+
+/** Options for a per-turn context provider. Existing plugins remain before-user by default. */
+export interface TurnContextOptions {
+  placement?: TurnContextPlacement;
+}
+
+/** One registered per-turn context provider plus its stable prompt placement. */
+export interface TurnContextContribution {
+  render: () => string;
+  placement: TurnContextPlacement;
+}
+
 /** What a plugin's `register(ctx)` receives. Every `register*` call feeds the shared PluginRegistry. */
 export interface PluginContext {
   registerTool(tool: ToolDefinition): void;
@@ -224,8 +239,10 @@ export interface PluginContext {
   registerSystemPromptFragment(fragment: string): void;
   registerHook(hook: PluginHook): void;
   /** Register a provider of EPHEMERAL per-turn context (date/time, live status…). Its string is injected
-   *  into each user message — NOT the system prompt — so the cacheable prompt prefix stays stable. */
-  registerTurnContext(fn: () => string): void;
+   *  into each user message — NOT the system prompt — so the cacheable prompt prefix stays stable.
+   *  Defaults before the user's text; use `placement: 'after-user'` for adjacent reminders that should
+   *  follow the request they qualify. */
+  registerTurnContext(fn: () => string, options?: TurnContextOptions): void;
   /** STUB: record a platform adapter (not started by the foundation). */
   registerPlatform(adapter: PlatformAdapter): void;
   /** Resolve + assert a filesystem path is inside the current user's accessible repos, returning the

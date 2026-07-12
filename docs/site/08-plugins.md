@@ -171,7 +171,7 @@ contract with the agent:
 | `ctx.registerTool(tool)` | Add a tool to the brain's toolset |
 | `ctx.registerPlatform(platform)` | Add a chat platform adapter |
 | `ctx.registerSkill(skill)` | Register an inline skill |
-| `ctx.registerTurnContext(fn)` | Inject per-turn context |
+| `ctx.registerTurnContext(fn, options?)` | Inject per-turn context before user text (default) or after it |
 | `ctx.dataDir()` | Writable per-plugin data directory |
 | `ctx.config` | Current config values |
 | `ctx.logger` | Plugin-scoped logger |

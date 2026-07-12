@@ -12,6 +12,12 @@ export type QueuedImage = { type: 'image'; data: string; mimeType: string };
  *  from liveBrain and the two don't form an import cycle. */
 export type QueuedMsg = { text: string; images?: QueuedImage[] };
 
+/** Volatile plugin context sampled once for a user turn and split around the user's own text. */
+export interface TurnContextBlocks {
+  beforeUser: string;
+  afterUser: string;
+}
+
 /** One live brain conversation: the PI session plus its settings, event fanout and per-turn context.
  *  Shared by the chat brain, the channel service and the live registry. */
 export interface LiveBrain {
@@ -31,7 +37,7 @@ export interface LiveBrain {
   /** Bounded current-run event journal + the canonical fan-out seam. Used by opt-in sub-agent stream
    *  snapshots to reconstruct output emitted before the user opened the drill-in view. */
   replay: LiveEventReplay;
-  turnContext: () => string;
+  turnContext: () => TurnContextBlocks;
   /** Names of the plugin tools composed into this session — the subset a per-turn ToolPolicy allow-list
    *  may hide (the built-in elowen_ and memory_ tools stay visible). Used by applyToolVisibility to slice
    *  the model's advertised tools to what the current sender may use. */

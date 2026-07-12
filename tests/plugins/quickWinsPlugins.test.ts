@@ -18,7 +18,8 @@ describe('runtime-context plugin', () => {
   it('registers a turn-context provider that emits the current date/time', async () => {
     const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['runtime-context'], dataRoot: freshDataRoot(), logger: log, config: { 'runtime-context': { timezone: 'Europe/Prague' } } });
     expect(reg.turnContexts).toHaveLength(1);
-    const out = reg.turnContexts[0]!();
+    expect(reg.turnContexts[0]!.placement).toBe('before-user');
+    const out = reg.turnContexts[0]!.render();
     expect(out).toMatch(/Current date & time:/);
     expect(out).toContain('Europe/Prague');
     expect(reg.tools).toHaveLength(0); // it adds NO tools and NO system-prompt fragment

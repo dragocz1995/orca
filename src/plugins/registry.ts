@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { PluginCapabilities, PluginCommand, PluginContext, PluginControl, PluginEmbeddings, PluginHook, PluginLogger, PluginModelOption, PluginSkill, PlatformAdapter, ProviderCredentials } from './api.js';
+import type { PluginCapabilities, PluginCommand, PluginContext, PluginControl, PluginEmbeddings, PluginHook, PluginLogger, PluginModelOption, PluginSkill, PlatformAdapter, ProviderCredentials, TurnContextContribution } from './api.js';
 import { isEmbeddingConfigured } from '../embeddings/embeddingService.js';
 import type { EmbeddingConfig } from '../embeddings/embeddingService.js';
 import { commandsFor, isBuiltinCommand } from '../brain/slashCommands.js';
@@ -41,7 +41,7 @@ export class PluginRegistry {
   readonly skills: PluginSkill[] = [];
   readonly promptFragments: string[] = [];
   readonly hooks: PluginHook[] = [];
-  readonly turnContexts: (() => string)[] = [];
+  readonly turnContexts: TurnContextContribution[] = [];
   readonly platforms: PlatformAdapter[] = [];
   readonly controls = new Map<string, PluginControl>();
   /** Plugin-contributed chat slash commands (prompt macros), keyed by command name (unique). */
@@ -208,7 +208,11 @@ export class PluginRegistry {
       chatCommands: (surface) => commandsFor(surface, true).map(({ name: commandName, description, adminOnly }) => ({ name: commandName, description, ...(adminOnly ? { adminOnly } : {}) })),
       registerSystemPromptFragment: (f) => { this.promptFragments.push(f); this.promptFragmentOwners.push(name); },
       registerHook: (h) => { this.hooks.push(h); this.hookOwners.push(name); },
-      registerTurnContext: (f) => { this.turnContexts.push(f); this.turnContextOwners.push(name); },
+      registerTurnContext: (render, options) => {
+        const placement = options?.placement === 'after-user' ? 'after-user' : 'before-user';
+        this.turnContexts.push({ render, placement });
+        this.turnContextOwners.push(name);
+      },
       // Same allowlist rule as tools, against `provides.platforms` (Discord/cron/subagent are here).
       registerPlatform: (p) => {
         if (provides?.platforms && !provides.platforms.includes(p.name)) {

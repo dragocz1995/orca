@@ -388,8 +388,13 @@ export class ChannelSessionService {
           await runWithMeter(meter, () => runWithPolicy(opts.policy, async () => {
             // A plugin prompt-command (`/name args`) rides RAW so PI expands its template natively — that
             // only fires when the message starts with the slash, so it is sent alone (self-contained macro,
-            // no per-turn context prefix). Everything else gets the ephemeral context blocks prepended.
-            const prompted = isPromptCommand(turnText, ch.session) ? turnText : memoryBlock + ch.turnContext() + turnText;
+            // no per-turn context). Everything else gets its ephemeral blocks placed around the user text.
+            let prompted = turnText;
+            if (!isPromptCommand(turnText, ch.session)) {
+              const turnContext = ch.turnContext();
+              prompted = memoryBlock + turnContext.beforeUser + turnText
+                + (turnContext.afterUser ? `\n\n${turnContext.afterUser}` : '');
+            }
             if (this.d.registry.consumePendingAbort(sessionId)) throw new Error('delegation aborted');
             await (options ? ch.session.prompt(prompted, options) : ch.session.prompt(prompted));
             // A parent stop that landed during prompt() must make the child terminally unsuccessful;
