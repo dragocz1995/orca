@@ -518,6 +518,39 @@ describe('chat application shell ownership', () => {
     expect(h.tui.children).toHaveLength(1);
   });
 
+  it('defers process-only invalidation while telemetry is invisible and shows the stored snapshot after grow', async () => {
+    const h = compositionHarness({ columns: 96, rows: 24, turns: 40 });
+    const composition = makeComposition(h);
+    composition.renderShell.resume();
+    composition.renderForced('test:initial');
+    await vi.runOnlyPendingTimersAsync();
+    composition.root.render(h.term.columns);
+    const requestsBeforeMetadata = h.tui.renderRequests.length;
+
+    h.rt.processes = [{
+      id: 'background-e2e', command: 'node hidden-process.js', cwd: '/tmp',
+      startedAt: new Date().toISOString(), running: true, exitCode: null,
+    }];
+    composition.render('metadata:processes');
+    await vi.runOnlyPendingTimersAsync();
+    expect(h.tui.renderRequests).toHaveLength(requestsBeforeMetadata);
+
+    h.term.columns = 120;
+    composition.renderForced('test:grow');
+    await vi.runOnlyPendingTimersAsync();
+    composition.root.render(h.term.columns);
+    const telemetry = h.tui.overlays.find((overlay) => !overlay.removed
+      && overlay.options?.anchor === 'top-right');
+    expect(telemetry?.component.render(46).map(terminalPlainText).join('\n')).toContain('hidden-process.js');
+
+    const requestsBeforeVisibleMetadata = h.tui.renderRequests.length;
+    composition.render('stream:process');
+    await vi.runOnlyPendingTimersAsync();
+    expect(h.tui.renderRequests).toHaveLength(requestsBeforeVisibleMetadata + 1);
+    composition.dispose();
+    composition.renderShell.stop();
+  });
+
   it('records content-free frame geometry and bounded viewport work for machine analysis', () => {
     const h = compositionHarness({ columns: 80, rows: 24, turns: 40 });
     const events: Record<string, unknown>[] = [];

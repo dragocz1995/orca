@@ -151,7 +151,13 @@ export function createChatComposition(
     promptStash, shellContext, mentionIndex, commandDefs, cwdLabel, branchLabel,
   } = resources;
   let renderOwner!: RenderShell;
-  const render = (reason = 'state'): void => renderOwner.scheduleRender(reason);
+  const render = (reason = 'state'): void => {
+    // Process snapshots only feed the telemetry rail. Keep the state mutation in StreamCoordinator, but
+    // do not wake and rebuild a long transcript while that rail cannot be seen; its latest snapshot is
+    // read naturally by the next resize/toggle/ordinary frame.
+    if ((reason === 'metadata:processes' || reason === 'stream:process') && !panelVisible()) return;
+    renderOwner.scheduleRender(reason);
+  };
   const renderForced = (reason = 'geometry'): void => renderOwner.scheduleForcedRender(reason);
 
   // `let`, not `const`: the /keybinds editor swaps the live keymap (and its leader window) in place via
