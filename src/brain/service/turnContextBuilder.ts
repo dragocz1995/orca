@@ -79,9 +79,12 @@ export class TurnContextBuilder {
     return {
       autoSaveMemory: memSettings?.autoSave !== false,
       run: <T>(operation: (prompt: string) => Promise<T>): Promise<T> => runWithPolicy(live.policy, () => {
-        const prompt = isPromptCommand(request.text, live.session)
-          ? request.text
-          : memoryBlock + hookBlock + permissionsBlock + live.turnContext() + modeInstruction + request.text;
+        let prompt = request.text;
+        if (!isPromptCommand(request.text, live.session)) {
+          const turnContext = live.turnContext();
+          prompt = memoryBlock + hookBlock + permissionsBlock + turnContext.beforeUser + modeInstruction
+            + request.text + (turnContext.afterUser ? `\n\n${turnContext.afterUser}` : '');
+        }
         return operation(prompt);
       }, {
         identity,

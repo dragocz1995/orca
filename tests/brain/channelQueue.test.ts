@@ -33,7 +33,7 @@ function fakeBrain(providerId = 'moonshot', model = 'kimi', onPrompt?: () => voi
     requestProfile: { fast: false }, fastAvailable: false, thinkingLabels: {},
     pluginToolNames: new Set<string>(),
     turnSender: undefined as number | undefined, interactedAt: undefined as number | undefined,
-    listeners, replay: new LiveEventReplay(listeners), turnContext: () => '',
+    listeners, replay: new LiveEventReplay(listeners), turnContext: () => ({ beforeUser: '', afterUser: '' }),
   };
 }
 type Brain = ReturnType<typeof fakeBrain>;

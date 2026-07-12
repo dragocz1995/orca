@@ -1382,23 +1382,32 @@ describe('BrainService', () => {
     expect(hist?.text).toContain('1× image');
   });
 
-  it('injects turn-context into the prompt but keeps stored history clean (cache-safe)', async () => {
+  it('places volatile turn-context around the owner text, resolves each provider once, and keeps history clean', async () => {
     const d = fakeDeps();
     const reg = new PluginRegistry();
     const ctx = reg.contextFor('rt', {}, { info() {}, warn() {}, error() {} });
-    ctx.registerTurnContext(() => 'NOW: 2026-07-02 12:00');
+    let beforeCalls = 0;
+    let afterCalls = 0;
+    ctx.registerTurnContext(() => { beforeCalls += 1; return 'NOW: 2026-07-02 12:00'; });
+    ctx.registerTurnContext(() => { afterCalls += 1; return 'KEEP TODO CURRENT'; }, { placement: 'after-user' });
     (d as unknown as { plugins: unknown }).plugins = new PluginRegistryProvider(async () => reg);
     const svc = new BrainService(d as never);
     await svc.start(1);
     await svc.send({ userId: 1, text: 'kolik je hodin?' });
-    // The live prompt saw the context prefix …
+    // The live prompt sees stable before/user/after ordering, with every volatile provider sampled once.
     const spawned = await (d.createSession as unknown as { mock: { results: { value: Promise<{ session: { prompt: { mock: { calls: [string][] } } } }> }[] } }).mock.results[0]!.value;
-    expect(spawned.session.prompt.mock.calls.at(-1)![0]).toContain('NOW: 2026-07-02 12:00');
-    expect(spawned.session.prompt.mock.calls.at(-1)![0]).toContain('kolik je hodin?');
+    const prompt = spawned.session.prompt.mock.calls.at(-1)![0];
+    expect(prompt).toContain('NOW: 2026-07-02 12:00');
+    expect(prompt).toContain('KEEP TODO CURRENT');
+    expect(prompt.indexOf('NOW: 2026-07-02 12:00')).toBeLessThan(prompt.indexOf('kolik je hodin?'));
+    expect(prompt.indexOf('kolik je hodin?')).toBeLessThan(prompt.indexOf('KEEP TODO CURRENT'));
+    expect(beforeCalls).toBe(1);
+    expect(afterCalls).toBe(1);
     // … but the persisted history stays clean (no volatile timestamp baked in → no cache churn on replay).
     const stored = svc.history(1).find((m) => m.role === 'user');
     expect(stored?.text).toBe('kolik je hodin?');
     expect(stored?.text).not.toContain('NOW:');
+    expect(stored?.text).not.toContain('KEEP TODO CURRENT');
   });
 
   it('rejects resuming a foreign or channel session', async () => {
@@ -1420,6 +1429,30 @@ describe('BrainService', () => {
     const roles = d.store.getMessages('brain-ch-disc-42').map((m) => m.role);
     expect(roles).toContain('user');
     expect(roles).toContain('assistant');
+  });
+
+  it('places volatile turn-context around channel text without persisting either context block', async () => {
+    const d = fakeDeps();
+    const reg = new PluginRegistry();
+    const ctx = reg.contextFor('rt', {}, { info() {}, warn() {}, error() {} });
+    let calls = 0;
+    ctx.registerTurnContext(() => { calls += 1; return 'CHANNEL BEFORE'; });
+    ctx.registerTurnContext(() => { calls += 1; return 'CHANNEL AFTER'; }, { placement: 'after-user' });
+    (d as unknown as { plugins: unknown }).plugins = new PluginRegistryProvider(async () => reg);
+    const svc = new BrainService(d as never);
+    const policy = { allowedProjectIds: new Set([1]), allowedPaths: () => ['/repo/a'] };
+
+    await svc.channelSend({ channelId: 'disc-context', ownerUserId: 1, policy }, 'channel request');
+
+    const prompt = d.session.prompt.mock.calls.at(-1)![0] as string;
+    expect(prompt).toContain('CHANNEL BEFORE');
+    expect(prompt).toContain('CHANNEL AFTER');
+    expect(prompt.indexOf('CHANNEL BEFORE')).toBeLessThan(prompt.indexOf('channel request'));
+    expect(prompt.indexOf('channel request')).toBeLessThan(prompt.indexOf('CHANNEL AFTER'));
+    expect(calls).toBe(2);
+    const stored = d.store.getMessages('brain-ch-disc-context').find((m) => m.role === 'user');
+    expect(stored?.content).not.toContain('CHANNEL BEFORE');
+    expect(stored?.content).not.toContain('CHANNEL AFTER');
   });
 
   it('channelSend throws on a provider-errored turn instead of returning an empty reply', async () => {

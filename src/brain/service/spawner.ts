@@ -12,7 +12,7 @@ import { buildPromptTemplates } from '../slashCommands.js';
 import { formatSkillsForPrompt } from '@earendil-works/pi-coding-agent';
 import { personalityText } from '../personality.js';
 import type { BrainSessionFactory } from '../session/factory.js';
-import type { LiveBrain, SpawnOpts, QueuedMsg } from '../session/liveBrain.js';
+import type { LiveBrain, SpawnOpts, QueuedMsg, TurnContextBlocks } from '../session/liveBrain.js';
 import { reconcileMirrors } from '../session/queueMirror.js';
 import { isErroredContextOverflow, toBrainEvent, usageOf, withDescendantUsage } from '../events.js';
 import type { BrainEvent } from '../events.js';
@@ -295,9 +295,22 @@ export class LiveSessionSpawner {
     // Ephemeral per-turn context (date/time, …) is injected into each user message — see send() — so it
     // stays fresh WITHOUT invalidating the cached system-prompt prefix.
     const providers = plugins?.turnContexts ?? [];
-    const turnContext = (): string => {
-      const parts = providers.map((f) => { try { return f(); } catch { return ''; } }).filter((x) => x && x.trim());
-      return parts.length ? `<context>\n${parts.join('\n')}\n</context>\n\n` : '';
+    const turnContext = (): TurnContextBlocks => {
+      const beforeUser: string[] = [];
+      const afterUser: string[] = [];
+      for (const provider of providers) {
+        let value = '';
+        try { value = provider.render(); } catch { /* A broken optional provider must not fail the turn. */ }
+        if (!value?.trim()) continue;
+        (provider.placement === 'after-user' ? afterUser : beforeUser).push(value);
+      }
+      const frame = (parts: string[], placement: 'before-user' | 'after-user'): string => parts.length
+        ? `<context placement="${placement}">\n${parts.join('\n')}\n</context>\n\n`
+        : '';
+      return {
+        beforeUser: frame(beforeUser, 'before-user'),
+        afterUser: frame(afterUser, 'after-user'),
+      };
     };
     return {
       session, sessionId, model: model.id, providerId, thinkingLevel: opts.thinkingLevel,

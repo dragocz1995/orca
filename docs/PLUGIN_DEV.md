@@ -115,16 +115,23 @@ ctx.registerSkill({
 });
 ```
 
-### `ctx.registerTurnContext(fn)`
+### `ctx.registerTurnContext(fn, options?)`
 
 Inject dynamic context into every brain turn. Cache-safe — runs as a user
-message, not injected into the system prompt.
+message, not injected into the system prompt. Providers run once per turn and
+default to `before-user`. Use `after-user` for a live state reminder that should
+sit directly below the request it qualifies.
 
 ```javascript
 ctx.registerTurnContext(() => {
   const now = new Date();
   return `Current time: ${now.toISOString()}`;
 });
+
+ctx.registerTurnContext(
+  () => '<todo_context>Keep the live checklist current.</todo_context>',
+  { placement: 'after-user' },
+);
 ```
 
 ### `ctx.dataDir()`
@@ -278,8 +285,9 @@ Plugins can participate in the brain's hook system:
 
 ### Context hooks (`registerTurnContext`)
 
-Per-turn context injection. Runs on every brain turn, result is appended to
-the user message before processing.
+Per-turn context injection. Each provider runs once per brain turn. Its result
+is placed before the user's text by default, or after it when registered with
+`{ placement: 'after-user' }`.
 
 ### Execution hooks
 

@@ -35,6 +35,26 @@ describe('PluginRegistry', () => {
     expect(lines).toEqual(['[plugin:skills] loaded']);
   });
 
+  describe('registerTurnContext', () => {
+    it('defaults to before-user and preserves an explicit after-user placement through merge()', () => {
+      const staged = new PluginRegistry();
+      const ctx = staged.contextFor('contextual', {}, noopLog);
+      const before = () => 'before';
+      const after = () => 'after';
+      ctx.registerTurnContext(before);
+      ctx.registerTurnContext(after, { placement: 'after-user' });
+
+      const reg = new PluginRegistry();
+      reg.merge(staged);
+
+      expect(reg.turnContexts).toEqual([
+        { render: before, placement: 'before-user' },
+        { render: after, placement: 'after-user' },
+      ]);
+      expect(reg.turnContextOwners).toEqual(['contextual', 'contextual']);
+    });
+  });
+
   describe('ctx.embeddings gate (deny-by-default, single-source config)', () => {
     // A fake embedder that records the config it was called with, so we can prove the LIVE config is
     // bound internally and forwarded on every call.
