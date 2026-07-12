@@ -504,6 +504,126 @@ describe('StreamCoordinator — bounded hydration lifecycle', () => {
     }
   });
 
+  it('blocks child navigation for the whole successful switch and restores it after commit', async () => {
+    const start = deferred<{ sessionId: string }>();
+    const refreshStarted = deferred<void>();
+    const finishRefresh = deferred<void>();
+    const childStreams: string[] = [];
+    const client = {
+      start: () => start.promise,
+      history: async (session?: string) => [{ role: 'assistant', text: `history for ${session}` }],
+      stream: (
+        callback: (frame: BrainEvent | { type: 'snapshot'; cursor: number; history: { role: string; text: string }[]; events: BrainEvent[] }) => void,
+        signal: AbortSignal,
+        _backoff: number,
+        _open?: () => void,
+        session?: string,
+      ) => {
+        if (session) {
+          childStreams.push(session);
+          callback({
+            type: 'snapshot', cursor: 1,
+            history: [{ role: 'assistant', text: `child history for ${session}` }], events: [],
+          });
+        }
+        return new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+      },
+      rebind: () => {},
+    } as unknown as BrainClient;
+    const rt = runtime();
+    rt.transcript.apply({ type: 'tool', id: 'delegate-old', name: 'delegate', detail: 'old child' });
+    rt.transcript.apply({
+      type: 'subagent', id: 'delegate-old', sessionId: 'old-child', status: 'running',
+      task: 'old child', detail: 'working', tools: 1, seconds: 1,
+    });
+    const stream = new StreamCoordinator(
+      rt, { client }, actions({
+        refreshMeta: async () => {
+          refreshStarted.resolve(undefined);
+          await finishRefresh.promise;
+        },
+      }), flows,
+      new SnapshotHydrator<BrainEvent>(), new HydrationNoticeOwner(),
+    );
+
+    const switching = stream.switchTo({ session: 'new-parent' });
+    await Promise.resolve();
+    stream.cycleSubagent();
+    await stream.openSubagent('old-direct-child');
+    expect(childStreams).toEqual([]);
+    expect(rt.childView).toBeNull();
+
+    start.resolve({ sessionId: 'new-parent' });
+    await refreshStarted.promise;
+    stream.cycleSubagent();
+    await stream.openSubagent('old-during-metadata');
+    expect(childStreams).toEqual([]);
+    expect(rt.childView).toBeNull();
+
+    finishRefresh.resolve(undefined);
+    await switching;
+    expect(rt.childView).toBeNull();
+    expect(serialized(rt.transcript)).toContain('history for new-parent');
+
+    await stream.openSubagent('new-parent-child');
+    expect(childStreams).toEqual(['new-parent-child']);
+    expect(rt.childView?.sessionId).toBe('new-parent-child');
+    expect(serialized(rt.childView?.transcript)).toContain('child history for new-parent-child');
+    stream.stop();
+  });
+
+  it('reconnects a failed switch with no child opened during the transition', async () => {
+    const releaseStart = deferred<void>();
+    const childStreams: string[] = [];
+    const parentSignals: AbortSignal[] = [];
+    const client = {
+      start: async () => {
+        await releaseStart.promise;
+        throw new Error('new parent unavailable');
+      },
+      history: async () => [],
+      stream: (
+        callback: (frame: { type: 'snapshot'; cursor: number; history: { role: string; text: string }[]; events: BrainEvent[] }) => void,
+        signal: AbortSignal,
+        _backoff: number,
+        _open?: () => void,
+        session?: string,
+      ) => {
+        if (session) {
+          childStreams.push(session);
+          callback({ type: 'snapshot', cursor: 1, history: [], events: [] });
+        } else {
+          parentSignals.push(signal);
+        }
+        return new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+      },
+      rebind: () => {},
+    } as unknown as BrainClient;
+    const rt = runtime();
+    const stream = new StreamCoordinator(
+      rt, { client }, actions(), flows,
+      new SnapshotHydrator<BrainEvent>(), new HydrationNoticeOwner(),
+    );
+    stream.openStream(rt.streamAc);
+    const originalParentSignal = rt.streamAc.signal;
+
+    const switching = stream.switchTo({ session: 'new-parent' });
+    await Promise.resolve();
+    await stream.openSubagent('old-parent-child');
+    expect(childStreams).toEqual([]);
+    expect(rt.childView).toBeNull();
+
+    releaseStart.resolve(undefined);
+    await expect(switching).rejects.toThrow('new parent unavailable');
+    expect(parentSignals).toEqual([originalParentSignal, rt.streamAc.signal]);
+    expect(rt.childView).toBeNull();
+
+    await stream.openSubagent('old-parent-child-after-failure');
+    expect(childStreams).toEqual(['old-parent-child-after-failure']);
+    expect(rt.childView?.sessionId).toBe('old-parent-child-after-failure');
+    stream.stop();
+  });
+
   it('stops parent history, child fallback, streams and all hydration timers together', async () => {
     vi.useFakeTimers();
     try {
@@ -809,6 +929,72 @@ describe('StreamCoordinator — concurrent parent switches', () => {
     expect(serialized(rt.transcript)).not.toContain('history-A');
     expect(aSignal.aborted).toBe(true);
     expect(streamSignals).toEqual([rt.streamAc.signal]);
+  });
+
+  it('keeps child navigation fenced until the latest switch commits', async () => {
+    const starts = new Map([
+      ['A', deferred<{ sessionId: string }>()],
+      ['B', deferred<{ sessionId: string }>()],
+    ]);
+    const childStreams: string[] = [];
+    const client = {
+      start: ({ session }: { session?: string }) => starts.get(session ?? '')!.promise,
+      history: async (session?: string) => [{ role: 'assistant', text: `history-${session}` }],
+      stream: (
+        callback: (frame: { type: 'snapshot'; cursor: number; history: { role: string; text: string }[]; events: BrainEvent[] }) => void,
+        signal: AbortSignal,
+        _backoff: number,
+        _open?: () => void,
+        session?: string,
+      ) => {
+        if (session) {
+          childStreams.push(session);
+          callback({
+            type: 'snapshot', cursor: 1,
+            history: [{ role: 'assistant', text: `history-${session}` }], events: [],
+          });
+        }
+        return new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+      },
+      rebind: () => {},
+    } as unknown as BrainClient;
+    const rt = state([], { workMode: 'build' });
+    rt.transcript.apply({ type: 'tool', id: 'delegate-old', name: 'delegate', detail: 'old child' });
+    rt.transcript.apply({
+      type: 'subagent', id: 'delegate-old', sessionId: 'old-child', status: 'running',
+      task: 'old child', detail: 'working', tools: 1, seconds: 1,
+    });
+    const stream = new StreamCoordinator(
+      rt, { client }, actions(),
+      { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows,
+      new SnapshotHydrator<BrainEvent>(), new HydrationNoticeOwner(),
+    );
+
+    const switchA = stream.switchTo({ session: 'A' });
+    await Promise.resolve();
+    await stream.openSubagent('old-child-during-A');
+    const switchB = stream.switchTo({ session: 'B' });
+    await Promise.resolve();
+    stream.cycleSubagent();
+    await stream.openSubagent('old-child-during-B');
+    expect(childStreams).toEqual([]);
+    expect(rt.childView).toBeNull();
+
+    starts.get('B')!.resolve({ sessionId: 'B' });
+    await switchB;
+    expect(serialized(rt.transcript)).toContain('history-B');
+    expect(rt.childView).toBeNull();
+
+    await stream.openSubagent('B-child');
+    expect(childStreams).toEqual(['B-child']);
+    expect(rt.childView?.sessionId).toBe('B-child');
+
+    starts.get('A')!.resolve({ sessionId: 'A' });
+    await switchA;
+    expect(rt.childView?.sessionId).toBe('B-child');
+    expect(serialized(rt.childView?.transcript)).toContain('history-B-child');
+    expect(serialized(rt.transcript)).not.toContain('history-A');
+    stream.stop();
   });
 });
 

@@ -50,7 +50,8 @@ export class StreamCoordinator implements StreamCoordinatorPort {
     const { client } = resources;
     const { render, refreshMeta, refreshRateLimits, invalidateAsyncState } = actions;
     let childGeneration = 0;
-    let switchGeneration = 0;
+    let sessionGeneration = 0;
+    let switchingSessionGeneration: number | null = null;
     let stopped = false;
     const childFallbacks = new Set<ReturnType<typeof setTimeout>>();
     const publishHydrationNotice = (lane: 'parent' | 'child', scope: 'conversation' | 'sub-agent', error: unknown): void => {
@@ -222,7 +223,8 @@ export class StreamCoordinator implements StreamCoordinatorPort {
     };
 
     const openSubagent = async (sessionId: string): Promise<void> => {
-      if (stopped) return;
+      if (stopped || switchingSessionGeneration !== null) return;
+      const parentGeneration = sessionGeneration;
       teardownChild();
       const generation = childGeneration;
       const ac = new AbortController();
@@ -237,6 +239,8 @@ export class StreamCoordinator implements StreamCoordinatorPort {
       const finish = (): void => { if (!resolved) { resolved = true; resolveHydrated(); } };
       const current = (): boolean => !stopped
         && !ac.signal.aborted
+        && switchingSessionGeneration === null
+        && parentGeneration === sessionGeneration
         && generation === childGeneration
         && rt.childView?.sessionId === sessionId;
       let fallback: ReturnType<typeof setTimeout> | null = null;
@@ -354,6 +358,7 @@ export class StreamCoordinator implements StreamCoordinatorPort {
     };
 
     const cycleSubagent = (): void => {
+      if (stopped || switchingSessionGeneration !== null) return;
       const ring = subagentSessions();
       if (ring.length === 0) { rt.notice = color.dim('no sub-agent in this conversation yet'); render(); return; }
       const at = rt.childView ? ring.findIndex((row) => row.sessionId === rt.childView!.sessionId) : -1;
@@ -364,20 +369,30 @@ export class StreamCoordinator implements StreamCoordinatorPort {
 
     const switchTo = async (target: { session?: string; fresh?: boolean }): Promise<void> => {
       if (stopped) return;
-      const generation = ++switchGeneration;
+      const generation = ++sessionGeneration;
+      switchingSessionGeneration = generation;
       teardownChild();
       invalidateAsyncState();
       rt.streamAc.abort();
       const ac = new AbortController();
       rt.streamAc = ac;
       const current = (): boolean => !stopped
-        && generation === switchGeneration
+        && generation === sessionGeneration
+        && switchingSessionGeneration === generation
         && rt.streamAc === ac
         && !ac.signal.aborted;
+      const finishSwitch = (): boolean => {
+        if (!current()) return false;
+        // A child request can be triggered by input callbacks at any await boundary. Close it again at
+        // the commit boundary before child navigation is released for the newly selected parent.
+        teardownChild();
+        switchingSessionGeneration = null;
+        return true;
+      };
       let started: { sessionId: string };
       try { started = await client.start(target); }
       catch (error) {
-        if (!current()) return;
+        if (!finishSwitch()) return;
         // The old stream was paused before selection to prevent cross-session events. A rejected start did
         // not change BrainClient's binding, so reconnect that last valid conversation before surfacing it.
         openStream(ac);
@@ -403,7 +418,7 @@ export class StreamCoordinator implements StreamCoordinatorPort {
       );
       if (!current()) return;
       await refreshMeta();
-      if (!current()) return;
+      if (!finishSwitch()) return;
       openStream(ac);
       render('session:switch');
     };
@@ -411,7 +426,8 @@ export class StreamCoordinator implements StreamCoordinatorPort {
     const stop = (): void => {
       if (stopped) return;
       stopped = true;
-      switchGeneration += 1;
+      sessionGeneration += 1;
+      switchingSessionGeneration = null;
       teardownChild();
       rt.streamAc.abort();
       hydrator.stop();
