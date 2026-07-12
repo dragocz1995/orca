@@ -54,8 +54,6 @@ export class OverlayController {
     return this.show(name, overlay, () => this.suggestionOptions(overlay, geometry()));
   }
 
-  get(name: string): OverlayHandle | null { return this.named.get(name)?.handle ?? null; }
-
   hide(name: string): void { this.named.get(name)?.handle.hide(); }
 
   /** Activate every overlay accumulated while the terminal was outside the alternate screen. Native PI
@@ -114,11 +112,6 @@ export class OverlayController {
     }
     if (focused && !focused.hidden && !focused.closed) focused.native?.focus();
     this.forceRender('overlay:reflow');
-  }
-
-  hideAll(): void {
-    for (const record of [...this.records]) this.close(record);
-    this.named.clear();
   }
 
   stop(): void {

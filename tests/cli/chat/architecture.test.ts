@@ -138,7 +138,9 @@ describe('chat production architecture boundaries', () => {
 
   it('keeps test-only routing and root inspection out of production APIs', () => {
     expect(source('inputRouter.ts')).not.toMatch(/customRoute|routeOrContext|constructor\(tui:\s*TUI,\s*route:/);
-    expect(source('chatComposition.ts')).not.toMatch(/readonly\s+root:\s*Component|\broot:\s*measuredRoot/);
+    expect(source('chatComposition.ts')).not.toMatch(
+      /readonly\s+(?:root|renderShell):\s*(?:Component|RenderShell)|\broot:\s*measuredRoot/,
+    );
   });
 });
 

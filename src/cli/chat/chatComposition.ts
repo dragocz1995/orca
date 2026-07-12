@@ -41,7 +41,6 @@ export interface ShellInputDeps {
  * application options, this object groups the mounted root and the controllers whose lifetime is one
  * chat session. */
 export interface ChatComposition {
-  readonly renderShell: RenderShell;
   readonly animations: AnimationController;
   render(reason?: string): void;
   renderForced(reason?: string): void;
@@ -900,7 +899,6 @@ export function createChatComposition(
   };
 
   return {
-    renderShell: renderOwner,
     animations,
     render,
     renderForced,
