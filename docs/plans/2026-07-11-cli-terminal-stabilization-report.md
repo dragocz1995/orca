@@ -129,13 +129,15 @@ effectively viewport-bound and every ordinary deterministic sample is well below
 
 ## Automated verification
 
-- Full Vitest JSON report: **3,182/3,182 tests passed**, no skips or failures.
+- Full Vitest JSON report: **3,182/3,182 tests passed**, no skips or failures. The final all-repo run
+  used four workers so the suite's in-process wall-clock benchmark was not starved by 16 competing
+  test workers; the dedicated benchmark and tmux performance gates run separately without that load.
 - tmux evidence analyzer unit/mutation suite: **28/28 passed**.
-- `npm run lint`: exit 0, zero errors; one pre-existing unrelated hook warning in
-  `web/modules/users/UsersView.tsx:88`.
+- `npm run lint`: exit 0, zero errors and zero warnings. Flat-config ignores explicitly exclude local
+  worktrees, benchmark environments, and generated tmux artifacts from the production checkout gate.
 - `npm run typecheck`: pass.
 - `npm run deadcode` (Knip): pass.
-- `npm run depcruise`: pass; 822 modules and 3,241 dependencies, no violations.
+- `npm run depcruise`: pass; 828 modules and 3,264 dependencies, no violations.
 - `npm run build`: pass.
 - Independent read-only release audit: READY, no remaining Critical/Important ownership, lifecycle,
   timer, listener, duplication, or dead-code finding.
