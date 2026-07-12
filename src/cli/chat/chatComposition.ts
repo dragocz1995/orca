@@ -405,6 +405,7 @@ export function createChatComposition(
     processes: rt.processes,
     subagents: currentAgents,
     rateLimits: rt.rateLimits,
+    goal: rt.goal,
     floatOffset: animations.mascotOffset,
   }));
   const startScreen = new StartScreen(

@@ -5,9 +5,10 @@ import { FLOAT_BAND } from './mascotFloat.js';
 import { ProcessPanel, SubagentPanel } from './components.js';
 import type { SubagentPanelEntry } from './components.js';
 import { color } from './theme.js';
-import type { BrainRateLimits, BrainRateLimitWindow, BrainUsageView, McpServerView } from './brainClient.js';
+import type { BrainRateLimits, BrainRateLimitWindow, BrainUsageView, GoalView, McpServerView } from './brainClient.js';
 import type { ProcessInfo } from '../../brain/processRegistry.js';
-import { formatK, padAnsi, terminalInlineText } from '../ui/text.js';
+import { formatDuration, formatK, padAnsi, terminalInlineText } from '../ui/text.js';
+import { goalElapsedSeconds } from './goalState.js';
 
 const inlineText = terminalInlineText;
 export interface TelemetryState {
@@ -25,6 +26,8 @@ export interface TelemetryState {
   subagents?: readonly SubagentPanelEntry[];
   /** OpenAI OAuth subscription usage. Null on other providers/accounts, which hides the whole section. */
   rateLimits?: BrainRateLimits | null;
+  /** Active persistent goal. Terminal states disappear; durable history remains in the conversation. */
+  goal?: GoalView | null;
   /** Eased vertical drift of the flame (in panel rows) while the transcript is being scrolled; 0 at
    *  rest. The flame floats within a reserved ±{@link FLOAT_BAND} band so the Context section never moves. */
   floatOffset: number;
@@ -35,7 +38,7 @@ const MCP_NAMES_SHOWN = 4;
 const PROCESS_ROWS_SHOWN = 5;
 const SUBAGENT_ROWS_SHOWN = 5;
 
-type TelemetrySectionId = 'context' | 'limits' | 'subagents' | 'processes' | 'project' | 'mcp' | 'lsp';
+type TelemetrySectionId = 'context' | 'goal' | 'limits' | 'subagents' | 'processes' | 'project' | 'mcp' | 'lsp';
 
 interface TelemetrySection {
   id: TelemetrySectionId;
@@ -131,6 +134,10 @@ export class TelemetryPanel implements Component {
       },
     ];
     const limitRows = this.rateLimitRows(st.rateLimits ?? null, width);
+    const goalRows = this.goalRows(st.goal ?? null, width);
+    if (goalRows.length > 0) {
+      sections.push({ id: 'goal', rows: goalRows, minimumRows: Math.min(2, goalRows.length) });
+    }
     if (limitRows.length > 0) {
       sections.push({ id: 'limits', rows: limitRows, minimumRows: limitRows.length });
     }
@@ -193,11 +200,11 @@ export class TelemetryPanel implements Component {
       const section = sections.find((candidate) => candidate.id === id);
       if (section) select(section, section.rows.length);
     }
-    for (const id of ['subagents', 'limits', 'processes', 'mcp', 'lsp'] as const) {
+    for (const id of ['goal', 'subagents', 'limits', 'processes', 'mcp', 'lsp'] as const) {
       const section = sections.find((candidate) => candidate.id === id);
       if (section) select(section, section.minimumRows);
     }
-    for (const id of ['subagents', 'limits', 'processes', 'mcp', 'lsp'] as const) {
+    for (const id of ['goal', 'subagents', 'limits', 'processes', 'mcp', 'lsp'] as const) {
       const section = sections.find((candidate) => candidate.id === id);
       const current = section ? counts.get(id) : undefined;
       if (!section || current == null || current >= section.rows.length) continue;
@@ -231,6 +238,24 @@ export class TelemetryPanel implements Component {
     if (limits.primary) rows.push(this.rateLimitWindowRow(limits.primary, width));
     if (limits.secondary) rows.push(this.rateLimitWindowRow(limits.secondary, width));
     return rows.length > 1 ? rows : [];
+  }
+
+  private goalRows(goal: GoalView | null, width: number): string[] {
+    if (goal?.status !== 'active') return [];
+    const budget = goal.turn_budget > 0 ? `${goal.turns_used}/${goal.turn_budget} turns` : `${goal.turns_used} turns`;
+    const title = truncateToWidth(inlineText(goal.goal), Math.max(1, width - 4), '…');
+    const rows = [
+      `  ${color.bold(color.text('Goal'))} ${color.faint(budget)}`,
+      `  ${color.accent('◆')} ${color.text('Active')} ${color.faint(`· ${formatDuration(goalElapsedSeconds(goal))}`)}`,
+    ];
+    if (title) rows.push(`  ${color.dim(title)}`);
+    try {
+      const subgoals = JSON.parse(goal.subgoals) as { done?: boolean }[];
+      if (Array.isArray(subgoals) && subgoals.length > 0) {
+        rows.push(`  ${color.faint(`Subgoals ${subgoals.filter((subgoal) => subgoal?.done).length}/${subgoals.length}`)}`);
+      }
+    } catch { /* malformed legacy subgoals are omitted */ }
+    return rows;
   }
 
   private rateLimitWindowRow(window: BrainRateLimitWindow, width: number): string {

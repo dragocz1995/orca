@@ -445,6 +445,7 @@ describe('chat layout components', () => {
     processes: [],
     subagents: [],
     rateLimits: null,
+    goal: null,
     floatOffset: 0,
     ...over,
   });
@@ -461,6 +462,45 @@ describe('chat layout components', () => {
     expect(rows.join('\n')).not.toContain('reasoning');
     expect(rows.join('\n')).not.toContain('theme');
     expect(rows.join('\n')).not.toContain('Dev');
+  });
+
+  it('shows an active goal as its own rail section and removes it when the goal settles', () => {
+    vi.setSystemTime(new Date('2026-07-12T10:00:12.000Z'));
+    const active = {
+      session_id: 'brain-1', user_id: 1, status: 'active' as const,
+      goal: 'Ship the clean goal indicator', draft: '',
+      subgoals: JSON.stringify([{ text: 'one', done: true }, { text: 'two', done: false }]),
+      turns_used: 2, turn_budget: 8, last_verdict: '', last_evidence: '', paused_reason: '',
+      created_at: '2026-07-12 10:00:00', updated_at: '2026-07-12 10:00:00',
+    };
+    const panel = new TelemetryPanel(() => telemetryState({ goal: active }));
+    const rendered = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
+    expect(rendered).toContain('Goal');
+    expect(rendered).toContain('2/8 turns');
+    expect(rendered).toContain('12s');
+    expect(rendered).toContain('Ship the clean goal indicator');
+    expect(rendered).toContain('Subgoals 1/2');
+
+    const settled = new TelemetryPanel(() => telemetryState({ goal: { ...active, status: 'completed' } }));
+    expect(settled.render(46).join('\n')).not.toContain('Goal');
+  });
+
+  it('prioritizes the active goal summary on a short telemetry rail', () => {
+    const panel = new TelemetryPanel(() => telemetryState({
+      goal: {
+        session_id: 'brain-1', user_id: 1, status: 'active', goal: 'Keep this visible', draft: '', subgoals: '[]',
+        turns_used: 1, turn_budget: 6, last_verdict: '', last_evidence: '', paused_reason: '',
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      },
+      mcp: [{ name: 'github', status: 'connected' }], lspEnabled: true,
+    }));
+    panel.setMaxRows(11);
+    const rendered = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
+    expect(rendered).toContain('Context');
+    expect(rendered).toContain('Project');
+    expect(rendered).toContain('Goal');
+    expect(rendered).toContain('1/6 turns');
+    expect(rendered).not.toContain('MCP');
   });
 
   it('floats the flame within a fixed band: constant panel height, whole-row drift, no reflow', () => {

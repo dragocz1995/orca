@@ -176,6 +176,8 @@ try {
   });
   const active = saveActive('01-goal-active', { expectScrollbar: false });
   assert.match(active.plain, /Goal\s+0\/4/u, 'active goal chip must expose turn progress');
+  assert.ok(active.plain.split('\n').some((line) => line.indexOf('Goal') > 65),
+    'wide active-goal frame must also expose the dedicated right-rail Goal section');
   assert.doesNotMatch(active.plain, /starting persistent goal/iu, 'long kickoff request must never leave a starting notice');
 
   await waitFor('goal elapsed tick', () => /Goal\s+0\/4\s+·\s+[1-4]s/u.test(capture()), 3_000);
@@ -210,6 +212,8 @@ try {
   const completed = saveActive('06-goal-complete', { expectScrollbar: false });
   assert.match(completed.plain, /E2E GOAL COMPLETE/u, 'settled goal transcript must stay visible');
   assert.doesNotMatch(completed.plain, /◆ Goal|starting persistent goal/iu, 'completed goal status must disappear cleanly');
+  assert.equal(completed.plain.split('\n').some((line) => line.indexOf('Goal') > 65), false,
+    'completed goal must disappear from the right telemetry rail too');
 
   sendLiteral('E2E verify editor after goal');
   sendKey('Enter');
