@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,11 +26,16 @@ const listFiles = (directory) => {
   return files;
 };
 
-const repositoryDist = (root) => {
+const loadRepository = (root) => {
   const repository = resolve(root);
   const manifestPath = join(repository, 'package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   if (manifest.name !== 'elowen') throw new Error('dist integrity: expected package name "elowen"');
+  return { repository, manifest };
+};
+
+const repositoryDist = (root) => {
+  const { repository } = loadRepository(root);
   const dist = resolve(repository, 'dist');
   if (dirname(dist) !== repository || basename(dist) !== 'dist') {
     throw new Error('dist integrity: refusing to operate outside repository dist');
@@ -61,6 +66,19 @@ export function cleanDist(root) {
   rmSync(repositoryDist(root), { recursive: true, force: true });
 }
 
+export function makeDeclaredBinsExecutable(root) {
+  const { repository: rootDirectory, manifest } = loadRepository(root);
+  const bins = typeof manifest.bin === 'string' ? [manifest.bin] : Object.values(manifest.bin ?? {});
+  for (const bin of bins) {
+    if (typeof bin !== 'string') throw new Error('dist integrity: package bin must be a string');
+    const target = resolve(rootDirectory, bin);
+    if (!target.startsWith(`${rootDirectory}${sep}`) || !existsSync(target)) {
+      throw new Error(`dist integrity: declared bin is missing or outside repository: ${bin}`);
+    }
+    chmodSync(target, statSync(target).mode | 0o111);
+  }
+}
+
 export function inspectDistParity(root) {
   const expected = new Set([...emittedJavaScript(root), ...copiedJavaScript(root)]);
   const actual = new Set(actualJavaScript(root));
@@ -84,9 +102,10 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
   const command = process.argv[2];
   const root = resolve(dirname(scriptPath), '..');
   if (command === 'clean') cleanDist(root);
+  else if (command === 'chmod-bins') makeDeclaredBinsExecutable(root);
   else if (command === 'verify') assertDistParity(root);
   else {
-    process.stderr.write('usage: node scripts/dist-integrity.mjs <clean|verify>\n');
+    process.stderr.write('usage: node scripts/dist-integrity.mjs <clean|chmod-bins|verify>\n');
     process.exitCode = 2;
   }
 }

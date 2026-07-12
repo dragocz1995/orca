@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -106,6 +106,10 @@ describe('dist integrity', () => {
       });
       expect(result.status, result.stderr).toBe(0);
       expect(existsSync(stale)).toBe(false);
+      const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as {
+        bin: { elowen: string };
+      };
+      expect(statSync(join(repositoryRoot, manifest.bin.elowen)).mode & 0o111).not.toBe(0);
     } finally {
       rmSync(stale, { force: true });
     }
