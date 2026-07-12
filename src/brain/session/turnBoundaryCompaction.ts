@@ -13,6 +13,40 @@ type PiCompactionSession = {
   _checkCompaction?: (assistantMessage: PiAssistantMessage, skipAbortedCheck?: boolean) => Promise<boolean>;
 };
 
+export interface PendingCompactionMessage {
+  text: string;
+  images?: readonly { type: 'image'; data: string; mimeType: string }[];
+}
+
+function pendingQueueTokens(
+  session: AgentSession,
+  pendingMessages?: () => readonly PendingCompactionMessage[],
+): number {
+  const pending: readonly PendingCompactionMessage[] = pendingMessages?.() ?? [
+    ...(session.getSteeringMessages?.() ?? []).map((text) => ({ text })),
+    ...(session.getFollowUpMessages?.() ?? []).map((text) => ({ text })),
+  ];
+  return pending.reduce((total, message) => total + estimateTokens({
+    role: 'user',
+    content: [{ type: 'text', text: message.text }, ...(message.images ?? [])],
+    timestamp: Date.now(),
+  }), 0);
+}
+
+/** PI's zero/error-usage fallback, kept local because estimateContextTokens is not part of the public
+ * coding-agent export. Start from the newest valid provider usage and estimate only its unseen tail;
+ * when no valid usage exists, conservatively estimate the whole visible message context. */
+function estimatedContextTokens(messages: readonly Parameters<typeof estimateTokens>[0][]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== 'assistant' || message.stopReason === 'error' || message.stopReason === 'aborted') continue;
+    const contextTokens = message.usage ? calculateContextTokens(message.usage) : 0;
+    if (contextTokens <= 0) continue;
+    return contextTokens + messages.slice(index + 1).reduce((total, trailing) => total + estimateTokens(trailing), 0);
+  }
+  return messages.reduce((total, message) => total + estimateTokens(message), 0);
+}
+
 function latestCompactionId(sessionManager: SessionManager): string | null {
   return sessionManager.getBranch().findLast((entry) => entry.type === 'compaction')?.id ?? null;
 }
@@ -29,6 +63,7 @@ export function installTurnBoundaryAutoCompaction(
   session: AgentSession,
   sessionManager: SessionManager,
   enabled: boolean,
+  pendingMessages?: () => readonly PendingCompactionMessage[],
 ): boolean {
   if (!enabled) return false;
   const piSession = session as unknown as PiCompactionSession;
@@ -48,9 +83,12 @@ export function installTurnBoundaryAutoCompaction(
     // provider's authoritative context count and add PI's own conservative estimate for that exact tail.
     const assistantUsage = (turn.message as { usage?: Parameters<typeof calculateContextTokens>[0] }).usage;
     const directTokens = assistantUsage ? calculateContextTokens(assistantUsage) : 0;
+    const queuedTokens = pendingQueueTokens(session, pendingMessages);
     const boundaryTokens = directTokens > 0
-      ? directTokens + turn.toolResults.reduce((total, message) => total + estimateTokens(message), 0)
-      : 0;
+      ? directTokens
+        + turn.toolResults.reduce((total, message) => total + estimateTokens(message), 0)
+        + queuedTokens
+      : estimatedContextTokens(turn.context.messages) + queuedTokens;
     const fullBoundaryMessage = {
       ...turn.message,
       usage: {
@@ -60,12 +98,25 @@ export function installTurnBoundaryAutoCompaction(
     } as PiAssistantMessage;
     // AgentSession.abort() owns the Agent controller, while PI auto-compaction owns a separate controller.
     // Bridge the public Agent signal to public abortCompaction() for exactly this awaited boundary check.
-    const abortCompaction = (): void => session.abortCompaction();
+    let aborted = signal?.aborted === true;
+    const abortCompaction = (): void => {
+      aborted = true;
+      session.abortCompaction();
+    };
+    // PI emits compaction_start immediately BEFORE it constructs the auto-compaction AbortController.
+    // If the Agent signal fired during the preceding async auth lookup, the first abortCompaction() was
+    // necessarily a no-op. Replay it in a microtask: PI has installed its controller by then, but has not
+    // started the summary request yet. This is event-driven and scoped to this one boundary check.
+    const unsubscribe = session.subscribe?.((event) => {
+      if ((event as { type?: string }).type !== 'compaction_start' || !aborted) return;
+      queueMicrotask(() => session.abortCompaction());
+    }) ?? (() => undefined);
     signal?.addEventListener('abort', abortCompaction, { once: true });
     if (signal?.aborted) abortCompaction();
     try {
       await checkCompaction(fullBoundaryMessage);
     } finally {
+      unsubscribe();
       signal?.removeEventListener('abort', abortCompaction);
     }
     if (signal?.aborted) return snapshot;

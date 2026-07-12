@@ -6,7 +6,10 @@ import { createSessionPersistenceProjector, rehydrate } from '../persistence.js'
 import { applyProviderRequestProfile, isCanonicalThinkingLevel, type ProviderRequestProfile } from '../modelCapabilities.js';
 import type { DelegatedExecutionScope } from '../delegatedScope.js';
 import { createCodexCompactionModelRoute, type CodexCompactionModelRoute } from './codexCompaction.js';
-import { installTurnBoundaryAutoCompaction } from './turnBoundaryCompaction.js';
+import {
+  installTurnBoundaryAutoCompaction,
+  type PendingCompactionMessage,
+} from './turnBoundaryCompaction.js';
 import { logger } from '../../shared/logger.js';
 
 let missingBoundaryCompactionWarned = false;
@@ -51,6 +54,10 @@ export interface SessionSpec {
    *  `reserveTokens` = round(contextWindow · (1 − pct/100)) — `shouldCompact` fires when the context
    *  exceeds `contextWindow − reserveTokens`, i.e. once the window is `pct`% full. */
   autoCompactAtPct: number;
+  /** Authoritative image-carrying snapshot of messages PI can inject before a later provider request.
+   * Chat sessions supply their native queue mirror; workers without an interactive queue omit it and
+   * the boundary adapter falls back to PI's public text-only accessors. */
+  pendingCompactionMessages?: () => readonly PendingCompactionMessage[];
   /** Load the project's AGENTS.md/CLAUDE.md into the system prompt (PI walks `cwd` and its ancestors).
    *  OWNER-CHAT ONLY: shared channels and task workers must leave this off — the ancestor walk would
    *  pull internal instruction files into a prompt foreign senders talk to. */
@@ -237,7 +244,9 @@ export class BrainSessionFactory {
     // only the small emergency reserve described above, rather than PI's normal early threshold.
     const reserveTokens = compactionReserveTokens(spec.model.contextWindow, spec.autoCompact, spec.autoCompactAtPct);
     settingsManager.applyOverrides({ compaction: { enabled: true, reserveTokens } });
-    const boundaryCompactionInstalled = installTurnBoundaryAutoCompaction(session, sessionManager, spec.autoCompact);
+    const boundaryCompactionInstalled = installTurnBoundaryAutoCompaction(
+      session, sessionManager, spec.autoCompact, spec.pendingCompactionMessages,
+    );
     if (spec.autoCompact && !boundaryCompactionInstalled && !missingBoundaryCompactionWarned) {
       missingBoundaryCompactionWarned = true;
       logger('brain-compaction').warn(
