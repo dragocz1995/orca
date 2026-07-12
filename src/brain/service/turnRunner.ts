@@ -92,6 +92,10 @@ export class BrainTurnRunner {
     }
     const active = this.d.sessions.get(targetId);
     if (!active) throw new Error('brain not started for user');
+    // Esc/stop fences the conversation before it snapshots children and clears PI's queue. Never admit a
+    // message into that teardown window: the cancelled compaction/run will not drain it, so it would
+    // otherwise survive as a phantom chip and execute on a later prompt.
+    if (this.d.sessions.isParentAborting(active.sessionId)) throw new Error('session work aborted');
     // PI reports both isStreaming=false and isCompacting=false while a native auto-compaction check is
     // awaiting auth. The coordinator spans that gap. Treat it exactly like the running turn it belongs
     // to: new user input enters PI's native queue and becomes a transcript row only on delivery.

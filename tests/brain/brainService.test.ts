@@ -308,6 +308,36 @@ describe('BrainService', () => {
     ]);
   });
 
+  it('rejects a concurrent send while Esc is aborting a native compaction check', async () => {
+    const d = fakeDeps();
+    let checkStarted!: () => void;
+    const started = new Promise<void>((resolve) => { checkStarted = resolve; });
+    let releaseCheck!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseCheck = resolve; });
+    d.nativeCheck.mockImplementationOnce(async () => {
+      checkStarted();
+      await gate;
+      return false;
+    });
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const checking = d.session._checkCompaction({ role: 'assistant' } as never, false);
+    const checkError = checking.catch((error: unknown) => error);
+    await started;
+
+    const aborting = svc.abort(1);
+    await expect(svc.send({ userId: 1, text: 'must not survive Esc' }))
+      .rejects.toThrow('session work aborted');
+    expect(d.session.steer).not.toHaveBeenCalled();
+    expect(svc.queueList(1)).toEqual([]);
+
+    releaseCheck();
+    expect(await checkError).toMatchObject({ message: 'session work aborted' });
+    await aborting;
+    expect(svc.queueList(1)).toEqual([]);
+    expect(d.session.clearQueue).toHaveBeenCalledTimes(2);
+  });
+
   it('startSend admits a normal turn after the durable user event without waiting for model completion', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
