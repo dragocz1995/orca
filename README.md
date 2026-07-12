@@ -44,6 +44,14 @@ elowen up | down                    # manage local services
 
 </div>
 
+## Built for work that lasts longer than a prompt
+
+Elowen does more than answer the next message. A **persistent goal** gives a conversation a concrete outcome, subgoals, a turn budget, and a hard safety ceiling; it can pause when it needs you and resume with its bearings intact. While one turn is working, a **durable message queue** keeps your follow-up instead of losing it, and context compaction preserves the useful thread rather than resetting the conversation.
+
+When one agent is not the right shape for the job, Elowen can **delegate focused work to sub-agents on a different model**. Their live status, tool activity, model, and result stay attached to the parent conversation, so delegation never becomes a black box. For larger work, **missions turn one outcome into ordered phases** and can assign a dedicated pilot to plan it and an overseer to judge progress, reviews, and uncertain decisions — each with its own executor, selected per mission rather than forced globally.
+
+That autonomy stays deliberate. **Per-user model ceilings and granular tool rules** decide what may run, what must ask, and what is denied; approval is a real pause in the work, not a best-effort notification. A mission can also use an **isolated Git worktree and pull-request workflow**, keeping concurrent work away from a shared checkout and holding publication behind its verification gate. The terminal, Web UI, and chat-platform plugins all use the same daemon, projects, permissions, memory, and conversation state, so changing surfaces never means starting your agent over.
+
 ## One agent, several useful surfaces
 
 ### Terminal chat
