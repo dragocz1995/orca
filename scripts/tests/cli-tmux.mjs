@@ -444,12 +444,12 @@ try {
   assert.ok(blankBetween(settledTurnLines, /E2E TOOL OUTPUT/, /E2E FINAL REPLY/),
     'tool output and final answer need a blank separator');
 
-  // A truncated diff uses the viewport's stable tool expansion registry. Its explicit underlined tail
+  // A truncated diff uses the viewport's stable tool expansion registry. Its quiet terminal-style tail
   // expands the complete diff, then the replacement collapse row restores the compact preview.
   const diffMoreRow = settledTurnLines.findIndex((line) => line.includes('+12 more lines')) + 1;
   assert.ok(diffMoreRow > 1, '30-row diff must expose a +12 more lines target');
-  assert.match(captureAnsi().split('\n')[diffMoreRow - 1] ?? '', /\x1b\[4m/,
-    'diff more-lines target must be underlined');
+  assert.doesNotMatch(captureAnsi().split('\n')[diffMoreRow - 1] ?? '', /\x1b\[4m/,
+    'diff more-lines target must stay quiet like terminal tool-output affordances');
   sendRaw(`\x1b[<0;30;${diffMoreRow}M`);
   sendRaw(`\x1b[<0;30;${diffMoreRow}m`);
   await waitFor('expanded complete diff', () => capture().includes('E2E DIFF LINE 30'));
@@ -567,6 +567,20 @@ try {
   sendRaw(`\x1b[<32;${draggedThumb.x};${tailThumb.y}M`);
   sendRaw(`\x1b[<0;${draggedThumb.x};${tailThumb.y}m`);
   await waitFor('scrollbar drag returns to tail', () => historyOffset(capture()) === 0);
+
+  // Full Todo mode has its own truthful reverse transition. The underlined control must restore the
+  // representative four-item preview; clicking the header would hide the entire card instead.
+  const expandedTodoLines = capture().split('\n');
+  const showLessRow = expandedTodoLines.findIndex((line) => line.includes('Show less')) + 1;
+  assert.ok(showLessRow > 0, 'expanded Todos must expose a Show less row');
+  assert.match(captureAnsi().split('\n')[showLessRow - 1] ?? '', /\x1b\[4m/,
+    'the Todo Show less affordance must be underlined');
+  sendRaw(`\x1b[<0;24;${showLessRow}M`);
+  sendRaw(`\x1b[<0;24;${showLessRow}m`);
+  await waitFor('compacted Todo preview', () => /\+\d+ more(?! lines)/u.test(capture())
+    && !capture().includes('verify terminal cleanup'));
+  const compactedTodoCapture = saveCapture('10a-compacted-todos');
+  assert.match(compactedTodoCapture, /Todos/u, 'Show less must keep the Todo card visible');
 
   // At 120x30 the vertical rail deliberately spends its budget on Context/Limits/Project/LSP and omits
   // the decorative mascot. The scrollbar drag above must therefore arm no hidden animation timer.
@@ -783,6 +797,7 @@ try {
     dragToCopyOsc52: true,
     telemetryMetersAt36Columns: true,
     todoMoreExpandedByMouse: true,
+    todoMoreCollapsedByMouse: true,
     shortSlashMenuFit: true,
     shortSlashLiveResize: true,
     shortAskDockFit: true,

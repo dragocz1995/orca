@@ -200,7 +200,7 @@ function runSecondTurn(text) {
   later(240, () => emit({
     type: 'card',
     card: {
-      id: 'e2e-todos', title: 'Todos', pinned: true,
+      id: 'todos', title: 'Todos', pinned: true,
       items: [
         { text: 'stream response', status: 'completed' },
         { text: 'survive resize', status: 'in_progress' },

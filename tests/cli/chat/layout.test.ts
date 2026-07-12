@@ -12,6 +12,7 @@ import { StartScreen } from '../../../src/cli/chat/startScreen.js';
 import { TelemetryPanel, type TelemetryState } from '../../../src/cli/chat/telemetryPanel.js';
 import { MentionOverlay, SlashOverlay, SuggestionOverlay } from '../../../src/cli/chat/suggestionOverlay.js';
 import { ChatEditor } from '../../../src/cli/chat/picker.js';
+import { color } from '../../../src/cli/chat/theme.js';
 
 const transcriptState = (
   transcript: TranscriptModel,
@@ -1345,7 +1346,8 @@ describe('progressive history layout', () => {
     const collapsed = viewport.render(80);
     const moreRow = collapsed.findIndex((line) => line.includes('+7 more lines'));
     expect(moreRow).toBeGreaterThan(0);
-    expect(collapsed[moreRow]).toContain('\x1b[4m');
+    expect(collapsed[moreRow]).toContain(color.faint('… +7 more lines'));
+    expect(collapsed[moreRow]).not.toContain('\x1b[4m');
     expect(collapsed.join('\n')).not.toContain('diff line 25');
     expect(viewport.isExpandableRow(10, moreRow + 1)).toBe(true);
 

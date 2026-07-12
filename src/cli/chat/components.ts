@@ -109,7 +109,9 @@ export class CardPanel implements Component {
     const shown = lines.slice(0, this.maxRows);
     if (this.maxRows > 1) {
       const moreRow = this.maxRows - 1;
-      const label = `… +${lines.length - this.maxRows + 1} more`;
+      // Once the Todo is expanded, a hard terminal-height cap cannot reveal further rows. Keep the
+      // control truthful: it returns to the four-item preview instead of pretending to expand again.
+      const label = this.expanded ? '▴ Show less' : `… +${lines.length - this.maxRows + 1} more`;
       shown[moreRow] = `    ${color.accent(`\x1b[4m${label}\x1b[24m`)}`;
       this.headerRows.delete(moreRow);
       this.moreRows.add(moreRow);
@@ -130,6 +132,8 @@ export class CardPanel implements Component {
       this.headerRows.add(lines.length); // a card's first row is its clickable header
       const isTodoPreview = c.id === 'todos' && !this.expanded && !this.collapsed
         && (c.items?.length ?? 0) > TODO_PREVIEW_ITEMS;
+      const isTodoExpanded = c.id === 'todos' && this.expanded && !this.collapsed
+        && (c.items?.length ?? 0) > TODO_PREVIEW_ITEMS;
       const bodyRows = c.body ? terminalPlainText(c.body).split('\n').length : 0;
       const block = cardBlock(
         c,
@@ -141,6 +145,10 @@ export class CardPanel implements Component {
         const hidden = (c.items?.length ?? 0) - TODO_PREVIEW_ITEMS;
         block[1 + TODO_PREVIEW_ITEMS] = `    ${color.accent(`\x1b[4m… +${hidden} more\x1b[24m`)}`;
         this.moreRows.add(moreRow);
+      } else if (isTodoExpanded) {
+        const lessRow = lines.length + block.length;
+        block.push(`    ${color.accent('\x1b[4m▴ Show less\x1b[24m')}`);
+        this.moreRows.add(lessRow);
       }
       lines.push(...block);
     }
@@ -543,7 +551,7 @@ export function framedDiffBlock(diff: string, width: number, title = 'diff', exp
   const lines = diffBlock(diff, expanded ? Number.POSITIVE_INFINITY : previewLines, inner);
   if (expandable) {
     const label = expanded ? '▴ Click to collapse' : `… +${total - previewLines} more lines`;
-    const toggle = `    ${color.accent(`\x1b[4m${label}\x1b[24m`)}`;
+    const toggle = `    ${color.faint(label)}`;
     if (expanded) lines.push(toggle);
     else lines[lines.length - 1] = toggle;
   }

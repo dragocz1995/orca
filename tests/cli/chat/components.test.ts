@@ -178,6 +178,10 @@ describe('chat components', () => {
     expect(panel.isMoreRow(2)).toBe(true);
     panel.toggleExpanded();
     expect(panel.isExpanded()).toBe(true);
+    const constrainedExpanded = panel.render(80);
+    expect(constrainedExpanded[2]).toContain('Show less');
+    expect(constrainedExpanded[2]).not.toContain('+');
+    expect(panel.isMoreRow(2)).toBe(true);
     panel.setMaxRows(30);
     expect(panel.render(80).join('\n')).toContain('Task 19');
   });
@@ -214,10 +218,20 @@ describe('chat components', () => {
     expect(panel.isMoreRow(5)).toBe(true);
 
     panel.toggleExpanded();
-    const expanded = panel.render(80).join('\n');
-    expect(expanded).toContain('Old completed A');
-    expect(expanded).toContain('Last pending');
-    expect(expanded).not.toContain('+4 more');
+    const expanded = panel.render(80);
+    const expandedText = expanded.join('\n');
+    expect(expandedText).toContain('Old completed A');
+    expect(expandedText).toContain('Last pending');
+    expect(expandedText).not.toContain('+4 more');
+    expect(expanded.at(-1)).toContain('Show less');
+    expect(expanded.at(-1)).toContain('\x1b[4m');
+    expect(panel.isMoreRow(expanded.length - 1)).toBe(true);
+
+    panel.toggleExpanded();
+    const compactAgain = panel.render(80).join('\n');
+    expect(compactAgain).toContain('+4 more');
+    expect(compactAgain).not.toContain('Old completed A');
+    expect(compactAgain).not.toContain('Last pending');
   });
 
   it('CardPanel fills unused preview slots from the larger Todo status group', () => {

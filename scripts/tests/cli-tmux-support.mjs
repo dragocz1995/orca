@@ -34,7 +34,7 @@ export const EXPECTED_TMUX_CAPTURE_LABELS = Object.freeze({
     '08-panels-after-stream', '08d-subagents-scrolled', '08e-subagent-rail-drill-in',
     '08f-subagents-narrow-fallback', '08a-subagent-drill-in', '08b-subagent-return-parent',
     '08c-telemetry-36-columns',
-    '09-expanded-todos', '10-scrollbar-drag-with-panel', '10b-hidden-panel-idle-zero',
+    '09-expanded-todos', '10-scrollbar-drag-with-panel', '10a-compacted-todos', '10b-hidden-panel-idle-zero',
     '10c-narrow-panel-idle-zero', '11-external-editor-return', '12-help-modal',
     '13-short-slash-menu', '13b-open-slash-reflow-32x12', '14-short-ask-dock',
     '14b-open-ask-reflow-32x12', '15-final-96x24',
