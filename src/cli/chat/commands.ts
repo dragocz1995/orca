@@ -150,6 +150,7 @@ export function wireSubmit(
     pickers: Pickers;
     runLocalShell?: (command: string, cwd: string, signal: AbortSignal) => ReturnType<typeof runLocalShell>;
     readClipboardImage?: (signal: AbortSignal) => ReturnType<typeof readClipboardImage>;
+    editTextExternally?: (options: Parameters<typeof editTextExternally>[0]) => ReturnType<typeof editTextExternally>;
   },
 ): void {
   const { client, tui, editor, attachmentChips, shellContext, commandDefs, lifetime } = resources;
@@ -157,6 +158,7 @@ export function wireSubmit(
   const { stream, pickers } = deps;
   const runShell = deps.runLocalShell ?? ((command, cwd, signal) => runLocalShell(command, cwd, undefined, signal));
   const readClipboard = deps.readClipboardImage ?? ((signal) => readClipboardImage(undefined, undefined, undefined, signal));
+  const editExternal = deps.editTextExternally ?? editTextExternally;
   const runTask: ChatTaskScope['run'] = (operation, onFulfilled, onRejected) =>
     lifetime.run(operation, onFulfilled, onRejected);
   const fail = (e: Error): void => { rt.notice = color.error(`error: ${e.message}`); render(); };
@@ -295,10 +297,21 @@ export function wireSubmit(
           // Hand the primary buffer to $EDITOR: leave our alternate screen too, or the editor opens
           // nested inside it and its own screen handling fights ours. Re-enter it when we resume.
           suspendTerminal();
-          void editTextExternally({ text: initial }).then((edited) => {
-            resumeTerminal();
+          runTask(async (signal) => {
+            try {
+              return await editExternal({ text: initial });
+            } finally {
+              // A temp-dir failure rejects before externalEditor reaches its own cleanup block. The
+              // application still owns the suspended terminal and must reclaim it on every outcome.
+              if (!signal.aborted) resumeTerminal();
+            }
+          }, (edited) => {
             editor.setText(edited ?? initial);
             if (edited == null) rt.notice = color.dim('editor exited without saving — draft kept');
+            renderForced('external-editor:return');
+          }, (e) => {
+            editor.setText(initial);
+            rt.notice = color.error(`editor failed: ${e.message} — draft kept`);
             renderForced('external-editor:return');
           });
           return;
