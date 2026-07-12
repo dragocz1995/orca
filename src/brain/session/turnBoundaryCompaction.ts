@@ -36,10 +36,18 @@ function pendingQueueTokens(
 /** PI's zero/error-usage fallback, kept local because estimateContextTokens is not part of the public
  * coding-agent export. Start from the newest valid provider usage and estimate only its unseen tail;
  * when no valid usage exists, conservatively estimate the whole visible message context. */
-function estimatedContextTokens(messages: readonly Parameters<typeof estimateTokens>[0][]): number {
+function estimatedContextTokens(
+  messages: readonly Parameters<typeof estimateTokens>[0][],
+  compactionTimestamp?: string,
+): number {
+  const compactedAt = compactionTimestamp ? new Date(compactionTimestamp).getTime() : Number.NEGATIVE_INFINITY;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== 'assistant' || message.stopReason === 'error' || message.stopReason === 'aborted') continue;
+    // A kept pre-compaction assistant still carries usage for the discarded, much larger context. PI's
+    // native fallback rejects that stale source too; otherwise the first zero-usage response after a
+    // compact would immediately retrigger another compact from the old number.
+    if (message.timestamp <= compactedAt) continue;
     const contextTokens = message.usage ? calculateContextTokens(message.usage) : 0;
     if (contextTokens <= 0) continue;
     return contextTokens + messages.slice(index + 1).reduce((total, trailing) => total + estimateTokens(trailing), 0);
@@ -47,8 +55,8 @@ function estimatedContextTokens(messages: readonly Parameters<typeof estimateTok
   return messages.reduce((total, message) => total + estimateTokens(message), 0);
 }
 
-function latestCompactionId(sessionManager: SessionManager): string | null {
-  return sessionManager.getBranch().findLast((entry) => entry.type === 'compaction')?.id ?? null;
+function latestCompaction(sessionManager: SessionManager) {
+  return sessionManager.getBranch().findLast((entry) => entry.type === 'compaction') ?? null;
 }
 
 /** Install proactive compaction at PI's safe between-turn boundary.
@@ -77,7 +85,8 @@ export function installTurnBoundaryAutoCompaction(
     const snapshot = await previous?.(turn, signal);
     if (signal?.aborted) return snapshot;
 
-    const before = latestCompactionId(sessionManager);
+    const beforeEntry = latestCompaction(sessionManager);
+    const before = beforeEntry?.id ?? null;
     // A successful assistant usage snapshot ends BEFORE its tool results. Passing it directly makes PI
     // trust the smaller number and miss a threshold crossed by the completed tool batch. Preserve the
     // provider's authoritative context count and add PI's own conservative estimate for that exact tail.
@@ -88,7 +97,7 @@ export function installTurnBoundaryAutoCompaction(
       ? directTokens
         + turn.toolResults.reduce((total, message) => total + estimateTokens(message), 0)
         + queuedTokens
-      : estimatedContextTokens(turn.context.messages) + queuedTokens;
+      : estimatedContextTokens(turn.context.messages, beforeEntry?.timestamp) + queuedTokens;
     const fullBoundaryMessage = {
       ...turn.message,
       usage: {
@@ -120,7 +129,7 @@ export function installTurnBoundaryAutoCompaction(
       signal?.removeEventListener('abort', abortCompaction);
     }
     if (signal?.aborted) return snapshot;
-    const after = latestCompactionId(sessionManager);
+    const after = latestCompaction(sessionManager)?.id ?? null;
     if (!after || after === before) return snapshot;
 
     const context = snapshot?.context ?? turn.context;

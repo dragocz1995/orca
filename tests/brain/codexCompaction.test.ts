@@ -331,6 +331,41 @@ describe('Codex compaction model routing', () => {
     expect(calculateContextTokens(checked.usage)).toBeGreaterThanOrEqual(1_900);
   });
 
+  it('does not reuse stale pre-compaction usage for a later zero-usage response', async () => {
+    const checkCompaction = vi.fn(async () => false);
+    const session = {
+      _checkCompaction: checkCompaction,
+      abortCompaction: vi.fn(),
+      agent: {
+        state: { messages: [], model: {}, thinkingLevel: 'high' },
+        prepareNextTurnWithContext: undefined as unknown,
+      },
+    };
+    const manager = { getBranch: () => [{
+      type: 'compaction', id: 'compact-1', timestamp: new Date(1_000).toISOString(),
+    }] };
+    installTurnBoundaryAutoCompaction(session as never, manager as never, true);
+    const staleAssistant = {
+      ...assistantMessage({} as never, [], 'stop', 9_000), timestamp: 100,
+    };
+    const currentAssistant = {
+      ...assistantMessage({} as never, [], 'toolUse', 0), timestamp: 2_000,
+    };
+
+    await (session.agent.prepareNextTurnWithContext as unknown as (turn: unknown) => Promise<unknown>)({
+      message: currentAssistant,
+      context: { messages: [
+        { role: 'compactionSummary', summary: 'older context', timestamp: 1_000 },
+        staleAssistant,
+        currentAssistant,
+      ] },
+      toolResults: [],
+    });
+
+    const checked = checkCompaction.mock.calls[0]?.[0] as AssistantMessage;
+    expect(calculateContextTokens(checked.usage)).toBeLessThan(1_000);
+  });
+
   it('links the agent abort signal to PI\'s independent auto-compaction controller', async () => {
     const controller = new AbortController();
     let release!: () => void;
