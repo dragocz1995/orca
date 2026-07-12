@@ -48,6 +48,9 @@ export interface ChatComposition {
   attachInput(deps: ShellInputDeps): void;
   reshowPanel(): void;
   reloadKeymap(): void;
+  pause(): void;
+  resume(): void;
+  stop(): void;
   dispose(): void;
 }
 
@@ -818,6 +821,19 @@ export function createChatComposition(
     mentionHandle = null;
     mentionOverlay = null;
   };
+  const pause = (): void => {
+    animations.pause();
+    renderOwner.pause();
+    overlayController.pause();
+  };
+  const resume = (): void => {
+    renderOwner.resume();
+    overlayController.resume();
+  };
+  const stop = (): void => {
+    cleanup();
+    renderOwner.stop();
+  };
 
   return {
     root: measuredRoot,
@@ -828,6 +844,9 @@ export function createChatComposition(
     reshowPanel,
     attachInput,
     reloadKeymap,
+    pause,
+    resume,
+    stop,
     dispose: cleanup,
   };
 }
