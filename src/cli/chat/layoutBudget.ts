@@ -57,6 +57,11 @@ export function constrainFrame(lines: string[], columns: number, terminalRows: n
   const width = Math.max(0, Math.floor(columns));
   const height = Math.max(0, Math.floor(terminalRows));
   const frame = lines.slice(0, height).map((line) => {
+    const lineWidth = visibleWidth(line);
+    // Every production child normally arrives at the exact allocated width. Calling ANSI-aware
+    // truncateToWidth anyway reparses and rebuilds every styled cell; on a 180x50 frame that consumed
+    // ~15 ms by itself. Keep truncation as the defensive overflow path only.
+    if (lineWidth <= width) return line + ' '.repeat(width - lineWidth);
     const clipped = truncateToWidth(line, width, '');
     return clipped + ' '.repeat(Math.max(0, width - visibleWidth(clipped)));
   });

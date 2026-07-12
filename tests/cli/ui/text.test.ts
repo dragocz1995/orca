@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CURSOR_MARKER } from '@earendil-works/pi-tui';
+import { CURSOR_MARKER, visibleWidth } from '@earendil-works/pi-tui';
 import {
+  padAnsi,
   terminalInlineText,
   terminalPhysicalRow,
   terminalPlainText,
@@ -9,6 +10,21 @@ import {
 } from '../../../src/cli/ui/text.js';
 
 describe('terminal text trust boundary', () => {
+  it('returns an exact-width styled row byte-for-byte without ANSI truncation work', () => {
+    const chunk = `\x1b[31m${'x'.repeat(20)}\x1b[0m${' '.repeat(20)}`;
+    const styled = chunk.repeat(4);
+    const row = `${styled}${'x'.repeat(180 - visibleWidth(styled))}`;
+    expect(padAnsi(row, 180)).toBe(row);
+    padAnsi(row, 180); // warm segmenter/JIT
+    const startedAt = performance.now();
+    for (let index = 0; index < 100; index++) padAnsi(row, 180);
+    expect(performance.now() - startedAt).toBeLessThan(30);
+
+    const overflow = padAnsi(`${row}unsafe-tail`, 180);
+    expect(visibleWidth(overflow)).toBe(180);
+    expect(overflow).not.toContain('unsafe-tail');
+  });
+
   it('normalizes untrusted labels through one shared printable inline projection', () => {
     expect(terminalInlineText('  first\nsecond\t\x1b[2J third  ')).toBe('first second third');
   });

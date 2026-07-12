@@ -128,6 +128,26 @@ describe('chat components', () => {
     expect(rendered).toContain('[exit 2]');
   });
 
+  it('keeps already fitted styled tool rows on the nested-block fast path', () => {
+    const output = {
+      title: 'console output',
+      kind: 'console' as const,
+      text: Array.from({ length: 7 }, (_, index) => `result ${index} ${'x'.repeat(130)}`).join('\n'),
+    };
+    toolOutputBlock(output, 180); // warm theme/segmenter/JIT
+    const startedAt = performance.now();
+    for (let index = 0; index < 20; index++) toolOutputBlock(output, 180);
+    expect(performance.now() - startedAt).toBeLessThan(40);
+  });
+
+  it('still truncates an overflowing nested tool row inside the terminal width', () => {
+    const lines = toolOutputBlock({
+      title: 'tool result', kind: 'text', text: `prefix-${'界'.repeat(200)}-unsafe-tail`,
+    }, 40);
+    expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
+    expect(lines.join('\n')).not.toContain('unsafe-tail');
+  });
+
   it('CardPanel renders pinned cards as real rows and collapses an all-done checklist / non-pinned cards', () => {
     const panel = new CardPanel();
     expect(panel.render(80)).toEqual([]); // no cards → the panel disappears from the fixed stack

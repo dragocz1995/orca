@@ -161,4 +161,16 @@ describe('small-terminal regression', () => {
     expect(rendered.every((line) => visibleWidth(line) <= 20)).toBe(true);
     expect(rendered.join('\n')).toContain('child:20');
   });
+
+  it('keeps an already exact 180x50 ANSI frame on the root fast path', () => {
+    const styledChunk = `\x1b[38;2;255;82;54m${'x'.repeat(20)}\x1b[39m${' '.repeat(20)}`;
+    const styled = styledChunk.repeat(4);
+    const line = `${styled}${'x'.repeat(180 - visibleWidth(styled))}`;
+    const frame = Array.from({ length: 50 }, () => line);
+    constrainFrame(frame, 180, 50); // warm segmenter/JIT before measuring the repeated hot path
+    const startedAt = performance.now();
+    for (let index = 0; index < 10; index++) constrainFrame(frame, 180, 50);
+    const elapsed = performance.now() - startedAt;
+    expect(elapsed).toBeLessThan(100);
+  });
 });

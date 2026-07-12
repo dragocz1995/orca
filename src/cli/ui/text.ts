@@ -3,7 +3,7 @@ import type { Component } from '@earendil-works/pi-tui';
 
 export function padAnsi(text: string, width: number): string {
   const w = visibleWidth(text);
-  return w >= width ? truncateToWidth(text, width) : text + ' '.repeat(width - w);
+  return w > width ? truncateToWidth(text, width) : text + ' '.repeat(width - w);
 }
 
 const isCsiFinal = (code: number): boolean => code >= 0x40 && code <= 0x7e;

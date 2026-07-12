@@ -447,7 +447,12 @@ function simpleBlock(title: string, lines: string[], width: number, footer?: str
   // below already says "shell output", so a "console output" label was just noise. Named blocks (diff,
   // search result, browser observation) keep their label since it isn't otherwise obvious.
   const out = [`${BLOCK_HEADER_INDENT}${title ? `${color.faint('<')} ${color.text(title)}` : color.faint('<')}`];
-  for (const line of lines) out.push(`${BLOCK_BODY_INDENT}${truncateToWidth(line, inner, '…')}`);
+  for (const line of lines) {
+    // diffBlock/toolOutputBlock already allocate and pad nested rows. Re-running ANSI-aware truncation on
+    // every exact row dominated burst frames; retain it only as the defensive overflow path.
+    const fitted = visibleWidth(line) <= inner ? line : truncateToWidth(line, inner, '…');
+    out.push(`${BLOCK_BODY_INDENT}${fitted}`);
+  }
   if (footer) out.push(`${BLOCK_BODY_INDENT}${color.faint(footer)}`);
   return out;
 }
