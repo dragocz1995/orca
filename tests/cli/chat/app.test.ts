@@ -183,6 +183,20 @@ describe('ChatApplication shutdown ownership', () => {
     expect(stopSession).toHaveBeenCalledOnce();
     expect(stopSession.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal);
   });
+
+  it('enters the shared shutdown transaction when terminal resume fails', () => {
+    const client = { bindLifetime: vi.fn() } as unknown as BrainClient;
+    const application = new ChatApplication({ base: 'http://unused', token: 'unused', client });
+    const quit = vi.fn();
+    Object.assign(application, {
+      lifecycle: { resume: () => { throw new Error('raw mode unavailable after editor'); } },
+      quitImpl: quit,
+    });
+
+    expect(() => (application as unknown as { resume(): void }).resume())
+      .toThrow('raw mode unavailable after editor');
+    expect(quit).toHaveBeenCalledOnce();
+  });
 });
 
 describe('parseCommand', () => {

@@ -130,7 +130,17 @@ export class ChatApplication {
   }
 
   private suspend(): void { this.lifecycle?.suspend(); }
-  private resume(): void { this.lifecycle?.resume(); }
+  private resume(): void {
+    try {
+      this.lifecycle?.resume();
+    } catch (error) {
+      // TerminalLifecycle has already restored/stopped its partial screen ownership. The application
+      // still owns streams, timers and the `run()` completion promise, so an unrecoverable resume must
+      // enter the same bounded shutdown transaction as an explicit quit before surfacing the error.
+      this.quitImpl();
+      throw error;
+    }
+  }
 
   /** Idempotently stop every child owner before restoring the primary terminal buffer. */
   private stopLocal(): Promise<void> {
