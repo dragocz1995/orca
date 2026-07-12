@@ -12,6 +12,8 @@ export type QueuedImage = { type: 'image'; data: string; mimeType: string };
 export interface QueuedUserEcho {
   persistText: string;
   displayText: string;
+  /** Work mode selected when this owner message entered PI's queue; needed if Esc promotes it to a turn. */
+  mode?: 'build' | 'plan';
   /** Owner CLI/web messages broadcast their user row. Platform messages were already rendered by the
    * platform sink, so they only journal the ordering marker for reconnect/drill-in snapshots. */
   publish: boolean;

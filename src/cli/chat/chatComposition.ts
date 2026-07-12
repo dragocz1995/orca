@@ -102,6 +102,7 @@ export function bottomHints(
   state: 'child' | 'thinking' | 'idle',
   hasSubagents = false,
   interruptArmed = false,
+  hasQueued = false,
 ): string {
   const k = (action: KeybindAction, label: string): string => {
     const chord = keymap.chordLabel(action);
@@ -110,7 +111,7 @@ export function bottomHints(
   const parts = state === 'child'
     ? ['⏎ message the sub-agent', 'esc back', k('subagent_cycle', 'next session')]
     : state === 'thinking'
-      ? [interruptArmed ? 'esc again to interrupt' : 'esc interrupt', '/help commands', k('reasoning_cycle', 'reasoning'), hasSubagents ? k('subagent_cycle', 'subagents') : '']
+      ? [hasQueued ? 'esc inject queued' : interruptArmed ? 'esc again to interrupt' : 'esc interrupt', '/help commands', k('reasoning_cycle', 'reasoning'), hasSubagents ? k('subagent_cycle', 'subagents') : '']
       : ['⏎ send', '/ slash', '@ files', '! shell', k('stash', 'stash'), k('mode_toggle', 'mode'), k('reasoning_cycle', 'reasoning'), k('telemetry_toggle', 'telemetry')];
   return parts.filter(Boolean).join('   ·   ');
 }
@@ -526,7 +527,7 @@ export function createChatComposition(
     const footerState = rt.childView ? 'child' : rt.transcript.thinking ? 'thinking' : 'idle';
     currentAgents = stream.subagentStates(); // one transcript scan per frame, shared by rail + fallback
     const agents = currentAgents;
-    bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now())}`)
+    bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now(), rt.queued.length > 0)}`)
       + (footerState === 'idle' && shellContext.pending ? `   ${color.warning('· ! output → next message')}` : ''));
     const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
     const line = statusline(rt.lineCfg ? { ...rt.lineCfg, showModel: false } : null, rt.usage, rt.modelName);
@@ -710,12 +711,31 @@ export function createChatComposition(
     if (mentionHandle && mentionOverlay) updateMention();
   };
 
-  // Esc closes an open sub-agent view first. A parent turn deliberately takes TWO presses: the first arms
-  // a short confirmation window (truthfully shown in the footer), the second aborts server-side. This makes
-  // an accidental Esc harmless without changing one-Esc dismissal for overlays/attachments/child drill-in.
+  // Esc closes an open sub-agent view first. With a queued message, one press performs the explicit
+  // interrupt+inject action advertised in the footer. Without a queue, a parent turn deliberately takes
+  // TWO presses: the first arms a short confirmation window and the second performs a destructive stop.
   editor.onEscape = (): boolean => {
     if (rt.childView) { stream.closeSubagent(); return true; }
     if (rt.transcript.thinking) {
+      if (rt.queued.length > 0) {
+        clearInterruptArm();
+        rt.notice = color.dim('interrupting · injecting queued message…');
+        render('input:queue-interrupt');
+        lifetime.runSession(
+          () => client.interruptQueued(),
+          (result) => {
+            rt.notice = result.injected
+              ? color.success('queued message injected')
+              : color.dim('agent stopped · queue was already empty');
+            render('state:queue-interrupt-complete');
+          },
+          (error) => {
+            rt.notice = color.error(error.message);
+            render('state:queue-interrupt-error');
+          },
+        );
+        return true;
+      }
       const next = interruptPress(interruptArmedUntil, Date.now());
       interruptArmedUntil = next.armedUntil;
       animations.cancelVisual('interrupt-arm');

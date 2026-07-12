@@ -205,6 +205,15 @@ export class BrainClient {
     await this.post('/brain/abort', this.bound ? { session: this.bound } : {});
   }
 
+  /** Abort the active turn and promote its oldest PI-native queued message into a fresh turn. */
+  async interruptQueued(): Promise<{ interrupted: boolean; injected: boolean }> {
+    const binding = this.bound && this.boundGeneration !== undefined
+      ? { session: this.bound, client: this.clientId, generation: this.boundGeneration }
+      : this.bound ? { session: this.bound } : {};
+    const res = await this.post('/brain/interrupt-queued', binding);
+    return await res.json() as { interrupted: boolean; injected: boolean };
+  }
+
   /** Leave the bound interactive session. The daemon aborts/cascades the active turn and disposes the
    *  live session only when this CLI is its final attachment; persisted conversation history remains. */
   async stopSession(signal?: AbortSignal): Promise<void> {

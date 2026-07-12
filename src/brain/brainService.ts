@@ -10,7 +10,7 @@ import { BrainSessionFactory } from './session/factory.js';
 import { abortSessionWork } from './session/abortSessionWork.js';
 import { IdentityResolver } from './identity.js';
 import { LiveSessionRegistry } from './session/liveRegistry.js';
-import type { LiveBrain } from './session/liveBrain.js';
+import type { LiveBrain, QueuedMsg } from './session/liveBrain.js';
 import { clearDeliveredUserEchoes, enqueueMirrored } from './session/queueMirror.js';
 import { ChannelSessionService } from './channels.js';
 import type { ChannelSendOpts } from './channels.js';
@@ -290,29 +290,80 @@ export class BrainService {
     // fresh child between childrenOf() and clearChildren(), escaping this stop tree.
     this.sessions.beginParentAbort(b.sessionId);
     try {
-      this.goals.cancelGoalContinuation(b.sessionId);
-      // Esc/stop = the user bails: drop every mid-turn steered message still pending in PI's queue so an
-      // interrupted turn doesn't deliver words the user meant for the turn they just killed.
-      b.session.clearQueue();
-      clearDeliveredUserEchoes(b);
-      // A parked ask_user_question must fail cleanly when the turn is aborted, else the tool Promise
-      // (and the awaited prompt()) would hang forever. Reject before aborting the PI session.
-      if (b.sessionId) this.elicitation.cancelForSession(b.sessionId, 'aborted');
-      // Cascade into running delegations: without this the child keeps working (and burning tokens)
-      // after the parent turn died — and the user's interrupt looks like it didn't take.
-      await Promise.all(this.sessions.childrenOf(b.sessionId)
-        .filter((child) => child.startsWith('brain-ch-'))
-        .map((child) => this.channelService.abort(child.slice('brain-ch-'.length))));
-      this.sessions.clearChildren(b.sessionId);
-      await abortSessionWork(b.session);
-      // The parent-abort fence above rejects owner admission while teardown awaits PI. Clear once more
-      // defensively for any non-owner/internal producer that was already inside its queue call when the
-      // first clear ran; no cancelled run remains to drain such a message.
-      b.session.clearQueue();
-      clearDeliveredUserEchoes(b);
+      await this.abortLive(b);
     } finally {
       this.sessions.endParentAbort(b.sessionId);
     }
+  }
+
+  /** Interrupt the current PI run and immediately promote the oldest native queued message into a fresh
+   * owner turn. The parent-abort fence stays closed from queue snapshot through new-turn admission, so a
+   * concurrent send cannot slip between abort and injection. Remaining messages are re-steered in their
+   * original order with image/display/mode metadata intact. */
+  async interruptQueued(
+    userId: number,
+    session?: string,
+    client?: BoundClientRequest,
+  ): Promise<{ interrupted: boolean; injected: boolean }> {
+    const target = this.preflightSend(userId, session, client);
+    const b = this.sessions.get(target);
+    if (!b) throw new Error('brain not started');
+    this.sessions.beginParentAbort(b.sessionId);
+    try {
+      const snapshot = this.queuedSnapshot(b);
+      await this.abortLive(b);
+      if (snapshot.length === 0) return { interrupted: true, injected: false };
+
+      const requestFor = (message: QueuedMsg): TurnRequest => ({
+        userId,
+        text: message.text,
+        images: message.images?.map(({ data, mimeType }) => ({ data, mimeType })),
+        mode: message.echo?.mode ?? 'build',
+        session: b.sessionId,
+        display: message.echo?.displayText,
+        client,
+        interruptResume: true,
+      });
+      const [first, ...remaining] = snapshot;
+      const operation = this.startSend(requestFor(first!));
+      void operation.completed.catch(async (error) => {
+        try {
+          const admittedSession = await operation.admitted;
+          logger('brain-interrupt').error(`accepted interrupt turn failed for ${admittedSession}`, error);
+          this.publishAcceptedSendFailure(admittedSession, error);
+        } catch { /* pre-admission failure is returned below */ }
+      });
+      await operation.admitted;
+      for (const message of remaining) await this.send(requestFor(message));
+      return { interrupted: true, injected: true };
+    } finally {
+      this.sessions.endParentAbort(b.sessionId);
+    }
+  }
+
+  /** Snapshot PI's authoritative queue order while retaining Elowen's image/display metadata mirror. */
+  private queuedSnapshot(live: LiveBrain): QueuedMsg[] {
+    const copy = (items: readonly string[], mirror: readonly QueuedMsg[] | undefined): QueuedMsg[] =>
+      items.map((text, index) => ({ ...(mirror?.[index] ?? { text }), text: mirror?.[index]?.text ?? text }));
+    return [
+      ...copy(live.session.getSteeringMessages(), live.queuedSteer),
+      ...copy(live.session.getFollowUpMessages(), live.queuedFollowUp),
+    ];
+  }
+
+  /** Shared destructive half of stop and queue-interrupt. Caller owns the parent-abort fence. */
+  private async abortLive(b: LiveBrain): Promise<void> {
+    this.goals.cancelGoalContinuation(b.sessionId);
+    b.session.clearQueue();
+    clearDeliveredUserEchoes(b);
+    if (b.sessionId) this.elicitation.cancelForSession(b.sessionId, 'aborted');
+    await Promise.all(this.sessions.childrenOf(b.sessionId)
+      .filter((child) => child.startsWith('brain-ch-'))
+      .map((child) => this.channelService.abort(child.slice('brain-ch-'.length))));
+    this.sessions.clearChildren(b.sessionId);
+    await abortSessionWork(b.session);
+    b.session.clearQueue();
+    clearDeliveredUserEchoes(b);
   }
 
   /** A CLI is closing: stop its bound run and release the live PI session when it is the last attached

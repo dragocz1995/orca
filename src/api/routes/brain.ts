@@ -244,6 +244,18 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
+  // Esc with a queued owner message: atomically interrupt the active PI run and promote the oldest queue
+  // entry into a fresh user turn. Client generation fencing prevents a delayed request from reviving a
+  // conversation after that CLI switched/stopped.
+  app.post('/brain/interrupt-queued', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const { session, client, generation } = await parseBody(c, brainStopSchema);
+    const boundClient = session && client && generation ? { id: client, generation } : undefined;
+    try { return c.json(await d.brain.interruptQueued(c.get('user').id, session, boundClient)); }
+    catch (e) { return c.json({ error: (e as Error).message }, 409); }
+  });
+
   // Closing a session-bound client: abort its active run and dispose the live PI session only when no
   // other client is attached. Persisted history remains resumable.
   app.post('/brain/session/stop', async c => {

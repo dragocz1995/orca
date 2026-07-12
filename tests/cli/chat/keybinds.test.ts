@@ -66,6 +66,7 @@ describe('stream interrupt + shell row budget', () => {
     const map = createKeymap();
     expect(bottomHints(map, 'thinking', false, false)).toContain('esc interrupt');
     expect(bottomHints(map, 'thinking', false, true)).toContain('esc again to interrupt');
+    expect(bottomHints(map, 'thinking', false, false, true)).toContain('esc inject queued');
   });
 
 });

@@ -95,7 +95,9 @@ export class BrainTurnRunner {
     // Esc/stop fences the conversation before it snapshots children and clears PI's queue. Never admit a
     // message into that teardown window: the cancelled compaction/run will not drain it, so it would
     // otherwise survive as a phantom chip and execute on a later prompt.
-    if (this.d.sessions.isParentAborting(active.sessionId)) throw new Error('session work aborted');
+    if (this.d.sessions.isParentAborting(active.sessionId) && !request.interruptResume) {
+      throw new Error('session work aborted');
+    }
     // PI reports both isStreaming=false and isCompacting=false while a native auto-compaction check is
     // awaiting auth. The coordinator spans that gap. Treat it exactly like the running turn it belongs
     // to: new user input enters PI's native queue and becomes a transcript row only on delivery.
@@ -115,7 +117,7 @@ export class BrainTurnRunner {
     if (turnBusy && !internal?.goalKickoff && !internal?.goalContinue) {
       const admission = new TurnAdmission(
         { store: this.d.store, titler: this.d.titler },
-        { live: active, text, images, display, visible: true, titleOnAdmission: false, onAdmitted: request.onAdmitted },
+        { live: active, text, images, display, mode, visible: true, titleOnAdmission: false, onAdmitted: request.onAdmitted },
       );
       await admission.steer();
       return;
@@ -138,7 +140,7 @@ export class BrainTurnRunner {
       };
       const admission = new TurnAdmission(
         { store: this.d.store, titler: this.d.titler },
-        { live, text: turnText, images: turnImages, display: echoDisplay, visible: isUserTurn, titleOnAdmission: isUserTurn, onAdmitted: request.onAdmitted },
+        { live, text: turnText, images: turnImages, display: echoDisplay, mode: turnMode, visible: isUserTurn, titleOnAdmission: isUserTurn, onAdmitted: request.onAdmitted },
       );
       admission.prepare();
       try {

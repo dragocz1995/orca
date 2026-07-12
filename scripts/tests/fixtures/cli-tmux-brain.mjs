@@ -12,6 +12,7 @@ const firstTimers = new Set();
 const goalTimers = new Set();
 let firstProgress = null;
 let sendCount = 0;
+let pendingQueuedText = '';
 let currentCards = [];
 let currentGoal = null;
 let goalReplay = [];
@@ -461,8 +462,10 @@ const server = createServer(async (req, res) => {
     }
     if (sendCount === 1) runFirstTurn(text);
     else if (sendCount === 2) {
-      // Deterministic production-shaped lifecycle: admission creates only queue state; compaction keeps
-      // the composer busy; PI then removes the queue item BEFORE the delivered user event appears.
+      // Deterministic production-shaped lifecycle: admission creates only queue state and compaction keeps
+      // the composer busy. The test presses Esc before the natural delivery timers below; the atomic
+      // interrupt route cancels them, removes the queue item, then starts the promoted fresh PI turn.
+      pendingQueuedText = text;
       later(25, () => emit({ type: 'queue', items: [{ id: 'queued-e2e', text }] }), firstTimers);
       later(60, () => emit({
         type: 'notice', kind: 'compaction', message: 'compacting conversation…',
@@ -483,6 +486,18 @@ const server = createServer(async (req, res) => {
       type: 'idle', model: 'mock/e2e-model',
       usage: { tokens: 1300, contextWindow: 100000, percent: 1.3, totalTokens: 2400, cost: 0.013 },
     }));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/brain/interrupt-queued') {
+    stopFirstTurn();
+    const text = pendingQueuedText;
+    pendingQueuedText = '';
+    emit({ type: 'queue', items: [] });
+    emit({ type: 'notice', kind: 'compaction', message: 'compaction interrupted', done: true });
+    later(20, () => emit({ type: 'user', text }));
+    later(40, () => emit({ type: 'step', step: 1, maxSteps: 8 }));
+    later(60, () => emit({ type: 'text', delta: 'E2E INTERRUPTED QUEUE REPLY — fresh PI turn active' }));
+    json(res, 200, { interrupted: true, injected: Boolean(text) });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/brain/abort') {

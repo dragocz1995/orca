@@ -32,6 +32,9 @@ export interface TurnRequest {
   session?: string;
   display?: string;
   client?: BoundClientRequest;
+  /** Internal owner-chat seam: the first prompt admitted by interruptQueued while its parent-abort fence
+   * is still closed. Never accepted from REST input. */
+  interruptResume?: boolean;
   /** Internal admission seam used by BrainService.startSend; never part of REST/SSE payloads. */
   onAdmitted?: (sessionId: string) => void;
 }

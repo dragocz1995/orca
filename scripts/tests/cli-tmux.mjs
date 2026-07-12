@@ -364,11 +364,19 @@ try {
   const queuedCompacting = saveCapture('03-streaming-queued');
   assert.equal((queuedCompacting.match(/E2E QUEUED LINE 1/gu) ?? []).length, 1,
     'a pending queued prompt must exist only in the queue strip, not prematurely in chat history');
+  assert.match(queuedCompacting, /esc inject queued/u,
+    'one-Esc immediate injection must be advertised while a queued message exists');
   saveCapture('03a-compacting-queued');
+
+  sendKey('Escape');
+  await waitFor('one-Esc queued interrupt request', () => requests('/brain/interrupt-queued').length === 1);
+  assert.equal(requests('/brain/abort').length, 0,
+    'queued Escape must use atomic interrupt+inject, not the destructive plain abort route');
 
   await waitFor('queued delivery after compaction', () => {
     const pane = capture();
-    return !/^\s+QUEUED\s/mu.test(pane) && !pane.includes('compacting') && pane.includes('E2E QUEUED LINE 1');
+    return !/^\s+QUEUED\s/mu.test(pane) && !pane.includes('compacting')
+      && pane.includes('E2E QUEUED LINE 1') && pane.includes('E2E INTERRUPTED QUEUE REPLY');
   });
   const deliveredQueue = saveCapture('03b-queued-delivered');
   assert.equal((deliveredQueue.match(/E2E QUEUED LINE 1/gu) ?? []).length, 1,
@@ -787,6 +795,7 @@ try {
     rapidResizeDimensions: resizeSweep.map(([columns, rows]) => `${columns}x${rows}`),
     compactionBusyVisible: true,
     queuedEchoDelayed: true,
+    queuedEscapeInjected: true,
     hiddenIdleFramesAfter800Ms: 0,
     narrowIdleFramesAfter800Ms: 0,
     terminalStateRestored: true,

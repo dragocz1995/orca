@@ -3,7 +3,7 @@ import type { ConversationTitler } from '../conversationTitler.js';
 import { projectUserTurn } from '../persistence.js';
 import type { LiveBrain } from '../session/liveBrain.js';
 import { enqueueMirrored } from '../session/queueMirror.js';
-import type { TurnImage } from './turnRequest.js';
+import type { TurnImage, TurnMode } from './turnRequest.js';
 
 interface TurnAdmissionDeps {
   store: BrainStore;
@@ -15,6 +15,7 @@ interface AdmissionInput {
   text: string;
   images?: TurnImage[];
   display?: string;
+  mode?: TurnMode;
   visible: boolean;
   titleOnAdmission: boolean;
   onAdmitted?: (sessionId: string) => void;
@@ -57,7 +58,7 @@ export class TurnAdmission {
       'steer',
       this.input.text,
       this.input.images?.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })),
-      { persistText, displayText: this.input.display ?? persistText, publish: true },
+      { persistText, displayText: this.input.display ?? persistText, mode: this.input.mode, publish: true },
     );
     this.markAdmitted();
   }

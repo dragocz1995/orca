@@ -578,6 +578,74 @@ describe('BrainService', () => {
     expect(d.session.abortBranchSummary).toHaveBeenCalledOnce();
   });
 
+  it('interruptQueued aborts the active PI run and starts the oldest queued message as a fresh turn', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.isStreaming = true;
+    await svc.send({
+      userId: 1,
+      text: 'expanded queued instruction',
+      display: 'clean queued instruction',
+      images: [{ data: 'BASE64PNG', mimeType: 'image/png' }],
+      mode: 'plan',
+      session: 'brain-1',
+    });
+    d.session.abort.mockImplementationOnce(async () => { d.session.isStreaming = false; });
+
+    const result = await svc.interruptQueued(1, 'brain-1');
+
+    expect(result).toEqual({ interrupted: true, injected: true });
+    expect(d.session.abort).toHaveBeenCalledOnce();
+    expect(d.session.prompt.mock.calls.at(-1)?.[0]).toContain('expanded queued instruction');
+    expect(d.session.prompt.mock.calls.at(-1)?.[1]?.images).toEqual([
+      { type: 'image', data: 'BASE64PNG', mimeType: 'image/png' },
+    ]);
+    expect(svc.queueList(1, 'brain-1')).toEqual([]);
+    expect(svc.history(1).filter((row) => row.role === 'user').at(-1)?.text)
+      .toContain('expanded queued instruction');
+  });
+
+  it('interruptQueued re-steers later queued messages in FIFO order behind the promoted turn', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.isStreaming = true;
+    await svc.send({ userId: 1, text: 'first queued', session: 'brain-1' });
+    await svc.send({ userId: 1, text: 'second queued', session: 'brain-1' });
+    d.session.abort.mockImplementationOnce(async () => { d.session.isStreaming = false; });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    d.session.prompt.mockImplementationOnce(async (_text, options) => {
+      d.session.isStreaming = true;
+      options?.preflightResult?.(true);
+      await gate;
+      d.session.isStreaming = false;
+    });
+
+    await expect(svc.interruptQueued(1, 'brain-1')).resolves
+      .toEqual({ interrupted: true, injected: true });
+    expect(d.session.prompt.mock.calls.at(-1)?.[0]).toContain('first queued');
+    expect(svc.queueList(1, 'brain-1').map((item) => item.text)).toEqual(['second queued']);
+    expect(d.session.steer.mock.calls.at(-1)?.[0]).toBe('second queued');
+
+    release();
+    await vi.waitFor(() => expect(d.session.isStreaming).toBe(false));
+  });
+
+  it('interruptQueued remains a plain interrupt when the queue drained before the request arrived', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.isStreaming = true;
+    d.session.abort.mockImplementationOnce(async () => { d.session.isStreaming = false; });
+
+    await expect(svc.interruptQueued(1, 'brain-1')).resolves
+      .toEqual({ interrupted: true, injected: false });
+    expect(d.session.abort).toHaveBeenCalledOnce();
+    expect(d.session.prompt).not.toHaveBeenCalled();
+  });
+
   it('queueRemove drops the pending echo so a removed prompt can never appear later', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

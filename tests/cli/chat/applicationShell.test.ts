@@ -842,6 +842,24 @@ describe('chat application shell ownership', () => {
     composition.dispose();
   });
 
+  it('uses one Escape to interrupt and inject a queued message during active work', async () => {
+    const h = compositionHarness({ columns: 100, rows: 24, turns: 6 });
+    h.rt.transcript.apply({ type: 'text', delta: 'working' });
+    h.rt.queued = [{ id: '0', text: 'change direction now' }];
+    const interruptQueued = vi.fn(async () => ({ interrupted: true, injected: true }));
+    const abort = vi.fn(async () => {});
+    Object.assign(h.resources.client, { interruptQueued, abort });
+    const composition = makeComposition(h);
+
+    expect(h.resources.editor.onEscape?.()).toBe(true);
+    await vi.runAllTimersAsync();
+
+    expect(interruptQueued).toHaveBeenCalledOnce();
+    expect(abort).not.toHaveBeenCalled();
+    expect(terminalPlainText(h.rt.notice)).toContain('queued message injected');
+    composition.dispose();
+  });
+
   it('renders one compact active-goal chip in the existing prompt row and removes it on completion', async () => {
     vi.setSystemTime(new Date('2026-07-12T10:00:12.000Z'));
     const h = compositionHarness({ columns: 160, rows: 30, turns: 4 });
