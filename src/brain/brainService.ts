@@ -305,6 +305,11 @@ export class BrainService {
         .map((child) => this.channelService.abort(child.slice('brain-ch-'.length))));
       this.sessions.clearChildren(b.sessionId);
       await abortSessionWork(b.session);
+      // The parent-abort fence above rejects owner admission while teardown awaits PI. Clear once more
+      // defensively for any non-owner/internal producer that was already inside its queue call when the
+      // first clear ran; no cancelled run remains to drain such a message.
+      b.session.clearQueue();
+      clearDeliveredUserEchoes(b);
     } finally {
       this.sessions.endParentAbort(b.sessionId);
     }
