@@ -4,17 +4,12 @@ import { HelpCircle } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 
 /** A small "?" that reveals a custom tooltip on hover/focus. For inline field help. */
-export function HelpTip({ children, align = 'right', layout = 'overlay' }: {
-  children: ReactNode;
-  align?: 'left' | 'right';
-  /** Inline hints reserve layout space, which keeps dense modal forms fully usable. */
-  layout?: 'overlay' | 'inline';
-}) {
+export function HelpTip({ children, align = 'right' }: { children: ReactNode; align?: 'left' | 'right' }) {
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
   return (
     <span
-      className={layout === 'inline' ? 'inline-flex min-w-0 flex-col items-start' : 'relative inline-flex'}
+      className="relative inline-flex"
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
@@ -31,10 +26,7 @@ export function HelpTip({ children, align = 'right', layout = 'overlay' }: {
       {open && (
         <span
           role="tooltip"
-          data-layout={layout}
-          className={layout === 'inline'
-            ? 'mt-2 block max-w-64 rounded-md border border-border bg-elevated p-3 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-muted'
-            : `absolute top-6 z-50 w-64 rounded-md border border-border bg-surface p-3 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-muted ${align === 'right' ? 'right-0' : 'left-0'}`}
+          className={`absolute top-6 z-50 w-64 rounded-md border border-border bg-surface p-3 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-muted ${align === 'right' ? 'right-0' : 'left-0'}`}
           style={{ boxShadow: 'var(--shadow-raised)' }}
         >
           {children}

@@ -4,7 +4,7 @@ import { LanguageProvider } from '../../../lib/i18n';
 import { BrainLimitsModal, BRAIN_LIMIT_DEFAULTS } from '../../../modules/settings/BrainLimitsModal';
 
 describe('BrainLimitsModal', () => {
-  it('keeps field help inline so it never covers a neighbouring limit input', () => {
+  it('opens field help as a floating layer above the limits modal', () => {
     render(
       <LanguageProvider>
         <BrainLimitsModal limits={BRAIN_LIMIT_DEFAULTS} onChange={() => {}} onClose={() => {}} />
@@ -13,6 +13,7 @@ describe('BrainLimitsModal', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Help' })[0]!);
 
-    expect(screen.getByRole('tooltip')).toHaveAttribute('data-layout', 'inline');
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveClass('absolute', 'z-50');
   });
 });
