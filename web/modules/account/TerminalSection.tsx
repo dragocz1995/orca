@@ -64,11 +64,11 @@ export function TerminalSection({ onSaveState }: { onSaveState?: (section: strin
       <SpatialGroup title={t.terminal.colorsTitle} icon={Palette} description={t.terminal.colorsHelp}>
         {/* The live preview sits NEXT TO the swatches (right column on wide screens, on top on narrow
             ones) so a color tweak is visible without scrolling back to a separate preview card. */}
-        <div className="grid items-start gap-5 py-5 lg:grid-cols-2">
-          <div className="self-start lg:sticky lg:top-4 lg:order-2">
+        <div data-testid="terminal-colors-layout" className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-5 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="min-w-0 max-w-full self-start lg:sticky lg:top-4 lg:order-2">
             <TerminalPreview settings={settings} resolvedTheme={resolvedTheme} />
           </div>
-          <div className="flex flex-col gap-4 lg:order-1">
+          <div className="flex min-w-0 flex-col gap-4 lg:order-1">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div className="flex flex-col gap-1.5">
                 <span className={label}>{t.terminal.themeMode}</span>
@@ -89,7 +89,7 @@ export function TerminalSection({ onSaveState }: { onSaveState?: (section: strin
               ) : null}
             </div>
             {theme === 'custom' ? (
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+              <div data-terminal-palette className="grid min-w-0 grid-cols-2 gap-3 @sm:grid-cols-3 @md:grid-cols-4">
                 {PALETTE_KEYS.map((key) => (
                   <label key={key} className="flex flex-col gap-1" title={t.terminal.palette[key]}>
                     <input

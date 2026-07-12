@@ -39,6 +39,15 @@ describe('TerminalSection', () => {
     expect(screen.getByText('Dracula')).toBeTruthy();           // a preset option
   });
 
+  it('keeps the preview and palette shrinkable inside the mobile account panel', () => {
+    const { container } = renderSection();
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom' }));
+
+    expect(screen.getByTestId('terminal-colors-layout')).toHaveClass('min-w-0', 'grid-cols-[minmax(0,1fr)]');
+    expect(screen.getByTestId('terminal-preview')).toHaveClass('min-w-0', 'max-w-full');
+    expect(container.querySelector('[data-terminal-palette]')).toHaveClass('grid-cols-2', '@sm:grid-cols-3', '@md:grid-cols-4');
+  });
+
   it('autosaves the patched fields after a change', async () => {
     renderSection();
     fireEvent.change(screen.getAllByRole('slider')[0]!, { target: { value: '18' } }); // fontSize slider

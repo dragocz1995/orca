@@ -77,13 +77,13 @@ export function TerminalPreview({ settings, resolvedTheme }: { settings: Termina
   const bg = xtermTheme(resolvedTheme, settings).background ?? (resolvedTheme === 'light' ? '#ffffff' : '#000000');
   const chrome = isLightBg(bg) ? 'rgba(0,0,0,' : 'rgba(255,255,255,';
   return (
-    <div className="overflow-hidden rounded-lg border border-border" style={{ backgroundColor: bg }}>
+    <div data-testid="terminal-preview" className="min-w-0 max-w-full overflow-hidden rounded-lg border border-border" style={{ backgroundColor: bg }}>
       <div className="flex items-center gap-1.5 px-3.5 py-2.5" style={{ borderBottom: `1px solid ${chrome}0.1)` }}>
         {DOTS.map((c) => <span key={c} className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c }} aria-hidden />)}
         <span className="ml-2 truncate font-mono text-[10px]" style={{ color: `${chrome}0.45)` }}>elowen</span>
       </div>
-      <div className="px-3.5 py-3">
-        <div ref={ref} className="h-40 w-full overflow-hidden [&_.xterm-viewport]:[scrollbar-width:none] [&_.xterm-viewport::-webkit-scrollbar]:hidden" />
+      <div className="min-w-0 overflow-hidden px-3.5 py-3">
+        <div ref={ref} className="h-40 min-w-0 max-w-full overflow-hidden [&_.xterm]:max-w-full [&_.xterm-screen]:max-w-full [&_.xterm-viewport]:[scrollbar-width:none] [&_.xterm-viewport::-webkit-scrollbar]:hidden" />
       </div>
     </div>
   );
