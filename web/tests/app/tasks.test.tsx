@@ -74,7 +74,7 @@ describe('TasksPage', () => {
     render(<Wrapper><ToastProvider><TasksPage /></ToastProvider></Wrapper>);
     const row = (await screen.findByText('Build')).closest('[role="button"]')!;
     fireEvent.click(row);
-    expect(await screen.findByRole('complementary', { name: 'Task detail' })).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: 'Task detail' })).toBeNull();
+    expect(await screen.findByRole('dialog', { name: 'Task detail' })).toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'Task detail' })).toBeNull();
   });
 });

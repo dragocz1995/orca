@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Plus } from 'lucide-react';
-import { SpatialWorkspaceHero, SpatialWorkspaceLayout, WorkspaceMetric } from '../../../components/ui/WorkspacePrimitives';
+import { SpatialWorkspaceHero, SpatialWorkspaceLayout, WorkspaceDetailRail, WorkspaceMetric } from '../../../components/ui/WorkspacePrimitives';
 import { ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar } from '../../../components/ui/ControlSurface';
 
 describe('SpatialWorkspaceHero', () => {
@@ -60,5 +60,28 @@ describe('SpatialWorkspaceHero', () => {
     expect(screen.getByRole('radiogroup', { name: 'Session view' })).toBeInTheDocument();
     expect(screen.getByText('Register')).toHaveAttribute('data-control-surface');
     expect(screen.getByTestId('spatial-workspace-layout')).toContainElement(screen.getByText('Register'));
+  });
+
+  it('renders details as an overlay drawer and closes from Escape or the backdrop', () => {
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <WorkspaceDetailRail label="Task detail" closeLabel="Close" onClose={onClose}>
+        Detail body
+      </WorkspaceDetailRail>,
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Task detail' })).toHaveClass('workspace-detail-drawer');
+    expect(screen.getByTestId('workspace-detail-backdrop')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    onClose.mockClear();
+    rerender(
+      <WorkspaceDetailRail label="Task detail" closeLabel="Close" onClose={onClose}>
+        Detail body
+      </WorkspaceDetailRail>,
+    );
+    fireEvent.mouseDown(screen.getByTestId('workspace-detail-backdrop'));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

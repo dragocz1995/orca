@@ -45,7 +45,7 @@ describe('MemoryPage', () => {
     // Selecting the row opens the detail pane, which shows the memory id (#1).
     fireEvent.click(screen.getAllByText('Filip prefers pnpm over npm')[0]);
     await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
-    expect(screen.getByRole('complementary', { name: 'Memory detail' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Memory detail' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Memory' })).toBeNull();
   });
 

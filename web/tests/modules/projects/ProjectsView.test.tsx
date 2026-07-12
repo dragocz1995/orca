@@ -24,7 +24,7 @@ describe('ProjectsView', () => {
     expect(screen.getByTestId('projects-register').closest('.control-surface-register')).toBeInTheDocument();
     expect(screen.getByTestId('projects-register')).not.toHaveClass('border-t-0');
     expect(row.closest('[role="row"]')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('complementary', { name: 'Project detail' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Project detail' })).toBeInTheDocument();
   });
 
   it('selects a project with Space', async () => {
