@@ -751,7 +751,7 @@ describe('chat application shell ownership', () => {
   it('defers process-only invalidation while telemetry is invisible and shows the stored snapshot after grow', async () => {
     const h = compositionHarness({ columns: 96, rows: 24, turns: 40 });
     const composition = makeComposition(h);
-    composition.renderShell.resume();
+    composition.resume();
     composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
     composition.root.render(h.term.columns);
@@ -777,8 +777,7 @@ describe('chat application shell ownership', () => {
     composition.render('stream:process');
     await vi.runOnlyPendingTimersAsync();
     expect(h.tui.renderRequests).toHaveLength(requestsBeforeVisibleMetadata + 1);
-    composition.dispose();
-    composition.renderShell.stop();
+    composition.stop();
   });
 
   it('records content-free frame geometry and bounded viewport work for machine analysis', () => {
