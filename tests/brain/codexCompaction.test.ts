@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AuthStorage,
+  calculateContextTokens,
   createAgentSession,
   DefaultResourceLoader,
   ModelRegistry,
@@ -39,6 +40,8 @@ interface FixtureOptions {
   reserveTokens?: number;
   toolResultText?: string;
   historyPadding?: string;
+  queueDuringTool?: 'steer' | 'followUp';
+  queuedText?: string;
 }
 
 let apiSequence = 0;
@@ -111,6 +114,7 @@ async function fixture(o: FixtureOptions = {}): Promise<{
   const fallbackId = o.fallbackId;
   const calls: ProviderCall[] = [];
   let ordinaryCalls = 0;
+  let activeSession: AgentSession | undefined;
   const api = `elowen-test-compaction-${++apiSequence}` as Api;
   const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
   registry.registerProvider(provider, {
@@ -170,12 +174,18 @@ async function fixture(o: FixtureOptions = {}): Promise<{
     customTools: [defineTool({
       name: 'context_probe', label: 'Context probe', description: 'Continue one deterministic tool turn',
       parameters: Type.Object({}),
-      execute: async () => ({ content: [{ type: 'text', text: o.toolResultText ?? 'probe complete' }], details: {} }),
+      execute: async () => {
+        if (o.queueDuringTool && activeSession) {
+          await activeSession[o.queueDuringTool](o.queuedText ?? 'queued while the tool was running');
+        }
+        return { content: [{ type: 'text', text: o.toolResultText ?? 'probe complete' }], details: {} };
+      },
     })],
     tools: ['context_probe'], noTools: 'builtin', thinkingLevel: 'high',
   });
   route?.install(session);
   installTurnBoundaryAutoCompaction(session, sessionManager, true);
+  activeSession = session;
   return { session, sessionManager, calls, compactions, selected };
 }
 
@@ -256,6 +266,71 @@ describe('Codex compaction model routing', () => {
       && JSON.stringify(message.content).includes('conversation history before this point was compacted'))).toBe(true);
   });
 
+  it.each(['steer', 'followUp'] as const)(
+    'accounts for a queued %s before the provider request that first receives it',
+    async (queueDuringTool) => {
+      const queuedText = `critical queued context ${'x'.repeat(760)}`;
+      const f = await fixture({
+        fallbackId: 'gpt-5.5', autoUsage: 700, reserveTokens: 200, keepRecentTokens: 30,
+        multiTurn: true, queueDuringTool, queuedText,
+        historyPadding: 'older context detail '.repeat(100),
+      });
+
+      await f.session.prompt('queue a large instruction while the tool runs');
+
+      const summaryIndex = f.calls.findIndex((call) =>
+        call.context.systemPrompt?.includes('context summarization assistant') === true);
+      const queuedRequestIndex = f.calls.findIndex((call) =>
+        call.context.messages.some((message) => JSON.stringify(message.content).includes(queuedText)));
+      expect(queuedRequestIndex).toBeGreaterThan(-1);
+      expect(summaryIndex).toBeGreaterThan(-1);
+      expect(summaryIndex).toBeLessThan(queuedRequestIndex);
+    },
+  );
+
+  it('includes queued context when the current assistant reports zero usage', async () => {
+    const queuedText = `zero-usage queued context ${'z'.repeat(3_600)}`;
+    const f = await fixture({
+      fallbackId: 'gpt-5.5', autoUsage: 0, reserveTokens: 200, keepRecentTokens: 30,
+      multiTurn: true, queueDuringTool: 'steer', queuedText,
+      historyPadding: 'older context detail '.repeat(100),
+    });
+
+    await f.session.prompt('queue after a zero-usage tool response');
+
+    const summaryIndex = f.calls.findIndex((call) =>
+      call.context.systemPrompt?.includes('context summarization assistant') === true);
+    const queuedRequestIndex = f.calls.findIndex((call) =>
+      call.context.messages.some((message) => JSON.stringify(message.content).includes(queuedText)));
+    expect(summaryIndex).toBeGreaterThan(-1);
+    expect(summaryIndex).toBeLessThan(queuedRequestIndex);
+  });
+
+  it('includes image attachments from the authoritative queue mirror in the boundary budget', async () => {
+    const checkCompaction = vi.fn(async () => false);
+    const session = {
+      _checkCompaction: checkCompaction,
+      abortCompaction: vi.fn(),
+      agent: {
+        state: { messages: [], model: {}, thinkingLevel: 'high' },
+        prepareNextTurnWithContext: undefined as unknown,
+      },
+    };
+    const manager = { getBranch: () => [] };
+    installTurnBoundaryAutoCompaction(session as never, manager as never, true, () => [{
+      text: 'queued screenshot',
+      images: [{ type: 'image', data: 'BASE64', mimeType: 'image/png' }],
+    }]);
+
+    await (session.agent.prepareNextTurnWithContext as unknown as (turn: unknown) => Promise<unknown>)({
+      message: assistantMessage({} as never, [], 'toolUse', 700), context: { messages: [] }, toolResults: [],
+    });
+
+    const checked = checkCompaction.mock.calls[0]?.[0] as AssistantMessage;
+    // PI estimates an image as 4,800 chars / 4 = 1,200 tokens, plus its text.
+    expect(calculateContextTokens(checked.usage)).toBeGreaterThanOrEqual(1_900);
+  });
+
   it('links the agent abort signal to PI\'s independent auto-compaction controller', async () => {
     const controller = new AbortController();
     let release!: () => void;
@@ -281,6 +356,50 @@ describe('Codex compaction model routing', () => {
     await pending;
 
     expect(session.abortCompaction).toHaveBeenCalledOnce();
+  });
+
+  it('replays an early abort when PI creates its compaction controller after async auth', async () => {
+    const controller = new AbortController();
+    let releaseAuth!: () => void;
+    const auth = new Promise<void>((resolve) => { releaseAuth = resolve; });
+    let controllerReady = false;
+    let summaryAborted = false;
+    const listeners = new Set<(event: { type: string }) => void>();
+    const session = {
+      _checkCompaction: vi.fn(async () => {
+        await auth;
+        for (const listener of listeners) listener({ type: 'compaction_start' });
+        controllerReady = true;
+        await Promise.resolve();
+        return false;
+      }),
+      abortCompaction: vi.fn(() => {
+        if (controllerReady) summaryAborted = true;
+      }),
+      subscribe: vi.fn((listener: (event: { type: string }) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }),
+      agent: {
+        state: { messages: [], model: {}, thinkingLevel: 'high' },
+        prepareNextTurnWithContext: undefined as unknown,
+      },
+    };
+    const manager = { getBranch: () => [] };
+    expect(installTurnBoundaryAutoCompaction(session as never, manager as never, true)).toBe(true);
+
+    const pending = (session.agent.prepareNextTurnWithContext as unknown as (
+      turn: unknown, signal: AbortSignal,
+    ) => Promise<unknown>)({
+      message: assistantMessage({} as never, [], 'toolUse', 750), context: {}, toolResults: [],
+    }, controller.signal);
+    await Promise.resolve();
+    controller.abort();
+    releaseAuth();
+    await pending;
+
+    expect(summaryAborted).toBe(true);
+    expect(listeners).toHaveLength(0);
   });
 
   it.each(['quota exceeded', 'authentication failed'])('surfaces %s after one native summary request', async (error) => {

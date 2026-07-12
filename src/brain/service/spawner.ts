@@ -158,12 +158,22 @@ export class LiveSessionSpawner {
       ? this.d.prompts.render('advisor-channel', { ownerName: userName, personality, agentName }, ownerUserId)
       : this.d.prompts.render('advisor', { userName, personality, agentName }, ownerUserId);
 
+    // Create the image-carrying queue mirrors before the PI session. The boundary compaction adapter reads
+    // these exact arrays just before every next-turn provider request, so queued text AND attachments are
+    // included in the context budget without reaching into PI's private PendingMessageQueue internals.
+    const queuedSteer: QueuedMsg[] = [];
+    const queuedFollowUp: QueuedMsg[] = [];
+    const pendingCompactionMessages = () => [...queuedSteer, ...queuedFollowUp].map((message) => ({
+      text: message.queuedText ?? message.text,
+      images: message.images,
+    }));
     const { session } = await this.d.factory.create({
       sessionId, ownerUserId, parentSessionId: opts.parentSessionId, delegatedAccess: opts.delegatedAccess,
       registry, model, compactionFallbackModel: route.compactionFallback, cwd,
       systemPrompt: persona, appendSystemPrompt: append, skills, promptTemplates,
       tools: allTools, thinkingLevel: opts.thinkingLevel, requestProfile,
       autoCompact: opts.autoCompact, autoCompactAtPct: opts.autoCompactAtPct,
+      pendingCompactionMessages,
       // Project AGENTS.md/CLAUDE.md ride the system prompt for an ADMIN's own chat only. Two guards,
       // both required: (1) not a shared channel (foreign senders must never see instruction files);
       // (2) admin owner — a non-admin account with no repo of its own resolves cwd to the daemon's
@@ -186,8 +196,6 @@ export class LiveSessionSpawner {
     const replay = new LiveEventReplay(listeners);
     // Image-carrying mirror of PI's mid-turn queue — the SAME array instances returned on the LiveBrain, so
     // reconciling them here (in place) keeps the live wrapper's queue in sync. PI's public queue is text-only.
-    const queuedSteer: QueuedMsg[] = [];
-    const queuedFollowUp: QueuedMsg[] = [];
     let live!: LiveBrain;
     // PI decides overflow compact-and-retry only after emitting the errored agent_end. Hold that error
     // until compaction_end tells us whether recovery really failed; otherwise headless clients would
