@@ -40,6 +40,20 @@ describe('pilotPrompt', () => {
 });
 
 describe('makePilot', () => {
+  it('uses the plan job planner override instead of the global planner', async () => {
+    const launch = vi.fn().mockResolvedValue({ session: 'elowen-pilotX' });
+    const pilot = makePilot({
+      spawn: { launch } as never,
+      config: { get: () => ({ autopilot: { pilotExec: 'claude:sonnet' } }) } as never,
+      projects: { get: () => ({ id: 1, path: '/repo' }) } as never,
+      planJobs: { setSession: vi.fn() } as never,
+      tmux: { list: async () => [] } as never,
+      nameAgent: () => 'pilotX',
+    });
+    await pilot({ id: 'pj-9', goal: 'g', projectId: 1, epicId: null, dryRun: false, status: 'planning', phases: [], pilotExec: 'codex:gpt-5.4' }, '/repo');
+    expect(launch.mock.calls[0]![0].spec).toEqual({ program: 'codex', model: 'gpt-5.4' });
+  });
+
   it('spawns an agent in plan mode with ELOWEN_PLAN_JOB in env and the plan prompt as rawPrompt', async () => {
     const launch = vi.fn().mockResolvedValue({ session: 'elowen-pilotX' });
     const pilot = makePilot({

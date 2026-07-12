@@ -72,7 +72,7 @@ export function createReviewService({ d, log, gitLock, decisionQueue, checkoutPa
       // phase's worktree commit happens on the approving verdict (below); when it didn't, the close
       // is final and we commit right here — so a rejected phase never lands a commit.
       let reviewEnqueued = false;
-      if (mission && cfg.autopilot.reviewOnDone && cfg.autopilot.overseerExec) {
+      if (mission && cfg.autopilot.reviewOnDone && (mission.overseer_exec || cfg.autopilot.overseerExec)) {
         // Close the gate now: block every open direct dependent so no tick spawns it while the review
         // is pending. Track exactly which ones we gated — the verdict releases only these, never a
         // dependent left blocked by a different cause (e.g. an earlier review on another dep).

@@ -51,6 +51,8 @@ export const planSchema = z.object({
   name: z.string().optional(),
   exec: z.string().optional(),
   autoModel: z.boolean().optional(),
+  pilotExec: z.string().optional(),
+  overseerExec: z.string().optional(),
   autonomy: z.string().optional(),
   maxSessions: z.number().optional(),
   engage: z.boolean().optional(),

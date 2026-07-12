@@ -411,6 +411,10 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
     if (!goal) return c.json({ error: 'goal required' }, 400);
     if (b.exec && !d.config.get().allowedExecs.includes(b.exec)) return c.json({ error: 'exec not allowed' }, 400);
     if (b.exec && !execAllowedForUser(c, b.exec)) return c.json({ error: 'exec not allowed for user' }, 403);
+    for (const override of [b.pilotExec, b.overseerExec]) {
+      if (override && !d.config.get().allowedExecs.includes(override)) return c.json({ error: 'exec not allowed' }, 400);
+      if (override && !execAllowedForUser(c, override)) return c.json({ error: 'exec not allowed for user' }, 403);
+    }
     const target = resolveTarget(c, b.project_id);
     if ('error' in target) return c.json({ error: target.error }, target.status);
 
@@ -419,13 +423,13 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
       const phases: Phase[] = b.phases.map((p) => ({ title: (p.title ?? '').trim(), type: VALID_PHASE_TYPES.has(p.type ?? '') ? p.type! : 'task' })).filter((p) => p.title);
       if (phases.length === 0) return c.json({ error: 'phases required' }, 400);
       if (b.dryRun === true) return c.json({ phases }); // playground preview, nothing persisted
-      const job = planJobs.create({ goal, name, projectId: target.project.id, epicId: null, dryRun: false, exec: b.exec, prEnabled, createdBy: c.get('user')?.id ?? null });
+      const job = planJobs.create({ goal, name, projectId: target.project.id, epicId: null, dryRun: false, exec: b.exec, pilotExec: b.pilotExec, overseerExec: b.overseerExec, prEnabled, createdBy: c.get('user')?.id ?? null });
       job.phases = phases;
       const { epic, phases: created } = persistPlan(job);
       job.epicId = epic.id;
       planJobs.setPhases(job.id, phases);
       let mission;
-      if (b.engage === true) mission = await d.engine.engage({ epicId: epic.id, autonomy: b.autonomy ?? 'L3', maxSessions: b.maxSessions ?? 1, createdBy: c.get('user')?.id ?? null });
+      if (b.engage === true) mission = await d.engine.engage({ epicId: epic.id, autonomy: b.autonomy ?? 'L3', maxSessions: b.maxSessions ?? 1, createdBy: c.get('user')?.id ?? null, pilotExec: b.pilotExec, overseerExec: b.overseerExec });
       return c.json({ epic, phases: created.map((t) => d.tasks.get(t.id)), mission }, 201);
     }
 
@@ -435,11 +439,12 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
       goal, name, projectId: target.project.id, epicId: null, dryRun: b.dryRun === true,
       // Auto mode lets the planner pick a model per phase, so no uniform exec rides along.
       exec: b.autoModel ? undefined : b.exec, autoModel: b.autoModel === true,
+      pilotExec: b.pilotExec, overseerExec: b.overseerExec,
       engage: b.engage === true ? { autonomy: b.autonomy ?? 'L3', maxSessions: b.maxSessions ?? 1 } : undefined,
       prEnabled, maxSessions: b.maxSessions ?? 1, createdBy: c.get('user')?.id ?? null,
     });
     d.bus.publish({ type: 'plan', jobId: job.id, status: 'planning' });
-    if (cfg.autopilot.pilotExec && d.pilot) {
+    if ((b.pilotExec || cfg.autopilot.pilotExec) && d.pilot) {
       // Agent backend: spawn the Pilot in the repo; it submits via `elowen plan submit`.
       void d.pilot(job, target.project.path).catch((e) => { planJobs.fail(job.id, String(e)); d.bus.publish({ type: 'plan', jobId: job.id, status: 'failed', error: String(e) }); reapPilotSession(job); });
       return c.json({ jobId: job.id }, 202);
@@ -527,9 +532,10 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
     const replanIsolated = resolvePrEnabled(replanOverride, d.projects?.get(epic.project_id)?.pr_enabled ?? null, cfg.autopilot.prEnabled);
     const replanMaxSessions = d.missions.get(`m-${epicId}`)?.max_sessions ?? 1;
     const replanParallelism = parallelismBlock(replanMaxSessions, replanIsolated);
-    const job = planJobs.create({ goal: b.goal!.trim(), projectId: epic.project_id, epicId, dryRun: false, exec: b.exec, prEnabled: replanOverride, maxSessions: replanMaxSessions, createdBy: epic.created_by ?? c.get('user')?.id ?? null });
+    const existingMission = d.missions.get(`m-${epicId}`);
+    const job = planJobs.create({ goal: b.goal!.trim(), projectId: epic.project_id, epicId, dryRun: false, exec: b.exec, pilotExec: existingMission?.pilot_exec || undefined, overseerExec: existingMission?.overseer_exec || undefined, prEnabled: replanOverride, maxSessions: replanMaxSessions, createdBy: epic.created_by ?? c.get('user')?.id ?? null });
     d.bus.publish({ type: 'plan', jobId: job.id, status: 'planning' });
-    if (cfg.autopilot.pilotExec && d.pilot) {
+    if ((job.pilotExec || cfg.autopilot.pilotExec) && d.pilot) {
       void d.pilot(job, pathFor(epic.project_id)).catch((e) => { planJobs.fail(job.id, String(e)); d.bus.publish({ type: 'plan', jobId: job.id, status: 'failed', error: String(e) }); });
       return c.json({ jobId: job.id, epicId }, 202);
     }

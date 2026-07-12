@@ -300,7 +300,7 @@ export function buildApp(opts: BuildOpts) {
       // no-overseer fallback has no verdict/rationale to show.
       const recordPrompt = (gated: { approve: boolean }, rationale: string, confidence: number) =>
         bus.publish({ type: 'decision', taskId: input.taskId, kind: 'prompt', question: input.question, outcome: gated.approve ? 'approved' : 'escalated', rationale, confidence });
-      if (input.missionId && config.get().autopilot.overseerExec) {
+      if (input.missionId && (missions.get(input.missionId)?.overseer_exec || config.get().autopilot.overseerExec)) {
         const v = await decisionQueue.enqueue(input.missionId, 'prompt', { question: input.question, context: input.context, options: input.options });
         const gated = gateVerdict(v, { minConfidence });
         recordPrompt(gated, v.rationale, v.confidence);
@@ -331,7 +331,7 @@ export function buildApp(opts: BuildOpts) {
       // Persist the question verdict (chosen option or escalation) for the task's conversation feed.
       const recordChoice = (res: { choiceId: string | null }, rationale: string, confidence: number) =>
         bus.publish({ type: 'decision', taskId: input.taskId, kind: 'choice', question: input.question, outcome: res.choiceId ? 'chose' : 'escalated', rationale, confidence, optionLabel: res.choiceId ? input.options.find((o) => o.id === res.choiceId)?.label : undefined });
-      if (input.missionId && config.get().autopilot.overseerExec) {
+      if (input.missionId && (missions.get(input.missionId)?.overseer_exec || config.get().autopilot.overseerExec)) {
         const v = await decisionQueue.enqueue(input.missionId, 'question', { question: input.question, context: input.context, options: input.options });
         const res = gate(v.choice, v.confidence);
         recordChoice(res, v.rationale, v.confidence);
@@ -646,7 +646,6 @@ export function buildApp(opts: BuildOpts) {
   // agent overseer is configured, re-park one per active mission and kill any orphan overseer session
   // whose mission is no longer active. Inert when overseerExec is empty (relay handles decisions).
   const reconcileOverseers = async () => {
-    if (!config.get().autopilot.overseerExec) return;
     const live = new Set((await tmux.list()).filter((s) => s.startsWith('elowen-overseer-')));
     const activeIds = new Set(missions.active().map((m) => m.id));
     for (const s of live) {
@@ -654,6 +653,7 @@ export function buildApp(opts: BuildOpts) {
       if (!activeIds.has(id)) await tmux.kill(s).catch(() => { /* already gone */ });
     }
     for (const m of missions.active()) {
+      if (!(m.overseer_exec || config.get().autopilot.overseerExec)) continue;
       if (live.has(`elowen-overseer-${m.id}`)) continue;
       const epic = tasks.get(m.epic_id);
       const proj = epic ? projects.get(epic.project_id) : null;
@@ -763,7 +763,7 @@ export function buildApp(opts: BuildOpts) {
       const missionId = missionIdForSession(session);
       // No overseer to ask: a wedged worker escalates to a human; a routine progress glance just no-ops —
       // never block a healthy, working agent just because nobody happens to be watching.
-      if (!missionId || !config.get().autopilot.overseerExec) { if (reason === 'idle') escalateWorker(taskId); return; }
+      if (!missionId || !(missions.get(missionId)?.overseer_exec || config.get().autopilot.overseerExec)) { if (reason === 'idle') escalateWorker(taskId); return; }
       let verdict: DecisionResult;
       try { verdict = await decisionQueue.enqueue(missionId, 'check', { taskId, session, paneSnapshot: snapshot, idleMin, reason }); }
       catch (e) { log.error(`check enqueue failed for ${session}`, e); return; }
@@ -798,7 +798,7 @@ export function buildApp(opts: BuildOpts) {
         checkWorker,
         workerIdleMs: WORKER_IDLE_MS, overseerIdleMs: OVERSEER_IDLE_MS, graceMs: DECISION_GRACE_MS, hardMs: DECISION_HARD_MS,
         // Routine progress checks only make sense when there's an overseer to do them (0 disables).
-        progressReviewMs: config.get().autopilot.overseerExec ? PROGRESS_REVIEW_MS : 0,
+        progressReviewMs: (config.get().autopilot.overseerExec || missions.live().some((m) => m.overseer_exec)) ? PROGRESS_REVIEW_MS : 0,
       })
         .then(({ escalated, checked }) => {
           if (escalated.length) log.warn(`liveness sweep escalated ${escalated.length} unanswered decision(s) to a human: ${escalated.join(', ')}`);
@@ -830,12 +830,12 @@ export function buildApp(opts: BuildOpts) {
       if (!epic || !project || !mission) return false;
       // PR-feedback CONTINUES a finished mission, so keep the existing review self-heal budgets rather
       // than resetting them on this re-engage. Flows through both the pilot and relay paths below.
-      const engage = { autonomy: mission.autonomy, maxSessions: mission.max_sessions, preserveReviewBudget: true };
-      if (config.get().autopilot.pilotExec) {
+      const engage = { autonomy: mission.autonomy, maxSessions: mission.max_sessions, preserveReviewBudget: true, pilotExec: mission.pilot_exec, overseerExec: mission.overseer_exec };
+      if (mission.pilot_exec || config.get().autopilot.pilotExec) {
         const cwd = missionGit.worktreeFor(`m-${epicId}`) ?? project.path;
         // engage flag → finalizePlanJob re-engages the mission AFTER the pilot pins the phases, so a
         // completed mission doesn't disengage in the gap between engage and the phases existing.
-        const job = planJobs.create({ goal, projectId: epic.project_id, epicId, dryRun: false, exec, engage, createdBy: epic.created_by ?? null });
+        const job = planJobs.create({ goal, projectId: epic.project_id, epicId, dryRun: false, exec, pilotExec: mission.pilot_exec || undefined, overseerExec: mission.overseer_exec || undefined, engage, createdBy: epic.created_by ?? null });
         bus.publish({ type: 'plan', jobId: job.id, status: 'planning' });
         void pilot(job, cwd).catch((e) => { planJobs.fail(job.id, String(e)); bus.publish({ type: 'plan', jobId: job.id, status: 'failed', error: String(e) }); });
         return true;

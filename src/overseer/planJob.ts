@@ -4,6 +4,8 @@ import type { Phase } from './planner.js';
 export type PlanJobStatus = 'planning' | 'done' | 'failed';
 export interface PlanJob {
   id: string; epicId: string | null; goal: string; projectId: number; exec?: string; autoModel?: boolean;
+  /** Per-mission Autopilot overrides; absent/empty inherits Settings. */
+  pilotExec?: string; overseerExec?: string;
   /** Optional short mission name → epic title. Empty/absent falls back to the goal, so the epic title
    *  is never blank. The full goal always lands in the epic description regardless. */
   name?: string;
@@ -39,7 +41,7 @@ export class PlanJobStore {
 
   constructor(private now: () => number = Date.now) {}
 
-  create(input: { goal: string; name?: string; projectId: number; epicId: string | null; dryRun: boolean; exec?: string; autoModel?: boolean; engage?: { autonomy: string; maxSessions: number; preserveReviewBudget?: boolean }; prEnabled?: boolean | null; maxSessions?: number; createdBy?: number | null }): PlanJob {
+  create(input: { goal: string; name?: string; projectId: number; epicId: string | null; dryRun: boolean; exec?: string; autoModel?: boolean; pilotExec?: string; overseerExec?: string; engage?: { autonomy: string; maxSessions: number; preserveReviewBudget?: boolean }; prEnabled?: boolean | null; maxSessions?: number; createdBy?: number | null }): PlanJob {
     this.prune();
     const job: PlanJob = { id: `pj-${randomBytes(5).toString('hex')}`, status: 'planning', phases: [], ...input };
     this.jobs.set(job.id, job);

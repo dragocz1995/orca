@@ -32,7 +32,7 @@ export function pilotPrompt(goal: string, jobId: string, projectNotes?: string, 
 export function makePilot(deps: { spawn: SpawnService; config: ConfigStore; projects: ProjectStore; planJobs: PlanJobStore; tmux: TmuxDriver; nameAgent: () => string; cli?: string; prompts?: PromptService }): (job: PlanJob, projectPath: string) => Promise<void> {
   return async (job, projectPath) => {
     const cfg = deps.config.get();
-    const spec = resolveExecutor([`exec:${cfg.autopilot.pilotExec}`], { program: 'claude-code', model: 'sonnet' });
+    const spec = resolveExecutor([`exec:${job.pilotExec || cfg.autopilot.pilotExec}`], { program: 'claude-code', model: 'sonnet' });
     const project = deps.projects.get(job.projectId);
     const notes = project?.notes;
     const models = job.autoModel ? modelsBlock(cfg.allowedExecs, cfg.modelNotes) : undefined;

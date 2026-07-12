@@ -120,7 +120,7 @@ export function createAskService({ d, decisionQueue }: AskServiceDeps): AskServi
     // (waiting out the decision timeout for an overseer that will never poll is pointless).
     const task = d.tasks.get(taskId);
     const mission = task?.parent_id ? d.missions.activeForEpic(task.parent_id) ?? undefined : undefined;
-    const overseerParked = !!mission && !!d.config.get().autopilot.overseerExec;
+    const overseerParked = !!mission && !!(mission.overseer_exec || d.config.get().autopilot.overseerExec);
     if (overseerParked) {
       // Hand the overseer the whole thread (the just-asked question is its last entry) so it can answer
       // a follow-up in context, not just the latest line in isolation.

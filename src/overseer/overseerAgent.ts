@@ -30,11 +30,12 @@ export interface OverseerController {
 /** Lifecycle of the parked per-mission overseer agent. When `overseerExec` is empty the controller
  *  is inert (the relay fallback in bootstrap handles decisions inline). The agent is parked: it
  *  long-polls and sits idle (0 tokens) until the engine/deriver enqueue a decision. */
-export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; config: ConfigStore; queue: DecisionQueue; cli?: string; missionGit?: { worktreeFor(missionId: string): string | null }; missions?: { get(id: string): { created_by: number | null } | null }; prompts?: PromptService }): OverseerController {
+export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; config: ConfigStore; queue: DecisionQueue; cli?: string; missionGit?: { worktreeFor(missionId: string): string | null }; missions?: { get(id: string): { created_by: number | null; overseer_exec?: string } | null }; prompts?: PromptService }): OverseerController {
   // Single source for the launch — every caller (engage/resume start, the tick watchdog's ensure,
   // the reconcile sweep) routes through here, so the idempotency guard lives here too.
   const park = async (missionId: string, projectId: number, projectPath: string): Promise<void> => {
-    const exec = deps.config.get().autopilot.overseerExec;
+    const mission = deps.missions?.get(missionId);
+    const exec = mission?.overseer_exec || deps.config.get().autopilot.overseerExec;
     if (!exec) return; // relay fallback — no parked agent
     // Idempotent: a live overseer session IS the desired state. If one is already parked for this
     // mission, leave it — re-launching would make `tmux new-session` throw "duplicate session" and
@@ -49,7 +50,7 @@ export function makeOverseer(deps: { spawn: SpawnService; tmux: TmuxDriver; conf
     const cwd = deps.missionGit?.worktreeFor(missionId) ?? projectPath;
     // Render the overseer prompt through the mission owner's overrides (else file default).
     const prompts = deps.prompts;
-    const ownerId = deps.missions?.get(missionId)?.created_by ?? null;
+    const ownerId = mission?.created_by ?? null;
     const renderPrompt: RenderPrompt = prompts ? (name, vars) => prompts.render(name, vars, ownerId) : render;
     await deps.spawn.launch({
       projectId, projectPath: cwd, taskId: `overseer-${missionId}`, agentName: `overseer-${missionId}`, spec,

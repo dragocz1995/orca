@@ -8,11 +8,15 @@ export interface Mission {
   state: MissionState;
   /** The user who engaged the mission; null for legacy/system missions. Drives push-notification routing. */
   created_by: number | null;
+  /** Empty means inherit the workspace Autopilot setting. */
+  pilot_exec: string;
+  /** Empty means inherit the workspace Autopilot setting. */
+  overseer_exec: string;
 }
 
 // Explicit column list everywhere: a pre-existing DB may still carry the dropped `cleared_guardrails`
 // column, so `SELECT *` would leak it — name the columns we actually map instead.
-const COLS = 'id,epic_id,autonomy,max_sessions,state,created_by';
+const COLS = 'id,epic_id,autonomy,max_sessions,state,created_by,pilot_exec,overseer_exec';
 
 export class MissionStore {
   constructor(private db: Db) {}
@@ -21,16 +25,17 @@ export class MissionStore {
    *  `m-<epicId>`, so re-engaging an epic whose prior mission was disengaged/crashed would otherwise
    *  hit a UNIQUE violation — the row is left behind on disengage. Upsert resets it to 'active' and
    *  applies the new autonomy / max_sessions, making engage idempotent and re-engageable. */
-  create(m: Omit<Mission, 'state' | 'created_by'> & { created_by?: number | null }): Mission {
+  create(m: Omit<Mission, 'state' | 'created_by' | 'pilot_exec' | 'overseer_exec'> & { created_by?: number | null; pilot_exec?: string; overseer_exec?: string }): Mission {
     this.db.prepare(
-      `INSERT INTO missions (id,epic_id,autonomy,max_sessions,state,created_by)
-       VALUES (@id,@epic_id,@autonomy,@max_sessions,'active',@created_by)
+      `INSERT INTO missions (id,epic_id,autonomy,max_sessions,state,created_by,pilot_exec,overseer_exec)
+       VALUES (@id,@epic_id,@autonomy,@max_sessions,'active',@created_by,@pilot_exec,@overseer_exec)
        ON CONFLICT(id) DO UPDATE SET
          epic_id=excluded.epic_id, autonomy=excluded.autonomy,
-         max_sessions=excluded.max_sessions, state='active'`
+         max_sessions=excluded.max_sessions, state='active',
+         pilot_exec=excluded.pilot_exec, overseer_exec=excluded.overseer_exec`
       // created_by is deliberately NOT updated on re-engage: the original engager stays the owner
       // (notification routing always also includes admins, so a different re-engager is still covered).
-    ).run({ ...m, created_by: m.created_by ?? null });
+    ).run({ ...m, created_by: m.created_by ?? null, pilot_exec: m.pilot_exec ?? '', overseer_exec: m.overseer_exec ?? '' });
     return this.get(m.id)!;
   }
 

@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS missions (
   id TEXT PRIMARY KEY, epic_id TEXT NOT NULL, autonomy TEXT NOT NULL,
   max_sessions INTEGER NOT NULL DEFAULT 1,
   state TEXT NOT NULL DEFAULT 'active', started_at TEXT NOT NULL DEFAULT (datetime('now')),
-  created_by INTEGER
+  created_by INTEGER,
+  pilot_exec TEXT NOT NULL DEFAULT '', overseer_exec TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS mission_pr (
   mission_id TEXT PRIMARY KEY, branch TEXT NOT NULL, worktree TEXT NOT NULL,

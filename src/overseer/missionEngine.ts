@@ -65,9 +65,17 @@ export class MissionEngine {
   // of waiting up to the 90s interval — without re-entrantly stacking ticks.
   private retick = new Set<string>();
 
-  async engage(input: { epicId: string; autonomy: string; maxSessions: number; createdBy?: number | null; preserveReviewBudget?: boolean }): Promise<Mission> {
+  async engage(input: { epicId: string; autonomy: string; maxSessions: number; createdBy?: number | null; pilotExec?: string; overseerExec?: string; preserveReviewBudget?: boolean }): Promise<Mission> {
     const id = `m-${input.epicId}`;
-    const m = this.d.missions.create({ id, epic_id: input.epicId, autonomy: input.autonomy, max_sessions: input.maxSessions, created_by: input.createdBy ?? null });
+    // Resume/re-engage callers that do not know about overrides must not erase the mission identity.
+    // A brand-new mission has no row, so omitted values still correctly become inheritance ('').
+    const existing = this.d.missions.get(id);
+    const m = this.d.missions.create({
+      id, epic_id: input.epicId, autonomy: input.autonomy, max_sessions: input.maxSessions,
+      created_by: input.createdBy ?? null,
+      pilot_exec: input.pilotExec ?? existing?.pilot_exec ?? '',
+      overseer_exec: input.overseerExec ?? existing?.overseer_exec ?? '',
+    });
     // Fresh self-heal budget: a brand-new (or aborted-and-restarted) engage must not inherit
     // `reviewfix:<n>` labels from a prior run, or the mission escalates after fewer real review retries.
     // A PR-feedback re-engage CONTINUES a finished mission, though, so it passes preserveReviewBudget to

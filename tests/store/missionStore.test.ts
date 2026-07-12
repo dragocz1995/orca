@@ -28,6 +28,15 @@ describe('MissionStore', () => {
     expect(m.get('owned')!.created_by).toBe(5);
     expect(m.get('legacy')!.created_by).toBeNull();
   });
+  it('persists per-mission planner and overseer executor overrides', () => {
+    m.create({
+      id: 'custom', epic_id: 'e1', autonomy: 'L3', max_sessions: 1,
+      pilot_exec: 'codex:gpt-5.4', overseer_exec: 'claude:opus',
+    });
+    expect(m.get('custom')).toMatchObject({
+      pilot_exec: 'codex:gpt-5.4', overseer_exec: 'claude:opus',
+    });
+  });
   it('live includes active and stalled missions', () => {
     m.create({ id: 'a', epic_id: 'e1', autonomy: 'L3', max_sessions: 1 });
     m.create({ id: 'b', epic_id: 'e2', autonomy: 'L3', max_sessions: 1 });

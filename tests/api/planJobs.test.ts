@@ -2,6 +2,36 @@ import { describe, it, expect } from 'vitest';
 import { makeTestApp } from '../helpers/testApp.js';
 
 describe('async plan jobs (relay path)', () => {
+  it('persists allowed planner and overseer overrides on an engaged mission', async () => {
+    const { app, token, deps } = await makeTestApp({ apiKey: 'k' });
+    await app.request('/config', {
+      method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ allowedExecs: ['sonnet', 'codex:gpt-5.4'] }),
+    });
+    const res = await app.request('/tasks/plan', {
+      method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        goal: 'custom autopilot', phases: [{ title: 'Build', type: 'task' }], engage: true,
+        pilotExec: 'codex:gpt-5.4', overseerExec: 'sonnet',
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json() as { epic: { id: string } };
+    expect(deps.missions.get(`m-${body.epic.id}`)).toMatchObject({
+      pilot_exec: 'codex:gpt-5.4', overseer_exec: 'sonnet',
+    });
+  });
+
+  it('rejects a mission Autopilot override outside the allowed executor list', async () => {
+    const { app, token } = await makeTestApp({ apiKey: 'k' });
+    const res = await app.request('/tasks/plan', {
+      method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ goal: 'nope', pilotExec: 'codex:not-allowed' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'exec not allowed' });
+  });
+
   it('POST /tasks/plan (autopilot, relay) returns 202 with a job that resolves done', async () => {
     const { app, token } = await makeTestApp({ fakePlan: '[{"title":"Phase A","type":"task"}]', apiKey: 'k' });
     const res = await app.request('/tasks/plan', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'do X' }) });

@@ -128,7 +128,11 @@ export function createPlanService(d: ServerDeps, planJobs: PlanJobStore, pathFor
     job.epicId = epic.id;
     planJobs.setPhases(jobId, phases);
     if (job.engage) {
-      await d.engine.engage({ epicId: epic.id, autonomy: job.engage.autonomy, maxSessions: job.engage.maxSessions, preserveReviewBudget: job.engage.preserveReviewBudget });
+      await d.engine.engage({
+        epicId: epic.id, autonomy: job.engage.autonomy, maxSessions: job.engage.maxSessions,
+        preserveReviewBudget: job.engage.preserveReviewBudget, createdBy: job.createdBy,
+        pilotExec: job.pilotExec, overseerExec: job.overseerExec,
+      });
     } else {
       const missionId = `m-${epic.id}`;
       if (d.engine?.isActive(missionId)) await d.engine.tick(missionId); // replan into a live mission

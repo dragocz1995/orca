@@ -48,6 +48,18 @@ describe('overseerPrompt', () => {
 describe('makeOverseer', () => {
   const cfg = (overseerExec: string) => ({ get: () => ({ autopilot: { overseerExec } }) }) as never;
 
+  it('uses the mission overseer override instead of the global overseer', async () => {
+    const launch = vi.fn().mockResolvedValue({ session: 'elowen-overseer-m1' });
+    const ctl = makeOverseer({
+      spawn: { launch } as never,
+      tmux: { kill: vi.fn(), list: vi.fn().mockResolvedValue([]) } as never,
+      config: cfg('claude:sonnet'), queue: new DecisionQueue(),
+      missions: { get: () => ({ created_by: 1, overseer_exec: 'codex:gpt-5.4' }) },
+    });
+    await ctl.start('m1', 1, '/repo');
+    expect(launch.mock.calls[0]![0].spec).toEqual({ program: 'codex', model: 'gpt-5.4' });
+  });
+
   it('start() spawns a parked agent named overseer-<id> with ELOWEN_MISSION', async () => {
     const launch = vi.fn().mockResolvedValue({ session: 'elowen-overseer-m1' });
     const ctl = makeOverseer({ spawn: { launch } as never, tmux: { kill: vi.fn(), list: vi.fn().mockResolvedValue([]) } as never, config: cfg('opencode:deepseek/deepseek-v4-flash'), queue: new DecisionQueue(), cli: 'node /d/cli/index.js' });
