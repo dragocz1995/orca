@@ -47,7 +47,7 @@ export function BrainLimitsModal({ limits, onChange, onClose }: {
                   <span className="flex items-center gap-1.5 text-sm font-medium text-text">
                     <Icon size={14} className="shrink-0 text-accent" aria-hidden />
                     {t.brain.limits[f.key]}
-                    <HelpTip>{t.brain.limits[`${f.key}Hint`]}</HelpTip>
+                    <HelpTip layout="inline">{t.brain.limits[`${f.key}Hint`]}</HelpTip>
                   </span>
                   <Input
                     type="number" min={f.min} max={f.max} step={f.step}

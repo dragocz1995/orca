@@ -70,7 +70,7 @@ export function CategoryManager({ memories }: { memories: Memory[] }) {
 
 /** Create or edit a category (name required, optional description, a preset color). One 409 → duplicate
  *  name; the server message is surfaced. */
-function CategoryModal({ category, onClose }: { category?: MemoryCategory; onClose: () => void }) {
+export function CategoryModal({ category, onClose }: { category?: MemoryCategory; onClose: () => void }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const create = useCreateMemoryCategory();

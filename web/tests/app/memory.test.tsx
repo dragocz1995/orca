@@ -38,6 +38,25 @@ describe('MemoryPage', () => {
     expect(container.querySelectorAll('[data-control-surface]')).toHaveLength(1);
   });
 
+  it('creates a memory category directly from the workspace hero', async () => {
+    let created: Record<string, unknown> | undefined;
+    server.use(
+      http.post('*/api/memory/categories', async ({ request }) => {
+        created = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ id: 7, user_id: 1, ...created, is_builtin: 0, created_at: '' }, { status: 201 });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);
+
+    await screen.findByTestId('memory-row');
+    fireEvent.click(screen.getByRole('button', { name: 'New category' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Planning' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(created).toMatchObject({ name: 'Planning', icon: 'Folder' }));
+  });
+
   it('lists memories and opens a detail on select', async () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><MemoryPage /></ToastProvider></Wrapper>);

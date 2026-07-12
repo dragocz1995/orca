@@ -26,7 +26,7 @@ import { formatTaskTime } from '../../lib/format';
 import { CategoryIcon } from '../../lib/categoryIcons';
 import { MemoryDetail } from './MemoryDetail';
 import { MemoryBrainMap } from './MemoryBrainMap';
-import { CategoryManager } from './CategoryManager';
+import { CategoryManager, CategoryModal } from './CategoryManager';
 import { RetrievalDebugPanel } from './RetrievalDebugPanel';
 import { RankSlider, CategorySelect } from './MemoryFields';
 import { memoryStatusTone, memoryStatusLabel, distinctKinds, categoriesById, categorySwatch } from './memoryMeta';
@@ -57,6 +57,7 @@ export function MemoryView() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
+  const [creatingCategory, setCreatingCategory] = useState(false);
   const [merging, setMerging] = useState(false);
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false);
@@ -263,7 +264,10 @@ export function MemoryView() {
           description: t.memory.workspaceIntro,
           mascotState: allMemories.isLoading ? 'saving' : allMemories.isError ? 'error' : 'idle',
           status: !allMemories.isLoading && !allMemories.isError ? <span className="workspace-status">{t.memory.synchronized}</span> : undefined,
-          action: <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.memory.newMemory}</Button>,
+          action: <>
+            <Button variant="ghost" icon={Tags} onClick={() => setCreatingCategory(true)}>{t.memory.categoryNew}</Button>
+            <Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{t.memory.newMemory}</Button>
+          </>,
           metrics: <>
           <WorkspaceMetric label={t.memory.statusActive} value={summary.active} icon={CheckCircle2} />
           <WorkspaceMetric label={t.memory.metricDecisions} value={summary.decisions} icon={ListChecks} />
@@ -467,6 +471,7 @@ export function MemoryView() {
       ) : null}
 
       {creating ? <CreateMemoryModal onClose={() => setCreating(false)} onCreated={(id) => { setSelectedId(id); setCreating(false); }} /> : null}
+      {creatingCategory ? <CategoryModal onClose={() => setCreatingCategory(false)} /> : null}
       {merging ? (
         <MergeMemoryModal
           sources={(memories.data ?? []).filter((m) => selected.has(m.id))}
