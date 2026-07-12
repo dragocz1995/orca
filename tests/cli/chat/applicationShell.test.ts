@@ -86,7 +86,7 @@ function focusableOverlay(label: string): Component & { focused: boolean } {
 describe('chat application shell ownership', () => {
   beforeAll(() => initTheme());
   beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1_000); });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it('AnimationController owns only self-cancelling visual timers and is idle at rest', async () => {
     const render = vi.fn();
@@ -798,7 +798,7 @@ describe('chat application shell ownership', () => {
     composition.stop();
   });
 
-  it('records content-free frame geometry and bounded viewport work for machine analysis', () => {
+  it('records content-free frame geometry and bounded viewport work for machine analysis', async () => {
     const h = compositionHarness({ columns: 80, rows: 24, turns: 40 });
     const events: Record<string, unknown>[] = [];
     const diagnostics: TuiDiagnostics = {
@@ -812,6 +812,7 @@ describe('chat application shell ownership', () => {
     );
     composition.attachInput(noopInput);
     const rendered = renderMountedRoot(h);
+    await new Promise<void>((resolve) => process.nextTick(resolve));
     const frame = events.find((event) => event.type === 'frame');
 
     expect(frame).toMatchObject({
@@ -833,7 +834,59 @@ describe('chat application shell ownership', () => {
     composition.stop();
   });
 
-  it('reports a section total equal to the constrained root on the start screen too', () => {
+  it('schedules no diagnostic completion callback when diagnostics are disabled', () => {
+    const h = compositionHarness({ columns: 80, rows: 24, turns: 4 });
+    const nextTick = vi.spyOn(process, 'nextTick');
+    const composition = makeComposition(h);
+    const before = nextTick.mock.calls.length;
+    renderMountedRoot(h);
+    expect(nextTick.mock.calls).toHaveLength(before);
+    composition.dispose();
+    composition.stop();
+  });
+
+  it('records immutable timing only after synchronous PI tail work completes', async () => {
+    const h = compositionHarness({ columns: 80, rows: 24, turns: 40 });
+    const events: Record<string, unknown>[] = [];
+    const diagnostics: TuiDiagnostics = {
+      enabled: true,
+      path: '/tmp/unused-physical-frame-diagnostics.jsonl',
+      record: (event) => events.push(event as unknown as Record<string, unknown>),
+      close: async () => {},
+    };
+    let now = 100;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const composition = createChatComposition(
+      h.rt, h.resources, { quit: vi.fn() }, h.stream, h.mdTheme, diagnostics,
+    );
+    composition.attachInput(noopInput);
+
+    const rendered = renderMountedRoot(h);
+    // This runs after the mounted root returned but before the physical PI call stack would return:
+    // overlay composition, diffing, terminal.write and cursor placement all live in this interval.
+    now += 7;
+    h.term.columns = 20;
+    h.term.rows = 10;
+    expect(events.some((event) => event.type === 'frame')).toBe(false);
+
+    await new Promise<void>((resolve) => process.nextTick(resolve));
+    const frame = events.find((event) => event.type === 'frame');
+    expect(frame).toMatchObject({
+      sequence: 1,
+      terminal: { columns: 80, rows: 24 },
+      rootRows: 24,
+      maxVisibleWidth: Math.max(...rendered.map(visibleWidth)),
+      queueMs: 0,
+      prepareMs: 0,
+      rootRenderMs: 0,
+      piTailMs: 7,
+      totalMs: 7,
+    });
+    composition.dispose();
+    composition.stop();
+  });
+
+  it('reports a section total equal to the constrained root on the start screen too', async () => {
     const h = compositionHarness({ columns: 40, rows: 15, turns: 0 });
     const events: Record<string, unknown>[] = [];
     const diagnostics: TuiDiagnostics = {
@@ -847,6 +900,7 @@ describe('chat application shell ownership', () => {
     );
     composition.attachInput(noopInput);
     renderMountedRoot(h);
+    await new Promise<void>((resolve) => process.nextTick(resolve));
     const frame = events.find((event) => event.type === 'frame');
     expect(Object.values(frame?.sections as Record<string, number>)
       .reduce((sum, value) => sum + value, 0)).toBe(frame?.rootRows);
@@ -877,6 +931,7 @@ describe('chat application shell ownership', () => {
     composition.renderForced('test:compact');
     await vi.runOnlyPendingTimersAsync();
     renderMountedRoot(h);
+    await new Promise<void>((resolve) => process.nextTick(resolve));
 
     const frames = events.filter((event) => event.type === 'frame');
     expect(frames.at(-2)?.renderedTurns).toBeGreaterThan(0);

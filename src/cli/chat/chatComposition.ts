@@ -207,6 +207,7 @@ export function createChatComposition(
   });
   const cancelFloat = (): void => animations.cancelMascot();
   let currentBudget: LayoutBudget | null = null;
+  let frameSequence = 0;
   let preparedInput: { width: number; queue: string[]; attachments: string[]; editor: string[] } | null = null;
   let overlayGeometryRevision: string | null = null;
   let fullOverlayReflowPending = false;
@@ -683,42 +684,49 @@ export function createChatComposition(
         status: startStatusRows,
         hints: 0,
       };
-      // Compute every diagnostics-only traversal before closing the timing window: perf mode must report
-      // the full event-to-frame work it caused rather than quietly excluding its own width validation.
-      const maxVisibleWidth = diagnostics.enabled
-        ? lines.reduce((maximum, line) => Math.max(maximum, visibleWidth(line)), 0)
-        : 0;
-      const completedAt = performance.now();
-      const totalMs = completedAt - (frame?.requestedAt ?? renderStartedAt);
-      const rootRenderMs = completedAt - renderStartedAt;
-      diagnostics.record({
-        type: 'frame',
-        reasons: frame ? [...frame.reasons] : ['pi-tui:unscheduled'],
-        forced: frame?.forced ?? false,
-        prepareMs: frame?.prepareMs ?? 0,
-        queueMs: Math.max(0, totalMs - rootRenderMs - (frame?.prepareMs ?? 0)),
-        rootRenderMs,
-        transcriptMs: transcript?.renderMs ?? 0,
-        totalMs,
-        transcriptRows: transcript?.transcriptRows ?? 0,
-        transcriptRowsExact: transcript?.transcriptRowsExact ?? true,
-        visibleRows: transcript?.visibleRows ?? 0,
-        renderedTurns: transcript?.renderedTurns ?? 0,
-        reconciledTurns: transcript?.reconciledTurns ?? 0,
-        indexedTurns: transcript?.indexedTurns ?? 0,
-        cachedRows: transcript?.cachedRows ?? 0,
-        layoutVisits: transcript?.layoutVisits ?? 0,
-        scrollOffset: transcript?.scrollOffset ?? 0,
-        maxScrollOffset: transcript?.maxScrollOffset ?? 0,
-        heightIndexOperations: transcript?.frameHeightIndexOperations ?? 0,
-        terminal: { columns: term.columns, rows: term.rows },
-        sections: { ...sections },
-        rootRows: lines.length,
-        // Width traversal is diagnostics-only: the disabled sink remains a constant-time no-op in the
-        // normal CLI, while perf/debug logs can machine-check the final root column invariant.
-        maxVisibleWidth,
-        reverseSpans,
-      });
+      if (diagnostics.enabled) {
+        // Capture the root result now, but close the event-to-frame timing only on the next tick. PI's
+        // doRender() still has to composite overlays, diff, write to the terminal and place the cursor
+        // after this component returns; process.nextTick runs after that synchronous physical frame.
+        const rootCompletedAt = performance.now();
+        const requestedAt = frame?.requestedAt ?? renderStartedAt;
+        const prepareMs = frame?.prepareMs ?? 0;
+        const rootRenderMs = rootCompletedAt - renderStartedAt;
+        const payload = {
+          type: 'frame' as const,
+          sequence: ++frameSequence,
+          reasons: frame ? [...frame.reasons] : ['pi-tui:unscheduled'],
+          forced: frame?.forced ?? false,
+          prepareMs,
+          queueMs: Math.max(0, renderStartedAt - requestedAt - prepareMs),
+          rootRenderMs,
+          transcriptMs: transcript?.renderMs ?? 0,
+          transcriptRows: transcript?.transcriptRows ?? 0,
+          transcriptRowsExact: transcript?.transcriptRowsExact ?? true,
+          visibleRows: transcript?.visibleRows ?? 0,
+          renderedTurns: transcript?.renderedTurns ?? 0,
+          reconciledTurns: transcript?.reconciledTurns ?? 0,
+          indexedTurns: transcript?.indexedTurns ?? 0,
+          cachedRows: transcript?.cachedRows ?? 0,
+          layoutVisits: transcript?.layoutVisits ?? 0,
+          scrollOffset: transcript?.scrollOffset ?? 0,
+          maxScrollOffset: transcript?.maxScrollOffset ?? 0,
+          heightIndexOperations: transcript?.frameHeightIndexOperations ?? 0,
+          terminal: { columns: term.columns, rows: term.rows },
+          sections: { ...sections },
+          rootRows: lines.length,
+          maxVisibleWidth: lines.reduce((maximum, line) => Math.max(maximum, visibleWidth(line)), 0),
+          reverseSpans: reverseSpans?.map((span) => ({ ...span })),
+        };
+        process.nextTick(() => {
+          const physicalCompletedAt = performance.now();
+          diagnostics.record({
+            ...payload,
+            piTailMs: Math.max(0, physicalCompletedAt - rootCompletedAt),
+            totalMs: Math.max(0, physicalCompletedAt - requestedAt),
+          });
+        });
+      }
       return lines;
     },
   };

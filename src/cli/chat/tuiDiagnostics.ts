@@ -5,6 +5,8 @@ import type { WriteStream } from 'node:fs';
 
 interface TuiFrameDiagnostic {
   type: 'frame';
+  /** Monotonic physical-frame completion sequence within this mounted chat composition. */
+  sequence: number;
   reasons: string[];
   forced: boolean;
   prepareMs: number;
@@ -12,6 +14,8 @@ interface TuiFrameDiagnostic {
   queueMs: number;
   /** Complete constrained root composition and opt-in diagnostic traversal. */
   rootRenderMs: number;
+  /** Synchronous PI work after the root returns: overlays, diff, terminal write and cursor placement. */
+  piTailMs: number;
   transcriptMs: number;
   totalMs: number;
   transcriptRows: number;
