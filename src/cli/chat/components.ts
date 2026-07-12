@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { isDownKey, isEnterKey, isEscapeKey, isUpKey } from './keys.js';
 import type { Component, Container, Editor, Focusable, TUI } from '@earendil-works/pi-tui';
-import type { AskQuestion, BrainCard } from '../../brain/events.js';
+import type { AskQuestion, BrainCard, BrainCardItem } from '../../brain/events.js';
 import type { ProcessInfo } from '../../brain/processRegistry.js';
 import { ansi, chatTheme, color } from './theme.js';
 import type { ToolOutputView } from '../../brain/messageView.js';
@@ -27,6 +27,40 @@ const DIM = color.dim;
 const FAINTC = color.faint;
 const GREENC = color.success;
 const inlineText = terminalInlineText;
+const TODO_PREVIEW_ITEMS = 4;
+
+/** Pick a useful compact Todo snapshot instead of blindly showing the first rows forever.
+ *  The preview combines recent progress with the work that matters next, then restores source order
+ *  so an interleaved checklist still reads naturally. An active item is always preferred over a
+ *  merely pending item, and either group fills spare slots when the other has fewer than two rows. */
+function todoPreviewItems(items: readonly BrainCardItem[], limit: number): BrainCardItem[] {
+  if (limit <= 0) return [];
+  if (items.length <= limit) return [...items];
+  const completed = items.map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.status === 'completed');
+  const remaining = items.map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.status !== 'completed');
+
+  let completedCount = Math.min(2, completed.length, limit);
+  let remainingCount = Math.min(2, remaining.length, limit - completedCount);
+  let spare = limit - completedCount - remainingCount;
+  const extraRemaining = Math.min(spare, remaining.length - remainingCount);
+  remainingCount += extraRemaining;
+  spare -= extraRemaining;
+  completedCount += Math.min(spare, completed.length - completedCount);
+
+  const selectedCompleted = completed.slice(-completedCount);
+  const selectedRemaining = [...remaining]
+    .sort((a, b) => {
+      const activeDelta = Number(b.item.status === 'in_progress') - Number(a.item.status === 'in_progress');
+      return activeDelta || a.index - b.index;
+    })
+    .slice(0, remainingCount);
+
+  return [...selectedCompleted, ...selectedRemaining]
+    .sort((a, b) => a.index - b.index)
+    .map(({ item }) => item);
+}
 
 /** A full-width user message: a blue left rail and a raised gray background (opencode backgroundElement),
  *  padded to width. The rows are wrapped in one blank raised row top and bottom for breathing room. */
@@ -70,9 +104,8 @@ export class CardPanel implements Component {
   desiredRows(_width = 80): number { return this.buildRows().length; }
   render(_width?: number): string[] {
     const lines = this.buildRows();
-    this.moreRows = new Set();
     if (lines.length <= this.maxRows) return lines;
-    if (this.maxRows <= 0) { this.headerRows = new Set(); return []; }
+    if (this.maxRows <= 0) { this.headerRows = new Set(); this.moreRows = new Set(); return []; }
     const shown = lines.slice(0, this.maxRows);
     if (this.maxRows > 1) {
       const moreRow = this.maxRows - 1;
@@ -82,6 +115,7 @@ export class CardPanel implements Component {
       this.moreRows.add(moreRow);
     }
     this.headerRows = new Set([...this.headerRows].filter((row) => row < this.maxRows));
+    this.moreRows = new Set([...this.moreRows].filter((row) => row < this.maxRows));
     return shown;
   }
 
@@ -90,12 +124,25 @@ export class CardPanel implements Component {
     const visible = this.cards.filter((c) => c.pinned
       && !(c.items && c.items.length > 0 && c.items.every((i) => i.status === 'completed')));
     this.headerRows = new Set();
+    this.moreRows = new Set();
     const lines: string[] = [];
     for (const c of visible) {
       this.headerRows.add(lines.length); // a card's first row is its clickable header
-      // The central budget owns physical clipping. Keep every Todo row available here so an explicit
-      // "+N more" expansion can borrow transcript space instead of hitting a second hidden 12-row cap.
-      lines.push(...cardBlock(c, Number.POSITIVE_INFINITY, this.collapsed));
+      const isTodoPreview = c.id === 'todos' && !this.expanded && !this.collapsed
+        && (c.items?.length ?? 0) > TODO_PREVIEW_ITEMS;
+      const bodyRows = c.body ? terminalPlainText(c.body).split('\n').length : 0;
+      const block = cardBlock(
+        c,
+        isTodoPreview ? TODO_PREVIEW_ITEMS + bodyRows : Number.POSITIVE_INFINITY,
+        this.collapsed,
+      );
+      if (isTodoPreview) {
+        const moreRow = lines.length + 1 + TODO_PREVIEW_ITEMS;
+        const hidden = (c.items?.length ?? 0) - TODO_PREVIEW_ITEMS;
+        block[1 + TODO_PREVIEW_ITEMS] = `    ${color.accent(`\x1b[4m… +${hidden} more\x1b[24m`)}`;
+        this.moreRows.add(moreRow);
+      }
+      lines.push(...block);
     }
     return lines;
   }
@@ -387,7 +434,10 @@ export function cardBlock(card: BrainCard, maxRows = 12, collapsed = false): str
   const lines = [header];
   const bodyLines = card.body ? terminalPlainText(card.body).split('\n') : [];
   const shownItems = Math.min(items.length, Math.max(0, maxRows - bodyLines.length));
-  for (const it of items.slice(0, shownItems)) {
+  const visibleItems = card.id === 'todos'
+    ? todoPreviewItems(items, shownItems)
+    : items.slice(0, shownItems);
+  for (const it of visibleItems) {
     const text = inlineText(it.text);
     if (it.status === 'completed') lines.push(`    ${GREENC('[x]')} ${DIM(text)}`);
     else if (it.status === 'in_progress') lines.push(`    ${color.warning('[•]')} ${color.warning(text)}`);

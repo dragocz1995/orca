@@ -182,6 +182,67 @@ describe('chat components', () => {
     expect(panel.render(80).join('\n')).toContain('Task 19');
   });
 
+  it('CardPanel previews recent progress and next work from an interleaved Todo list', () => {
+    const panel = new CardPanel();
+    panel.setMaxRows(20);
+    panel.set([{
+      id: 'todos', title: 'Todos', pinned: true,
+      items: [
+        { text: 'Old completed A', status: 'completed' },
+        { text: 'Next pending A', status: 'pending' },
+        { text: 'Old completed B', status: 'completed' },
+        { text: 'Recent completed A', status: 'completed' },
+        { text: 'Later pending', status: 'pending' },
+        { text: 'Active work', status: 'in_progress' },
+        { text: 'Recent completed B', status: 'completed' },
+        { text: 'Last pending', status: 'pending' },
+      ],
+    }]);
+
+    const preview = panel.render(80);
+    const plain = preview.join('\n').replace(/\x1b\[[0-9;]*m/g, '');
+    expect(preview).toHaveLength(6); // header + four representative items + expansion row
+    expect(plain).toContain('Next pending A');
+    expect(plain).toContain('Active work');
+    expect(plain).toContain('Recent completed A');
+    expect(plain).toContain('Recent completed B');
+    expect(plain).not.toContain('Old completed A');
+    expect(plain).not.toContain('Old completed B');
+    expect(plain).not.toContain('Later pending');
+    expect(preview[5]).toContain('+4 more');
+    expect(preview[5]).toContain('\x1b[4m');
+    expect(panel.isMoreRow(5)).toBe(true);
+
+    panel.toggleExpanded();
+    const expanded = panel.render(80).join('\n');
+    expect(expanded).toContain('Old completed A');
+    expect(expanded).toContain('Last pending');
+    expect(expanded).not.toContain('+4 more');
+  });
+
+  it('CardPanel fills unused preview slots from the larger Todo status group', () => {
+    const panel = new CardPanel();
+    panel.setMaxRows(20);
+    panel.set([{
+      id: 'todos', title: 'Todos', pinned: true,
+      items: [
+        { text: 'Only completed', status: 'completed' },
+        { text: 'Active', status: 'in_progress' },
+        { text: 'Pending A', status: 'pending' },
+        { text: 'Pending B', status: 'pending' },
+        { text: 'Pending C', status: 'pending' },
+      ],
+    }]);
+
+    const plain = panel.render(80).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toContain('Only completed');
+    expect(plain).toContain('Active');
+    expect(plain).toContain('Pending A');
+    expect(plain).toContain('Pending B');
+    expect(plain).not.toContain('Pending C');
+    expect(plain).toContain('+1 more');
+  });
+
   it('cardBlock renders a compact todo checklist plus optional body', () => {
     const out = cardBlock({
       id: 'todos', title: 'Todos',
