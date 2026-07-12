@@ -164,3 +164,53 @@ describe('application lifetime for local input work', () => {
     }
   });
 });
+
+describe('/editor terminal handoff', () => {
+  it('always resumes the terminal and keeps the draft when editor setup rejects', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'elowen-editor-resume-'));
+    const priorHome = process.env.HOME;
+    const priorEditor = process.env.EDITOR;
+    process.env.HOME = home;
+    process.env.EDITOR = 'elowen-test-editor-that-does-not-exist';
+    try {
+      let onSubmit: ((text: string) => void) | undefined;
+      const editor = {
+        addToHistory: vi.fn(), setText: vi.fn(), getExpandedText: () => 'draft survives',
+        set onSubmit(fn: (text: string) => void) { onSubmit = fn; },
+      };
+      const edit = vi.fn(async () => { throw new Error('temp directory unavailable'); });
+      const lifetime = new ChatApplicationLifetime<'metadata'>();
+      const suspendTerminal = vi.fn();
+      const resumeTerminal = vi.fn();
+      const renderForced = vi.fn();
+      const state = new ChatState({ transcript: new TranscriptModel() });
+      wireSubmit(
+        state,
+        {
+          client: {}, editor, shellContext: new LocalShellBuffer(), attachmentChips: {},
+          commandDefs: [], tui: {}, lifetime,
+        } as never,
+        { render: vi.fn(), renderForced, suspendTerminal, resumeTerminal } as never,
+        { stream: {}, pickers: {}, editTextExternally: edit } as never,
+      );
+
+      onSubmit?.('/editor');
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(edit).toHaveBeenCalledWith({ text: 'draft survives' });
+      expect(suspendTerminal).toHaveBeenCalledOnce();
+      expect(resumeTerminal).toHaveBeenCalledOnce();
+      expect(editor.setText).toHaveBeenLastCalledWith('draft survives');
+      expect(state.notice).toContain('draft kept');
+      expect(renderForced).toHaveBeenCalledWith('external-editor:return');
+    } finally {
+      if (priorHome === undefined) delete process.env.HOME;
+      else process.env.HOME = priorHome;
+      if (priorEditor === undefined) delete process.env.EDITOR;
+      else process.env.EDITOR = priorEditor;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
