@@ -8,7 +8,9 @@ import {
   SettingsManager,
   type AgentSession,
   type ExtensionAPI,
+  defineTool,
 } from '@earendil-works/pi-coding-agent';
+import { Type } from 'typebox';
 import {
   createAssistantMessageEventStream,
   type Api,
@@ -18,6 +20,7 @@ import {
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
 import { createCodexCompactionModelRoute } from '../../src/brain/session/codexCompaction.js';
+import { installTurnBoundaryAutoCompaction } from '../../src/brain/session/turnBoundaryCompaction.js';
 
 interface ProviderCall {
   model: Model<Api>;
@@ -32,6 +35,8 @@ interface FixtureOptions {
   summaryError?: string;
   autoUsage?: number;
   keepRecentTokens?: number;
+  multiTurn?: boolean;
+  reserveTokens?: number;
 }
 
 let apiSequence = 0;
@@ -54,11 +59,11 @@ function assistantMessage(
   };
 }
 
-function responseStream(model: Model<Api>, text: string, totalTokens: number, errorMessage?: string) {
+function responseStream(model: Model<Api>, response: string | AssistantMessage['content'], totalTokens: number, errorMessage?: string) {
   const stream = createAssistantMessageEventStream();
   const message = assistantMessage(
     model,
-    errorMessage ? [] : [{ type: 'text', text }],
+    errorMessage ? [] : typeof response === 'string' ? [{ type: 'text', text: response }] : response,
     errorMessage ? 'error' : 'stop',
     totalTokens,
     errorMessage,
@@ -103,6 +108,7 @@ async function fixture(o: FixtureOptions = {}): Promise<{
   const selectedId = o.selectedId ?? 'gpt-5.6-luna';
   const fallbackId = o.fallbackId;
   const calls: ProviderCall[] = [];
+  let ordinaryCalls = 0;
   const api = `elowen-test-compaction-${++apiSequence}` as Api;
   const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
   registry.registerProvider(provider, {
@@ -111,10 +117,16 @@ async function fixture(o: FixtureOptions = {}): Promise<{
     streamSimple: (model, context, options) => {
       calls.push({ model, context, options });
       const summarizing = context.systemPrompt?.includes('context summarization assistant') === true;
+      ordinaryCalls += summarizing ? 0 : 1;
+      if (o.multiTurn && !summarizing && ordinaryCalls === 1) {
+        return responseStream(model, [{
+          type: 'toolCall', id: 'probe-1', name: 'context_probe', arguments: {},
+        }], o.autoUsage ?? 700);
+      }
       return responseStream(
         model,
         summarizing ? 'native PI summary' : 'chat answer',
-        summarizing ? 10 : (o.autoUsage ?? 20),
+        summarizing ? 10 : (o.multiTurn ? 20 : (o.autoUsage ?? 20)),
         summarizing ? o.summaryError : undefined,
       );
     },
@@ -139,7 +151,7 @@ async function fixture(o: FixtureOptions = {}): Promise<{
     retry: { provider: { maxRetries: 2, maxRetryDelayMs: 99 } },
     // Keep the final user/assistant pair and summarize the preceding complete tool turn. A larger
     // budget would intentionally split that tool turn and exercise PI's separate prefix summary.
-    compaction: { enabled: true, reserveTokens: 500, keepRecentTokens: o.keepRecentTokens ?? 4 },
+    compaction: { enabled: true, reserveTokens: o.reserveTokens ?? 500, keepRecentTokens: o.keepRecentTokens ?? 4 },
   }, { projectTrusted: true });
   const cwd = process.cwd();
   const sessionManager = SessionManager.inMemory(cwd);
@@ -152,9 +164,16 @@ async function fixture(o: FixtureOptions = {}): Promise<{
   await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd, sessionManager, settingsManager, modelRegistry: registry, model: selected,
-    resourceLoader, noTools: 'all', thinkingLevel: 'high',
+    resourceLoader,
+    customTools: [defineTool({
+      name: 'context_probe', label: 'Context probe', description: 'Continue one deterministic tool turn',
+      parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: 'text', text: 'probe complete' }], details: {} }),
+    })],
+    tools: ['context_probe'], noTools: 'builtin', thinkingLevel: 'high',
   });
   route?.install(session);
+  installTurnBoundaryAutoCompaction(session, sessionManager, true);
   return { session, sessionManager, calls, compactions, selected };
 }
 
@@ -206,6 +225,23 @@ describe('Codex compaction model routing', () => {
     expect(f.calls.map((call) => call.model.id)).toEqual(['gpt-5.6-luna', 'gpt-5.5']);
     expect(f.compactions).toEqual([{ fromExtension: false, reason: 'threshold' }]);
     expect(f.session.model).toBe(f.selected);
+  });
+
+  it('compacts at the safe turn boundary before a tool loop starts its next provider call', async () => {
+    const f = await fixture({
+      fallbackId: 'gpt-5.5', autoUsage: 850, reserveTokens: 200, keepRecentTokens: 30, multiTurn: true,
+    });
+
+    await f.session.prompt('compact before the second model step');
+
+    expect(f.calls.map((call) => call.model.id)).toEqual([
+      'gpt-5.6-luna', // assistant requests a tool above the configured 80% threshold
+      'gpt-5.5', // threshold compaction runs after the tool batch
+      'gpt-5.6-luna', // the next agent step sees the compacted context
+    ]);
+    expect(f.compactions).toEqual([{ fromExtension: false, reason: 'threshold' }]);
+    expect(f.calls[2]?.context.messages.some((message) => message.role === 'user'
+      && JSON.stringify(message.content).includes('conversation history before this point was compacted'))).toBe(true);
   });
 
   it.each(['quota exceeded', 'authentication failed'])('surfaces %s after one native summary request', async (error) => {

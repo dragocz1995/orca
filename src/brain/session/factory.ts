@@ -6,6 +6,7 @@ import { createSessionPersistenceProjector, rehydrate } from '../persistence.js'
 import { applyProviderRequestProfile, isCanonicalThinkingLevel, type ProviderRequestProfile } from '../modelCapabilities.js';
 import type { DelegatedExecutionScope } from '../delegatedScope.js';
 import { createCodexCompactionModelRoute, type CodexCompactionModelRoute } from './codexCompaction.js';
+import { installTurnBoundaryAutoCompaction } from './turnBoundaryCompaction.js';
 
 /** Everything one PI brain session needs, composed by the caller: the chat brain renders the Elowen
  *  persona and gates elowen_* tools by session kind; the task worker bakes in its close tool and the
@@ -233,6 +234,7 @@ export class BrainSessionFactory {
     // only the small emergency reserve described above, rather than PI's normal early threshold.
     const reserveTokens = compactionReserveTokens(spec.model.contextWindow, spec.autoCompact, spec.autoCompactAtPct);
     settingsManager.applyOverrides({ compaction: { enabled: true, reserveTokens } });
+    installTurnBoundaryAutoCompaction(session, sessionManager, spec.autoCompact);
 
     // Persist settled turns (agent_end) AND every PI compaction (auto at the threshold, manual /compact,
     // overflow recovery) — PI shrinks the live context but writes NOTHING to the store, so without this
