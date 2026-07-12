@@ -106,12 +106,12 @@ describe('TUI diagnostics', () => {
     const diagnostics = createTuiDiagnostics({ ELOWEN_TUI_PERF: '1', ELOWEN_TUI_LOG: dir });
 
     diagnostics.record({ type: 'lifecycle', action: 'start' });
-    for (let attempt = 0; diagnostics.enabled && attempt < 20; attempt++) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    // Do not poll with a fixed number of setImmediate turns: an fs.open error is delivered by the
+    // threadpool/poll phase and can legitimately arrive later under the full parallel suite. close()
+    // is the resource boundary that must await and contain either open/write completion or its error.
+    await expect(diagnostics.close()).resolves.toBeUndefined();
     expect(diagnostics.enabled).toBe(false);
     diagnostics.record({ type: 'lifecycle', action: 'after-error' });
-    await expect(diagnostics.close()).resolves.toBeUndefined();
     await expect(diagnostics.close()).resolves.toBeUndefined();
     expect(stdout).not.toHaveBeenCalled();
     expect(stderr).not.toHaveBeenCalled();
