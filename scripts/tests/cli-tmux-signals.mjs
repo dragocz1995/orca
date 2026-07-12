@@ -49,6 +49,7 @@ async function runSignal(signal) {
   const config = join(temp, 'config');
   const logPath = join(temp, 'requests.jsonl');
   const ttyPath = join(temp, 'tty.txt');
+  const startGatePath = join(temp, 'start-gate');
   const perfLog = join(artifactDir, 'perf.jsonl');
   const writeLog = join(artifactDir, 'terminal-writes.log');
   mkdirSync(home, { recursive: true });
@@ -73,15 +74,18 @@ async function runSignal(signal) {
       'env', `HOME=${shellQuote(home)}`, `XDG_CONFIG_HOME=${shellQuote(config)}`,
       `ELOWEN_URL=${shellQuote(`http://127.0.0.1:${port}`)}`, `ELOWEN_TOKEN=${shellQuote(token)}`,
       'ELOWEN_AUTOSTART=0', 'ELOWEN_TUI_PERF=1', `ELOWEN_TUI_LOG=${shellQuote(perfLog)}`,
-      `PI_TUI_WRITE_LOG=${shellQuote(writeLog)}`, 'TERM=xterm-256color',
+      'TERM=xterm-256color',
       shellQuote(process.execPath), shellQuote(cli), 'chat', '--new',
     ].join(' ');
     const command = [
+      `while [ ! -f ${shellQuote(startGatePath)} ]; do sleep 0.01; done`,
       'before=$(stty -g)', cliCommand, 'after=$(stty -g)',
       `printf '%s\\n%s\\n' "$before" "$after" > ${shellQuote(ttyPath)}`,
       `printf '\\nE2E ${signal} SHELL RESTORED\\n'`, 'sleep 2',
     ].join('; ');
     tmux.run(['new-session', '-d', '-s', session, '-x', '80', '-y', '24', '-c', repo, command]);
+    tmux.run(['pipe-pane', '-O', '-t', session, `cat > ${shellQuote(writeLog)}`]);
+    writeFileSync(startGatePath, 'go\n');
     try { tmux.run(['set-option', '-t', session, 'window-size', 'manual']); } catch { /* older tmux */ }
     tmux.run(['resize-window', '-t', session, '-x', '80', '-y', '24']);
     const entries = () => {

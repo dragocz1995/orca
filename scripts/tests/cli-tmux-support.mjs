@@ -23,6 +23,11 @@ export function createArtifactDir(scenario) {
     ? resolveArtifactDir(configured, scenario)
     : mkdtempSync(join(tmpdir(), `elowen-tui-${scenario}-artifacts-`));
   mkdirSync(dir, { recursive: true });
+  if (configured) {
+    const stale = readdirSync(dir);
+    assert.equal(stale.length, 0,
+      `${scenario}: configured artifact directory must be fresh (not empty: ${stale.join(', ')})`);
+  }
   return dir;
 }
 
@@ -67,6 +72,10 @@ export function latestFrame(frames, columns, rows, since = 0) {
     && frame.terminal?.columns === columns && frame.terminal?.rows === rows) ?? null;
 }
 
+function frameIdentity(frame) {
+  return frame ? `${frame.pid ?? 'unknown'}:${frame.sequence}:${frame.at}` : null;
+}
+
 function terminalState(tmux, session) {
   const value = tmux.run([
     'display-message', '-p', '-t', session,
@@ -82,17 +91,29 @@ function terminalState(tmux, session) {
 /** Save one plain/ANSI/state triplet and bind it to the most recent diagnosed frame of that geometry. */
 export function captureState({
   tmux, session, artifactDir, label, perfLog, expectCursor = true,
-  allowSelection = false, forbiddenMarkers = [], expectScrollbar, allowScrollbarOcclusion = false,
+  forbiddenMarkers = [], expectScrollbar, allowScrollbarOcclusion = false,
 }) {
-  const state = terminalState(tmux, session);
-  const plain = tmux.run(['capture-pane', '-p', '-t', session]);
-  const ansi = tmux.run(['capture-pane', '-p', '-e', '-t', session]);
-  const frames = readFrames(perfLog);
-  const frame = latestFrame(frames, state.columns, state.rows);
-  assert.ok(frame, `${label}: no diagnosed frame matches ${state.columns}x${state.rows}`);
+  let stable = null;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    const before = readFrames(perfLog).at(-1) ?? null;
+    const stateBefore = terminalState(tmux, session);
+    const plain = tmux.run(['capture-pane', '-p', '-t', session]);
+    const ansi = tmux.run(['capture-pane', '-p', '-e', '-t', session]);
+    const stateAfter = terminalState(tmux, session);
+    const after = readFrames(perfLog).at(-1) ?? null;
+    const sameFrame = before && after && frameIdentity(before) === frameIdentity(after);
+    const sameGeometry = stateBefore.columns === stateAfter.columns && stateBefore.rows === stateAfter.rows
+      && after?.terminal?.columns === stateAfter.columns && after?.terminal?.rows === stateAfter.rows;
+    if (sameFrame && sameGeometry) {
+      stable = { state: stateAfter, plain, ansi, frame: after };
+      break;
+    }
+  }
+  assert.ok(stable, `${label}: could not capture plain and ANSI inside one completed frame sequence after 6 attempts`);
+  const { state, plain, ansi, frame } = stable;
   const input = {
     label, plain, ansi, columns: state.columns, rows: state.rows, cursor: state.cursor, frame,
-    expectCursor, allowSelection, forbiddenMarkers, expectScrollbar, allowScrollbarOcclusion,
+    expectCursor, forbiddenMarkers, expectScrollbar, allowScrollbarOcclusion,
   };
   const analysis = analyzeActiveCapture(input);
   const plainPath = join(artifactDir, `${label}.txt`);
@@ -104,8 +125,56 @@ export function captureState({
   return { ...input, ...state, analysis, paths: { plain: plainPath, ansi: ansiPath, state: statePath } };
 }
 
-function sectionTotal(sections) {
-  return Object.values(sections ?? {}).reduce((sum, value) => sum + Number(value || 0), 0);
+function nonNegativeNumber(value, label, { integer = false, positive = false } = {}) {
+  assert.equal(typeof value, 'number', `${label} must be an actual number`);
+  assert.ok(Number.isFinite(value), `${label} must be finite`);
+  assert.ok(positive ? value > 0 : value >= 0, `${label} must be ${positive ? 'positive' : 'nonnegative'}`);
+  if (integer) assert.ok(Number.isInteger(value), `${label} must be an integer`);
+  return value;
+}
+
+function sectionTotal(sections, label = 'frame.sections') {
+  assert.ok(sections && typeof sections === 'object' && !Array.isArray(sections), `${label} must be an object`);
+  const entries = Object.entries(sections);
+  assert.ok(entries.length > 0, `${label} must not be empty`);
+  return entries.reduce((sum, [name, value]) => sum
+    + nonNegativeNumber(value, `${label}.${name}`, { integer: true }), 0);
+}
+
+function validateFrame(frame, prefix, ordinaryLimitMs = 50) {
+  assert.ok(frame && typeof frame === 'object' && !Array.isArray(frame), `${prefix} must be an object`);
+  nonNegativeNumber(frame.sequence, `${prefix}.sequence`, { integer: true, positive: true });
+  nonNegativeNumber(frame.at, `${prefix}.at`);
+  assert.ok(Array.isArray(frame.reasons) && frame.reasons.length > 0
+    && frame.reasons.every((reason) => typeof reason === 'string' && reason.length > 0),
+  `${prefix}.reasons must be non-empty strings`);
+  assert.equal(typeof frame.forced, 'boolean', `${prefix}.forced must be a boolean`);
+  for (const name of ['prepareMs', 'queueMs', 'rootRenderMs', 'piTailMs', 'transcriptMs', 'totalMs']) {
+    nonNegativeNumber(frame[name], `${prefix}.${name}`);
+  }
+  for (const name of [
+    'transcriptRows', 'visibleRows', 'renderedTurns', 'reconciledTurns', 'indexedTurns', 'cachedRows',
+    'layoutVisits', 'scrollOffset', 'maxScrollOffset', 'heightIndexOperations', 'rootRows', 'maxVisibleWidth',
+  ]) nonNegativeNumber(frame[name], `${prefix}.${name}`, { integer: true });
+  if (frame.transcriptRowsExact != null) assert.equal(typeof frame.transcriptRowsExact, 'boolean',
+    `${prefix}.transcriptRowsExact must be a boolean`);
+  assert.ok(frame.terminal && typeof frame.terminal === 'object', `${prefix}.terminal must be an object`);
+  const columns = nonNegativeNumber(frame.terminal.columns, `${prefix}.terminal.columns`, { integer: true, positive: true });
+  const rows = nonNegativeNumber(frame.terminal.rows, `${prefix}.terminal.rows`, { integer: true, positive: true });
+  assert.equal(frame.rootRows, rows, `${prefix}: rootRows must equal terminal rows`);
+  assert.equal(frame.maxVisibleWidth, columns, `${prefix}: visible width must equal terminal columns`);
+  assert.equal(sectionTotal(frame.sections, `${prefix}.sections`), frame.rootRows,
+    `${prefix}: section total must equal rootRows`);
+  assert.ok(frame.scrollOffset <= frame.maxScrollOffset, `${prefix}: scrollOffset exceeds maxScrollOffset`);
+  if (!frame.forced) assert.ok(frame.totalMs < ordinaryLimitMs,
+    `${prefix}: ordinary frame ${frame.totalMs} ms exceeds ${ordinaryLimitMs} ms`);
+  for (const [index, span] of (frame.reverseSpans ?? []).entries()) {
+    assert.ok(span && typeof span === 'object', `${prefix}.reverseSpans[${index}] must be an object`);
+    assert.ok(span.stage === 'raw' || span.stage === 'constrained', `${prefix}.reverseSpans[${index}].stage is invalid`);
+    for (const name of ['row', 'from', 'to']) nonNegativeNumber(span[name],
+      `${prefix}.reverseSpans[${index}].${name}`, { integer: true });
+    assert.ok(span.to >= span.from, `${prefix}.reverseSpans[${index}] has a negative span`);
+  }
 }
 
 function transcriptRows(plain, frame) {
@@ -124,15 +193,17 @@ function hasScrollbar(plain, frame) {
   });
 }
 
-function assertNoAnsiBlankBand(label, ansi, columns, allowSelection) {
-  const reverseBlank = /\x1b\[[0-9;]*7[0-9;]*m +(?:\x1b\[[0-9;]*m)?/gu;
-  if (!allowSelection) {
-    for (const match of ansi.matchAll(reverseBlank)) {
-      const spaces = (match[0].match(/ +/u) ?? [''])[0].length;
+function assertNoAnsiBlankBand(label, ansi, columns) {
+  const sgrBlank = /\x1b\[([0-9;]*)m( +)/gu;
+  for (const [row, line] of paneLines(ansi).entries()) {
+    for (const match of line.matchAll(sgrBlank)) {
+      const parameters = match[1].split(';');
+      if (!parameters.includes('7')) continue;
+      const spaces = match[2].length;
       // tmux `capture-pane -e` can keep the cursor SGR open across a following padding cell even though
       // the application's diagnosed constrained span is exactly one cell. The reported corruption is a
       // broad band; 4+ empty cells remains strict while avoiding that tmux serialization artefact.
-      assert.ok(spaces < 4, `${label}: reverse-video blank band spans ${spaces} cells`);
+      assert.ok(spaces < 4, `${label}: reverse-video blank band spans ${spaces} cells on row ${row}`);
     }
   }
   // A stale white/light background row is the other observed form of the artifact. Only reject a
@@ -147,8 +218,9 @@ function assertNoAnsiBlankBand(label, ansi, columns, allowSelection) {
 
 export function analyzeActiveCapture({
   label, plain, ansi, columns, rows, cursor, frame, expectCursor = false,
-  allowSelection = false, forbiddenMarkers = [], expectScrollbar, allowScrollbarOcclusion = false,
+  forbiddenMarkers = [], expectScrollbar, allowScrollbarOcclusion = false,
 }) {
+  validateFrame(frame, `${label}.frame`);
   const lines = paneLines(plain);
   assert.equal(lines.length, rows, `${label}: pane must contain exactly ${rows} rows`);
   const widths = lines.map((line) => visibleWidth(line));
@@ -156,20 +228,15 @@ export function analyzeActiveCapture({
   assert.ok(widths.every((width) => width <= columns), `${label}: captured row exceeds ${columns} columns`);
   assert.equal(frame.terminal?.columns, columns, `${label}: diagnostic columns mismatch`);
   assert.equal(frame.terminal?.rows, rows, `${label}: diagnostic rows mismatch`);
-  assert.ok(frame.rootRows <= rows, `${label}: diagnostic rootRows ${frame.rootRows} exceeds ${rows}`);
-  assert.ok(frame.maxVisibleWidth <= columns,
-    `${label}: diagnostic visible width ${frame.maxVisibleWidth} exceeds ${columns}`);
-  assert.equal(sectionTotal(frame.sections), frame.rootRows,
-    `${label}: diagnostic section total must equal rootRows`);
+  assert.equal(frame.rootRows, rows, `${label}: diagnostic rootRows must equal ${rows}`);
+  assert.equal(frame.maxVisibleWidth, columns, `${label}: diagnostic visible width must equal ${columns}`);
   const statuses = lines.filter((line) => STATUS_ROW.test(line));
   assert.equal(statuses.length, 1, `${label}: exactly one real status row is required`);
   for (const marker of forbiddenMarkers) assert.ok(!plain.includes(marker), `${label}: stale marker remains: ${marker}`);
-  assertNoAnsiBlankBand(label, ansi, columns, allowSelection);
+  assertNoAnsiBlankBand(label, ansi, columns);
   const reverseSpans = (frame.reverseSpans ?? []).filter((span) => span.stage === 'constrained');
-  if (!allowSelection) {
-    assert.ok(reverseSpans.every((span) => span.to - span.from <= 1),
-      `${label}: diagnostic reverse-video span is wider than one cursor cell`);
-  }
+  assert.ok(reverseSpans.every((span) => span.to - span.from <= 1),
+    `${label}: diagnostic reverse-video span is wider than one cursor cell`);
   if (expectCursor && Number(frame.sections?.editor ?? 0) > 0) {
     const beforeEditor = ['header', 'transcript', 'cards', 'subagents', 'queue', 'attachments']
       .reduce((sum, key) => sum + Number(frame.sections?.[key] ?? 0), 0);
@@ -196,18 +263,9 @@ export function analyzeActiveCapture({
 export function analyzeFrameDiagnostics(frames, { ordinaryLimitMs = 50 } = {}) {
   assert.ok(frames.length > 0, 'perf diagnostics must contain frames');
   for (const [index, frame] of frames.entries()) {
-    const prefix = `frame ${index}`;
-    assert.ok(frame.rootRows <= frame.terminal.rows,
-      `${prefix}: rootRows ${frame.rootRows} exceeds terminal rows ${frame.terminal.rows}`);
-    assert.ok(frame.maxVisibleWidth <= frame.terminal.columns,
-      `${prefix}: visible width ${frame.maxVisibleWidth} exceeds terminal columns ${frame.terminal.columns}`);
-    assert.equal(sectionTotal(frame.sections), frame.rootRows, `${prefix}: section total must equal rootRows`);
-    if (!frame.forced) assert.ok(frame.totalMs < ordinaryLimitMs,
-      `${prefix}: ordinary frame ${frame.totalMs} ms exceeds ${ordinaryLimitMs} ms`);
-    assert.ok(Number(frame.scrollOffset) <= Number(frame.maxScrollOffset),
-      `${prefix}: scrollOffset exceeds maxScrollOffset`);
+    validateFrame(frame, `frame ${index}`, ordinaryLimitMs);
   }
-  return summarizeFrameDiagnostics(frames);
+  return summarizeValidatedFrames(frames);
 }
 
 function percentile(values, percent) {
@@ -221,6 +279,12 @@ function timing(values) {
 }
 
 export function summarizeFrameDiagnostics(frames) {
+  assert.ok(frames.length > 0, 'perf diagnostics must contain frames');
+  for (const [index, frame] of frames.entries()) validateFrame(frame, `frame ${index}`);
+  return summarizeValidatedFrames(frames);
+}
+
+function summarizeValidatedFrames(frames) {
   const ordinary = frames.filter((frame) => !frame.forced);
   const forced = frames.filter((frame) => frame.forced);
   const scroll = frames.filter((frame) => frame.reasons?.some((reason) => reason.includes('scroll')));
@@ -229,23 +293,24 @@ export function summarizeFrameDiagnostics(frames) {
     frames: frames.length,
     ordinaryFrames: ordinary.length,
     forcedFrames: forced.length,
-    ordinaryMs: timing(ordinary.map((frame) => Number(frame.totalMs)).filter(Number.isFinite)),
-    ordinaryQueueMs: timing(ordinary.map((frame) => Number(frame.queueMs)).filter(Number.isFinite)),
-    ordinaryRootRenderMs: timing(ordinary.map((frame) => Number(frame.rootRenderMs)).filter(Number.isFinite)),
-    forcedMs: timing(forced.map((frame) => Number(frame.totalMs)).filter(Number.isFinite)),
+    ordinaryMs: timing(ordinary.map((frame) => frame.totalMs)),
+    ordinaryQueueMs: timing(ordinary.map((frame) => frame.queueMs)),
+    ordinaryRootRenderMs: timing(ordinary.map((frame) => frame.rootRenderMs)),
+    ordinaryPiTailMs: timing(ordinary.map((frame) => frame.piTailMs)),
+    forcedMs: timing(forced.map((frame) => frame.totalMs)),
     coalescedFrames: frames.filter((frame) => (frame.reasons?.length ?? 0) > 1).length,
     scroll: {
       frames: scroll.length,
-      p95Ms: percentile(scroll.map((frame) => Number(frame.totalMs)).filter(Number.isFinite), 0.95),
-      maxMs: Math.max(0, ...scroll.map((frame) => Number(frame.totalMs)).filter(Number.isFinite)),
-      maxRenderedTurns: Math.max(0, ...scroll.map((frame) => Number(frame.renderedTurns ?? 0))),
-      maxReconciledTurns: Math.max(0, ...scroll.map((frame) => Number(frame.reconciledTurns ?? 0))),
-      maxLayoutVisits: Math.max(0, ...scroll.map((frame) => Number(frame.layoutVisits ?? 0))),
-      maxHeightIndexOperations: Math.max(0, ...scroll.map((frame) => Number(frame.heightIndexOperations ?? 0))),
+      p95Ms: percentile(scroll.map((frame) => frame.totalMs), 0.95),
+      maxMs: Math.max(0, ...scroll.map((frame) => frame.totalMs)),
+      maxRenderedTurns: Math.max(0, ...scroll.map((frame) => frame.renderedTurns)),
+      maxReconciledTurns: Math.max(0, ...scroll.map((frame) => frame.reconciledTurns)),
+      maxLayoutVisits: Math.max(0, ...scroll.map((frame) => frame.layoutVisits)),
+      maxHeightIndexOperations: Math.max(0, ...scroll.map((frame) => frame.heightIndexOperations)),
     },
     mascot: {
       frames: mascot.length,
-      maxRenderedTurns: Math.max(0, ...mascot.map((frame) => Number(frame.renderedTurns ?? 0))),
+      maxRenderedTurns: Math.max(0, ...mascot.map((frame) => frame.renderedTurns)),
     },
   };
 }
@@ -284,14 +349,58 @@ function reportPaths(root) {
     for (const entry of readdirSync(dir)) {
       const path = join(dir, entry);
       if (statSync(path).isDirectory()) visit(path);
-      else if (entry === 'report.json' && ['short', 'long'].includes(basename(dirname(path)))) found.push(path);
+      else if (entry === 'report.json' && ['short', 'long', 'signals'].includes(basename(dirname(path)))) found.push(path);
     }
   };
   visit(root);
   return found.sort();
 }
 
-/** Aggregate consecutive deterministic rounds and fail closed when either short/long evidence is absent. */
+function nonEmptyString(value, label) {
+  assert.ok(typeof value === 'string' && value.trim().length > 0, `${label} must be a non-empty string`);
+  return value;
+}
+
+function metadataIdentity(value, label) {
+  assert.ok(value && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
+  const identity = {};
+  for (const field of ['commit', 'branch', 'node', 'tmux', 'cli']) {
+    identity[field] = nonEmptyString(value[field], `${label}.${field}`);
+  }
+  return identity;
+}
+
+function timingSummary(value, label) {
+  assert.ok(value && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
+  const p95 = nonNegativeNumber(value.p95, `${label}.p95`);
+  const max = nonNegativeNumber(value.max, `${label}.max`);
+  assert.ok(p95 <= max, `${label}.p95 must not exceed max`);
+  return { p95, max };
+}
+
+function performanceSummary(value, label) {
+  assert.ok(value && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
+  const ordinaryMs = timingSummary(value.ordinaryMs, `${label}.ordinaryMs`);
+  const forcedMs = timingSummary(value.forcedMs, `${label}.forcedMs`);
+  assert.ok(ordinaryMs.max < 50, `${label}.ordinaryMs.max ${ordinaryMs.max} must remain below 50 ms`);
+  return { ordinaryMs, forcedMs };
+}
+
+function captureEvidence(value, label) {
+  assert.ok(Array.isArray(value) && value.length > 0, `${label} must contain capture evidence`);
+  for (const [index, capture] of value.entries()) {
+    nonEmptyString(capture?.label, `${label}[${index}].label`);
+    for (const field of ['plain', 'ansi', 'state']) {
+      const path = nonEmptyString(capture?.[field], `${label}[${index}].${field}`);
+      let size = 0;
+      try { size = statSync(path).size; } catch { /* asserted below */ }
+      assert.ok(size > 0, `${label}[${index}].${field} capture evidence must exist and be non-empty: ${path}`);
+    }
+  }
+  return value.length;
+}
+
+/** Aggregate consecutive deterministic rounds and fail closed unless every scenario and artifact agrees. */
 export function aggregateTmuxReports(root, { expectedRounds = 2 } = {}) {
   const absolute = resolve(root);
   const reports = reportPaths(absolute).map((path) => ({
@@ -305,31 +414,49 @@ export function aggregateTmuxReports(root, { expectedRounds = 2 } = {}) {
     `tmux aggregate requires ${expectedRounds} rounds (found ${rounds.length}: ${rounds.join(', ')})`);
   for (const round of rounds) {
     const scenarios = reports.filter((entry) => entry.round === round).map((entry) => entry.scenario).sort();
-    assert.deepEqual(scenarios, ['long', 'short'], `${round}: both long and short reports are required exactly once`);
+    assert.deepEqual(scenarios, ['long', 'short', 'signals'],
+      `${round}: short, long and signals reports are required exactly once`);
   }
+  const identities = [];
+  const performance = [];
+  let captures = 0;
   for (const entry of reports) {
     assert.equal(entry.value.passed, true, `${entry.path}: scenario did not pass`);
-    assert.ok(entry.value.metadata?.commit && entry.value.metadata?.node
-      && entry.value.metadata?.tmux && entry.value.metadata?.cli,
-    `${entry.path}: commit/Node/tmux/CLI metadata is required`);
-    assert.ok(entry.value.performance?.ordinaryMs, `${entry.path}: performance summary is required`);
+    identities.push(metadataIdentity(entry.value.metadata, `${entry.path}.metadata`));
+    if (entry.scenario === 'signals') {
+      assert.ok(Array.isArray(entry.value.cases), `${entry.path}.cases must be an array`);
+      assert.deepEqual(entry.value.cases.map((item) => item.signal).sort(), ['SIGHUP', 'SIGTERM'],
+        `${entry.path}: SIGTERM and SIGHUP cases are required exactly once`);
+      for (const [index, signalCase] of entry.value.cases.entries()) {
+        assert.equal(signalCase.passed, true, `${entry.path}.cases[${index}] did not pass`);
+        assert.equal(signalCase.terminalStateRestored, true,
+          `${entry.path}.cases[${index}] did not restore terminal state`);
+        assert.equal(signalCase.shellReadable, true, `${entry.path}.cases[${index}] did not restore a readable shell`);
+        identities.push(metadataIdentity(signalCase.metadata, `${entry.path}.cases[${index}].metadata`));
+        performance.push(performanceSummary(signalCase.performance, `${entry.path}.cases[${index}].performance`));
+      }
+    } else {
+      captures += captureEvidence(entry.value.captures, `${entry.path}.captures`);
+      performance.push(performanceSummary(entry.value.performance, `${entry.path}.performance`));
+    }
   }
-  const number = (path, fallback = 0) => Number.isFinite(Number(path)) ? Number(path) : fallback;
+  const identityKeys = [...new Set(identities.map((identity) => JSON.stringify(identity)))];
+  assert.equal(identityKeys.length, 1, 'all tmux reports must have one identical commit/build identity');
+  const commit = identities[0].commit;
   return {
     passed: true,
     root: absolute,
     rounds: rounds.length,
     scenarios: reports.length,
-    captures: reports.reduce((sum, entry) => sum + (Array.isArray(entry.value.captures)
-      ? entry.value.captures.length : number(entry.value.captures)), 0),
-    commits: [...new Set(reports.map((entry) => entry.value.metadata.commit))].sort(),
+    captures,
+    commits: [commit],
     ordinaryMs: {
-      p95: Math.max(0, ...reports.map((entry) => number(entry.value.performance.ordinaryMs.p95))),
-      max: Math.max(0, ...reports.map((entry) => number(entry.value.performance.ordinaryMs.max))),
+      p95: Math.max(0, ...performance.map((entry) => entry.ordinaryMs.p95)),
+      max: Math.max(0, ...performance.map((entry) => entry.ordinaryMs.max)),
     },
     forcedMs: {
-      p95: Math.max(0, ...reports.map((entry) => number(entry.value.performance.forcedMs?.p95))),
-      max: Math.max(0, ...reports.map((entry) => number(entry.value.performance.forcedMs?.max))),
+      p95: Math.max(0, ...performance.map((entry) => entry.forcedMs.p95)),
+      max: Math.max(0, ...performance.map((entry) => entry.forcedMs.max)),
     },
     reports: reports.map((entry) => ({ round: entry.round, scenario: entry.scenario, path: entry.path })),
   };

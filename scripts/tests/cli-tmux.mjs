@@ -37,6 +37,7 @@ const home = join(temp, 'home');
 const config = join(temp, 'config');
 const logPath = join(temp, 'mock-requests.jsonl');
 const ttyStatePath = join(temp, 'tty-state.txt');
+const startGatePath = join(temp, 'start-gate');
 const terminalWriteLog = join(artifactDir, 'terminal-writes.log');
 const perfLog = join(artifactDir, 'perf.jsonl');
 const reportPath = join(artifactDir, 'report.json');
@@ -221,7 +222,6 @@ try {
     'ELOWEN_AUTOSTART=0',
     `ELOWEN_TUI_PERF=1`,
     `ELOWEN_TUI_LOG=${shellQuote(perfLog)}`,
-    `PI_TUI_WRITE_LOG=${shellQuote(terminalWriteLog)}`,
     `EDITOR=${shellQuote(`${process.execPath} ${editorFixture}`)}`,
     'TERM=xterm-256color',
     shellQuote(process.execPath),
@@ -230,6 +230,7 @@ try {
     '--new',
   ].join(' ');
   const command = [
+    `while [ ! -f ${shellQuote(startGatePath)} ]; do sleep 0.01; done`,
     'before=$(stty -g)',
     cliCommand,
     'after=$(stty -g)',
@@ -243,6 +244,8 @@ try {
     '-x', String(size.columns), '-y', String(size.rows), '-c', repo,
     command,
   ]);
+  tmux(['pipe-pane', '-O', '-t', session, `cat > ${shellQuote(terminalWriteLog)}`]);
+  writeFileSync(startGatePath, 'go\n');
   try { tmux(['set-option', '-t', session, 'window-size', 'manual']); } catch { /* older tmux */ }
   // A shared tmux server may inherit the size of an attached/larger client despite new-session's hint.
   // Force the isolated window after switching it to manual mode so the TUI receives a real 96x24 SIGWINCH.
@@ -507,7 +510,7 @@ try {
   sendKey('Enter');
   await waitFor('commands modal', () => capture().includes('Commands') && capture().includes('enter run'));
   saveCapture('12-help-modal', {
-    expectCursor: false, allowSelection: true, allowScrollbarOcclusion: true,
+    expectCursor: false, allowScrollbarOcclusion: true,
   });
   sendKey('Escape');
   await waitFor('commands modal closed', () => !capture().includes('enter run'));
@@ -522,13 +525,13 @@ try {
   await resizeDiagnosed(40, 15, 'short settled frame', (plain) => plain.includes('Build'));
   sendLiteral('/');
   await waitFor('short slash menu', () => capture().includes('commands ·') && capture().includes('esc'));
-  const slashCapture = saveCapture('13-short-slash-menu', { allowSelection: true });
+  const slashCapture = saveCapture('13-short-slash-menu');
   assert.match(slashCapture, /╭/u, 'short slash menu must retain its top border');
   assert.match(slashCapture, /╰/u, 'short slash menu must retain its bottom border');
   assert.equal((slashCapture.endsWith('\n') ? slashCapture.slice(0, -1).split('\n') : slashCapture.split('\n')).length, 15,
     'short slash menu must not overflow the pane');
   await resizeDiagnosed(32, 12, 'open slash live reflow', (plain) => plain.includes('commands ·'));
-  const slashReflow = saveCapture('13b-open-slash-reflow-32x12', { allowSelection: true });
+  const slashReflow = saveCapture('13b-open-slash-reflow-32x12');
   assert.match(slashReflow, /╭/u, 'resized open slash menu must retain its top border');
   assert.match(slashReflow, /╰/u, 'resized open slash menu must retain its bottom border');
   await resizeDiagnosed(40, 15, 'open slash restore', (plain) => plain.includes('commands ·'));
@@ -542,7 +545,7 @@ try {
   await waitFor('short ask dock', () => capture().includes('Elowen needs a decision'));
   for (let index = 0; index < 11; index += 1) sendKey('Down');
   await waitFor('ask final option', () => capture().includes('Option 12'));
-  const askCapture = saveCapture('14-short-ask-dock', { expectCursor: false, allowSelection: true });
+  const askCapture = saveCapture('14-short-ask-dock', { expectCursor: false });
   assert.match(askCapture, /space toggle[\s\S]*enter send[\s\S]*esc cancel/u,
     'short ask dock must retain every action hint');
   assert.match(askCapture, /╭/u, 'short ask dock must retain its top border');
@@ -550,7 +553,7 @@ try {
   assert.equal((askCapture.endsWith('\n') ? askCapture.slice(0, -1).split('\n') : askCapture.split('\n')).length, 15,
     'short ask dock must not overflow the pane');
   await resizeDiagnosed(32, 12, 'open ask live reflow', (plain) => plain.includes('Elowen needs a decision'));
-  const askReflow = saveCapture('14b-open-ask-reflow-32x12', { expectCursor: false, allowSelection: true });
+  const askReflow = saveCapture('14b-open-ask-reflow-32x12', { expectCursor: false });
   assert.match(askReflow, /space toggle[\s\S]*enter send[\s\S]*esc cancel/u,
     'resized open ask dock must retain every action hint');
   assert.match(askReflow, /Option 12/u, 'resized ask window must keep the selected final option visible');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -8,6 +8,8 @@ import {
   aggregateTmuxReports,
   analyzeActiveCapture,
   analyzeFrameDiagnostics,
+  captureState,
+  createArtifactDir,
   decodeLastOsc52,
   historyOffset,
   resolveArtifactDir,
@@ -16,10 +18,14 @@ import {
 
 const frame = (overrides = {}) => ({
   type: 'frame',
+  sequence: 1,
   at: 10,
   reasons: ['scroll:wheel'],
   forced: false,
   prepareMs: 1,
+  queueMs: 2,
+  rootRenderMs: 4,
+  piTailMs: 1,
   transcriptMs: 2,
   totalMs: 8,
   transcriptRows: 80,
@@ -79,6 +85,10 @@ test('active capture analyzer rejects a duplicate footer and a reverse-video bla
     label: 'band', plain, ansi, columns: 40, rows: 10,
     cursor: { x: 0, y: 8 }, frame: frame(),
   }), /reverse-video blank band/);
+  assert.throws(() => analyzeActiveCapture({
+    label: 'band-cannot-be-globally-whitelisted', plain, ansi, columns: 40, rows: 10,
+    cursor: { x: 0, y: 8 }, frame: frame(), allowSelection: true,
+  }), /reverse-video blank band/);
 });
 
 test('active capture analyzer recognizes the single compact fallback status row', () => {
@@ -104,9 +114,14 @@ test('active capture analyzer recognizes the single compact fallback status row'
 test('frame diagnostics enforce root rows, width, section totals, and ordinary 50 ms budget', () => {
   assert.doesNotThrow(() => analyzeFrameDiagnostics([frame()]));
   assert.throws(() => analyzeFrameDiagnostics([frame({ rootRows: 11 })]), /rootRows/);
+  assert.throws(() => analyzeFrameDiagnostics([frame({ rootRows: 9 })]), /rootRows/);
   assert.throws(() => analyzeFrameDiagnostics([frame({ maxVisibleWidth: 41 })]), /visible width/);
+  assert.throws(() => analyzeFrameDiagnostics([frame({ maxVisibleWidth: 39 })]), /visible width/);
   assert.throws(() => analyzeFrameDiagnostics([frame({ sections: { ...frame().sections, editor: 2 } })]), /section total/);
   assert.throws(() => analyzeFrameDiagnostics([frame({ totalMs: 51 })]), /ordinary frame/);
+  assert.throws(() => analyzeFrameDiagnostics([frame({ totalMs: null })]), /totalMs/);
+  assert.throws(() => analyzeFrameDiagnostics([frame({ queueMs: '2' })]), /queueMs/);
+  assert.throws(() => analyzeFrameDiagnostics([frame({ piTailMs: -1 })]), /piTailMs/);
   assert.doesNotThrow(() => analyzeFrameDiagnostics([frame({ forced: true, totalMs: 80, reasons: ['resize'] })]));
 });
 
@@ -136,26 +151,170 @@ test('artifact root is stable and scenario-scoped', () => {
   assert.equal(resolveArtifactDir('/tmp/elowen-e2e', 'short'), '/tmp/elowen-e2e/short');
 });
 
-test('aggregate analyzer requires two complete short+long rounds and reports their worst ordinary frame', () => {
+test('configured artifact scenarios reject stale non-empty directories', () => {
+  const root = mkdtempSync(join(tmpdir(), 'elowen-tmux-artifact-root-'));
+  const previous = process.env.ELOWEN_TMUX_ARTIFACT_ROOT;
+  process.env.ELOWEN_TMUX_ARTIFACT_ROOT = root;
+  try {
+    const scenario = createArtifactDir('short');
+    writeFileSync(join(scenario, 'stale.jsonl'), '{}\n');
+    assert.throws(() => createArtifactDir('short'), /not empty|fresh/iu);
+  } finally {
+    if (previous == null) delete process.env.ELOWEN_TMUX_ARTIFACT_ROOT;
+    else process.env.ELOWEN_TMUX_ARTIFACT_ROOT = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const validPane = () => [
+  ' elowen E2E Harness ----------------', ' transcript row', ' transcript row', ' transcript row',
+  ' transcript row                 █', '----------------------------------------', '',
+  '----------------------------------------', '  Build · e2e-model mock high', '  enter send · ctrl+c quit',
+].join('\n') + '\n';
+
+test('capture retries until plain and ANSI belong to one completed frame sequence', () => {
+  const root = mkdtempSync(join(tmpdir(), 'elowen-tmux-capture-sequence-'));
+  const perf = join(root, 'perf.jsonl');
+  writeFileSync(perf, `${JSON.stringify(frame({ sequence: 1 }))}\n`);
+  let plainCaptures = 0;
+  let ansiCaptures = 0;
+  const tmux = {
+    run(args) {
+      if (args[0] === 'display-message') return '40\t10\t2\t6\t123\t0\n';
+      if (args[0] === 'capture-pane' && args.includes('-e')) {
+        ansiCaptures++;
+        if (ansiCaptures === 1) writeFileSync(perf,
+          `${JSON.stringify(frame({ sequence: 1 }))}\n${JSON.stringify(frame({ sequence: 2, at: 11 }))}\n`);
+        return validPane();
+      }
+      if (args[0] === 'capture-pane') { plainCaptures++; return validPane(); }
+      throw new Error(`unexpected tmux call: ${args.join(' ')}`);
+    },
+  };
+  try {
+    const captured = captureState({
+      tmux, session: 'test', artifactDir: root, label: 'stable', perfLog: perf, expectCursor: true,
+    });
+    assert.equal(captured.frame.sequence, 2);
+    assert.equal(plainCaptures, 2);
+    assert.equal(ansiCaptures, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('capture gives up after six unstable completed frame sequences', () => {
+  const root = mkdtempSync(join(tmpdir(), 'elowen-tmux-capture-unstable-'));
+  const perf = join(root, 'perf.jsonl');
+  let sequence = 1;
+  let ansiCaptures = 0;
+  writeFileSync(perf, `${JSON.stringify(frame({ sequence }))}\n`);
+  const tmux = {
+    run(args) {
+      if (args[0] === 'display-message') return '40\t10\t2\t6\t123\t0\n';
+      if (args[0] === 'capture-pane' && args.includes('-e')) {
+        ansiCaptures++;
+        sequence++;
+        writeFileSync(perf, `${JSON.stringify(frame({ sequence, at: 10 + sequence }))}\n`, { flag: 'a' });
+        return validPane();
+      }
+      if (args[0] === 'capture-pane') return validPane();
+      throw new Error(`unexpected tmux call: ${args.join(' ')}`);
+    },
+  };
+  try {
+    assert.throws(() => captureState({
+      tmux, session: 'test', artifactDir: root, label: 'unstable', perfLog: perf, expectCursor: true,
+    }), /after 6 attempts/u);
+    assert.equal(ansiCaptures, 6);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const metadata = (commit = 'abc') => ({
+  commit, branch: 'refactor/test', node: 'v22.23.1', tmux: 'tmux 3.4', cli: '/x/dist/cli/bin.js',
+});
+
+function writeRound(root, round, { omitSignals = false, mixedCommit = false, ordinaryMax = 37, nullTiming = false } = {}) {
+  for (const scenario of ['short', 'long']) {
+    const dir = join(root, `round-${round}`, scenario);
+    mkdirSync(dir, { recursive: true });
+    const captures = ['plain', 'ansi', 'state'].reduce((paths, kind) => {
+      const path = join(dir, `capture.${kind === 'state' ? 'json' : `${kind}.txt`}`);
+      writeFileSync(path, kind === 'state' ? '{}\n' : 'capture\n');
+      paths[kind] = path;
+      return paths;
+    }, {});
+    writeFileSync(join(dir, 'report.json'), JSON.stringify({
+      passed: true, scenario, captures: [{ label: 'capture', ...captures }],
+      metadata: metadata(mixedCommit && scenario === 'long' ? 'def' : 'abc'),
+      performance: {
+        ordinaryMs: { p95: nullTiming ? null : ordinaryMax - 1, max: ordinaryMax },
+        forcedMs: { p95: 50, max: 60 },
+      },
+    }));
+  }
+  if (!omitSignals) {
+    const dir = join(root, `round-${round}`, 'signals');
+    mkdirSync(dir, { recursive: true });
+    const cases = ['SIGTERM', 'SIGHUP'].map((signal) => ({
+      passed: true, signal, metadata: metadata(), terminalStateRestored: true, shellReadable: true,
+      performance: { ordinaryMs: { p95: 0, max: 0 }, forcedMs: { p95: 10, max: 10 } },
+    }));
+    writeFileSync(join(dir, 'report.json'), JSON.stringify({ passed: true, metadata: metadata(), cases }));
+  }
+}
+
+test('aggregate analyzer requires two complete short+long+signals rounds with one build identity', () => {
   const root = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-'));
   try {
-    for (const [round, max] of [[1, 31], [2, 37]]) {
-      for (const scenario of ['short', 'long']) {
-        const dir = join(root, `round-${round}`, scenario);
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, 'report.json'), JSON.stringify({
-          passed: true, scenario, captures: [{ label: 'capture' }],
-          metadata: { commit: 'abc', node: 'v22', tmux: 'tmux 3.4', cli: '/x/dist/cli/bin.js' },
-          performance: { ordinaryMs: { p95: max - 1, max }, forcedMs: { p95: 50, max: 60 } },
-        }));
-      }
-    }
+    writeRound(root, 1, { ordinaryMax: 31 });
+    writeRound(root, 2, { ordinaryMax: 37 });
     const summary = aggregateTmuxReports(root, { expectedRounds: 2 });
     assert.equal(summary.rounds, 2);
-    assert.equal(summary.scenarios, 4);
+    assert.equal(summary.scenarios, 6);
     assert.equal(summary.captures, 4);
     assert.equal(summary.ordinaryMs.max, 37);
     assert.deepEqual(summary.commits, ['abc']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('aggregate analyzer rejects absent signals, mixed builds, over-budget frames and null timing', () => {
+  const cases = [
+    [{ omitSignals: true }, /signals/u],
+    [{ mixedCommit: true }, /identity|commit|build/iu],
+    [{ ordinaryMax: 51 }, /50|ordinary/iu],
+    [{ nullTiming: true }, /p95|number|finite/iu],
+  ];
+  for (const [options, pattern] of cases) {
+    const root = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-negative-'));
+    try {
+      writeRound(root, 1, options);
+      assert.throws(() => aggregateTmuxReports(root, { expectedRounds: 1 }), pattern);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('aggregate analyzer rejects missing or empty capture evidence', () => {
+  const root = mkdtempSync(join(tmpdir(), 'elowen-tmux-analyzer-captures-'));
+  try {
+    writeRound(root, 1);
+    const reportPath = join(root, 'round-1', 'short', 'report.json');
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    const realPlain = report.captures[0].plain;
+    report.captures[0].plain = join(root, 'does-not-exist.txt');
+    writeFileSync(reportPath, JSON.stringify(report));
+    assert.throws(() => aggregateTmuxReports(root, { expectedRounds: 1 }), /capture|exist|evidence/iu);
+
+    report.captures[0].plain = realPlain;
+    writeFileSync(report.captures[0].state, '');
+    writeFileSync(reportPath, JSON.stringify(report));
+    assert.throws(() => aggregateTmuxReports(root, { expectedRounds: 1 }), /capture|non-empty|evidence/iu);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

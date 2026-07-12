@@ -34,6 +34,7 @@ const home = join(temp, 'home');
 const config = join(temp, 'config');
 const logPath = join(temp, 'mock-requests.jsonl');
 const ttyStatePath = join(temp, 'tty-state.txt');
+const startGatePath = join(temp, 'start-gate');
 const terminalWriteLog = join(artifactDir, 'terminal-writes.log');
 const perfLog = join(artifactDir, 'perf.jsonl');
 const reportPath = join(artifactDir, 'report.json');
@@ -153,13 +154,13 @@ try {
     'ELOWEN_AUTOSTART=0',
     'ELOWEN_TUI_PERF=1',
     `ELOWEN_TUI_LOG=${shellQuote(perfLog)}`,
-    `PI_TUI_WRITE_LOG=${shellQuote(terminalWriteLog)}`,
     'TERM=xterm-256color',
     shellQuote(process.execPath), shellQuote(cli), 'chat',
   ].join(' ');
   const freshCli = `${cliPrefix} --new`;
   const reopenedCli = `${cliPrefix} --session e2e-session`;
   const command = [
+    `while [ ! -f ${shellQuote(startGatePath)} ]; do sleep 0.01; done`,
     'before=$(stty -g)', freshCli,
     `printf '\nE2E SHORT REOPENING\n'`, reopenedCli,
     'after=$(stty -g)',
@@ -168,6 +169,10 @@ try {
   ].join('; ');
 
   tmux(['new-session', '-d', '-s', session, '-x', String(size.columns), '-y', String(size.rows), '-c', repo, command]);
+  // Capture raw pane output outside the CLI. PI_TUI_WRITE_LOG performs a synchronous appendFileSync
+  // inside every terminal.write and would contaminate the post-PI frame timing we are measuring.
+  tmux(['pipe-pane', '-O', '-t', session, `cat > ${shellQuote(terminalWriteLog)}`]);
+  writeFileSync(startGatePath, 'go\n');
   try { tmux(['set-option', '-t', session, 'window-size', 'manual']); } catch { /* older tmux */ }
   tmux(['resize-window', '-t', session, '-x', String(size.columns), '-y', String(size.rows)]);
 
