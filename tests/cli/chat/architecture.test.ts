@@ -135,6 +135,11 @@ describe('chat production architecture boundaries', () => {
     expect(source('chatApplication.ts')).toMatch(/client\.bindLifetime\(this\.lifetime\.signal\)/);
     expect(source('chatApplication.ts')).toMatch(/this\.lifetime\.stop\(\)/);
   });
+
+  it('keeps test-only routing and root inspection out of production APIs', () => {
+    expect(source('inputRouter.ts')).not.toMatch(/customRoute|routeOrContext|constructor\(tui:\s*TUI,\s*route:/);
+    expect(source('chatComposition.ts')).not.toMatch(/readonly\s+root:\s*Component|\broot:\s*measuredRoot/);
+  });
 });
 
 describe('chat non-TTY contract', () => {

@@ -60,24 +60,17 @@ export interface ChatInputContext {
  * actions through ChatInputContext; no second module interprets terminal mouse sequences. */
 export class InputRouter {
   private removeListener: (() => void) | null = null;
-  private readonly customRoute: ((data: string) => InputRouteResult) | null;
-  private readonly context: ChatInputContext | null;
   private resizingPanel = false;
   private draggingHistory = false;
   private draggedViewport: ChatViewport | null = null;
   private historyTimer: ReturnType<typeof setTimeout> | null = null;
   private lastScrollDragRow = 0;
 
-  constructor(tui: TUI, route: (data: string) => InputRouteResult);
-  constructor(tui: TUI, context: ChatInputContext);
-  constructor(private readonly tui: TUI, routeOrContext: ((data: string) => InputRouteResult) | ChatInputContext) {
-    this.customRoute = typeof routeOrContext === 'function' ? routeOrContext : null;
-    this.context = typeof routeOrContext === 'function' ? null : routeOrContext;
-  }
+  constructor(private readonly tui: TUI, private readonly context: ChatInputContext) {}
 
   attach(): void {
     if (this.removeListener) return;
-    this.removeListener = this.tui.addInputListener((data) => this.customRoute?.(data) ?? this.route(data));
+    this.removeListener = this.tui.addInputListener((data) => this.route(data));
   }
 
   stop(): void {
@@ -91,7 +84,6 @@ export class InputRouter {
 
   private route(data: string): InputRouteResult {
     const context = this.context;
-    if (!context) return undefined;
     const { state: rt, stream, editor, term } = context;
     const keymap = context.keymap();
     const event = mouseEvent(data);
@@ -293,7 +285,7 @@ export class InputRouter {
     this.historyTimer = setTimeout(() => {
       this.historyTimer = null;
       if (!this.draggingHistory || !this.draggedViewport) return;
-      this.context?.render('scroll:drag-index');
+      this.context.render('scroll:drag-index');
       const pending = this.draggedViewport.continueScrollbarDrag();
       this.scheduleHistoryContinuation(pending);
     }, 16);
