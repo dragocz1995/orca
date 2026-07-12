@@ -772,7 +772,7 @@ describe('chat application shell ownership', () => {
     composition.resume();
     composition.renderForced('test:initial');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     const requestsBeforeMetadata = h.tui.renderRequests.length;
 
     h.rt.processes = [{
@@ -786,7 +786,7 @@ describe('chat application shell ownership', () => {
     h.term.columns = 120;
     composition.renderForced('test:grow');
     await vi.runOnlyPendingTimersAsync();
-    composition.root.render(h.term.columns);
+    renderMountedRoot(h);
     const telemetry = h.tui.overlays.find((overlay) => !overlay.removed
       && overlay.options?.anchor === 'top-right');
     expect(telemetry?.component.render(46).map(terminalPlainText).join('\n')).toContain('hidden-process.js');
