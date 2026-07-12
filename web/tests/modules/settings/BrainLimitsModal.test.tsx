@@ -14,6 +14,7 @@ describe('BrainLimitsModal', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Help' })[0]!);
 
     const tooltip = screen.getByRole('tooltip');
-    expect(tooltip).toHaveClass('absolute', 'z-50');
+    expect(tooltip.parentElement).toBe(document.body);
+    expect(tooltip).toHaveClass('fixed', 'z-[130]', 'pointer-events-none');
   });
 });
