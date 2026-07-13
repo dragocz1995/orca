@@ -1,5 +1,6 @@
 import type { Model, Api, ModelThinkingLevel, ThinkingLevelMap } from '@earendil-works/pi-ai';
 import { getSupportedThinkingLevels } from '@earendil-works/pi-ai';
+import { MODEL_CAPABILITY_CATALOG } from './modelCapabilityData.js';
 
 /**
  * Elowen's one model-capability vocabulary. PI keeps the canonical values stable while providers are
@@ -43,13 +44,65 @@ const CLAUDE_REASONING = /(?:^|\/)claude-(?:opus|sonnet|haiku)-(?:4|5)(?:[.-]|$)
 const GEMINI_REASONING = /(?:^|\/)gemini-(?:2\.5|3|3\.1|3\.5)(?:-|$)/i;
 const OTHER_REASONING = /(?:deepseek[-_/]?r1|qwq|reasoning)/i;
 
+/** Catalog keys for endpoints whose Elowen id differs from the published one. Ollama Cloud ships as
+ *  `ollama-cloud`; a self-hosted Ollama serves the same model families, so it reads the same rows. */
+const CATALOG_ALIAS: Readonly<Record<string, string>> = {
+  ollama: 'ollama-cloud',
+  'ollama-local': 'ollama-cloud',
+};
+
+/** The model's row in the models.dev catalog, or undefined when it lists no such model.
+ *  Custom endpoints register under `elowen-<id>`, where `<id>` is the operator's provider key. */
+function catalogCapability(provider: string, model: string) {
+  const key = provider.startsWith('elowen-') ? provider.slice('elowen-'.length) : provider;
+  const catalog = CATALOG_ALIAS[key] ?? key;
+  const row = MODEL_CAPABILITY_CATALOG[`${catalog}/${model}`];
+  if (row !== undefined) return row;
+  // A self-hosted pull carries a tag the catalog does not publish (`glm-5.2:latest`); the capability is
+  // the model's, not the tag's. Only retried when the bare id has no row of its own.
+  const untagged = model.includes(':') ? model.slice(0, model.indexOf(':')) : undefined;
+  return untagged ? MODEL_CAPABILITY_CATALOG[`${catalog}/${untagged}`] : undefined;
+}
+
+/** Turn an accepted effort ladder into PI's map: a level the endpoint does not accept is `null`
+ *  (unsupported), and `off` is never an effort — a reasoning model always thinks. */
+function ladderToMap(levels: readonly ModelThinkingLevel[]): ThinkingLevelMap {
+  const map: ThinkingLevelMap = {
+    off: null, minimal: null, low: null, medium: null, high: null, xhigh: null, max: null,
+  };
+  for (const level of levels) map[level] = level;
+  return map;
+}
+
 /**
  * Capability rules for descriptors Elowen creates itself (custom OpenAI-compatible endpoints and
  * OAuth catalog additions). Built-in PI descriptors remain authoritative; these rules prevent the old
  * blanket "every model supports every effort" declaration for unknown/image models.
+ *
+ * The models.dev catalog decides whenever it knows the (provider, model) pair: which efforts an endpoint
+ * accepts is per-endpoint data, not a property of the name — `glm-5.2` takes high/max on Z.AI but
+ * high/xhigh through OpenRouter, and `gpt-5-pro` takes only `high`. A name heuristic cannot express that,
+ * and over-advertising an effort the endpoint does not accept is a request-breaking 400. The family
+ * regexes below remain the fallback for models the catalog has not published (a fresh release, a private
+ * relay), and the conservative default still refuses to guess for an unknown id.
  */
 export function descriptorCapabilities(provider: string, model: string): DescriptorPatch {
   if (NON_REASONING.test(model)) return { reasoning: false };
+
+  // Codex OAuth is not a models.dev endpoint (its catalog is ChatGPT's own), so it keeps its own rule.
+  if (provider !== 'openai-codex') {
+    const catalog = catalogCapability(provider, model);
+    if (catalog === false) return { reasoning: false };
+    if (catalog !== undefined) {
+      return {
+        reasoning: true,
+        // `true` means the model reasons but exposes no effort knob (a bare on/off toggle): every level is
+        // unsupported, so no UI offers one and no request carries a `reasoning_effort` it would reject.
+        thinkingLevelMap: ladderToMap(catalog === true ? [] : catalog),
+        ...(OPENAI_REASONING.test(model) ? { labels: { xhigh: 'ultra' } } : {}),
+      };
+    }
+  }
 
   if (provider === 'openai-codex' || OPENAI_REASONING.test(model)) {
     const supportsMax = /(?:^|\/)gpt-5\.6(?:-|$)/i.test(model);
