@@ -11,7 +11,14 @@ import { useShellNavigation } from './useShellNavigation';
 import { useElementHeight } from '../../lib/useElementWidth';
 import type { NavEntry } from './NavItem';
 
-const SPATIAL_ROUTE_ORDER = ['/projects', '/editor', '/stats', '/memory', '/timeline', '/account', '/sessions', '/kanban', '/settings', '/tasks', '/users', '/dash'];
+/** Top to bottom: where you land, then the work, then the context behind it, then administration.
+ *  Home first and the admin surfaces last, so the axis reads in the order you actually use it. */
+const SPATIAL_ROUTE_ORDER = [
+  '/dash',                                        // home
+  '/tasks', '/kanban', '/sessions', '/timeline',  // the work
+  '/projects', '/editor', '/memory', '/stats',    // what the work runs on
+  '/account', '/settings', '/users',              // administration
+];
 /** The public site's rail spacing — the look this rail matches. */
 const SPACING = 66;
 /** Vertical room the largest (active) node needs, so the end destinations never clip. */

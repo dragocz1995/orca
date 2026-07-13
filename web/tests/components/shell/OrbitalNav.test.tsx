@@ -63,11 +63,22 @@ describe('OrbitalNav rail stability', () => {
   });
 
   it('does not wrap the wheel around the ends of the rail', () => {
-    currentPath.value = '/dash'; // last route on the axis
+    currentPath.value = '/users'; // last route on the axis
     mount();
     pushSpy.mockClear();
     fireEvent.wheel(screen.getByTestId('future-navigation'), { deltaY: 60 });
     expect(pushSpy).not.toHaveBeenCalled(); // clamped, never wrapped back to the first route
+  });
+
+  it('runs home → work → context → administration down the axis', () => {
+    currentPath.value = '/dash';
+    mount();
+    const order = screen.getAllByRole('listitem')
+      .map((item) => [item.querySelector('a')!.textContent, offsetOf(item.querySelector('a')!.textContent!)] as const)
+      .sort((a, b) => a[1] - b[1])
+      .map(([label]) => label);
+    expect(order[0]).toBe('Home');
+    expect(order.slice(-3)).toEqual(['Account', 'Settings', 'Users']);
   });
 });
 
@@ -102,9 +113,9 @@ describe('OrbitalNav', () => {
   });
 
   it('steps to the next route when the wheel is used over navigation', () => {
-    mount();
+    mount(); // active: /stats — the last "context" stop before administration
     fireEvent.wheel(screen.getByTestId('future-navigation'), { deltaY: 60 });
-    expect(pushSpy).toHaveBeenCalledWith('/memory');
+    expect(pushSpy).toHaveBeenCalledWith('/account');
   });
 
   it('renders the scroll cue above the version', () => {
