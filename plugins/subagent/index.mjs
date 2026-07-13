@@ -271,6 +271,13 @@ export function register(ctx) {
           // jobs still running. It stops as soon as an idle wait leaves nothing new to report.
           const reported = new Set();
           for (let turn = 0; state.sessionId && turn < MAX_COLLECT_TURNS; turn += 1) {
+            // The host registers this child only for the duration of a channel turn, so `run()` returning
+            // just deregistered it — yet the delegation is very much alive, and the wait below can hold it
+            // here for minutes. Re-assert that the child is running: the parent's abort tree, its status
+            // view, its running-sub-agents context block and the restart reconcile all key on that
+            // registration, and the reconcile terminalizes a "running" row it cannot see as live — killing
+            // this delegate and reporting it to the parent as interrupted while it still works.
+            push('running');
             let waited = 'idle';
             if (ctx.processes.runningJobCountForSession(state.sessionId) > 0) {
               waited = await ctx.processes.waitForSessionJobsIdle(state.sessionId, JOB_WAIT_TIMEOUT_MS);

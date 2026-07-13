@@ -258,6 +258,60 @@ describe('subagent plugin', () => {
     for (const r of reminders) expect(r).not.toMatch(/<background-processes-(finished|still-running)>\s*<\//);
   });
 
+  it('keeps announcing the child as running while the collect loop waits on its jobs', async () => {
+    // The host registers a delegated child only for the duration of a channel turn, so the moment the
+    // child's reply returns it is deregistered — while the delegation is still very much alive, parked in
+    // the collect loop's job wait. Everything that decides whether a delegate is alive keys on that
+    // registration (the parent's abort tree, its status view, its context block and, worst of all, the
+    // restart reconcile, which terminalizes a "running" row it cannot see as live and tells the parent the
+    // sub-agent was interrupted). So the plugin must re-assert `running` before it starts waiting.
+    const dataRoot = freshDataRoot();
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['subagent'], dataRoot, logger: log });
+    const delegate = reg.tools.find((t) => t.name === 'delegate')!;
+    const sessionId = 'brain-ch-subagent-alive';
+    let released!: () => void;
+    const jobExits = new Promise<void>((resolve) => { released = resolve; });
+    const updates: { status: string; sessionId: string }[] = [];
+    const completions: Record<string, unknown>[] = [];
+    let calls = 0;
+    let updatesWhenReplyReturned = -1;
+    reg.platforms[0]!.listen(async (_src, _text, onEvent) => {
+      calls += 1;
+      onEvent?.({ type: 'session', sessionId });
+      if (calls > 1) return 'final';
+      let running = true;
+      processRegistry.register({
+        id: 'slow-job', command: 'build', cwd: '/tmp', startedAt: new Date().toISOString(), sessionId,
+        running: () => running, exitCode: () => running ? null : 0, readAll: () => 'built', kill: () => { running = false; },
+      });
+      void jobExits.then(() => { running = false; processRegistry.markExited('slow-job'); });
+      // Everything the host has heard by the time this reply returns — the point where it deregisters the
+      // child. Anything after this is the plugin telling it the delegation is still alive.
+      updatesWhenReplyReturned = updates.length;
+      return 'started the build';
+    });
+
+    await runWithPolicy(ADMIN, async () => {
+      await delegate.execute('alive', { task: 'build it', background: true }, undefined as never, undefined as never);
+    }, {
+      identity: OWNER, sessionId: 'brain-parent-alive',
+      emitSubagent: (u) => updates.push(u as never),
+      emitSubagentCompletion: (v) => completions.push(v),
+    });
+
+    // Parked on the job, with the reply already handed back. The plugin MUST have re-announced the child as
+    // running since then; without that update the host's last word on this child is "not running", and the
+    // reconcile terminalizes a delegate that is still working.
+    await vi.waitFor(() => expect(updates.length).toBeGreaterThan(updatesWhenReplyReturned));
+    expect(updates.slice(updatesWhenReplyReturned).every((u) => u.status === 'running')).toBe(true);
+    expect(updates.at(-1)).toMatchObject({ status: 'running', sessionId });
+    expect(completions).toHaveLength(0);
+
+    released();
+    await vi.waitFor(() => expect(completions).toHaveLength(1));
+    expect(updates.at(-1)?.status).toBe('done'); // …and only the real finish takes the registration away
+  });
+
   it('breaks the collect loop without an extra turn when the child job is killed', async () => {
     const dataRoot = freshDataRoot();
     const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['subagent'], dataRoot, logger: log });

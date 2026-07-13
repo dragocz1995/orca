@@ -121,11 +121,15 @@ export class BrainTurnRunner {
       if (!settled || settled === before || settled.stopReason === 'error') {
         throw new Error(settled?.errorMessage?.trim() || 'sub-agent result was not processed by the parent model');
       }
-      // The parent aborted (Esc/stop) DURING this delivery turn. PI still folded the result into the
-      // transcript before tearing down, so it already entered the parent's context — re-delivering would
-      // duplicate it. Treat it as delivered (the drain acknowledges it) rather than retry.
+      // A turn the user aborted mid-flight (Esc / stop) is NOT a failure to deliver: PI appends the custom
+      // message to the transcript before running the turn, so the result may already be in the parent's
+      // context, and re-delivering it would put it there twice. Don't assume either way — look for it. It
+      // carries our result id, so its presence is the only honest answer to "did this land?".
       if (settled.stopReason === 'aborted') {
-        logger('brain-subagent').info(`sub-agent result for ${target} landed in an aborted parent turn; acknowledging without retry`);
+        const landed = (live.session.messages as { role?: string; details?: { resultId?: string } }[])
+          .some((message) => message.role === 'custom' && message.details?.resultId === resultId);
+        if (!landed) throw new Error('parent turn was aborted before the sub-agent result reached its context');
+        logger('brain-subagent').info(`sub-agent result for ${target} entered the context of an aborted parent turn; acknowledging without retry`);
       }
     }));
   }
@@ -145,9 +149,15 @@ export class BrainTurnRunner {
     const oldTimer = this.resultRetryTimers.get(parentSessionId);
     if (oldTimer) { clearTimeout(oldTimer); this.resultRetryTimers.delete(parentSessionId); }
     try {
+      // Each result gets at most one shot per drain, so a poisoned one cannot sit at the head of the queue
+      // failing forever and starve everything behind it — the user would silently stop receiving any
+      // delegated work at all. It is still retried on the next drain: the cause may be an outage that
+      // outlives the timed retries, and the result is only worthless once it is delivered.
+      const attempted = new Set<string>();
       while (true) {
-        const result = this.d.store.pendingSubagentResults(parentSessionId)[0];
+        const result = this.d.store.pendingSubagentResults(parentSessionId).find((row) => !attempted.has(row.id));
         if (!result) break;
+        attempted.add(result.id);
         const body = result.status === 'done'
           ? `<result>${xmlEscape(result.result ?? '(the sub-agent returned nothing)')}</result>`
           : `<error>${xmlEscape(result.error ?? 'unknown sub-agent error')}</error>`;
@@ -168,8 +178,10 @@ export class BrainTurnRunner {
           if (error instanceof ParentTurnBusyError) return;
           this.d.store.noteSubagentResultFailure(parentSessionId, result.id, error instanceof Error ? error.message : String(error));
           if (result.attempts + 1 >= MAX_RESULT_DELIVERY_ATTEMPTS) {
-            logger('brain-subagent').warn(`sub-agent result ${result.id} for ${parentSessionId} exhausted ${MAX_RESULT_DELIVERY_ATTEMPTS} delivery attempts; leaving it pending`);
-            return;
+            // Out of timed retries: stop arming a timer for it, but move on to the rest of the queue rather
+            // than letting it block them. It keeps its one shot per later drain.
+            logger('brain-subagent').warn(`sub-agent result ${result.id} for ${parentSessionId} exhausted ${MAX_RESULT_DELIVERY_ATTEMPTS} timed delivery attempts; leaving it pending and continuing with the rest`);
+            continue;
           }
           this.scheduleResultRetry(userId, parentSessionId, result.attempts + 1);
           return;

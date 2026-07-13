@@ -369,9 +369,11 @@ describe('BrainService', () => {
     const child = 'brain-ch-subagent-aborted';
     d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
     d.store.upsertSubagentRun(sessionId, { id: 'call-abort', sessionId: child, status: 'done', task: 'inspect', tools: 1, seconds: 1, background: true });
-    // PI folded the result into the transcript, then the parent turn was aborted (a NEW assistant row,
-    // stopReason 'aborted'): the result already entered context, so it must be acknowledged, not retried.
-    d.session.sendCustomMessage.mockImplementationOnce(async () => {
+    // PI appends the custom message to the transcript and THEN runs the turn, which the user aborted. The
+    // result is in the parent's context, so re-delivering it would put it there twice: acknowledge, never
+    // retry.
+    d.session.sendCustomMessage.mockImplementationOnce(async (message: { details?: unknown }) => {
+      d.session.messages.push({ role: 'custom', ...message } as never);
       d.session.messages.push({ role: 'assistant', content: 'partial', stopReason: 'aborted' } as never);
     });
     const runner = (svc as unknown as { turnRunner: { acceptSubagentCompletion(parent: string, userId: number, result: unknown): void; resultRetryTimers: Map<string, unknown> } }).turnRunner;
@@ -380,6 +382,26 @@ describe('BrainService', () => {
     expect(d.session.sendCustomMessage).toHaveBeenCalledTimes(1);
     expect(runner.resultRetryTimers.size).toBe(0);
     expect(d.store.pendingSubagentResults(sessionId)).toEqual([]);
+  });
+
+  it('retries a result whose parent turn was aborted BEFORE it reached the transcript', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const child = 'brain-ch-subagent-lost';
+    d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-lost', sessionId: child, status: 'done', task: 'inspect', tools: 1, seconds: 1, background: true });
+    // Aborted with a fresh assistant row, but the custom message never made it into the transcript — the
+    // result reached nobody. Acknowledging on the strength of the abort alone would silently lose the
+    // sub-agent's entire answer, so this one MUST stay pending and be retried.
+    d.session.sendCustomMessage.mockImplementationOnce(async () => {
+      d.session.messages.push({ role: 'assistant', content: 'partial', stopReason: 'aborted' } as never);
+    });
+    const runner = (svc as unknown as { turnRunner: { acceptSubagentCompletion(parent: string, userId: number, result: unknown): void } }).turnRunner;
+    runner.acceptSubagentCompletion(sessionId, 1, { id: 'res-lost', toolCallId: 'call-lost', sessionId: child, status: 'done', task: 'inspect', result: 'answer', tools: 1, seconds: 1 });
+
+    await vi.waitFor(() => expect(d.store.pendingSubagentResults(sessionId)[0]).toMatchObject({ id: 'res-lost', attempts: 1 }));
+    expect(d.store.getSubagentRuns(sessionId)[0]).not.toMatchObject({ resultDelivery: 'acknowledged' });
   });
 
   it('caps retries of a permanently failing result at five, then makes exactly one more attempt on the next turn', async () => {

@@ -57,23 +57,17 @@ describe('HelpTip', () => {
     expect(top).toBeGreaterThanOrEqual(40);
   });
 
-  it('keeps the tooltip open while the pointer bridges from the trigger onto its body', () => {
-    vi.useFakeTimers();
+  it('never intercepts a click meant for the control it floats over', () => {
     render(<LanguageProvider><HelpTip>Helpful context</HelpTip></LanguageProvider>);
     const trigger = screen.getByRole('button', { name: 'Help' });
-    const wrapper = trigger.parentElement!;
     stubRect(trigger, { top: 24, bottom: 40, left: 300, right: 316, width: 16, height: 16 });
 
-    fireEvent.mouseEnter(wrapper);
-    expect(screen.getByRole('tooltip')).toBeTruthy();
+    fireEvent.mouseEnter(trigger.parentElement!);
 
-    // Leaving the wrapper only schedules a close…
-    fireEvent.mouseLeave(wrapper);
-    // …which entering the portaled body cancels.
-    fireEvent.mouseEnter(screen.getByRole('tooltip'));
-    act(() => { vi.advanceTimersByTime(1000); });
-
-    expect(screen.queryByRole('tooltip')).toBeTruthy();
+    // The body is 256px of help text hanging over neighbouring fields, and it holds nothing worth
+    // clicking — so it must be transparent to the pointer, or it swallows clicks aimed at those fields.
+    // jsdom cannot hit-test, and this class IS the mechanism, so assert it directly.
+    expect(screen.getByRole('tooltip')).toHaveClass('pointer-events-none');
   });
 
   it('closes shortly after leaving the body when the pointer does not return', () => {

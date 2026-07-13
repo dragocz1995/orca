@@ -605,12 +605,13 @@ export class BrainStore {
         result: result.result, error: result.error, tools: result.tools, tokens: result.tokens,
         seconds: result.seconds, model: result.model,
       });
-      // Handle BOTH unique constraints (result_id PK + parent/tool_call) so a late/duplicate callback can
-      // never throw and silently drop a result (#4). A real completion arriving for a (parent, tool_call)
-      // that a restart reconcile already filled with a still-pending SYNTHETIC `restart-` row UPGRADES it
-      // in place — keeping its queue position (created_at untouched) and resetting the retry counter. A
-      // synthetic never overwrites a real row, and a real row is never clobbered by a second distinct real
-      // result (first-write-wins) — both guarded by the WHERE on the second ON CONFLICT clause.
+      // Handle BOTH unique constraints (result_id PK + parent/tool_call) so a late or duplicate callback can
+      // never throw and silently drop a result. A real completion arriving for a (parent, tool_call) that a
+      // restart reconcile already filled with a SYNTHETIC `restart-` row UPGRADES it in place, keeping its
+      // queue position (created_at untouched). That holds even once the synthetic was delivered: the parent
+      // was told the delegate had been interrupted, so the truth has to reach it — the row goes back to
+      // pending and is delivered again. A synthetic never overwrites a real row, and a real row is never
+      // clobbered by a second distinct real result (first-write-wins).
       this.db.prepare(
         `INSERT INTO brain_subagent_results
           (result_id, parent_session_id, tool_call_id, child_session_id, status, task, payload)
@@ -619,9 +620,9 @@ export class BrainStore {
          ON CONFLICT(parent_session_id, tool_call_id) DO UPDATE SET
            result_id = excluded.result_id, child_session_id = excluded.child_session_id,
            status = excluded.status, task = excluded.task, payload = excluded.payload,
-           attempts = 0, last_error = NULL
-         WHERE brain_subagent_results.delivery_state = 'pending'
-           AND brain_subagent_results.result_id LIKE '${SYNTHETIC_RESTART_RESULT_PREFIX}%'
+           attempts = 0, last_error = NULL,
+           delivery_state = 'pending', acknowledged_at = NULL
+         WHERE brain_subagent_results.result_id LIKE '${SYNTHETIC_RESTART_RESULT_PREFIX}%'
            AND excluded.result_id NOT LIKE '${SYNTHETIC_RESTART_RESULT_PREFIX}%'`
       ).run(result.id, parentSessionId, result.toolCallId, result.sessionId, result.status, result.task, payload);
       const row = this.db.prepare(

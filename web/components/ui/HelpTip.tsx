@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom';
 import { HelpCircle } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 
-// Grace period before the tooltip closes, so the pointer can bridge the gutter from the trigger onto
-// the body (and back) without it vanishing mid-hover.
+// Grace period before the tooltip closes, so a pointer that clips the gutter on its way past the trigger
+// doesn't make it flicker.
 const CLOSE_DELAY_MS = 120;
 
 /** A small "?" that reveals a custom tooltip on hover/focus. For inline field help. */
@@ -68,12 +68,13 @@ export function HelpTip({ children, align = 'right' }: { children: ReactNode; al
 
   const tooltip = open && typeof document !== 'undefined'
     ? createPortal(
+      // `pointer-events-none` is load-bearing: the body floats over neighbouring controls, and it holds no
+      // links or selectable data worth reaching, so it must never intercept a click meant for the field
+      // underneath. It stays open only while the trigger itself is hovered or focused.
       <span
         ref={tooltipRef}
         role="tooltip"
-        onMouseEnter={show}
-        onMouseLeave={scheduleClose}
-        className={`fixed z-[130] w-64 rounded-md border border-border bg-surface p-3 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-muted${position ? '' : ' invisible'}`}
+        className={`pointer-events-none fixed z-[130] w-64 rounded-md border border-border bg-surface p-3 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-muted${position ? '' : ' invisible'}`}
         style={{ left: position?.left ?? 0, top: position?.top ?? 0, boxShadow: 'var(--shadow-raised)' }}
       >
         {children}

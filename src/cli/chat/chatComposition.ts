@@ -484,8 +484,13 @@ export function createChatComposition(
 
   let thinkStart = 0;
   let interruptArmedUntil = 0;
+  /** The armed window came from the daemon reporting its queue already drained — i.e. `rt.queued` is stale.
+   *  ONLY then may the next Esc bypass the queue branch; a window armed by an ordinary first press must not,
+   *  or an Esc following a message the user queued in between would destroy it instead of injecting it. */
+  let queueMirrorStale = false;
   const clearInterruptArm = (): void => {
     interruptArmedUntil = 0;
+    queueMirrorStale = false;
     animations.cancelVisual('interrupt-arm');
   };
   // Arm (or re-arm) the destructive-stop confirmation window and schedule its own visual disarm. Shared by
@@ -733,12 +738,11 @@ export function createChatComposition(
   editor.onEscape = (): boolean => {
     if (rt.childView) { stream.closeSubagent(); return true; }
     if (rt.transcript.thinking) {
-      // An armed window means the user already pressed Esc once and the footer promised the next press stops
-      // the turn. Honor that promise BEFORE consulting `rt.queued`: the mirror can lag the server (PI drained
-      // the queue but its event has not landed), and that is exactly how the window gets armed — by a
-      // queue-interrupt the server refused. Re-entering the queue branch on a stale mirror would re-issue the
-      // same no-op request forever and the user could never stop the turn.
-      if (rt.queued.length > 0 && interruptArmedUntil <= Date.now()) {
+      // Skip the queue branch only when the daemon has TOLD us this queue is already drained (a stale
+      // mirror). Re-entering it then would re-issue the same no-op request forever and the turn could never
+      // be stopped, while the footer promises the opposite. A window armed by an ordinary first press does
+      // not skip it: a message queued in between is real, and Esc must inject it rather than destroy it.
+      if (rt.queued.length > 0 && !(queueMirrorStale && interruptArmedUntil > Date.now())) {
         clearInterruptArm();
         rt.notice = color.dim('interrupting · injecting queued message…');
         render('input:queue-interrupt');
@@ -749,8 +753,10 @@ export function createChatComposition(
               rt.notice = color.success('queued message injected');
             } else {
               // The server saw an empty queue (the SSE mirror already drained it) and deliberately did NOT
-              // abort. Fall into the two-press disarm window so a follow-up Esc still stops the parent turn.
+              // abort. Fall into the two-press disarm window so a follow-up Esc still stops the parent turn,
+              // and remember that the mirror lied so that press is not routed back here.
               armInterrupt(Date.now() + INTERRUPT_CONFIRM_MS);
+              queueMirrorStale = true;
               rt.notice = color.dim('queue already delivered · esc again to interrupt');
             }
             render('state:queue-interrupt-complete');
