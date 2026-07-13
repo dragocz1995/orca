@@ -1561,6 +1561,9 @@ export const cs = {
     exited: 'ukončeno',
     kill: 'Ukončit proces',
     noOutput: '(zatím žádný výstup)',
+    subagent: 'sub-agent',
+    channel: 'kanál',
+    otherChat: 'jiná konverzace',
   },
   agents: {
     title: 'Agenti',

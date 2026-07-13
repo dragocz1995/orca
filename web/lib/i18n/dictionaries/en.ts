@@ -1561,6 +1561,9 @@ export const en = {
     exited: 'exited',
     kill: 'Kill process',
     noOutput: '(no output yet)',
+    subagent: 'sub-agent',
+    channel: 'channel',
+    otherChat: 'other chat',
   },
   agents: {
     title: 'Agents',

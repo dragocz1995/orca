@@ -248,6 +248,9 @@ export function BrainChat() {
   /** When set, we're VIEWING a non-continuable session (a Discord channel or a task worker) read-only:
    *  its history is shown, but there's no live stream and the composer is replaced by an exit banner. */
   const [readOnly, setReadOnly] = useState<string | null>(null);
+  /** The live conversation on screen. The process panel lists every session the user owns (that is how an
+   *  orphaned sub-agent service stays findable), so it needs this to tell a local row from a foreign one. */
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -290,7 +293,7 @@ export function BrainChat() {
     await elowenClient.brainStart({});
     await loadHistory();
     const st = await elowenClient.brainStatus().catch(() => null);
-    if (st) { setUsage(st.usage); setLineCfg(st.statusline); if (st.pendingAsk) setAsk(st.pendingAsk); setCards(st.cards ?? []); setQueued(st.queued ?? []); }
+    if (st) { setUsage(st.usage); setLineCfg(st.statusline); setActiveSessionId(st.sessionId); if (st.pendingAsk) setAsk(st.pendingAsk); setCards(st.cards ?? []); setQueued(st.queued ?? []); }
     const es = new EventSource(`${BASE}/brain/stream`);
     es.addEventListener('text', (e) => {
       const { delta } = JSON.parse((e as MessageEvent).data) as { delta: string };
@@ -325,6 +328,7 @@ export function BrainChat() {
     // `user` event onto the (carried-over) listeners and streams its reply. Session list refreshes too.
     es.addEventListener('session', (e) => {
       const ev = JSON.parse((e as MessageEvent).data) as { sessionId: string };
+      setActiveSessionId(ev.sessionId); // the conversation rolled over — the panel's local/foreign split moves with it
       setCards([]); // display cards belonged to the previous conversation
       // Reset to the fresh (empty) conversation; the daemon re-emits the triggering message as a `user`
       // event and streams its reply, so the transcript rebuilds purely from the stream. No history refetch
@@ -671,7 +675,7 @@ export function BrainChat() {
         ) : null}
         {turns.map((turn, i) => <Message key={i} turn={turn} />)}
         {cards.filter((c) => c.id !== 'bg-processes').map((card) => <CardBlock key={card.id} card={card} />)}
-        <ProcessPanel />
+        <ProcessPanel activeSessionId={activeSessionId} />
         {/* Workflow view: a clickable link that opens the table of delegated agents (drill-in / back). */}
         {subagents.length > 0 ? (
           <button

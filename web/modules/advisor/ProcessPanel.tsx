@@ -34,9 +34,26 @@ function ProcessOutputModal({ proc, onClose }: { proc: ProcessInfo; onClose: () 
   );
 }
 
+/** Where a process came from, when that is NOT the conversation currently on screen: a delegated sub-agent
+ *  (`brain-ch-subagent-…`), another channel session (Discord/WhatsApp…), or one of the user's OTHER chats.
+ *  The list spans every session the user owns (that is what makes an orphaned service findable at all), so
+ *  every foreign row MUST be badged — an unbadged row is one this conversation started, and only that. */
+function originLabel(
+  sessionId: string | null,
+  activeSessionId: string | null,
+  t: ReturnType<typeof useTranslation>['t'],
+): string | null {
+  if (sessionId && sessionId === activeSessionId) return null;
+  if (sessionId?.startsWith('brain-ch-subagent-')) return t.processes.subagent;
+  if (sessionId?.startsWith('brain-ch-')) return t.processes.channel;
+  // A plain `brain-N` that is not the open conversation (or a handle whose origin we cannot resolve).
+  return t.processes.otherChat;
+}
+
 /** A panel next to the todos listing the background shell processes the agent started. Each row opens a
- *  live-output modal on click and carries an ✕ to kill it. Hidden when there are none. */
-export function ProcessPanel() {
+ *  live-output modal on click and carries an ✕ to kill it. Hidden when there are none. The list is
+ *  owner-wide, not conversation-wide, so `activeSessionId` is what tells a local row from a foreign one. */
+export function ProcessPanel({ activeSessionId = null }: { activeSessionId?: string | null }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: procs = [] } = useBrainProcesses();
@@ -59,7 +76,9 @@ export function ProcessPanel() {
         <span className="tabular-nums opacity-70">{runningCount}</span>
       </div>
       <ul className="flex flex-col gap-0.5">
-        {procs.map((p) => (
+        {procs.map((p) => {
+          const origin = originLabel(p.sessionId, activeSessionId, t);
+          return (
           <li key={p.id} className="group flex items-center gap-1.5">
             <span className={`shrink-0 ${p.running ? 'text-success' : 'text-text-muted'}`} title={p.running ? t.processes.running : t.processes.exited}>●</span>
             <button
@@ -70,6 +89,9 @@ export function ProcessPanel() {
             >
               {p.command}
             </button>
+            {origin ? (
+              <span className="shrink-0 rounded bg-bg px-1 text-[10px] text-text-muted" title={p.sessionId ?? undefined}>{origin}</span>
+            ) : null}
             <button
               type="button"
               onClick={() => void kill(p.id)}
@@ -80,7 +102,8 @@ export function ProcessPanel() {
               <X size={11} aria-hidden />
             </button>
           </li>
-        ))}
+          );
+        })}
       </ul>
       {openProc ? <ProcessOutputModal proc={openProc} onClose={() => setOpenId(null)} /> : null}
     </div>

@@ -119,7 +119,9 @@ export interface BrainCard { id: string; title?: string; items?: BrainCardItem[]
 
 /** One background shell process (terminal plugin's `run_command(background:true)`) — the process panel
  *  next to the todos lists these, reads output for the modal, and kills on demand. */
-export interface ProcessInfo { id: string; command: string; cwd: string; startedAt: string; running: boolean; exitCode: number | null }
+/** `sessionId` is the brain session the process was started in — the panel derives the origin badge
+ *  (sub-agent / channel) from it; null when the process has no session. */
+export interface ProcessInfo { id: string; command: string; cwd: string; startedAt: string; sessionId: string | null; running: boolean; exitCode: number | null }
 /** Live statusline numbers for the active conversation. */
 export interface BrainUsage { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
 /** The statusline plugin's display toggles (null = plugin disabled). */
