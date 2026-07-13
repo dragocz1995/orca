@@ -129,6 +129,7 @@ export function compositionHarness(options: {
     killProcess: async () => true,
     processes: async () => [],
     abort: async () => {},
+    interruptQueued: async () => ({ interrupted: false, injected: false }),
     queueRemove: async () => true,
   };
   const resources = {

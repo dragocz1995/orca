@@ -209,7 +209,7 @@ describe('StreamCoordinator — idle rollover', () => {
     stream.openStream(ac);
     const before = rt.transcript.revision;
 
-    const proc = { id: 'p1', command: 'npm run dev', cwd: '/x', startedAt: '2026-01-01T00:00:00.000Z', running: true, exitCode: null };
+    const proc = { id: 'p1', command: 'npm run dev', cwd: '/x', startedAt: '2026-01-01T00:00:00.000Z', sessionId: null, running: true, exitCode: null };
     onEvent({ type: 'process', processes: [proc] });
     expect(rt.processes).toEqual([proc]);
     expect(rt.transcript.revision).toBe(before); // process state does not mutate the transcript model

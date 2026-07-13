@@ -141,10 +141,9 @@ export class CardPanel implements Component {
         this.collapsed,
       );
       if (isTodoPreview) {
-        const moreRow = lines.length + 1 + TODO_PREVIEW_ITEMS;
-        const hidden = (c.items?.length ?? 0) - TODO_PREVIEW_ITEMS;
-        block[1 + TODO_PREVIEW_ITEMS] = `    ${color.faint(`… +${hidden} more`)}`;
-        this.moreRows.add(moreRow);
+        // cardBlock already emits the `… +N more` note as the row right after the previewed items; just
+        // register its clickable position — re-writing it here duplicated the exact same string.
+        this.moreRows.add(lines.length + 1 + TODO_PREVIEW_ITEMS);
       } else if (isTodoExpanded) {
         const lessRow = lines.length + block.length;
         block.push(`    ${color.faint('▴ Show less')}`);
@@ -507,17 +506,28 @@ function diffLine(line: string, width?: number): string {
   return CODE_ROW(width ? padAnsi(`${color.faint(gutter)} ${color.dim(text)}`, width) : `${color.faint(gutter)} ${color.dim(text)}`);
 }
 
-/** Render a display diff with stable line numbers and git-style add/delete colors. Indented under the
- *  file-action label and capped so a huge edit can't flood the conversation. */
-export function diffBlock(diff: string, maxLines = 60, rowWidth?: number): string[] {
-  const raw = terminalPlainText(diff).replace(/\n+$/, '');
-  const rendered = raw.split('\n').map((l) => {
+/** Sanitize a display diff into terminal-safe raw rows. This is the single expensive parse pass; both
+ *  {@link diffBlock} and {@link framedDiffBlock} reuse its output so a diff is never scanned twice. */
+function parseDiffRows(diff: string): string[] {
+  return terminalPlainText(diff).replace(/\n+$/, '').split('\n');
+}
+
+/** Colour pre-parsed diff rows (see {@link parseDiffRows}) with stable line numbers and git-style
+ *  add/delete backgrounds, capped so a huge edit can't flood the conversation. */
+function renderDiffRows(rows: readonly string[], maxLines = 60, rowWidth?: number): string[] {
+  const rendered = rows.map((l) => {
     const s = PI_ROW.exec(l)?.[1] ?? LEGACY_SIGN.exec(l)?.[1];
     return s === '+' || s === '-' || s === ' ' ? diffLine(l, rowWidth) : CODE_ROW(rowWidth ? padAnsi(color.dim(l), rowWidth) : color.dim(l));
   });
   const shown = rendered.slice(0, maxLines).map((l) => `    ${l}`);
   if (rendered.length > maxLines) shown.push(`    ${FAINTC(`… +${rendered.length - maxLines} more lines`)}`);
   return shown;
+}
+
+/** Render a display diff with stable line numbers and git-style add/delete colors. Indented under the
+ *  file-action label and capped so a huge edit can't flood the conversation. */
+export function diffBlock(diff: string, maxLines = 60, rowWidth?: number): string[] {
+  return renderDiffRows(parseDiffRows(diff), maxLines, rowWidth);
 }
 
 // A tool's nested block (diff / console output) sits one level DEEPER than the 4-space tool row: its
@@ -542,25 +552,22 @@ function simpleBlock(title: string, lines: string[], width: number, footer?: str
   return out;
 }
 
-/** File diff preview for the chat transcript: quiet left label + code rows, no decorative frame. */
-export function hasHiddenDiffLines(diff: string, maxLines = 18): boolean {
-  const raw = terminalPlainText(diff).replace(/\n+$/, '');
-  return raw ? raw.split('\n').length > maxLines : false;
-}
-
-export function framedDiffBlock(diff: string, width: number, title = 'diff', expanded = false): string[] {
+/** File diff preview for the chat transcript: quiet left label + code rows, no decorative frame. The
+ *  diff is parsed exactly once ({@link parseDiffRows}); the caller marks the trailing row as the
+ *  expand/collapse toggle iff `expandable` is true. When collapsed, `renderDiffRows` already emits the
+ *  `… +N more lines` note as that trailing row, so no redundant replacement is needed. */
+export function framedDiffBlock(
+  diff: string, width: number, title = 'diff', expanded = false,
+): { lines: string[]; expandable: boolean } {
   const inner = Math.max(24, width - 12);
   const previewLines = 18;
-  const expandable = hasHiddenDiffLines(diff, previewLines);
-  const total = terminalPlainText(diff).replace(/\n+$/, '').split('\n').length;
-  const lines = diffBlock(diff, expanded ? Number.POSITIVE_INFINITY : previewLines, inner);
-  if (expandable) {
-    const label = expanded ? '▴ Click to collapse' : `… +${total - previewLines} more lines`;
-    const toggle = `    ${color.faint(label)}`;
-    if (expanded) lines.push(toggle);
-    else lines[lines.length - 1] = toggle;
-  }
-  return simpleBlock(title, lines, width);
+  const rows = parseDiffRows(diff);
+  const expandable = rows.length > previewLines;
+  const lines = renderDiffRows(rows, expanded ? Number.POSITIVE_INFINITY : previewLines, inner);
+  // Expanded shows every row, so append the collapse affordance; collapsed already carries the
+  // more-lines note as its last row.
+  if (expandable && expanded) lines.push(`    ${color.faint('▴ Click to collapse')}`);
+  return { lines: simpleBlock(title, lines, width), expandable };
 }
 
 /** Console/tool output preview. The daemon already decides which tool results are worth showing;

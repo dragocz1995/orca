@@ -9,6 +9,7 @@ import { OverlayController } from '../../../src/cli/chat/overlayController.js';
 import { RenderShell } from '../../../src/cli/chat/renderShell.js';
 import { createChatComposition } from '../../../src/cli/chat/chatComposition.js';
 import type { ChatComposition, ShellInputDeps } from '../../../src/cli/chat/chatComposition.js';
+import { SubagentPanel } from '../../../src/cli/chat/components.js';
 import { openPicker } from '../../../src/cli/chat/picker.js';
 import type { TuiDiagnostics } from '../../../src/cli/chat/tuiDiagnostics.js';
 import { startScreenBox, startScreenInputTop, TOP_RULE_ROWS } from '../../../src/cli/chat/startScreen.js';
@@ -693,6 +694,7 @@ describe('chat application shell ownership', () => {
       activeViewport: () => viewport,
       panelVisible: () => false,
       panelLeftEdge: () => 80,
+      subPanel: { canScroll: () => false },
       slashOverlay: () => null,
       mentionOverlay: () => null,
     } as unknown as ChatInputContext;
@@ -716,6 +718,61 @@ describe('chat application shell ownership', () => {
     expect(calls.indexOf('request:scroll:drag-index')).toBeGreaterThanOrEqual(0);
     expect(calls.indexOf('request:scroll:drag-index')).toBeLessThan(calls.indexOf('work:drag-index'));
     listener('\x1b[<0;79;8m');
+    router.stop();
+  });
+
+  it('gives the narrow sub-agent fallback the wheel while the pointer is over it, not the transcript', () => {
+    let listener!: (data: string) => { consume: boolean } | undefined;
+    const tui = { addInputListener: vi.fn((next) => { listener = next; return vi.fn(); }) } as unknown as TUI;
+    const subPanel = new SubagentPanel();
+    subPanel.setMaxRows(4); // header + a 3-row viewport
+    subPanel.set(Array.from({ length: 8 }, (_, index) => ({
+      sessionId: `child-${index}`, task: `task ${index}`, status: 'running' as const, tools: 0, seconds: index + 1,
+    })));
+    const viewport = { scroll: vi.fn() };
+    const render = vi.fn();
+    const context = {
+      state: { childView: null }, term: { columns: 120, write: vi.fn() },
+      editor: { focused: true, getText: () => '' },
+      stream: {}, quit: vi.fn(), renderForced: vi.fn(),
+      keymap: () => ({ matches: () => false, isLeader: () => false, directAction: () => null }),
+      leader: () => ({ pending: () => false }), dispatchAction: vi.fn(), render,
+      animations: { nudgeMascot: vi.fn() }, hasMessages: () => true,
+      activeViewport: () => viewport,
+      panelVisible: () => false, panelLeftEdge: () => 120,
+      slashOverlay: () => null, mentionOverlay: () => null,
+      rowBudget: () => ({ sections: { transcript: 5 } }),
+      subPanel, cardPanel: { isMoreRow: () => false, isHeaderRow: () => false },
+      chatWidth: () => 120,
+    } as unknown as ChatInputContext;
+    const router = new InputRouter(tui, context);
+    router.attach();
+
+    const header = (): string => subPanel.render(120)[0]!.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(header()).toContain('1–3/8');
+
+    // panelsTop = TOP_RULE_ROWS + transcript(5) + 1 = 7; a wheel over the first agent row (screen row 8)
+    // scrolls the fallback, never the transcript beneath it.
+    const agentRowY = TOP_RULE_ROWS + 5 + 1 + 1;
+    expect(listener(`\x1b[<65;10;${agentRowY}M`)).toEqual({ consume: true });
+    expect(header()).toContain('4–6/8');
+    expect(viewport.scroll).not.toHaveBeenCalled();
+    expect(render).toHaveBeenCalledWith('scroll:subagents');
+
+    // A wheel above the panel (over the transcript) leaves the panel untouched and scrolls history.
+    render.mockClear();
+    expect(listener('\x1b[<65;10;2M')).toEqual({ consume: true });
+    expect(header()).toContain('4–6/8'); // unchanged
+    expect(viewport.scroll).toHaveBeenCalledWith(-3);
+
+    // With only two agents the fallback can't scroll, so the wheel falls through to the transcript.
+    viewport.scroll.mockClear();
+    subPanel.set(Array.from({ length: 2 }, (_, index) => ({
+      sessionId: `few-${index}`, task: `few ${index}`, status: 'running' as const, tools: 0, seconds: 1,
+    })));
+    expect(subPanel.canScroll()).toBe(false);
+    expect(listener(`\x1b[<65;10;${agentRowY}M`)).toEqual({ consume: true });
+    expect(viewport.scroll).toHaveBeenCalledWith(-3);
     router.stop();
   });
 
@@ -878,6 +935,34 @@ describe('chat application shell ownership', () => {
     expect(interruptQueued).toHaveBeenCalledOnce();
     expect(abort).not.toHaveBeenCalled();
     expect(terminalPlainText(h.rt.notice)).toContain('queued message injected');
+    composition.dispose();
+  });
+
+  it('arms a destructive stop when the server reports the queue already drained', async () => {
+    const h = compositionHarness({ columns: 100, rows: 24, turns: 6 });
+    h.rt.transcript.apply({ type: 'text', delta: 'working' });
+    h.rt.queued = [{ id: '0', text: 'change direction now' }];
+    const interruptQueued = vi.fn(async () => ({ interrupted: false, injected: false }));
+    const abort = vi.fn(async () => {});
+    Object.assign(h.resources.client, { interruptQueued, abort });
+    const composition = makeComposition(h);
+
+    // Esc #1: the mirror still shows a queued message, so the client asks the server to inject. The server
+    // saw the queue already drained → no abort, and the client arms the two-press stop window instead.
+    expect(h.resources.editor.onEscape?.()).toBe(true);
+    await vi.advanceTimersByTimeAsync(0); // resolve the RPC without letting the 1800ms disarm timer fire
+    expect(interruptQueued).toHaveBeenCalledOnce();
+    expect(abort).not.toHaveBeenCalled();
+    expect(terminalPlainText(h.rt.notice)).toContain('queue already delivered');
+
+    // Esc #2 arrives while the mirror is STILL stale — and the footer has just promised that this press
+    // stops the turn. The armed window must win over the stale queue: pressing Esc again really aborts,
+    // instead of re-issuing the no-op queue request the server already refused (which would leave the user
+    // unable to stop the turn at all until the SSE event lands).
+    expect(h.resources.editor.onEscape?.()).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(abort).toHaveBeenCalledOnce();
+    expect(interruptQueued).toHaveBeenCalledOnce();
     composition.dispose();
   });
 

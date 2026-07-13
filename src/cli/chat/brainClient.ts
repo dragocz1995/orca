@@ -205,7 +205,11 @@ export class BrainClient {
     await this.post('/brain/abort', this.bound ? { session: this.bound } : {});
   }
 
-  /** Abort the active turn and promote its oldest PI-native queued message into a fresh turn. */
+  /** Abort the active turn and promote its oldest PI-native queued message into a fresh turn. The server
+   *  is authoritative about the queue: when it finds the queue already drained it returns
+   *  `{ interrupted: false, injected: false }` WITHOUT aborting the turn, so a client that raced the SSE
+   *  mirror never destructively stops a turn it only meant to steer. `interrupted:true` therefore means the
+   *  turn was actually aborted; `injected:true` means a queued message was promoted into a fresh turn. */
   async interruptQueued(): Promise<{ interrupted: boolean; injected: boolean }> {
     const binding = this.bound && this.boundGeneration !== undefined
       ? { session: this.bound, client: this.clientId, generation: this.boundGeneration }

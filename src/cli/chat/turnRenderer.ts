@@ -3,7 +3,7 @@ import type { MarkdownTheme } from '@earendil-works/pi-tui';
 import type { ChatTurn, ToolItem } from '../../brain/transcript.js';
 import { groupToolItems } from '../../brain/transcript.js';
 import { formatDuration, formatK, padAnsi, terminalInlineText, terminalPlainText } from '../ui/text.js';
-import { framedDiffBlock, hasHiddenDiffLines, toolOutputBlock, UserBlock } from './components.js';
+import { framedDiffBlock, toolOutputBlock, UserBlock } from './components.js';
 import { chatTheme, color } from './theme.js';
 
 export const TOOL_INDENT = '    ';
@@ -80,8 +80,7 @@ export class TurnRenderer {
           }
           if (item.diff) {
             const diffKey = `${key}:diff`;
-            const expandable = hasHiddenDiffLines(item.diff);
-            const block = framedDiffBlock(
+            const { lines: block, expandable } = framedDiffBlock(
               item.diff, width, toolRowSpec(item.name, item.detail).title,
               options.expandedTools.has(diffKey),
             );

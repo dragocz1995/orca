@@ -82,6 +82,15 @@ export class InputRouter {
 
   cancelPanelResize(): void { this.resizingPanel = false; }
 
+  /** Row index inside the compact fallback stack (sub-agents + cards) for a 1-based screen row `y`, or a
+   * negative value when `y` sits above it. The fallback panels render flush under the transcript; the
+   * telemetry rail owns its own hit testing. Shared by the click and wheel routes so both agree on the
+   * panel band. */
+  private fallbackPanelRow(y: number): number {
+    const panelsTop = TOP_RULE_ROWS + this.context.rowBudget().sections.transcript + 1;
+    return y - panelsTop;
+  }
+
   private route(data: string): InputRouteResult {
     const context = this.context;
     const { state: rt, stream, editor, term } = context;
@@ -154,9 +163,7 @@ export class InputRouter {
       return { consume: true };
     }
     if (click && noModal) {
-      const budget = context.rowBudget();
-      const panelsTop = TOP_RULE_ROWS + budget.sections.transcript + 1;
-      const subRelative = click.y - panelsTop;
+      const subRelative = this.fallbackPanelRow(click.y);
       const renderedSubRows = context.subPanel.render(context.chatWidth()).length;
       if (subRelative >= 0 && context.subPanel.isHeaderRow(subRelative)) {
         context.subPanel.toggleCollapsed();
@@ -184,6 +191,17 @@ export class InputRouter {
       // Keep wheel ownership stable at both ends of the list: reaching its boundary must not suddenly
       // start moving the transcript underneath the pointer.
       return { consume: true };
+    }
+    // Narrow terminals drop the rail and render the sub-agent list as a compact fallback under the
+    // transcript (subPanel is populated only then — the two are mutually exclusive). Give that panel the
+    // same wheel ownership while the pointer sits over it, instead of leaking the scroll to the transcript.
+    if (wheel && noModal && event && context.subPanel.canScroll()) {
+      const subRelative = this.fallbackPanelRow(event.y);
+      const renderedSubRows = context.subPanel.render(context.chatWidth()).length;
+      if (subRelative >= 0 && subRelative < renderedSubRows) {
+        if (context.subPanel.scroll(wheel)) context.render('scroll:subagents');
+        return { consume: true };
+      }
     }
     if (wheel && noModal) {
       context.render('scroll:wheel');

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { initTheme } from '@earendil-works/pi-coding-agent';
-import { UserBlock, StatusBar, CardPanel, SubagentPanel, ProcessPanel, QueuedMessages, ApprovalDock, diffBlock, cardBlock, toolOutputBlock } from '../../../src/cli/chat/components.js';
+import { UserBlock, StatusBar, CardPanel, SubagentPanel, ProcessPanel, QueuedMessages, ApprovalDock, diffBlock, framedDiffBlock, cardBlock, toolOutputBlock } from '../../../src/cli/chat/components.js';
+
+const strip = (lines: string[]): string[] => lines.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''));
 
 describe('chat components', () => {
   beforeAll(() => { initTheme(); }); // renderDiff needs the pi theme
@@ -99,6 +101,35 @@ describe('chat components', () => {
     const out = diffBlock(diff);
     expect(out).toHaveLength(61);
     expect(out[60]).toContain('+10 more lines');
+  });
+
+  it('framedDiffBlock reports a collapsed diff as expandable with the more-lines note as its last row', () => {
+    const diff = Array.from({ length: 25 }, (_, i) => `+    ${i + 1} line ${i + 1}`).join('\n');
+    const { lines, expandable } = framedDiffBlock(diff, 80, 'diff', false);
+    expect(expandable).toBe(true);
+    const plain = strip(lines);
+    expect(plain.at(-1)).toContain('… +7 more lines'); // 25 rows − 18 preview
+    expect(plain.join('\n')).not.toContain('Click to collapse');
+    expect(plain.join('\n')).not.toContain('line 25'); // hidden while collapsed
+  });
+
+  it('framedDiffBlock shows every row and appends a collapse affordance when expanded', () => {
+    const diff = Array.from({ length: 25 }, (_, i) => `+    ${i + 1} line ${i + 1}`).join('\n');
+    const { lines, expandable } = framedDiffBlock(diff, 80, 'diff', true);
+    expect(expandable).toBe(true);
+    const plain = strip(lines);
+    expect(plain.at(-1)).toContain('▴ Click to collapse');
+    expect(plain.join('\n')).toContain('line 25');
+    expect(plain.join('\n')).not.toContain('more lines');
+  });
+
+  it('framedDiffBlock marks a short diff non-expandable with no toggle row', () => {
+    const { lines, expandable } = framedDiffBlock('+  1 only line', 80, 'diff', false);
+    expect(expandable).toBe(false);
+    const plain = strip(lines).join('\n');
+    expect(plain).toContain('only line');
+    expect(plain).not.toContain('more lines');
+    expect(plain).not.toContain('Click to collapse');
   });
 
   it('encodes persisted tool output as terminal-safe printable rows', () => {
@@ -255,6 +286,27 @@ describe('chat components', () => {
     expect(plain).toContain('Pending B');
     expect(plain).not.toContain('Pending C');
     expect(plain).toContain('+1 more');
+  });
+
+  it('CardPanel emits the previewed Todo more-row exactly once even with a card body', () => {
+    const panel = new CardPanel();
+    panel.setMaxRows(30);
+    panel.set([{
+      id: 'todos', title: 'Todos', pinned: true, body: 'body note',
+      items: Array.from({ length: 8 }, (_, i) => ({ text: `Task ${i}`, status: 'pending' as const })),
+    }]);
+    const plain = strip(panel.render(80));
+    const moreRows = plain.filter((line) => /\+\d+ more/.test(line));
+    expect(moreRows).toHaveLength(1); // no duplicate emitter re-writing the note cardBlock already added
+    expect(moreRows[0]).toContain('+4 more'); // 8 items − 4 previewed
+    const moreIndex = plain.findIndex((line) => /\+\d+ more/.test(line));
+    expect(panel.isMoreRow(moreIndex)).toBe(true);
+    expect(plain.join('\n')).toContain('body note');
+
+    panel.toggleExpanded();
+    const expanded = strip(panel.render(80));
+    expect(expanded.filter((line) => /\+\d+ more/.test(line))).toHaveLength(0);
+    expect(expanded.some((line) => line.includes('Show less'))).toBe(true);
   });
 
   it('cardBlock renders a compact todo checklist plus optional body', () => {

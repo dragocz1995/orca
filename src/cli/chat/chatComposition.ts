@@ -488,6 +488,14 @@ export function createChatComposition(
     interruptArmedUntil = 0;
     animations.cancelVisual('interrupt-arm');
   };
+  // Arm (or re-arm) the destructive-stop confirmation window and schedule its own visual disarm. Shared by
+  // the two-press parent-turn path and the empty-queue fallback, so a follow-up Esc aborts consistently.
+  const armInterrupt = (armedUntil: number): void => {
+    interruptArmedUntil = armedUntil;
+    animations.scheduleVisual('interrupt-arm', INTERRUPT_CONFIRM_MS, () => {
+      if (interruptArmedUntil === armedUntil) { clearInterruptArm(); render('input:interrupt-expired'); }
+    });
+  };
   const prepareFrame = (): void => {
     if (!panelVisible()) cancelFloat();
     if (rt.transcript.thinking) {
@@ -725,16 +733,26 @@ export function createChatComposition(
   editor.onEscape = (): boolean => {
     if (rt.childView) { stream.closeSubagent(); return true; }
     if (rt.transcript.thinking) {
-      if (rt.queued.length > 0) {
+      // An armed window means the user already pressed Esc once and the footer promised the next press stops
+      // the turn. Honor that promise BEFORE consulting `rt.queued`: the mirror can lag the server (PI drained
+      // the queue but its event has not landed), and that is exactly how the window gets armed — by a
+      // queue-interrupt the server refused. Re-entering the queue branch on a stale mirror would re-issue the
+      // same no-op request forever and the user could never stop the turn.
+      if (rt.queued.length > 0 && interruptArmedUntil <= Date.now()) {
         clearInterruptArm();
         rt.notice = color.dim('interrupting · injecting queued message…');
         render('input:queue-interrupt');
         lifetime.runSession(
           () => client.interruptQueued(),
           (result) => {
-            rt.notice = result.injected
-              ? color.success('queued message injected')
-              : color.dim('agent stopped · queue was already empty');
+            if (result.injected) {
+              rt.notice = color.success('queued message injected');
+            } else {
+              // The server saw an empty queue (the SSE mirror already drained it) and deliberately did NOT
+              // abort. Fall into the two-press disarm window so a follow-up Esc still stops the parent turn.
+              armInterrupt(Date.now() + INTERRUPT_CONFIRM_MS);
+              rt.notice = color.dim('queue already delivered · esc again to interrupt');
+            }
             render('state:queue-interrupt-complete');
           },
           (error) => {
@@ -745,15 +763,11 @@ export function createChatComposition(
         return true;
       }
       const next = interruptPress(interruptArmedUntil, Date.now());
-      interruptArmedUntil = next.armedUntil;
-      animations.cancelVisual('interrupt-arm');
       if (next.abort) {
+        clearInterruptArm();
         lifetime.runSession(() => client.abort(), () => {}, () => { /* already idle */ });
       } else {
-        const armed = interruptArmedUntil;
-        animations.scheduleVisual('interrupt-arm', INTERRUPT_CONFIRM_MS, () => {
-          if (interruptArmedUntil === armed) { clearInterruptArm(); render('input:interrupt-expired'); }
-        });
+        armInterrupt(next.armedUntil);
       }
       render('input:interrupt-arm');
       return true;
