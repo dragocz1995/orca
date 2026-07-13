@@ -10,6 +10,10 @@ const MAX_BACKGROUND_JOBS = 64;
 const JOB_RETENTION_MS = 60 * 60_000;
 const MAX_STORED_RESULT_CHARS = 100_000;
 const MAX_STORED_TASK_CHARS = 2_000;
+// A child that starts background work gets a bounded number of extra collect turns to read the output
+// and produce the real conclusion, each waiting at most this long for the session's jobs to go idle.
+const MAX_COLLECT_TURNS = 8;
+const JOB_WAIT_TIMEOUT_MS = 5 * 60_000;
 
 const ok = (text, details = {}) => ({ content: [{ type: 'text', text }], details });
 const errorText = (e) => e instanceof Error ? e.message : String(e);
@@ -21,8 +25,33 @@ const principalOf = (identity) => {
   const userId = typeof identity.userId === 'string' ? identity.userId.trim() : '';
   return platform && userId ? `${platform}:${userId}` : null;
 };
+// Local copy: plugins import only packaged deps, never daemon sources (see src/shared/xml.ts).
 const xmlEscape = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;')
   .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+
+// Build one collect-turn reminder. It only ever contains a block that has rows: a
+// <background-processes-finished> listing (jobs that finished SINCE the previous turn — never re-listed)
+// and/or, when the idle wait timed out, a <background-processes-still-running> listing paired with a
+// kill / keep-waiting / finish decision. Never emits an empty element.
+const buildCollectReminder = (finished, stillRunning) => {
+  const parts = ['<system-reminder>'];
+  if (finished.length > 0) {
+    const rows = finished.map((proc) => `- ${xmlEscape(proc.id)}: ${xmlEscape(proc.command)} (exit ${proc.exitCode})`).join('\n');
+    parts.push(`<background-processes-finished>\n${rows}\n</background-processes-finished>`);
+  }
+  if (stillRunning.length > 0) {
+    const rows = stillRunning.map((proc) => `- ${xmlEscape(proc.id)}: ${xmlEscape(proc.command)}`).join('\n');
+    parts.push(`<background-processes-still-running>\n${rows}\n</background-processes-still-running>`);
+    parts.push('<instruction>These background processes are still running after a long wait. Either '
+      + 'kill_process the ones you no longer need, keep waiting only if their output is essential, or '
+      + 'finish the delegated task now with what you already have.</instruction>');
+  } else {
+    parts.push('<instruction>Read the finished process output, finish the delegated task, and return the '
+      + 'final result now.</instruction>');
+  }
+  parts.push('</system-reminder>');
+  return `${parts.join('\n')}\n`;
+};
 
 export function register(ctx) {
   let run = null; // the host's channel handler, captured on connect
@@ -111,8 +140,10 @@ export function register(ctx) {
         sessionId: job.sessionId,
         status,
         task: job.task,
-        // Child tool/process details belong to the isolated child transcript. The parent receives only
-        // lifecycle counters + the final result and can drill into sessionId for the full trace.
+        // `detail` is a UI/store projection only (web AgentsTable + CLI live progress): it surfaces the
+        // child's current tool so the operator can watch progress. The model-facing running-subagents
+        // reminder deliberately omits it — the parent must not steer on the child's internal tool trace.
+        detail: job.detail,
         tools: job.tools,
         tokens: job.tokens,
         seconds: Math.round((Date.now() - job.startedAt) / 1000),
@@ -148,9 +179,10 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'delegate', label: 'Delegate to sub-agent',
     description: 'Hand a self-contained task to a fresh sub-agent with its own clean context. By default '
-      + 'this waits for and returns the result. Set background=true for an independent side-quest and use '
-      + 'delegate_status / delegate_result later; continue useful work instead of repeatedly polling it. '
-      + 'The sub-agent has the same tools and access as you.',
+      + 'this waits for and returns the result. Set background=true for an independent side-quest: the call '
+      + 'returns a job id immediately and the finished result is delivered back to you in a NEW turn. Do the '
+      + 'work you can do meanwhile, then END YOUR TURN — you are woken up when the result lands. Never poll '
+      + 'delegate_status in a loop waiting for it. The sub-agent has the same tools and access as you.',
     parameters: Type.Object({
       task: Type.String({ description: 'The complete, self-contained instruction for the sub-agent — it does not see this conversation.' }),
       model: Type.Optional(Type.String({
@@ -184,6 +216,10 @@ export function register(ctx) {
         ...ctx.currentAccess(),
         model,
         parentSessionId: ctx.currentSessionId(),
+        // The delegate transcript belongs to THIS delegation and to no earlier one — never roll it over
+        // into a fresh session mid-flight (rolloverDue with an Infinity threshold never fires). This
+        // object stays in-memory on the host; NEVER serialize it over JSON, where Infinity becomes null.
+        sessionIdleMs: Infinity,
         prompt: 'You are a focused sub-agent. Complete the task and report the result concisely — no preamble.',
       };
       const emit = ctx.subagentEmitter();
@@ -223,23 +259,30 @@ export function register(ctx) {
         else if (e.type === 'tool' && e.name) { state.tools += 1; state.detail = e.detail ? `${e.name} ${e.detail}` : e.name; push('running'); }
         else if ((e.type === 'step' || e.type === 'idle') && e.usage?.totalTokens) { state.tokens = e.usage.totalTokens; push('running'); }
       };
+      const collectSource = { platform: 'subagent', userId: 'subagent', roleIds: [], channelId, access };
       const runChild = async () => {
         try {
-          let raw = await run({ platform: 'subagent', userId: 'subagent', roleIds: [], channelId, access }, p.task, onEvent);
+          let raw = await run(collectSource, p.task, onEvent);
           // A child that starts terminal background work is still working. Keep the delegate lifecycle
           // open, wait without polling, then give the SAME child a turn to collect output and produce the
-          // real conclusion. This is what prevents the parent receiving only "process started".
-          for (let round = 0; state.sessionId && ctx.processes.runningJobCountForSession(state.sessionId) > 0 && round < 8; round += 1) {
-            await ctx.processes.waitForSessionJobsIdle(state.sessionId);
-            const finished = ctx.processes.listForSession(state.sessionId).filter((proc) => !proc.running && proc.completionMode !== 'service');
-            const rows = finished.map((proc) => `- ${xmlEscape(proc.id)}: ${xmlEscape(proc.command)} (exit ${proc.exitCode})`).join('\n');
-            raw = await run(
-              { platform: 'subagent', userId: 'subagent', roleIds: [], channelId, access },
-              `<system-reminder>\n<background-processes-finished>\n${rows}\n</background-processes-finished>\n`
-                + '<instruction>Read the finished process output, finish the delegated task, and return the final result now.</instruction>\n'
-                + '</system-reminder>',
-              onEvent,
-            );
+          // real conclusion. This is what prevents the parent receiving only "process started". Each turn
+          // enters unconditionally (a job that finished before the first reply is still collected in turn 1)
+          // and reports only what changed since the last one: jobs that finished, plus — on a wait timeout —
+          // jobs still running. It stops as soon as an idle wait leaves nothing new to report.
+          const reported = new Set();
+          for (let turn = 0; state.sessionId && turn < MAX_COLLECT_TURNS; turn += 1) {
+            let waited = 'idle';
+            if (ctx.processes.runningJobCountForSession(state.sessionId) > 0) {
+              waited = await ctx.processes.waitForSessionJobsIdle(state.sessionId, JOB_WAIT_TIMEOUT_MS);
+            }
+            const procs = ctx.processes.listForSession(state.sessionId);
+            const finished = procs.filter((proc) => !proc.running && proc.completionMode !== 'service' && !reported.has(proc.id));
+            if (waited === 'idle' && finished.length === 0) break;
+            for (const proc of finished) reported.add(proc.id);
+            const stillRunning = waited === 'timeout'
+              ? procs.filter((proc) => proc.running && proc.completionMode !== 'service')
+              : [];
+            raw = await run(collectSource, buildCollectReminder(finished, stillRunning), onEvent);
           }
           const reply = raw || '(the sub-agent returned nothing)';
           if (reply.startsWith('Error:')) {
@@ -282,6 +325,11 @@ export function register(ctx) {
         // safe conversation identity an out-of-band Ctrl+B request could target.
         if (!originSessionId || !originPrincipal) return ok(await runChild());
         pruneJobs(Date.now(), true);
+        // A foreground call still occupies a job slot (Ctrl+B can detach it into the background at any
+        // moment), so honor the same cap as background — refuse rather than silently evicting a live job.
+        if (jobs.size >= MAX_BACKGROUND_JOBS) {
+          return ok(`Error: too many delegations (${MAX_BACKGROUND_JOBS}) are still running; wait for one to finish.`);
+        }
         jobs.set(jobId, state);
         const detached = new Promise((resolve) => { state.resolveDetached = resolve; });
         const child = runChild();
@@ -295,7 +343,8 @@ export function register(ctx) {
         }
         return ok(
           `The user moved this sub-agent to the background. It is still running as ${jobId}; `
-          + 'continue helping the user now. Its result will be delivered automatically when it finishes.',
+          + 'continue helping the user now. Its result is delivered to you automatically in a new turn when it '
+          + 'finishes, so once you have nothing else to do, end your turn instead of waiting or polling for it.',
           { jobId, status: 'running', detached: true },
         );
       }
@@ -321,7 +370,10 @@ export function register(ctx) {
       return ok(
         `Started background delegation ${jobId}.\n`
           + (state.autoDeliver
-            ? 'Its result will be delivered automatically. Do not busy-wait; continue other work.'
+            ? 'Its result is delivered to you automatically in a NEW turn when it finishes — you do not have to '
+              + 'fetch it. Do any other useful work now, then end your turn. If there is nothing else to do, say so '
+              + 'briefly and end the turn: waiting inside this turn only delays the result, and polling '
+              + 'delegate_status in a loop is never the answer.'
             : `Use delegate_result({"id":"${jobId}"}) later; automatic delivery is unavailable on this surface.`),
         { jobId, status: 'running' },
       );
@@ -331,7 +383,8 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'delegate_status', label: 'Check sub-agent status',
     description: 'Return the current state and latest progress for one background delegation. This is a '
-      + 'snapshot; do not repeatedly poll a running job.',
+      + 'one-off snapshot for when the user asks how a job is doing — it is NOT how you collect a result. '
+      + 'An auto-delivered result arrives on its own in a new turn; never call this in a loop to wait for one.',
     parameters: Type.Object({ id: Type.String({ description: 'Job id returned by delegate(background=true)' }) }),
     execute: async (_id, p) => {
       const job = getJob(p.id);
@@ -349,7 +402,12 @@ export function register(ctx) {
       const job = getJob(p.id);
       if (!job) return ok(`Error: no background delegation ${p.id}. It may have expired.`);
       if (job.status === 'running') {
-        return ok(`Delegation job ${job.id} is still running. Continue other work and check later; do not busy-wait.`, jobDetails(job));
+        return ok(
+          `Delegation job ${job.id} is still running.${job.autoDeliver
+            ? ' Its result reaches you automatically in a new turn — stop fetching it, and end your turn if you have nothing else to do.'
+            : ' Continue other work and check again later; do not busy-wait.'}`,
+          jobDetails(job),
+        );
       }
       if (job.status === 'error') return ok(`Error: ${job.error}`, jobDetails(job));
       return ok(job.result || '(the sub-agent returned nothing)', jobDetails(job));

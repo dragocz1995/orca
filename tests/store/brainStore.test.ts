@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb, type Db } from '../../src/store/db.js';
-import { BrainStore } from '../../src/store/brainStore.js';
+import { BrainStore, syntheticRestartResultId } from '../../src/store/brainStore.js';
 
 describe('BrainStore', () => {
   let store: BrainStore;
@@ -129,6 +129,74 @@ describe('BrainStore', () => {
     expect(store.acknowledgeSubagentResult('root', 'dlg-stable')).toBe(true);
     expect(store.pendingSubagentResults('root')).toEqual([]);
     expect(store.getSubagentRuns('root')[0]).toMatchObject({ resultDelivery: 'acknowledged' });
+  });
+
+  describe('enqueueSubagentResult synthetic-vs-real upgrade', () => {
+    /** Seed root + child and the running-run row the inbox relation check requires, returning the
+     *  synthetic restart id and a real completion for the same (parent, tool-call). */
+    const seed = () => {
+      store.createSession({ id: 'root', userId: 1, model: 'm' });
+      store.createSession({ id: 'child', userId: 1, model: 'm', parentSessionId: 'root' });
+      store.upsertSubagentRun('root', {
+        id: 'delegate-1', sessionId: 'child', status: 'running', task: 'inspect', tools: 0, seconds: 0,
+        background: true, autoDeliver: true,
+      });
+      const syntheticId = syntheticRestartResultId('root', 'delegate-1');
+      const synthetic = {
+        id: syntheticId, toolCallId: 'delegate-1', sessionId: 'child', status: 'error' as const,
+        task: 'inspect', error: 'sub-agent interrupted by daemon restart', tools: 0, seconds: 0,
+      };
+      const real = {
+        id: 'dlg-stable', toolCallId: 'delegate-1', sessionId: 'child', status: 'done' as const,
+        task: 'inspect', result: 'all clear', tools: 3, seconds: 4,
+      };
+      return { syntheticId, synthetic, real };
+    };
+
+    it('upgrades a pending synthetic restart result to the real completion, resetting retry state', () => {
+      const { syntheticId, synthetic, real } = seed();
+      expect(store.enqueueSubagentResult('root', synthetic)).toBe(true);
+      store.noteSubagentResultFailure('root', syntheticId, 'delivery boom'); // attempts → 1
+      expect(store.pendingSubagentResults('root')[0]).toMatchObject({ id: syntheticId, status: 'error', attempts: 1 });
+
+      // The real completion arriving after the restart placeholder upgrades the pending row IN PLACE.
+      expect(store.enqueueSubagentResult('root', real)).toBe(true);
+      const pending = store.pendingSubagentResults('root');
+      expect(pending).toHaveLength(1);
+      expect(pending[0]).toMatchObject({
+        id: 'dlg-stable', status: 'done', result: 'all clear', attempts: 0, delivery: 'pending',
+      });
+    });
+
+    it('never lets a synthetic restart result overwrite an already-pending real completion', () => {
+      const { synthetic, real } = seed();
+      expect(store.enqueueSubagentResult('root', real)).toBe(true);
+      expect(store.enqueueSubagentResult('root', synthetic)).toBe(false);
+      expect(store.pendingSubagentResults('root')[0]).toMatchObject({ id: 'dlg-stable', result: 'all clear' });
+    });
+
+    it('never revives an already-acknowledged result with a late synthetic restart placeholder', () => {
+      const { synthetic, real } = seed();
+      expect(store.enqueueSubagentResult('root', real)).toBe(true);
+      expect(store.acknowledgeSubagentResult('root', 'dlg-stable')).toBe(true);
+      expect(store.enqueueSubagentResult('root', synthetic)).toBe(false);
+      expect(store.pendingSubagentResults('root')).toEqual([]);
+    });
+
+    it('keeps the first real completion when a second distinct real result races in (first-write-wins)', () => {
+      seed();
+      expect(store.enqueueSubagentResult('root', {
+        id: 'dlg-1', toolCallId: 'delegate-1', sessionId: 'child', status: 'done', task: 'inspect',
+        result: 'first', tools: 1, seconds: 1,
+      })).toBe(true);
+      expect(store.enqueueSubagentResult('root', {
+        id: 'dlg-2', toolCallId: 'delegate-1', sessionId: 'child', status: 'done', task: 'inspect',
+        result: 'second', tools: 1, seconds: 1,
+      })).toBe(false);
+      const pending = store.pendingSubagentResults('root');
+      expect(pending).toHaveLength(1);
+      expect(pending[0]).toMatchObject({ id: 'dlg-1', result: 'first' });
+    });
   });
 
   it('rejects inbox results that do not match the durable direct child/tool-call relation', () => {

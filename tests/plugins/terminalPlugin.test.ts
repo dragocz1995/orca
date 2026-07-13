@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -8,6 +8,7 @@ import { runWithPolicy } from '../../src/plugins/policyContext.js';
 import type { Policy } from '../../src/plugins/policy.js';
 import type { TurnIdentity } from '../../src/plugins/policyContext.js';
 import type { PluginRegistry } from '../../src/plugins/registry.js';
+import { processRegistry } from '../../src/brain/processRegistry.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -21,6 +22,11 @@ const runTool = (reg: PluginRegistry, name: string, params: Record<string, unkno
   if (!tool) throw new Error(`tool ${name} not registered`);
   return (tool as unknown as { execute: (id: string, p: unknown) => Promise<{ content: { text: string }[] }> }).execute('t', params);
 };
+
+// The process registry is a module-level singleton shared across every test in this run. Background
+// commands (and any handle a test registers) survive into later tests and other files, so clear it after
+// each test. kill() is idempotent and safe on both fake and real handles.
+afterEach(() => { for (const p of processRegistry.list()) processRegistry.kill(p.id); });
 
 describe('terminal plugin', () => {
   let reg: PluginRegistry;
@@ -168,6 +174,69 @@ describe('terminal plugin — configurable outputCap', () => {
     const out = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'read_process_output', { id, all: true }), scope);
     expect(out.content[0].text.length).toBeLessThanOrEqual(10_000 + '\n[exited 0]'.length);
   });
+});
+
+// The daemon registry (ctx.processes) is the ONLY store of background children: the plugin keeps no
+// parallel map, so a registry-side removal (a deleted conversation → killSession, the web panel's ✕) is
+// immediately reflected in what the agent's tools can see, list and count against the cap.
+describe('terminal plugin — the process registry is the single source of truth', () => {
+  let reg: PluginRegistry;
+  let dir: string;
+  beforeAll(async () => {
+    reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log });
+    dir = mkdtempSync(join(tmpdir(), 'elowen-term-registry-'));
+  });
+
+  const inSession = (sessionId: string, name: string, params: Record<string, unknown>) =>
+    runWithPolicy(userPolicy([dir]), () => runTool(reg, name, params), { identity: owner, sessionId });
+
+  const startBg = async (sessionId: string, command: string): Promise<string> => {
+    const res = await inSession(sessionId, 'run_command', { command, background: true });
+    const id = /Started background process (\S+):/.exec(res.content[0].text)?.[1];
+    expect(id).toBeTruthy();
+    return id!;
+  };
+
+  it('a registry-side killSession (conversation deleted) clears the plugin view AND frees the cap', async () => {
+    const a = 'brain-term-a';
+    const b = 'brain-term-b';
+    const ids: string[] = [];
+    for (let i = 0; i < 16; i += 1) ids.push(await startBg(a, 'sleep 30')); // MAX_BG, per session
+    const bId = await startBg(b, 'sleep 30');
+    const refused = await inSession(a, 'run_command', { command: 'sleep 30', background: true });
+    expect(refused.content[0].text).toMatch(/too many background processes/);
+
+    expect(processRegistry.killSession(a)).toBe(16);
+
+    // No ghost rows and no ghost output buffers left behind for the killed session…
+    expect((await inSession(a, 'list_processes', {})).content[0].text).toBe('No background processes.');
+    expect((await inSession(a, 'read_process_output', { id: ids[0] })).content[0].text).toMatch(/no background process/);
+    // …the freed slots let new work start again…
+    const fresh = await startBg(a, 'sleep 30');
+    expect(processRegistry.listForSession(a).map((p) => p.id)).toEqual([fresh]);
+    // …and the other session is untouched.
+    expect((await inSession(b, 'list_processes', {})).content[0].text).toContain(bId);
+  }, 20_000);
+
+  it('read_process_output returns only NEW output (the daemon panel reading the buffer never consumes it)', async () => {
+    const session = 'brain-term-cursor';
+    const id = await startBg(session, `node -e "process.stdout.write('one\\n'); setTimeout(() => process.stdout.write('two\\n'), 500)"`);
+    await new Promise((r) => setTimeout(r, 250)); // first write landed, the child is still alive
+
+    const first = await inSession(session, 'read_process_output', { id });
+    expect(first.content[0].text).toContain('one');
+    expect(first.content[0].text).not.toContain('two');
+    expect(first.content[0].text).toContain('[still running]');
+    // The daemon's own read (web/CLI panel) uses readAll: the whole buffer, cursor untouched.
+    expect(processRegistry.output(id)).toBe('one\n');
+
+    await new Promise((r) => setTimeout(r, 600)); // second write + exit
+    const second = await inSession(session, 'read_process_output', { id });
+    expect(second.content[0].text).toContain('two');
+    expect(second.content[0].text).not.toContain('one'); // already consumed by the first read
+    expect(second.content[0].text).toContain('[exited 0]');
+    expect(processRegistry.list().find((p) => p.id === id)).toBeUndefined(); // final read collects the corpse
+  }, 15_000);
 });
 
 describe('terminal plugin — UTF-8 streaming', () => {

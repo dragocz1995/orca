@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ProcessRegistry, type ProcessHandle } from '../../src/brain/processRegistry.js';
 
 /** Build a fake handle whose running/exit/output are driven by a small mutable state object, so tests can
@@ -48,6 +48,25 @@ describe('ProcessRegistry', () => {
     expect(child.state.killed).toBe(false);
     expect(reg.killForSession('brain-child', 'child')).toBe(true);
     expect(child.state.killed).toBe(true);
+  });
+
+  it('carries the originating session in the snapshot (null when it has none) — the UI origin badge', () => {
+    const reg = new ProcessRegistry();
+    const child = fakeHandle('child'); child.handle.sessionId = 'brain-ch-subagent-sub-dlg-7';
+    const loose = fakeHandle('loose'); // registered without a session
+    reg.register(child.handle); reg.register(loose.handle);
+    expect(reg.list().map((p) => [p.id, p.sessionId])).toEqual(expect.arrayContaining([
+      ['child', 'brain-ch-subagent-sub-dlg-7'],
+      ['loose', null],
+    ]));
+  });
+
+  it('listWhere filters on the HANDLE (fields the snapshot does not carry, e.g. userId)', () => {
+    const reg = new ProcessRegistry();
+    const mine = fakeHandle('mine'); mine.handle.userId = 1;
+    const theirs = fakeHandle('theirs'); theirs.handle.userId = 2;
+    reg.register(mine.handle); reg.register(theirs.handle);
+    expect(reg.listWhere((h) => h.userId === 1).map((p) => p.id)).toEqual(['mine']);
   });
 
   it('kill() invokes the handle kill, drops it, and returns false for unknown ids', () => {
@@ -107,5 +126,54 @@ describe('ProcessRegistry', () => {
     reg.register(fakeHandle('2').handle); // 3
     reg.remove('2');          // 4
     expect(ticks).toBe(4);
+  });
+
+  describe('waitForSessionJobsIdle', () => {
+    /** Register a still-running job bound to a session. */
+    const runningJob = (reg: ProcessRegistry, id: string, sessionId: string) => {
+      const j = fakeHandle(id);
+      j.handle.sessionId = sessionId;
+      j.handle.completionMode = 'job';
+      reg.register(j.handle);
+      return j;
+    };
+
+    it('times out a jobs-idle wait and never double-settles on a later exit', async () => {
+      vi.useFakeTimers();
+      try {
+        const reg = new ProcessRegistry();
+        const j = runningJob(reg, '1', 's');
+        let settlements = 0;
+        const p = reg.waitForSessionJobsIdle('s', 5).then((o) => { settlements++; return o; });
+        await vi.advanceTimersByTimeAsync(5);
+        expect(await p).toBe('timeout');
+        // The timed-out waiter is already gone; a later real exit must NOT re-settle it.
+        j.state.running = false; j.state.exit = 0;
+        reg.markExited('1');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(settlements).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('resolves idle when the last running job exits before the timeout', async () => {
+      const reg = new ProcessRegistry();
+      const j = runningJob(reg, '1', 's');
+      const p = reg.waitForSessionJobsIdle('s', 5_000);
+      j.state.running = false; j.state.exit = 0;
+      reg.markExited('1'); // last job idle → settles the waiter, clearing its (unref'd) timer
+      await expect(p).resolves.toBe('idle');
+    });
+
+    it('without a timeout resolves immediately when already idle, else on the next exit', async () => {
+      const reg = new ProcessRegistry();
+      await expect(reg.waitForSessionJobsIdle('s')).resolves.toBe('idle'); // no running jobs → immediate
+      const j = runningJob(reg, '1', 's');
+      const p = reg.waitForSessionJobsIdle('s');
+      j.state.running = false;
+      reg.markExited('1');
+      await expect(p).resolves.toBe('idle');
+    });
   });
 });

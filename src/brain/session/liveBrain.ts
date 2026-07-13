@@ -12,6 +12,11 @@ export type QueuedImage = { type: 'image'; data: string; mimeType: string };
 export interface QueuedUserEcho {
   persistText: string;
   displayText: string;
+  /** The clean model-facing text this message carried BEFORE any running-subagents reminder block or the
+   * durable `[📎 …]` attachment marker was folded in. When Esc promotes a queued message to a fresh turn,
+   * this is what the new turn re-composes from — so the block is re-derived once from live state and the
+   * marker is re-appended once, instead of the stale copies being duplicated. */
+  sourceText?: string;
   /** Work mode selected when this owner message entered PI's queue; needed if Esc promotes it to a turn. */
   mode?: 'build' | 'plan';
   /** Owner CLI/web messages broadcast their user row. Platform messages were already rendered by the

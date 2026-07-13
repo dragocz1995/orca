@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
@@ -18,6 +18,11 @@ const OWNER: TurnIdentity = { platform: 'elowen', userId: '1', elowenUserId: 1, 
 const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text: string }).text;
 
 function freshDataRoot(): string { return mkdtempSync(join(tmpdir(), 'elowen-pdata-')); }
+
+// The process registry is a module-level singleton shared across every test in this run. Any handle a
+// test registers (even fake ones) survives into later tests and other files, so clear it after each test.
+// kill() is idempotent and safe on both fake and real handles.
+afterEach(() => { for (const p of processRegistry.list()) processRegistry.kill(p.id); });
 
 describe('cronjob plugin', () => {
   it('parses schedules and computes due-ness', async () => {
@@ -179,24 +184,26 @@ describe('terminal plugin background processes', () => {
 });
 
 describe('subagent plugin', () => {
-  it('keeps a background delegate open until its child background process is collected', async () => {
+  it('collects a background job that already exited before the first reply', async () => {
     const dataRoot = freshDataRoot();
     const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['subagent'], dataRoot, logger: log });
     const delegate = reg.tools.find((t) => t.name === 'delegate')!;
     const sessionId = 'brain-ch-subagent-bgwait';
+    const reminders: string[] = [];
     let calls = 0;
-    reg.platforms[0]!.listen(async (_src, _text, onEvent) => {
+    reg.platforms[0]!.listen(async (_src, text, onEvent) => {
       calls += 1;
       onEvent?.({ type: 'session', sessionId });
       if (calls === 1) {
-        let running = true;
+        // The job is ALREADY terminal by the time the parent replies. The old collect loop was gated on
+        // runningJobCount > 0, so it would skip this job entirely and hand back only "I started the build".
         processRegistry.register({
           id: 'child-proc', command: 'build', cwd: '/tmp', startedAt: new Date().toISOString(), sessionId,
-          running: () => running, exitCode: () => running ? null : 0, readAll: () => 'build passed', kill: () => { running = false; },
+          running: () => false, exitCode: () => 0, readAll: () => 'build passed', kill: () => {},
         });
-        setTimeout(() => { running = false; processRegistry.markExited('child-proc'); }, 10);
         return 'I started the build';
       }
+      reminders.push(text);
       processRegistry.remove('child-proc');
       return 'final verified result';
     });
@@ -206,7 +213,148 @@ describe('subagent plugin', () => {
     }, { identity: OWNER, sessionId: 'brain-parent-bgwait', emitSubagentCompletion: (value) => completions.push(value) });
     await vi.waitFor(() => expect(completions).toHaveLength(1));
     expect(calls).toBe(2);
+    expect(reminders[0]).toContain('<background-processes-finished>');
+    expect(reminders[0]).toContain('child-proc');
+    expect(reminders[0]).toContain('exit 0');
     expect(completions[0]).toMatchObject({ status: 'done', result: 'final verified result' });
+  });
+
+  it('reports each finished background job exactly once across successive collect turns', async () => {
+    const dataRoot = freshDataRoot();
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['subagent'], dataRoot, logger: log });
+    const delegate = reg.tools.find((t) => t.name === 'delegate')!;
+    const sessionId = 'brain-ch-subagent-delta';
+    const reminders: string[] = [];
+    const registerJob = (id: string) => {
+      let running = true;
+      processRegistry.register({
+        id, command: id, cwd: '/tmp', startedAt: new Date().toISOString(), sessionId,
+        running: () => running, exitCode: () => running ? null : 0, readAll: () => `${id} done`, kill: () => { running = false; },
+      });
+      setTimeout(() => { running = false; processRegistry.markExited(id); }, 10);
+    };
+    let calls = 0;
+    reg.platforms[0]!.listen(async (_src, text, onEvent) => {
+      calls += 1;
+      onEvent?.({ type: 'session', sessionId });
+      if (calls === 1) { registerJob('proc-a'); return 'started A'; }
+      reminders.push(text);
+      if (calls === 2) { registerJob('proc-b'); return 'started B'; }
+      return 'final';
+    });
+    const completions: Record<string, unknown>[] = [];
+    await runWithPolicy(ADMIN, async () => {
+      await delegate.execute('delta', { task: 'chain jobs', background: true }, undefined as never, undefined as never);
+    }, { identity: OWNER, sessionId: 'brain-parent-delta', emitSubagentCompletion: (v) => completions.push(v) });
+    await vi.waitFor(() => expect(completions).toHaveLength(1));
+    expect(calls).toBe(3);
+    expect(reminders).toHaveLength(2);
+    // Turn 2 lists A only; turn 3 lists B and NEVER re-lists the already-reported A.
+    expect(reminders[0]).toContain('proc-a');
+    expect(reminders[0]).not.toContain('proc-b');
+    expect(reminders[1]).toContain('proc-b');
+    expect(reminders[1]).not.toContain('proc-a');
+    // A block is only ever emitted with rows in it — never an empty element.
+    for (const r of reminders) expect(r).not.toMatch(/<background-processes-(finished|still-running)>\s*<\//);
+  });
+
+  it('breaks the collect loop without an extra turn when the child job is killed', async () => {
+    const dataRoot = freshDataRoot();
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['subagent'], dataRoot, logger: log });
+    const delegate = reg.tools.find((t) => t.name === 'delegate')!;
+    const sessionId = 'brain-ch-subagent-kill';
+    let calls = 0;
+    reg.platforms[0]!.listen(async (_src, _text, onEvent) => {
+      calls += 1;
+      onEvent?.({ type: 'session', sessionId });
+      // Register a running job, then immediately kill it (dropped from the registry). Nothing is left to
+      // collect, so the loop must break with no extra collect turn.
+      let running = true;
+      processRegistry.register({
+        id: 'killed-proc', command: 'watch', cwd: '/tmp', startedAt: new Date().toISOString(), sessionId,
+        running: () => running, exitCode: () => running ? null : 0, readAll: () => '', kill: () => { running = false; },
+      });
+      processRegistry.kill('killed-proc');
+      return 'started and killed';
+    });
+    const completions: Record<string, unknown>[] = [];
+    await runWithPolicy(ADMIN, async () => {
+      await delegate.execute('kill', { task: 'watch', background: true }, undefined as never, undefined as never);
+    }, { identity: OWNER, sessionId: 'brain-parent-kill', emitSubagentCompletion: (v) => completions.push(v) });
+    await vi.waitFor(() => expect(completions).toHaveLength(1));
+    expect(calls).toBe(1);
+    expect(completions[0]).toMatchObject({ status: 'done', result: 'started and killed' });
+  });
+
+  it('reminds the child of still-running jobs on a wait timeout, then of the finished job once it exits', async () => {
+    vi.useFakeTimers();
+    try {
+      const dataRoot = freshDataRoot();
+      const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['subagent'], dataRoot, logger: log });
+      const delegate = reg.tools.find((t) => t.name === 'delegate')!;
+      const sessionId = 'brain-ch-subagent-timeout';
+      const reminders: string[] = [];
+      let running = true;
+      let calls = 0;
+      reg.platforms[0]!.listen(async (_src, text, onEvent) => {
+        calls += 1;
+        onEvent?.({ type: 'session', sessionId });
+        if (calls === 1) {
+          processRegistry.register({
+            id: 'slow-proc', command: 'long-build', cwd: '/tmp', startedAt: new Date().toISOString(), sessionId,
+            running: () => running, exitCode: () => running ? null : 0, readAll: () => 'built', kill: () => { running = false; },
+          });
+          return 'started slow build';
+        }
+        reminders.push(text);
+        if (calls === 2) { running = false; processRegistry.markExited('slow-proc'); return 'still waiting'; }
+        return 'final';
+      });
+      let resolveDone!: () => void;
+      const completed = new Promise<void>((resolve) => { resolveDone = resolve; });
+      const completions: Record<string, unknown>[] = [];
+      await runWithPolicy(ADMIN, async () => {
+        await delegate.execute('timeout', { task: 'slow build', background: true }, undefined as never, undefined as never);
+      }, { identity: OWNER, sessionId: 'brain-parent-timeout', emitSubagentCompletion: (v) => { completions.push(v); resolveDone(); } });
+      // Let the child reach its first idle wait (registers the timeout timer), then trip the timeout.
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await completed;
+      expect(calls).toBe(3);
+      // Turn 2: the wait timed out with the job still running → still-running block, no finished block.
+      expect(reminders[0]).toContain('<background-processes-still-running>');
+      expect(reminders[0]).toContain('slow-proc');
+      expect(reminders[0]).not.toContain('<background-processes-finished>');
+      // Turn 3: the job has since exited → finished block.
+      expect(reminders[1]).toContain('<background-processes-finished>');
+      expect(reminders[1]).toContain('slow-proc');
+      expect(reminders[1]).toContain('exit 0');
+      expect(completions[0]).toMatchObject({ status: 'done', result: 'final' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('emits the child current-tool detail on progress updates (UI/store projection)', async () => {
+    const dataRoot = freshDataRoot();
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['subagent'], dataRoot, logger: log });
+    const delegate = reg.tools.find((t) => t.name === 'delegate')!;
+    let resolveReply!: (r: string) => void;
+    const reply = new Promise<string>((resolve) => { resolveReply = resolve; });
+    reg.platforms[0]!.listen(async (_src, _text, onEvent) => {
+      onEvent?.({ type: 'session', sessionId: 'brain-ch-subagent-detail' });
+      onEvent?.({ type: 'tool', name: 'read_file', detail: 'src/parser.ts' } as never);
+      return reply;
+    });
+    const updates: { status: string; detail?: string }[] = [];
+    const started = await runWithPolicy(ADMIN, async () =>
+      asText(await delegate.execute('detail', { task: 'inspect', background: true }, undefined as never, undefined as never)), {
+      sessionId: 'brain-parent-detail', identity: OWNER,
+      emitSubagent: (u) => updates.push(u),
+    });
+    expect(started).toContain('Started background delegation');
+    await vi.waitFor(() => expect(updates.some((u) => u.detail === 'read_file src/parser.ts')).toBe(true));
+    resolveReply('done');
   });
 
   it('delegate forwards the caller access, parent session + task and blocks by default', async () => {
@@ -222,7 +370,7 @@ describe('subagent plugin', () => {
     });
 
     // Capture the handler the way the host does, then delegate under a scoped policy.
-    let seen: { access?: { projectIds: number[]; admin: boolean; owner: boolean; parentSessionId?: string; toolPolicy?: { allow?: string[]; deny?: string[] } } } | null = null;
+    let seen: { access?: { projectIds: number[]; admin: boolean; owner: boolean; parentSessionId?: string; sessionIdleMs?: number; toolPolicy?: { allow?: string[]; deny?: string[] } } } | null = null;
     reg.platforms[0]!.listen(async (src, text) => { seen = src; return `sub did: ${text}`; });
     await runWithPolicy(LIMITED, async () => {
       const out = asText(await delegate.execute('t', { task: 'najdi bug' }, undefined as never, undefined as never));
@@ -234,6 +382,8 @@ describe('subagent plugin', () => {
     });
     expect(seen!.access).toMatchObject({
       projectIds: [1], admin: false, owner: false, parentSessionId: 'brain-parent-1',
+      // The delegate transcript never rolls over into a fresh session mid-flight.
+      sessionIdleMs: Infinity,
       toolPolicy: { allow: ['delegate'], deny: ['discord_api'] },
     });
   });
@@ -326,7 +476,11 @@ describe('subagent plugin', () => {
     });
     const jobId = /Started background delegation (dlg-[\w-]+)\./.exec(startedText)?.[1];
     expect(jobId).toBeTruthy();
-    expect(startedText).toContain('Do not busy-wait');
+    // An auto-delivered result can only land once the parent turn is over, so the model must be told to end
+    // its turn rather than wait or poll for it.
+    expect(startedText).toContain('automatically in a NEW turn');
+    expect(startedText).toContain('end your turn');
+    expect(startedText).toContain('polling delegate_status in a loop is never the answer');
     await started;
 
     const asOwner = <T>(fn: () => T): T => runWithPolicy(ADMIN, fn, { sessionId: 'brain-parent-bg', identity: OWNER });

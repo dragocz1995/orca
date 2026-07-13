@@ -4,10 +4,11 @@ import type { BrainRuntimeConfig } from '../providers.js';
 import { buildBrainRegistry, resolveBrainModel } from '../providers.js';
 import { extractText, shapeBrainMessages } from '../messageView.js';
 import type { BrainMessageView } from '../messageView.js';
-import { usageOf, queueItems, withDescendantUsage } from '../events.js';
+import { usageOf, withDescendantUsage } from '../events.js';
 import type { AskQuestion, BrainCard, BrainUsage } from '../events.js';
 import type { LiveSessionRegistry } from '../session/liveRegistry.js';
 import type { LiveBrain } from '../session/liveBrain.js';
+import { queueDisplayItems } from '../session/queueMirror.js';
 import type { ElicitationRegistry } from '../elicitation.js';
 import type { CardRegistry } from '../cards.js';
 import { isNonUserSession } from '../sessionId.js';
@@ -41,6 +42,9 @@ export class BrainStatusService {
   constructor(private d: StatusServiceDeps) {}
 
   private subagentRuns(sessionId: string) {
+    // Display invariant: a durable row still marked 'running' but with no LIVE child registration is a
+    // restart orphan (the daemon dropped every in-memory child on boot). Hide it until start()'s reconcile
+    // terminalizes it — otherwise the history would show a phantom spinner for a child that is already dead.
     const active = new Set(this.d.sessions.childrenOf(sessionId));
     return this.d.store.getSubagentRuns(sessionId)
       .filter((run) => run.status !== 'running' || active.has(run.sessionId));
@@ -135,10 +139,7 @@ export class BrainStatusService {
       cards: b ? this.d.cards.forSession(b.sessionId) : [],
       // PI's transient pending backlog (steered + follow-up) so a reconnecting/booting client restores its
       // pending chips — kept in step with the live `queue` event mapped from PI's `queue_update`.
-      queued: b ? queueItems(
-        b.queuedSteer?.map((item) => item.echo?.displayText ?? item.text) ?? b.session.getSteeringMessages(),
-        b.queuedFollowUp?.map((item) => item.echo?.displayText ?? item.text) ?? b.session.getFollowUpMessages(),
-      ) : [],
+      queued: b ? queueDisplayItems(b.queuedSteer, b.queuedFollowUp, b.session) : [],
       // Effective YOLO for the active conversation (session override, else the persisted default) —
       // drives the CLI's warning-toned indicator.
       yolo: this.d.permissions.effectiveYolo(userId, b),

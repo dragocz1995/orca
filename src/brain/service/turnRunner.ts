@@ -21,10 +21,24 @@ import type { TurnImage, TurnMode, TurnRequest } from './turnRequest.js';
 import { hasActiveNativeCompactionCheck } from '../session/compactionCheckCoordinator.js';
 import type { SubagentCompletion } from '../events.js';
 import { isNonUserSession } from '../sessionId.js';
+import { xmlEscape } from '../../shared/xml.js';
+import { logger } from '../../shared/logger.js';
 
-const xmlEscape = (value: string): string => value
-  .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+/** A durable sub-agent result is retried at most this many times before the drain gives up (leaves the
+ *  row pending, no further timer). A later user turn on the parent re-triggers one more attempt. */
+const MAX_RESULT_DELIVERY_ATTEMPTS = 5;
+
+/** Raised when a hidden sub-agent-result delivery finds the parent session already streaming a turn. PI
+ *  would only PARK the follow-up in its native queue — a structural duplicate of what the running turn
+ *  already sees — so we refuse to touch PI and leave the result durable + pending. send()'s post-turn
+ *  hook re-drains it once the turn settles. Distinct from a transport failure: the drain neither notes a
+ *  failure nor schedules a retry timer for it. */
+class ParentTurnBusyError extends Error {
+  constructor(sessionId: string) {
+    super(`parent session ${sessionId} is streaming; deferring sub-agent result delivery`);
+    this.name = 'ParentTurnBusyError';
+  }
+}
 
 interface TurnRunnerDeps {
   store: BrainStore;
@@ -85,17 +99,17 @@ export class BrainTurnRunner {
     }
     const target = this.d.lifecycle.ownedUserSession(userId, session);
     if (!this.d.sessions.get(target)) await this.d.lifecycle.ensureLive(userId, target);
-    await this.serial(`send-${target}`, async () => {
+    // The bare session lock (inner) is nested under the outer `send-` lock, matching a user turn's own
+    // ordering (send-<id> → <id>), so this never deadlocks against a concurrent send()/compact/stop.
+    await this.serial(`send-${target}`, () => this.serial(target, async () => {
       const live = this.d.sessions.get(target);
       if (!live) throw new Error('brain not started for user');
+      // A streaming parent would only PARK this follow-up in PI's native queue — a structural duplicate of
+      // what the running turn already sees. Refuse BEFORE touching PI and leave the result pending; send()'s
+      // post-turn hook re-drains it once the turn settles (no note-failure, no retry timer for this case).
+      if (live.session.isStreaming) throw new ParentTurnBusyError(target);
       const before = [...(live.session.messages as { role?: string }[])].reverse().find((message) => message.role === 'assistant');
-      const context = await this.contextBuilder.build({
-        userId,
-        text: content,
-        mode: 'build',
-        session: target,
-        internal: { systemNudge: true },
-      }, live);
+      const context = this.contextBuilder.buildScope(userId, live);
       await context.run(() => live.session.sendCustomMessage({
         customType,
         content,
@@ -104,10 +118,16 @@ export class BrainTurnRunner {
       }, { triggerTurn: true, deliverAs: 'followUp' }));
       const settled = [...(live.session.messages as { role?: string; stopReason?: string; errorMessage?: string }[])]
         .reverse().find((message) => message.role === 'assistant');
-      if (!settled || settled === before || settled.stopReason === 'error' || settled.stopReason === 'aborted') {
+      if (!settled || settled === before || settled.stopReason === 'error') {
         throw new Error(settled?.errorMessage?.trim() || 'sub-agent result was not processed by the parent model');
       }
-    });
+      // The parent aborted (Esc/stop) DURING this delivery turn. PI still folded the result into the
+      // transcript before tearing down, so it already entered the parent's context — re-delivering would
+      // duplicate it. Treat it as delivered (the drain acknowledges it) rather than retry.
+      if (settled.stopReason === 'aborted') {
+        logger('brain-subagent').info(`sub-agent result for ${target} landed in an aborted parent turn; acknowledging without retry`);
+      }
+    }));
   }
 
   /** Store-first terminal completion ingress shared by explicit background jobs and Ctrl+B detaches. */
@@ -143,7 +163,14 @@ export class BrainTurnRunner {
             this.publishResultDelivery(parentSessionId, result.toolCallId, 'acknowledged');
           }
         } catch (error) {
+          // A streaming parent isn't a failure — the result stays pending and send()'s post-turn hook will
+          // re-drain it. Don't burn an attempt or arm a retry timer.
+          if (error instanceof ParentTurnBusyError) return;
           this.d.store.noteSubagentResultFailure(parentSessionId, result.id, error instanceof Error ? error.message : String(error));
+          if (result.attempts + 1 >= MAX_RESULT_DELIVERY_ATTEMPTS) {
+            logger('brain-subagent').warn(`sub-agent result ${result.id} for ${parentSessionId} exhausted ${MAX_RESULT_DELIVERY_ATTEMPTS} delivery attempts; leaving it pending`);
+            return;
+          }
           this.scheduleResultRetry(userId, parentSessionId, result.attempts + 1);
           return;
         }
@@ -313,26 +340,35 @@ export class BrainTurnRunner {
     // conversations still run concurrently; `send-` prefixing keeps ensureLive() re-entrant from here. The
     // inner (bare session id) lock in runTurn guards each prompt().
     let completedSessionId = active.sessionId;
-    await this.serial(`send-${targetId}`, async () => {
-      // Re-resolve under the lock: an unbound send that queued behind a rollover/model switch must follow
-      // the active pointer to wherever the conversation went; a bound send stays on its explicit target.
-      let b = session ? this.d.sessions.get(targetId) : this.d.lifecycle.activeLive(userId);
-      if (!b) throw new Error('brain not started for user');
-      assertClientCurrent(b.sessionId);
-      // Idle rollover — see ConversationLifecycle.maybeRollover. INTERNAL sends (goal kickoff /
-      // continuation) never roll over — the goal row is keyed to the session it was set on; moving its
-      // kickoff to a fresh session would orphan the goal (judge finds no row, loop never starts).
-      if (!internal) b = await this.d.lifecycle.maybeRollover(userId, b, clientCwd);
-      // Vision fallback — see ConversationLifecycle.maybeVisionHop (an image turn on a text-only model
-      // respawns onto the user's vision model in place, and hops back on the next text-only turn).
-      b = await this.d.lifecycle.maybeVisionHop(userId, b, !!images?.length, clientCwd);
-      assertClientCurrent(b.sessionId);
-      // The conversation ↔ launch-directory binding follows explicit client cwds (feeds the CLI's
-      // default-start resolution); fallback-resolved dirs are never stamped.
-      if (clientCwd) this.d.lifecycle.stampWorkDir(b.sessionId, clientCwd, b.policy);
-      completedSessionId = b.sessionId;
-      await runTurn(b, text, images, mode, !internal, display);
-    });
+    try {
+      await this.serial(`send-${targetId}`, async () => {
+        // Re-resolve under the lock: an unbound send that queued behind a rollover/model switch must follow
+        // the active pointer to wherever the conversation went; a bound send stays on its explicit target.
+        let b = session ? this.d.sessions.get(targetId) : this.d.lifecycle.activeLive(userId);
+        if (!b) throw new Error('brain not started for user');
+        assertClientCurrent(b.sessionId);
+        // Idle rollover — see ConversationLifecycle.maybeRollover. INTERNAL sends (goal kickoff /
+        // continuation) never roll over — the goal row is keyed to the session it was set on; moving its
+        // kickoff to a fresh session would orphan the goal (judge finds no row, loop never starts).
+        if (!internal) b = await this.d.lifecycle.maybeRollover(userId, b, clientCwd);
+        // Vision fallback — see ConversationLifecycle.maybeVisionHop (an image turn on a text-only model
+        // respawns onto the user's vision model in place, and hops back on the next text-only turn).
+        b = await this.d.lifecycle.maybeVisionHop(userId, b, !!images?.length, clientCwd);
+        assertClientCurrent(b.sessionId);
+        // The conversation ↔ launch-directory binding follows explicit client cwds (feeds the CLI's
+        // default-start resolution); fallback-resolved dirs are never stamped.
+        if (clientCwd) this.d.lifecycle.stampWorkDir(b.sessionId, clientCwd, b.policy);
+        completedSessionId = b.sessionId;
+        await runTurn(b, text, images, mode, !internal, display);
+      });
+    } finally {
+      // A sub-agent result that arrived while this turn was streaming was DEFERRED (ParentTurnBusyError) and
+      // left durable + pending. Now that the turn has settled, re-drain it — this post-turn hook is the ONLY
+      // re-trigger for a streaming-deferred result. The drain never calls send(), so there is no recursion.
+      if (this.d.store.pendingSubagentResults(completedSessionId).length > 0) {
+        void this.drainPendingSubagentResults(userId, completedSessionId);
+      }
+    }
     if (!internal?.systemNudge) this.d.goals.afterTurnGoalJudge(userId, completedSessionId, mode, internal);
   }
 }

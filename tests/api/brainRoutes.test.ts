@@ -15,6 +15,11 @@ import { ProjectStore } from '../../src/store/projectStore.js';
 import { UserProjectStore } from '../../src/store/userProjectStore.js';
 import type { TurnRequest } from '../../src/brain/service/turnRequest.js';
 import type { BrainEvent } from '../../src/brain/events.js';
+import type { ProcessInfo } from '../../src/brain/processRegistry.js';
+
+const proc = (id: string, sessionId: string | null): ProcessInfo => ({
+  id, command: `sleep ${id}`, cwd: '/w', startedAt: '2026-01-01T00:00:00Z', sessionId, running: true, exitCode: null,
+});
 
 function fakeBrain() {
   const started = new Set<number>();
@@ -33,6 +38,15 @@ function fakeBrain() {
   let sendBeforeAdmissionError: Error | null = null;
   let sendAfterAdmissionError: Error | null = null;
   let blockSends = false;
+  // Background-process surfaces: the service scopes by ownership (never 404s without a session) and throws
+  // only for an explicit unknown/foreign `?session=`.
+  const processCalls: { id: number; session?: string }[] = [];
+  const processOutputCalls: { id: number; processId: string; session?: string }[] = [];
+  const killProcessCalls: { id: number; processId: string; session?: string }[] = [];
+  let owner = true;
+  let processes: ProcessInfo[] = [];
+  let processOutputText: string | null = 'buffer';
+  let unknownSessionError: Error | null = null;
   let snapshotPending: BrainEvent[] = [{ type: 'text', delta: 'post-snapshot event' }];
   let snapshotPendingSync = false;
   let snapshotOffCalls = 0;
@@ -70,6 +84,29 @@ function fakeBrain() {
     __failSendBeforeAdmission: (message: string | null) => { sendBeforeAdmissionError = message ? new Error(message) : null; },
     __failSendAfterAdmission: (message: string | null) => { sendAfterAdmissionError = message ? new Error(message) : null; },
     __blockSends: () => { blockSends = true; },
+    processCalls,
+    processOutputCalls,
+    killProcessCalls,
+    __setOwner: (on: boolean) => { owner = on; },
+    __setProcesses: (list: ProcessInfo[]) => { processes = list; },
+    __setProcessOutput: (text: string | null) => { processOutputText = text; },
+    __failUnknownSession: () => { unknownSessionError = new Error('unknown session'); },
+    isOwner: (_id: number) => owner,
+    processes: (id: number, session?: string) => {
+      processCalls.push({ id, session });
+      if (unknownSessionError) throw unknownSessionError;
+      return processes;
+    },
+    processOutput: (id: number, processId: string, session?: string) => {
+      processOutputCalls.push({ id, processId, session });
+      if (unknownSessionError) throw unknownSessionError;
+      return processOutputText;
+    },
+    killProcess: (id: number, processId: string, session?: string) => {
+      killProcessCalls.push({ id, processId, session });
+      if (unknownSessionError) throw unknownSessionError;
+      return true;
+    },
     /** Test helper: seed a user's pending mid-turn queue. */
     __enqueue: (id: number, item: { id: string; text: string }) => { queues.set(id, [...(queues.get(id) ?? []), item]); },
     status: (id: number) => ({ running: started.has(id), sessionId: started.has(id) ? `brain-${id}` : null, model: 'm', queued: queues.get(id) ?? [], fast: false, fastAvailable: true }),
@@ -605,5 +642,67 @@ describe('LSP status + toggle routes', () => {
     expect((await (await app.request('/brain/lsp', auth(adminTok))).json() as { enabled: boolean }).enabled).toBe(!before);
     // Flip back — the manager is a daemon-wide singleton, don't leak state into other tests.
     await app.request('/brain/command', post(adminTok, { name: 'lsp' }));
+  });
+});
+
+// The background-process surfaces the web panel uses. Sessionless requests span every process the caller
+// OWNS (across conversations, channels and sub-agent children) and never 404 — an explicit `?session=`
+// keeps the CLI's bound-session contract, where an unknown/foreign session is a 404.
+describe('brain process routes', () => {
+  it('GET /brain/processes without a session asks for the whole owned list and returns it', async () => {
+    const { app, amyTok, brain } = setup();
+    brain.__setProcesses([proc('1', 'brain-2'), proc('2', 'brain-ch-subagent-sub-dlg-9')]);
+    const res = await app.request('/brain/processes', auth(amyTok));
+    expect(res.status).toBe(200);
+    expect((await res.json() as ProcessInfo[]).map((p) => p.id)).toEqual(['1', '2']);
+    expect(brain.processCalls.at(-1)).toEqual({ id: 2, session: undefined });
+  });
+
+  // The route turns a service throw into a 404 (see the next test), so this pins the complement: an empty
+  // owner-wide list is a plain 200 [] and the route never invents a 404 of its own. That the SERVICE no
+  // longer throws for an owner with no active session (the actual #19 fix) is asserted against the real
+  // BrainService + store in tests/brain/brainService.test.ts — a stub could only restate itself here.
+  it('GET /brain/processes answers an empty owner-wide list with 200 [], not 404', async () => {
+    const { app, amyTok } = setup();
+    const res = await app.request('/brain/processes', auth(amyTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('an explicit unknown/foreign ?session= is a 404 on every process route', async () => {
+    const { app, amyTok, brain } = setup();
+    brain.__failUnknownSession();
+    expect((await app.request('/brain/processes?session=brain-9', auth(amyTok))).status).toBe(404);
+    expect((await app.request('/brain/processes/1/output?session=brain-9', auth(amyTok))).status).toBe(404);
+    expect((await app.request('/brain/processes/1?session=brain-9', del(amyTok))).status).toBe(404);
+    expect(brain.processCalls.at(-1)).toEqual({ id: 2, session: 'brain-9' });
+  });
+
+  it('GET /brain/processes/:id/output streams the buffer, 404 for an unknown process', async () => {
+    const { app, amyTok, brain } = setup();
+    const res = await app.request('/brain/processes/1/output', auth(amyTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ output: 'buffer' });
+    expect(brain.processOutputCalls.at(-1)).toEqual({ id: 2, processId: '1', session: undefined });
+    brain.__setProcessOutput(null); // not owned / unknown id
+    expect((await app.request('/brain/processes/1/output', auth(amyTok))).status).toBe(404);
+  });
+
+  it('DELETE /brain/processes/:id kills by ownership without a session', async () => {
+    const { app, amyTok, brain } = setup();
+    const res = await app.request('/brain/processes/p1', del(amyTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ killed: true });
+    expect(brain.killProcessCalls.at(-1)).toEqual({ id: 2, processId: 'p1', session: undefined });
+  });
+
+  it('every process route is OWNER-only: an admin who is not the operator gets 403', async () => {
+    const { app, amyTok, brain } = setup();
+    brain.__setOwner(false);
+    expect((await app.request('/brain/processes', auth(amyTok))).status).toBe(403);
+    expect((await app.request('/brain/processes/1/output', auth(amyTok))).status).toBe(403);
+    expect((await app.request('/brain/processes/1', del(amyTok))).status).toBe(403);
+    expect(brain.processCalls).toEqual([]); // refused before the service is touched
+    expect(brain.killProcessCalls).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import { PluginHookBus } from '../plugins/hookBus.js';
 import { ElicitationRegistry } from './elicitation.js';
 import { CardRegistry } from './cards.js';
 import type { BrainSearchHit, BrainGoalRow } from '../store/brainStore.js';
+import { syntheticRestartResultId } from '../store/brainStore.js';
 import { MemoryCurator } from './memoryCurator.js';
 import { ConversationTitler } from './conversationTitler.js';
 import { logger } from '../shared/logger.js';
@@ -11,12 +12,12 @@ import { abortSessionWork } from './session/abortSessionWork.js';
 import { IdentityResolver } from './identity.js';
 import { LiveSessionRegistry } from './session/liveRegistry.js';
 import type { LiveBrain, QueuedMsg } from './session/liveBrain.js';
-import { clearDeliveredUserEchoes, enqueueMirrored } from './session/queueMirror.js';
+import { clearDeliveredUserEchoes, enqueueMirrored, queueDisplayItems } from './session/queueMirror.js';
 import { ChannelSessionService } from './channels.js';
 import type { ChannelSendOpts } from './channels.js';
 import { PlatformOrchestrator } from './platforms.js';
 import type { BrainMessageView } from './messageView.js';
-import { runCompaction, queueItems, withDescendantUsage } from './events.js';
+import { runCompaction, withDescendantUsage } from './events.js';
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult } from './events.js';
 import { isNonUserSession } from './sessionId.js';
 import { lastAssistantText } from './goal.js';
@@ -31,7 +32,7 @@ import { BrainStatusService } from './service/statusService.js';
 import { exportBrainSession } from './session/exportSession.js';
 import type { ExportFormat, SessionExport } from './session/exportSession.js';
 import type { BrainDeps } from './brainDeps.js';
-import { processRegistry, type ProcessInfo } from './processRegistry.js';
+import { processRegistry, type ProcessHandle, type ProcessInfo } from './processRegistry.js';
 import type { BrainStreamSnapshot } from './session/liveEventReplay.js';
 import { delegatedToolPolicy, type DelegatedExecutionScope } from './delegatedScope.js';
 import { DEFAULT_BRAIN_LIMITS } from '../store/configStore.js';
@@ -189,7 +190,7 @@ export class BrainService {
       get hookAudit() { return d.hookAudit; },
       get projectPath() { return d.projectPath; },
       sendDelegatedCustom: (userId, sessionId, customType, content, resultId) =>
-        this.sendCustomToSubagent(userId, sessionId, customType, content, resultId),
+        this.sendDelegated(userId, sessionId, content, { customType, resultId }),
     });
     this.statusView = new BrainStatusService({
       store: d.store, sessions: this.sessions, attachments: this.attachments,
@@ -295,7 +296,7 @@ export class BrainService {
     const b = session ? this.sessions.get(this.lifecycle.ownedUserSession(userId, session)) : this.lifecycle.activeLive(userId);
     if (!b) throw new Error('brain not started');
     // Fence before taking the child snapshot. Otherwise an idle drill-in continuation can register a
-    // fresh child between childrenOf() and clearChildren(), escaping this stop tree.
+    // fresh child between childrenOf() and the deregistration of the doomed ones, escaping this stop tree.
     this.sessions.beginParentAbort(b.sessionId);
     try {
       await this.abortLive(b);
@@ -318,13 +319,19 @@ export class BrainService {
     if (!b) throw new Error('brain not started');
     this.sessions.beginParentAbort(b.sessionId);
     try {
+      // Snapshot BEFORE aborting. An empty queue means there is nothing to promote, so this is NOT an
+      // interrupt: leave the running turn untouched and report it. The server is authoritative here (the
+      // CLI Esc race #8) — a stale one-press must never destroy a live turn on an already-drained queue;
+      // the client degrades to its normal two-press arming. `interrupted:true` ⇔ the turn was really aborted.
       const snapshot = this.queuedSnapshot(b);
+      if (snapshot.length === 0) return { interrupted: false, injected: false };
       await this.abortLive(b);
-      if (snapshot.length === 0) return { interrupted: true, injected: false };
 
       const requestFor = (message: QueuedMsg): TurnRequest => ({
         userId,
-        text: message.echo?.persistText ?? message.text,
+        // The clean model-facing text, never the durable copy: `persistText` carries the `[📎 …]` marker and
+        // `message.text` the running-subagents block, both of which the fresh turn re-derives on its own.
+        text: message.echo?.sourceText ?? message.text,
         images: message.images?.map(({ data, mimeType }) => ({ data, mimeType })),
         mode: message.echo?.mode ?? 'build',
         session: b.sessionId,
@@ -332,18 +339,41 @@ export class BrainService {
         client,
         interruptResume: true,
       });
-      const [first, ...remaining] = snapshot;
-      const operation = this.startSend(requestFor(first!));
-      void operation.completed.catch(async (error) => {
-        try {
-          const admittedSession = await operation.admitted;
-          logger('brain-interrupt').error(`accepted interrupt turn failed for ${admittedSession}`, error);
-          this.publishAcceptedSendFailure(admittedSession, error);
-        } catch { /* pre-admission failure is returned below */ }
-      });
-      await operation.admitted;
-      for (const message of remaining) await this.send(requestFor(message));
-      return { interrupted: true, injected: true };
+      // Track how many queued messages were durably consumed (promoted or re-steered) so a mid-way failure
+      // can restore exactly the un-consumed tail instead of silently dropping the user's backlog.
+      let consumed = 0;
+      try {
+        const [first, ...remaining] = snapshot;
+        const operation = this.startSend(requestFor(first!));
+        void operation.completed.catch(async (error) => {
+          try {
+            const admittedSession = await operation.admitted;
+            logger('brain-interrupt').error(`accepted interrupt turn failed for ${admittedSession}`, error);
+            this.publishAcceptedSendFailure(admittedSession, error);
+          } catch { /* pre-admission failure is rethrown below */ }
+        });
+        await operation.admitted;
+        consumed = 1;
+        for (const message of remaining) { await this.send(requestFor(message)); consumed += 1; }
+        return { interrupted: true, injected: true };
+      } catch (error) {
+        // Promotion failed partway (the first turn never admitted, or a later re-steer was rejected). Put
+        // the messages we never consumed back on the queue in their original order so the user does not lose
+        // them, then surface the failure. Each restore is caught individually so one bad entry cannot block
+        // the rest — the parent-abort fence is still held, so no concurrent send can interleave here.
+        // Re-resolve the live session: a promoted image turn on a text-only model respawns the conversation
+        // in place (maybeVisionHop disposes and re-creates the LiveBrain under the same id), so the `b` we
+        // captured before the promotion can be a disposed shell whose queue and mirror nobody reads.
+        const restoreTo = this.sessions.get(b.sessionId) ?? b;
+        for (const message of snapshot.slice(consumed)) {
+          try {
+            await enqueueMirrored(restoreTo, 'steer', message.text, message.images, message.echo);
+          } catch (restoreError) {
+            logger('brain-interrupt').error(`failed to restore a queued message for ${b.sessionId}`, restoreError);
+          }
+        }
+        throw error;
+      }
     } finally {
       this.sessions.endParentAbort(b.sessionId);
     }
@@ -359,16 +389,35 @@ export class BrainService {
     ];
   }
 
+  /** The direct children of `parentSessionId` that a parent abort (Esc / interruptQueued / stopSession)
+   *  must SPARE: still-running detached/background delegates. Their results are durable in the inbox and
+   *  are delivered independently of the parent's live turn (ensureLive respawns the parent if needed;
+   *  restart reconcile sweeps any that die), so tearing them down on a parent stop would silently kill work
+   *  the contract promised keeps running. Foreground blocking delegates are NOT spared — they belong to the
+   *  interrupted turn. Same predicate the start() reconcile uses to decide auto-delivery. */
+  private sparedChildSessionIds(parentSessionId: string): Set<string> {
+    return new Set(
+      this.d.store.getSubagentRuns(parentSessionId)
+        .filter((run) => run.status === 'running' && (run.background === true || run.autoDeliver === true))
+        .map((run) => run.sessionId),
+    );
+  }
+
   /** Shared destructive half of stop and queue-interrupt. Caller owns the parent-abort fence. */
   private async abortLive(b: LiveBrain): Promise<void> {
     this.goals.cancelGoalContinuation(b.sessionId);
     b.session.clearQueue();
     clearDeliveredUserEchoes(b);
     if (b.sessionId) this.elicitation.cancelForSession(b.sessionId, 'aborted');
-    await Promise.all(this.sessions.childrenOf(b.sessionId)
+    // Spare detached/background children; abort only the foreground delegates bound to this turn.
+    const spared = this.sparedChildSessionIds(b.sessionId);
+    const doomed = this.sessions.childrenOf(b.sessionId).filter((child) => !spared.has(child));
+    await Promise.all(doomed
       .filter((child) => child.startsWith('brain-ch-'))
       .map((child) => this.channelService.abort(child.slice('brain-ch-'.length))));
-    this.sessions.clearChildren(b.sessionId);
+    // Deregister ONLY the doomed children — a spared child MUST stay registered so it keeps counting toward
+    // emitSubagent/status/reconcile/hasActiveChildren (channel eviction, /status, running-subagents block).
+    for (const child of doomed) this.sessions.setChildRunning(b.sessionId, child, false);
     await abortSessionWork(b.session);
     b.session.clearQueue();
     clearDeliveredUserEchoes(b);
@@ -481,10 +530,7 @@ export class BrainService {
   queueList(userId: number, session?: string): { id: string; text: string }[] {
     const sessionId = session ? this.lifecycle.ownedUserSession(userId, session) : this.sessions.activeIdFor(userId);
     const live = sessionId ? this.sessions.get(sessionId) : undefined;
-    return live ? queueItems(
-      live.queuedSteer?.map((item) => item.echo?.displayText ?? item.text) ?? live.session.getSteeringMessages(),
-      live.queuedFollowUp?.map((item) => item.echo?.displayText ?? item.text) ?? live.session.getFollowUpMessages(),
-    ) : [];
+    return live ? queueDisplayItems(live.queuedSteer, live.queuedFollowUp, live.session) : [];
   }
 
   /** Remove ONE pending mid-turn message (the CLI ctrl+x / the web × button). PI's steering queue holds
@@ -617,15 +663,24 @@ export class BrainService {
     const started = await this.lifecycle.start(userId, opts);
     const activeChildren = new Set(this.sessions.childrenOf(started.sessionId));
     for (const run of this.d.store.getSubagentRuns(started.sessionId)) {
-      if (run.status !== 'running' || activeChildren.has(run.sessionId) || (run.background !== true && run.autoDeliver !== true)) continue;
+      // A daemon restart drops every in-memory child registration, so ANY still-'running' row without a
+      // live child is a dead orphan (foreground, background and autoDeliver alike). Terminalize each so the
+      // history stops showing a phantom running spinner — preserving its detail + ORIGINAL flags (never
+      // fabricate background/autoDeliver). Only an autoDeliver child ever promised automatic delivery, so
+      // only it gets the synthetic "interrupted by daemon restart" result woven into the parent's context;
+      // foreground/manual-background orphans just terminalize (the user sees the error row in history).
+      if (run.status !== 'running' || activeChildren.has(run.sessionId)) continue;
       const terminal = {
         id: run.toolCallId, sessionId: run.sessionId, status: 'error' as const, task: run.task,
+        ...(run.detail !== undefined ? { detail: run.detail } : {}),
         tools: run.tools, tokens: run.tokens, seconds: run.seconds, model: run.model,
-        background: true, autoDeliver: true,
+        ...(run.background === true ? { background: true } : {}),
+        ...(run.autoDeliver === true ? { autoDeliver: true } : {}),
       };
       if (!this.d.store.upsertSubagentRun(started.sessionId, terminal)) continue;
+      if (run.autoDeliver !== true) continue;
       this.turnRunner.acceptSubagentCompletion(started.sessionId, userId, {
-        id: `restart-${started.sessionId}-${run.toolCallId}`, toolCallId: run.toolCallId,
+        id: syntheticRestartResultId(started.sessionId, run.toolCallId), toolCallId: run.toolCallId,
         sessionId: run.sessionId, status: 'error', task: run.task,
         error: 'sub-agent interrupted by daemon restart', tools: run.tools, tokens: run.tokens,
         seconds: run.seconds, model: run.model,
@@ -690,6 +745,19 @@ export class BrainService {
    *  delegation, so this can never escalate; shared platform channels are deliberately NOT reachable
    *  here (steering another member's turn would mix privileges). */
   async sendToSubagent(userId: number, sessionId: string, text: string): Promise<void> {
+    await this.sendDelegated(userId, sessionId, text);
+  }
+
+  /** The single delegated-turn dispatch, shared by the owner's drill-in continuations (`sendToSubagent`)
+   *  and hidden host system turns (durable sub-agent result delivery, via `internalSystem`). Resolves the
+   *  child's immutable execution scope, rebuilds its captured policy + current account deny-list, and drives
+   *  channelService.send with `ownerSteer`. `idleRolloverMs` is pinned to Infinity: a drill-in or a
+   *  result-delivery turn must NEVER roll the delegate's transcript over (archiving it under a fresh id out
+   *  from under the still-owned child) — the child's own delegation owns that transcript. */
+  private async sendDelegated(
+    userId: number, sessionId: string, content: string,
+    internalSystem?: { customType: string; resultId: string },
+  ): Promise<void> {
     const { row, parentSessionId, scope } = this.delegatedContinuation(userId, sessionId);
     const policy = scope.admin
       ? { allowedProjectIds: 'all' as const, allowedPaths: () => [] }
@@ -711,23 +779,8 @@ export class BrainService {
       toolPolicy: delegatedToolPolicy(scope, deniedTools),
       identity: this.identity.forDelegatedTurn(scope, row.user_id),
       ownerSteer: true,
-    }, text);
-  }
-
-  private async sendCustomToSubagent(
-    userId: number, sessionId: string, customType: string, content: string, resultId: string,
-  ): Promise<void> {
-    const { row, parentSessionId, scope } = this.delegatedContinuation(userId, sessionId);
-    const policy = scope.admin
-      ? { allowedProjectIds: 'all' as const, allowedPaths: () => [] }
-      : this.d.policyForProjects?.(scope.projectIds)
-        ?? { allowedProjectIds: new Set(scope.projectIds), allowedPaths: () => [] };
-    const deniedTools = this.d.users.get(userId)?.disabled_tools ?? [];
-    await this.channelService.send({
-      channelId: sessionId.slice('brain-ch-'.length), ownerUserId: row.user_id, parentSessionId,
-      policy, delegatedAccess: scope, promptAppend: scope.promptAppend, trusted: scope.admin,
-      toolPolicy: delegatedToolPolicy(scope, deniedTools), identity: this.identity.forDelegatedTurn(scope, row.user_id),
-      ownerSteer: true, internalSystem: { customType, resultId },
+      idleRolloverMs: Number.POSITIVE_INFINITY,
+      ...(internalSystem ? { internalSystem } : {}),
     }, content);
   }
 
@@ -752,23 +805,42 @@ export class BrainService {
     }
   }
 
-  private ownedProcessSession(userId: number, sessionId: string | undefined): string {
-    const target = sessionId ?? this.lifecycle.activeSessionId(userId);
-    const row = target ? this.d.store.getSession(target) : undefined;
-    if (!target || !row || row.user_id !== userId) throw new Error('unknown session');
-    return target;
+  /** Ownership of ONE process, independent of any session scope. The originating session row decides: a
+   *  process spawned inside a DELEGATED child (sub-agent) carries `handle.userId === null` — that turn's
+   *  identity has no Elowen user — so the child session's `user_id` is the only reliable owner. The handle's
+   *  own userId is the fallback for a process whose session row is already gone. */
+  private ownsProcess(userId: number, handle: ProcessHandle): boolean {
+    const sessionOwner = handle.sessionId ? this.d.store.getSession(handle.sessionId)?.user_id : undefined;
+    return (sessionOwner ?? handle.userId ?? null) === userId;
   }
 
+  /** Resolve an EXPLICIT `?session=` process scope. Throws (→ 404) on an unknown or foreign session — the
+   *  CLI's bound-session contract. The sessionless surfaces below never call it: they span the user's whole
+   *  process tree instead. */
+  private ownedProcessSession(userId: number, sessionId: string): string {
+    const row = this.d.store.getSession(sessionId);
+    if (!row || row.user_id !== userId) throw new Error('unknown session');
+    return sessionId;
+  }
+
+  /** The user's background processes. Without a session: EVERY process they own, across conversations,
+   *  channels and sub-agent children — the web panel's view, and the only surface that can reach a service
+   *  process an orphaned delegate left behind. With a session: that conversation only (CLI). */
   processes(userId: number, sessionId?: string): ProcessInfo[] {
-    return processRegistry.listForSession(this.ownedProcessSession(userId, sessionId));
+    if (sessionId) return processRegistry.listForSession(this.ownedProcessSession(userId, sessionId));
+    return processRegistry.listWhere((handle) => this.ownsProcess(userId, handle));
   }
 
   processOutput(userId: number, processId: string, sessionId?: string): string | null {
-    return processRegistry.outputForSession(this.ownedProcessSession(userId, sessionId), processId);
+    if (sessionId) return processRegistry.outputForSession(this.ownedProcessSession(userId, sessionId), processId);
+    const handle = processRegistry.get(processId);
+    return handle && this.ownsProcess(userId, handle) ? handle.readAll() : null;
   }
 
   killProcess(userId: number, processId: string, sessionId?: string): boolean {
-    return processRegistry.killForSession(this.ownedProcessSession(userId, sessionId), processId);
+    if (sessionId) return processRegistry.killForSession(this.ownedProcessSession(userId, sessionId), processId);
+    const handle = processRegistry.get(processId);
+    return handle !== undefined && this.ownsProcess(userId, handle) && processRegistry.kill(processId);
   }
 
   async send(request: TurnRequest): Promise<void> {

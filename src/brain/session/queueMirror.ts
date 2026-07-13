@@ -1,6 +1,25 @@
+import type { AgentSession } from '@earendil-works/pi-coding-agent';
 import type { BrainStore } from '../../store/brainStore.js';
+import { queueItems } from '../events.js';
 import { projectUserTurn } from '../persistence.js';
 import type { LiveBrain, QueuedMsg, QueuedImage, QueuedUserEcho } from './liveBrain.js';
+
+/** Project the pending mid-turn backlog into the positional `{ id, text }` chips clients render. Prefers
+ *  the image-carrying mirror's clean display text (`echo.displayText`, else the raw enqueued text); when a
+ *  mirror is absent (never enqueued through enqueueMirrored) it falls back to PI's text-only accessors on
+ *  the passed session. The spawner projects straight from its always-present mirrors and passes no session.
+ *  Ordered to match queueItems([...steering, ...followUp]) so a client's positional id maps straight in. */
+export function queueDisplayItems(
+  steerMirror: QueuedMsg[] | undefined,
+  followUpMirror: QueuedMsg[] | undefined,
+  session?: AgentSession,
+): { id: string; text: string }[] {
+  const displayText = (item: QueuedMsg): string => item.echo?.displayText ?? item.text;
+  return queueItems(
+    steerMirror ? steerMirror.map(displayText) : (session?.getSteeringMessages() ?? []),
+    followUpMirror ? followUpMirror.map(displayText) : (session?.getFollowUpMessages() ?? []),
+  );
+}
 
 /** Enqueue a mid-turn message into PI's native queue AND mirror it (text + image attachments) on the live
  *  session. Why the mirror: PI's public queue exposes only text (getSteeringMessages/getFollowUpMessages)

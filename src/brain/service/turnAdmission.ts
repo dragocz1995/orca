@@ -59,7 +59,15 @@ export class TurnAdmission {
       'steer',
       this.input.text,
       this.input.images?.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })),
-      { persistText, displayText: this.input.display ?? this.input.persistText ?? this.input.text, mode: this.input.mode, publish: true },
+      {
+        persistText,
+        displayText: this.input.display ?? this.input.persistText ?? this.input.text,
+        // The clean model-facing text before the running-subagents block and the attachment marker: what a
+        // later Esc-promotion re-composes from (`input.text` still carries the block; `persistText` the marker).
+        sourceText: this.input.persistText ?? this.input.text,
+        mode: this.input.mode,
+        publish: true,
+      },
     );
     this.markAdmitted();
   }

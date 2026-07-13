@@ -22,6 +22,11 @@ export interface ProcessHandle {
   running: () => boolean;
   exitCode: () => number | null;
   readAll: () => string;
+  /** Incremental read for the AGENT's `read_process_output` tool: returns the output written since the
+   *  previous call and advances the handle's read cursor (`all` returns the whole buffer and still
+   *  advances it). The daemon surfaces (API/UI) deliberately use `readAll` instead — a panel refresh must
+   *  never consume output the agent has not seen yet. */
+  readNew?: (all?: boolean) => string;
   kill: () => void;
 }
 
@@ -31,6 +36,9 @@ export interface ProcessInfo {
   command: string;
   cwd: string;
   startedAt: string;
+  /** The brain session it was started in — null for a handle registered outside one. The UI derives the
+   *  origin badge (sub-agent / channel) from it, so it is always present in the snapshot. */
+  sessionId: string | null;
   running: boolean;
   exitCode: number | null;
   completionMode?: 'job' | 'service';
@@ -38,30 +46,32 @@ export interface ProcessInfo {
 
 const toInfo = (h: ProcessHandle): ProcessInfo => ({
   id: h.id, command: h.command, cwd: h.cwd, startedAt: h.startedAt,
+  sessionId: h.sessionId ?? null,
   running: h.running(), exitCode: h.exitCode(),
   completionMode: h.completionMode,
 });
+
+/** One pending waiter on a session's background JOBS becoming idle. `settle` fires exactly once — either
+ *  from notifySession when the last running job exits ('idle') or from an optional timeout timer
+ *  ('timeout') — clearing its own timer and unregistering itself, so a later exit can never re-settle it. */
+interface JobIdleWaiter {
+  settle: (outcome: 'idle' | 'timeout') => void;
+}
 
 export class ProcessRegistry {
   private handles = new Map<string, ProcessHandle>();
   private onChange?: (sessionId: string | null) => void;
   private onExitFn?: (info: ProcessInfo, userId: number | null, sessionId: string | null) => void;
   private exited = new Set<string>();
-  private idleWaiters = new Map<string, Set<() => void>>();
-  private jobIdleWaiters = new Map<string, Set<() => void>>();
+  private jobIdleWaiters = new Map<string, Set<JobIdleWaiter>>();
 
   private notifySession(sessionId: string | null | undefined): void {
     this.onChange?.(sessionId ?? null);
     if (!sessionId) return;
-    if (this.runningCountForSession(sessionId) === 0) {
-      const waiters = this.idleWaiters.get(sessionId);
-      this.idleWaiters.delete(sessionId);
-      for (const resolve of waiters ?? []) resolve();
-    }
     if (this.runningJobCountForSession(sessionId) === 0) {
+      // settle() removes each waiter from the set (and an emptied set from the map); iterate a snapshot.
       const waiters = this.jobIdleWaiters.get(sessionId);
-      this.jobIdleWaiters.delete(sessionId);
-      for (const resolve of waiters ?? []) resolve();
+      if (waiters) for (const waiter of [...waiters]) waiter.settle('idle');
     }
   }
 
@@ -92,18 +102,23 @@ export class ProcessRegistry {
     this.onExitFn?.(toInfo(h), h.userId ?? null, h.sessionId ?? null);
   }
 
-  /** Current processes (running first, newest first). */
-  list(): ProcessInfo[] {
+  /** Processes matching a predicate (running first, newest first). The predicate sees the HANDLE, so a
+   *  caller can filter on fields the snapshot doesn't carry (e.g. brainService's ownership check on
+   *  `userId`). */
+  listWhere(predicate: (handle: ProcessHandle) => boolean): ProcessInfo[] {
     return [...this.handles.values()]
+      .filter(predicate)
       .map(toInfo)
       .sort((a, b) => Number(b.running) - Number(a.running) || b.startedAt.localeCompare(a.startedAt));
   }
 
+  /** Current processes (running first, newest first). */
+  list(): ProcessInfo[] {
+    return this.listWhere(() => true);
+  }
+
   listForSession(sessionId: string): ProcessInfo[] {
-    return [...this.handles.values()]
-      .filter((handle) => handle.sessionId === sessionId)
-      .map(toInfo)
-      .sort((a, b) => Number(b.running) - Number(a.running) || b.startedAt.localeCompare(a.startedAt));
+    return this.listWhere((handle) => handle.sessionId === sessionId);
   }
 
   get(id: string): ProcessHandle | undefined { return this.handles.get(id); }
@@ -156,12 +171,6 @@ export class ProcessRegistry {
     return n;
   }
 
-  runningCountForSession(sessionId: string): number {
-    let count = 0;
-    for (const handle of this.handles.values()) if (handle.sessionId === sessionId && handle.running()) count++;
-    return count;
-  }
-
   runningJobCountForSession(sessionId: string): number {
     let count = 0;
     for (const handle of this.handles.values()) {
@@ -170,21 +179,34 @@ export class ProcessRegistry {
     return count;
   }
 
-  waitForSessionIdle(sessionId: string): Promise<void> {
-    if (this.runningCountForSession(sessionId) === 0) return Promise.resolve();
+  /** Resolve when the session has no RUNNING background jobs left (service processes are excluded — a
+   *  long-lived service must never block a collect turn). Returns 'idle' immediately when already idle, or
+   *  once the last running job exits; with a finite `timeoutMs`, returns 'timeout' if that deadline passes
+   *  first. The timer is unref'd so a pending wait never keeps the daemon alive, and each waiter settles
+   *  exactly once — a later exit after a timeout (or vice versa) is a no-op. */
+  waitForSessionJobsIdle(sessionId: string, timeoutMs?: number): Promise<'idle' | 'timeout'> {
+    if (this.runningJobCountForSession(sessionId) === 0) return Promise.resolve('idle');
     return new Promise((resolve) => {
-      const waiters = this.idleWaiters.get(sessionId) ?? new Set<() => void>();
-      waiters.add(resolve);
-      this.idleWaiters.set(sessionId, waiters);
-    });
-  }
-
-  waitForSessionJobsIdle(sessionId: string): Promise<void> {
-    if (this.runningJobCountForSession(sessionId) === 0) return Promise.resolve();
-    return new Promise((resolve) => {
-      const waiters = this.jobIdleWaiters.get(sessionId) ?? new Set<() => void>();
-      waiters.add(resolve);
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiters = this.jobIdleWaiters.get(sessionId) ?? new Set<JobIdleWaiter>();
+      const waiter: JobIdleWaiter = {
+        settle: (outcome) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          const set = this.jobIdleWaiters.get(sessionId);
+          set?.delete(waiter);
+          if (set && set.size === 0) this.jobIdleWaiters.delete(sessionId);
+          resolve(outcome);
+        },
+      };
+      waiters.add(waiter);
       this.jobIdleWaiters.set(sessionId, waiters);
+      if (timeoutMs !== undefined && Number.isFinite(timeoutMs)) {
+        timer = setTimeout(() => waiter.settle('timeout'), timeoutMs);
+        timer.unref?.();
+      }
     });
   }
 }

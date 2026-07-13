@@ -16,10 +16,11 @@ import type { LiveBrain, SpawnOpts, QueuedMsg, TurnContextBlocks } from '../sess
 import {
   clearDeliveredUserEchoes,
   deliverQueuedUserEcho,
+  queueDisplayItems,
   reconcileMirrors,
   stageDeliveredUserEchoes,
 } from '../session/queueMirror.js';
-import { isErroredContextOverflow, queueItems, toBrainEvent, usageOf, withDescendantUsage } from '../events.js';
+import { isErroredContextOverflow, toBrainEvent, usageOf, withDescendantUsage } from '../events.js';
 import type { BrainEvent } from '../events.js';
 import type { BrainDeps } from '../brainDeps.js';
 import { turnWorkDir } from './workDir.js';
@@ -331,10 +332,7 @@ export class LiveSessionSpawner {
       const be = toBrainEvent(e);
       if (!be) return;
       if (be.type === 'queue') {
-        be.items = queueItems(
-          queuedSteer.map((item) => item.echo?.displayText ?? item.text),
-          queuedFollowUp.map((item) => item.echo?.displayText ?? item.text),
-        );
+        be.items = queueDisplayItems(queuedSteer, queuedFollowUp);
       }
       // PI emits this intermediate agent_end before ordinary retry / overflow recovery. It is not a
       // terminal idle: headless must keep waiting and interactive clients must keep their spinner alive.

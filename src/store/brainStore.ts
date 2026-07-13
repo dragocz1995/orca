@@ -66,6 +66,13 @@ export interface BrainSubagentResult {
   delivery: 'pending' | 'acknowledged';
   attempts: number;
 }
+/** A daemon-restart reconcile enqueues a SYNTHETIC terminal result for each orphaned running child so an
+ *  autoDeliver parent still gets woken. Its id carries this prefix so a real completion arriving later for
+ *  the same (parent_session_id, tool_call_id) can UPGRADE the still-pending synthetic row in place (see
+ *  enqueueSubagentResult) rather than colliding with it. */
+const SYNTHETIC_RESTART_RESULT_PREFIX = 'restart-';
+export const syntheticRestartResultId = (parentSessionId: string, toolCallId: string): string =>
+  `${SYNTHETIC_RESTART_RESULT_PREFIX}${parentSessionId}-${toolCallId}`;
 /** Persisted usage of a delegated session tree. Unlike live context usage, these are cumulative token
  *  and cost totals only; callers must keep the root session's own context-window fill unchanged. */
 export interface BrainDescendantUsage {
@@ -598,11 +605,24 @@ export class BrainStore {
         result: result.result, error: result.error, tools: result.tools, tokens: result.tokens,
         seconds: result.seconds, model: result.model,
       });
+      // Handle BOTH unique constraints (result_id PK + parent/tool_call) so a late/duplicate callback can
+      // never throw and silently drop a result (#4). A real completion arriving for a (parent, tool_call)
+      // that a restart reconcile already filled with a still-pending SYNTHETIC `restart-` row UPGRADES it
+      // in place — keeping its queue position (created_at untouched) and resetting the retry counter. A
+      // synthetic never overwrites a real row, and a real row is never clobbered by a second distinct real
+      // result (first-write-wins) — both guarded by the WHERE on the second ON CONFLICT clause.
       this.db.prepare(
         `INSERT INTO brain_subagent_results
           (result_id, parent_session_id, tool_call_id, child_session_id, status, task, payload)
          VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(result_id) DO NOTHING`
+         ON CONFLICT(result_id) DO NOTHING
+         ON CONFLICT(parent_session_id, tool_call_id) DO UPDATE SET
+           result_id = excluded.result_id, child_session_id = excluded.child_session_id,
+           status = excluded.status, task = excluded.task, payload = excluded.payload,
+           attempts = 0, last_error = NULL
+         WHERE brain_subagent_results.delivery_state = 'pending'
+           AND brain_subagent_results.result_id LIKE '${SYNTHETIC_RESTART_RESULT_PREFIX}%'
+           AND excluded.result_id NOT LIKE '${SYNTHETIC_RESTART_RESULT_PREFIX}%'`
       ).run(result.id, parentSessionId, result.toolCallId, result.sessionId, result.status, result.task, payload);
       const row = this.db.prepare(
         `SELECT parent_session_id, tool_call_id, child_session_id FROM brain_subagent_results WHERE result_id = ?`
@@ -611,11 +631,11 @@ export class BrainStore {
     })();
   }
 
-  pendingSubagentResults(parentSessionId?: string): BrainSubagentResult[] {
+  pendingSubagentResults(parentSessionId: string): BrainSubagentResult[] {
     const rows = this.db.prepare(
       `SELECT * FROM brain_subagent_results WHERE delivery_state = 'pending'
-       ${parentSessionId ? 'AND parent_session_id = ?' : ''} ORDER BY created_at, rowid`
-    ).all(...(parentSessionId ? [parentSessionId] : [])) as Record<string, unknown>[];
+       AND parent_session_id = ? ORDER BY created_at, rowid`
+    ).all(parentSessionId) as Record<string, unknown>[];
     return rows.flatMap((row) => {
       let payload: Record<string, unknown>;
       try { payload = JSON.parse(String(row.payload)) as Record<string, unknown>; } catch { return []; }

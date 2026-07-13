@@ -226,7 +226,7 @@ export class ChannelSessionService {
         // second check clears it again before rejecting; no late instruction survives the aborted tree.
         if (delegationAborted()) throw new Error('delegation aborted');
         await enqueueMirrored(streaming, 'steer', text, undefined, {
-          persistText: text, displayText: text, publish: true,
+          persistText: text, displayText: text, sourceText: text, publish: true,
         });
         if (delegationAborted()) {
           streaming.session.clearQueue();
@@ -246,7 +246,7 @@ export class ChannelSessionService {
           'steer',
           text,
           opts.images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })),
-          { persistText: persisted, displayText: persisted, publish: false },
+          { persistText: persisted, displayText: persisted, sourceText: text, publish: false },
         );
         return '';
       }

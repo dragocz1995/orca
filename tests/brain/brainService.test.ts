@@ -18,6 +18,7 @@ import { MemoryCategorizer } from '../../src/brain/memoryCategorizer.js';
 import type { MemoryService } from '../../src/brain/memoryService.js';
 import type { MemoryRow } from '../../src/store/memoryStore.js';
 import { HookAuditBuffer } from '../../src/shared/hookAudit.js';
+import { processRegistry, type ProcessHandle } from '../../src/brain/processRegistry.js';
 import type { TurnRequest } from '../../src/brain/service/turnRequest.js';
 
 function fakeDeps() {
@@ -312,13 +313,104 @@ describe('BrainService', () => {
     expect(d.store.pendingSubagentResults(sessionId)).toEqual([]);
   });
 
+  it('defers a result while the parent is streaming and delivers it on the next turn (never parks a follow-up)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const child = 'brain-ch-subagent-stream';
+    d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-stream', sessionId: child, status: 'done', task: 'inspect', tools: 1, seconds: 1, background: true, autoDeliver: true });
+    const runner = (svc as unknown as { turnRunner: { acceptSubagentCompletion(parent: string, userId: number, result: unknown): void; resultDrains: Set<string> } }).turnRunner;
+
+    d.session.isStreaming = true; // a parent turn is in flight
+    runner.acceptSubagentCompletion(sessionId, 1, { id: 'res-stream', toolCallId: 'call-stream', sessionId: child, status: 'done', task: 'inspect', result: 'all clear', tools: 1, seconds: 1 });
+    // The deferred drain must settle (release its guard) WITHOUT ever touching PI's custom-message seam.
+    await vi.waitFor(() => expect(runner.resultDrains.has(sessionId)).toBe(false));
+    expect(d.session.sendCustomMessage).not.toHaveBeenCalled();
+    expect(d.store.pendingSubagentResults(sessionId)[0]?.attempts).toBe(0);
+
+    d.session.isStreaming = false; // the parent turn finished
+    await svc.send({ userId: 1, text: 'anything', session: sessionId });
+    await vi.waitFor(() => expect(d.store.pendingSubagentResults(sessionId)).toEqual([]));
+    expect(d.session.sendCustomMessage).toHaveBeenCalledTimes(1);
+    expect(d.store.getSubagentRuns(sessionId)[0]).toMatchObject({ resultDelivery: 'acknowledged' });
+  });
+
+  it('serializes hidden result delivery behind the bare session lock', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const child = 'brain-ch-subagent-locked';
+    d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-lock', sessionId: child, status: 'done', task: 'inspect', tools: 1, seconds: 1, background: true });
+    const registry = (svc as unknown as { sessions: { withLock<T>(key: string, fn: () => Promise<T>): Promise<T> } }).sessions;
+    const runner = (svc as unknown as { turnRunner: { acceptSubagentCompletion(parent: string, userId: number, result: unknown): void } }).turnRunner;
+
+    // Hold the bare session lock so any concurrent delivery must queue behind it.
+    let releaseLock!: () => void;
+    const lockDone = registry.withLock(sessionId, () => new Promise<void>((resolve) => { releaseLock = resolve; }));
+    await vi.waitFor(() => expect(typeof releaseLock).toBe('function'));
+
+    runner.acceptSubagentCompletion(sessionId, 1, { id: 'res-lock', toolCallId: 'call-lock', sessionId: child, status: 'done', task: 'inspect', result: 'answer', tools: 1, seconds: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 20)); // let the drain reach — and block on — the bare lock
+    expect(d.session.sendCustomMessage).not.toHaveBeenCalled();
+    expect(d.store.pendingSubagentResults(sessionId)).toHaveLength(1);
+
+    releaseLock();
+    await lockDone;
+    await vi.waitFor(() => expect(d.store.pendingSubagentResults(sessionId)).toEqual([]));
+    expect(d.session.sendCustomMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('acknowledges a result that lands in an aborted parent turn instead of retrying it', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const child = 'brain-ch-subagent-aborted';
+    d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-abort', sessionId: child, status: 'done', task: 'inspect', tools: 1, seconds: 1, background: true });
+    // PI folded the result into the transcript, then the parent turn was aborted (a NEW assistant row,
+    // stopReason 'aborted'): the result already entered context, so it must be acknowledged, not retried.
+    d.session.sendCustomMessage.mockImplementationOnce(async () => {
+      d.session.messages.push({ role: 'assistant', content: 'partial', stopReason: 'aborted' } as never);
+    });
+    const runner = (svc as unknown as { turnRunner: { acceptSubagentCompletion(parent: string, userId: number, result: unknown): void; resultRetryTimers: Map<string, unknown> } }).turnRunner;
+    runner.acceptSubagentCompletion(sessionId, 1, { id: 'res-abort', toolCallId: 'call-abort', sessionId: child, status: 'done', task: 'inspect', result: 'answer', tools: 1, seconds: 1 });
+    await vi.waitFor(() => expect(d.store.getSubagentRuns(sessionId)[0]).toMatchObject({ resultDelivery: 'acknowledged' }));
+    expect(d.session.sendCustomMessage).toHaveBeenCalledTimes(1);
+    expect(runner.resultRetryTimers.size).toBe(0);
+    expect(d.store.pendingSubagentResults(sessionId)).toEqual([]);
+  });
+
+  it('caps retries of a permanently failing result at five, then makes exactly one more attempt on the next turn', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const child = 'brain-ch-subagent-perm-error';
+    d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-perm', sessionId: child, status: 'done', task: 'inspect', tools: 1, seconds: 1, background: true });
+    // Every delivery attempt resolves with a provider-error assistant → sendCustomSystem always throws.
+    d.session.sendCustomMessage.mockImplementation(async () => {
+      d.session.messages.push({ role: 'assistant', content: '', stopReason: 'error', errorMessage: 'provider unavailable' } as never);
+    });
+    const runner = (svc as unknown as { turnRunner: { drainPendingSubagentResults(userId: number, parent: string): Promise<void>; resultRetryTimers: Map<string, unknown> } }).turnRunner;
+    // Enqueue directly (no auto-drain) so the retries are driven deterministically, one per call.
+    expect(d.store.enqueueSubagentResult(sessionId, { id: 'res-perm', toolCallId: 'call-perm', sessionId: child, status: 'done', task: 'inspect', result: 'answer', tools: 1, seconds: 1 })).toBe(true);
+    for (let i = 0; i < 5; i += 1) await runner.drainPendingSubagentResults(1, sessionId);
+    // The counter stops at the cap, the row stays pending, and no further retry timer is armed.
+    expect(d.store.pendingSubagentResults(sessionId)[0]?.attempts).toBe(5);
+    expect(d.store.getSubagentRuns(sessionId)[0]).toMatchObject({ resultDelivery: 'pending' });
+    expect(runner.resultRetryTimers.size).toBe(0);
+    expect(d.session.sendCustomMessage).toHaveBeenCalledTimes(5);
+
+    // A fresh user turn re-triggers the drain via send()'s post-turn hook: exactly ONE more attempt.
+    await svc.send({ userId: 1, text: 'kick', session: sessionId });
+    await vi.waitFor(() => expect(d.session.sendCustomMessage).toHaveBeenCalledTimes(6));
+    expect(runner.resultRetryTimers.size).toBe(0);
+  });
+
   it('places running sub-agent state after the user request in a dedicated XML reminder', async () => {
     const d = fakeDeps();
-    const reg = new PluginRegistry();
-    reg.contextFor('subagent', {}, { info() {}, warn() {}, error() {} }).registerControl('subagent', {
-      activeRuns: () => ['brain-ch-subagent-child'],
-    });
-    (d as unknown as { plugins: unknown }).plugins = new PluginRegistryProvider(async () => reg);
     const svc = new BrainService(d as never);
     const { sessionId } = await svc.start(1);
     d.store.createSession({ id: 'brain-ch-subagent-child', userId: 1, model: 'm', parentSessionId: sessionId });
@@ -335,6 +427,9 @@ describe('BrainService', () => {
     expect(prompted).toContain('background="true"');
     expect(prompted).toContain('auto-deliver="true"');
     expect(prompted).toContain('inspect &lt;unsafe&gt;');
+    // The child's live tool detail is a UI-only projection — it must never reach the model-facing reminder.
+    expect(prompted).not.toContain('<progress>');
+    expect(prompted).not.toContain('read_file src/a.ts');
     expect(prompted.indexOf('What is next?')).toBeLessThan(prompted.indexOf('<running-subagents>'));
 
     d.session.isStreaming = true;
@@ -343,11 +438,51 @@ describe('BrainService', () => {
     expect(svc.queueList(1).at(-1)?.text).toBe('Steer right now');
   });
 
-  it('does not inject stale durable running sub-agents after the plugin job registry restarted empty', async () => {
+  it('tells the model an auto-deliver result arrives in a new turn, so it must end this one instead of polling', async () => {
     const d = fakeDeps();
-    const reg = new PluginRegistry();
-    reg.contextFor('subagent', {}, { info() {}, warn() {}, error() {} }).registerControl('subagent', { activeRuns: () => [] });
-    (d as unknown as { plugins: unknown }).plugins = new PluginRegistryProvider(async () => reg);
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.store.createSession({ id: 'brain-ch-subagent-auto', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, {
+      id: 'delegate-auto', sessionId: 'brain-ch-subagent-auto', status: 'running',
+      task: 'long build', tools: 1, seconds: 2, background: true, autoDeliver: true,
+    });
+    (svc as unknown as { sessions: { setChildRunning(parent: string, child: string, running: boolean): void } })
+      .sessions.setChildRunning(sessionId, 'brain-ch-subagent-auto', true);
+
+    await svc.send({ userId: 1, text: 'anything else?', session: sessionId });
+    const instruction = (d.session.prompt.mock.calls.at(-1)?.[0] as string)
+      .split('<instruction>')[1]!.split('</instruction>')[0]!;
+    // Ending the turn is the ONLY way an auto-delivered result can land (delivery is refused mid-stream),
+    // so the reminder must say so — and must never suggest waiting or polling for it.
+    expect(instruction).toContain('end your turn');
+    expect(instruction).toContain('new turn');
+    expect(instruction).toContain('Do not wait for them and do not poll delegate_status.');
+    expect(instruction).not.toContain('delegate_result');
+  });
+
+  it('asks for delegate_result only when a running job has no automatic delivery', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.store.createSession({ id: 'brain-ch-subagent-manual', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, {
+      id: 'delegate-manual', sessionId: 'brain-ch-subagent-manual', status: 'running',
+      task: 'side quest', tools: 0, seconds: 1, background: true, autoDeliver: false,
+    });
+    (svc as unknown as { sessions: { setChildRunning(parent: string, child: string, running: boolean): void } })
+      .sessions.setChildRunning(sessionId, 'brain-ch-subagent-manual', true);
+
+    await svc.send({ userId: 1, text: 'anything else?', session: sessionId });
+    const instruction = (d.session.prompt.mock.calls.at(-1)?.[0] as string)
+      .split('<instruction>')[1]!.split('</instruction>')[0]!;
+    expect(instruction).toContain('delegate_result');
+    expect(instruction).toContain('do not busy-wait');
+    expect(instruction).not.toContain('end your turn');
+  });
+
+  it('does not inject stale durable running sub-agents when no live child is registered', async () => {
+    const d = fakeDeps();
     const svc = new BrainService(d as never);
     const { sessionId } = await svc.start(1);
     d.store.createSession({ id: 'brain-ch-subagent-stale', userId: 1, model: 'm', parentSessionId: sessionId });
@@ -720,10 +855,21 @@ describe('BrainService', () => {
     expect(d.session.abortBranchSummary).toHaveBeenCalledOnce();
   });
 
-  it('interruptQueued aborts the active PI run and starts the oldest queued message as a fresh turn', async () => {
+  it('interruptQueued promotes the oldest queued message with clean model-facing text (no marker, one reminder)', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
-    await svc.start(1);
+    const { sessionId } = await svc.start(1);
+    // A detached background child is SPARED by the interrupt's abort, so it stays registered — the promoted
+    // turn re-derives exactly ONE running-subagents reminder from live state (not a stale copy on the text).
+    d.store.createSession({ id: 'brain-ch-subagent-child', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, {
+      id: 'delegate-1', sessionId: 'brain-ch-subagent-child', status: 'running',
+      task: 'inspect', tools: 1, seconds: 1, background: true, autoDeliver: true,
+    });
+    (svc as unknown as { sessions: { setChildRunning(parent: string, child: string, running: boolean): void } })
+      .sessions.setChildRunning(sessionId, 'brain-ch-subagent-child', true);
+    const userEchoes: string[] = [];
+    svc.subscribe(1, (event) => { if (event.type === 'user') userEchoes.push(event.text); });
     d.session.isStreaming = true;
     await svc.send({
       userId: 1,
@@ -739,13 +885,74 @@ describe('BrainService', () => {
 
     expect(result).toEqual({ interrupted: true, injected: true });
     expect(d.session.abort).toHaveBeenCalledOnce();
-    expect(d.session.prompt.mock.calls.at(-1)?.[0]).toContain('expanded queued instruction');
+    const prompted = d.session.prompt.mock.calls.at(-1)?.[0] as string;
+    expect(prompted).toContain('expanded queued instruction');
+    // The durable attachment marker and the reminder block are re-derived by the fresh turn, never carried
+    // on the promoted text: no `📎` reaches the model, and there is exactly one running-subagents reminder.
+    expect(prompted).not.toContain('📎');
+    expect(prompted.match(/<running-subagents>/g)).toHaveLength(1);
     expect(d.session.prompt.mock.calls.at(-1)?.[1]?.images).toEqual([
       { type: 'image', data: 'BASE64PNG', mimeType: 'image/png' },
     ]);
     expect(svc.queueList(1, 'brain-1')).toEqual([]);
+    // The persisted user row keeps the durable marker; the streamed echo shows the client's clean display.
     expect(svc.history(1).filter((row) => row.role === 'user').at(-1)?.text)
-      .toContain('expanded queued instruction');
+      .toBe('expanded queued instruction\n[📎 1× image]');
+    expect(userEchoes.at(-1)).toBe('clean queued instruction');
+  });
+
+  it('interruptQueued restores the un-promoted backlog and rejects when the promoted turn fails to admit', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.isStreaming = true;
+    await svc.send({ userId: 1, text: 'msg one', session: 'brain-1' });
+    await svc.send({ userId: 1, text: 'msg two', session: 'brain-1' });
+    d.session.abort.mockImplementationOnce(async () => { d.session.isStreaming = false; });
+    // PI rejects the promoted first turn before admission → nothing was consumed, so the whole backlog is
+    // put back in its original order and the failure surfaces (no half-consumed queue, no ghost user row).
+    d.session.prompt.mockImplementationOnce(async (_text, options) => {
+      options?.preflightResult?.(false);
+      throw new Error('prompt preflight rejected');
+    });
+
+    await expect(svc.interruptQueued(1, 'brain-1')).rejects.toThrow('prompt preflight rejected');
+    expect(svc.queueList(1, 'brain-1').map((item) => item.text)).toEqual(['msg one', 'msg two']);
+    expect(d.store.getMessages('brain-1').filter((row) => row.role === 'user')).toHaveLength(0);
+  });
+
+  it('interruptQueued restores the backlog into the LIVE session even when the promoted turn respawned it', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    d.session.isStreaming = true;
+    await svc.send({ userId: 1, text: 'promoted', session: 'brain-1' });
+    await svc.send({ userId: 1, text: 'survivor', session: 'brain-1' });
+    d.session.abort.mockImplementationOnce(async () => { d.session.isStreaming = false; });
+
+    const sessions = (svc as unknown as { sessions: { get(id: string): unknown; set(id: string, b: unknown): void } }).sessions;
+    const original = sessions.get('brain-1') as { sessionId: string };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    // The promoted turn admits and keeps streaming (so the survivor is re-STEERED behind it), and while it
+    // runs the conversation is RESPAWNED in place — exactly what an image turn on a text-only model does
+    // (maybeVisionHop disposes the LiveBrain and ensureLive re-creates it under the same id).
+    d.session.prompt.mockImplementationOnce(async (_text, options) => {
+      d.session.isStreaming = true;
+      options?.preflightResult?.(true);
+      sessions.set('brain-1', { ...original, queuedSteer: [], queuedFollowUp: [] });
+      await gate;
+      d.session.isStreaming = false;
+    });
+    d.session.steer.mockImplementationOnce(() => { throw new Error('steer rejected'); });
+
+    await expect(svc.interruptQueued(1, 'brain-1')).rejects.toThrow('steer rejected');
+    // The survivor must land in the session the user is actually talking to. Restoring into the disposed
+    // pre-respawn object would write to a queue and mirror that nobody reads — the message would be gone.
+    expect(svc.queueList(1, 'brain-1').map((item) => item.text)).toEqual(['survivor']);
+
+    release();
+    await vi.waitFor(() => expect(d.session.isStreaming).toBe(false));
   });
 
   it('interruptQueued re-steers later queued messages in FIFO order behind the promoted turn', async () => {
@@ -775,16 +982,17 @@ describe('BrainService', () => {
     await vi.waitFor(() => expect(d.session.isStreaming).toBe(false));
   });
 
-  it('interruptQueued remains a plain interrupt when the queue drained before the request arrived', async () => {
+  it('interruptQueued returns interrupted:false and does not abort when the queue is empty', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
     d.session.isStreaming = true;
-    d.session.abort.mockImplementationOnce(async () => { d.session.isStreaming = false; });
 
+    // An empty queue is nothing to promote, so the server refuses to destroy the running turn: no abort, no
+    // fresh turn. The CLI degrades to its two-press arming (fáze 8) instead of a one-press destructive stop.
     await expect(svc.interruptQueued(1, 'brain-1')).resolves
-      .toEqual({ interrupted: true, injected: false });
-    expect(d.session.abort).toHaveBeenCalledOnce();
+      .toEqual({ interrupted: false, injected: false });
+    expect(d.session.abort).not.toHaveBeenCalled();
     expect(d.session.prompt).not.toHaveBeenCalled();
   });
 
@@ -2649,6 +2857,150 @@ describe('sub-agent session tap + owner steering', () => {
     expect(d.store.getMessages('brain-ch-subagent-sub1').filter((m) => m.role === 'user')).toHaveLength(2);
     off();
   });
+
+  it('sendToSubagent never rolls over a stale delegate transcript (idle rollover pinned off)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    (d as unknown as { policy: () => unknown }).policy = () => ({ allowedProjectIds: 'all', allowedPaths: () => [] });
+    d.store.createSession({ id: 'brain-parent', userId: 1, model: 'm' });
+    d.store.createSession({
+      id: 'brain-ch-subagent-drill', userId: 1, model: 'm', parentSessionId: 'brain-parent',
+      delegatedAccess: { admin: true, owner: true, projectIds: [], permissionBoundary: null },
+    });
+    // The child transcript went quiet long past the 30-min idle cutoff. A plain channel turn would archive
+    // it under a fresh id and continue empty; a drill-in continuation must KEEP it — the child still owns it.
+    d.store.appendMessage({
+      id: 'old-user', sessionId: 'brain-ch-subagent-drill', parentId: null, role: 'user',
+      content: { role: 'user', content: 'earlier' },
+    });
+    d.db.prepare("UPDATE brain_messages SET created_at = datetime('now', '-31 minutes') WHERE session_id = 'brain-ch-subagent-drill'").run();
+    const reassign = vi.spyOn(d.store, 'reassignSession');
+
+    await svc.sendToSubagent(1, 'brain-ch-subagent-drill', 'continue after idle');
+
+    expect(reassign).not.toHaveBeenCalled(); // pinned idleRolloverMs = Infinity vetoes the rollover
+    expect(d.store.getSession('brain-ch-subagent-drill')).toBeDefined();
+    expect(d.store.getMessages('brain-ch-subagent-drill').some((m) => m.id === 'old-user')).toBe(true);
+    expect(d.session.prompt).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sub-agent abort sparing + restart reconcile', () => {
+  type Registry = {
+    setChildRunning(parent: string, child: string, running: boolean): void;
+    childrenOf(parent: string): string[];
+    hasPendingAbort(sessionId: string): boolean;
+    has(sessionId: string): boolean;
+  };
+  const registryOf = (svc: BrainService) => (svc as unknown as { sessions: Registry }).sessions;
+  const runnerOf = (svc: BrainService) =>
+    (svc as unknown as { turnRunner: { acceptSubagentCompletion(parent: string, userId: number, result: unknown): void } }).turnRunner;
+
+  it('Esc spares a detached/background child but aborts a foreground one', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const registry = registryOf(svc);
+    // A detached (background + auto-deliver) child: durable, result delivered to the inbox → survives Esc.
+    d.store.createSession({ id: 'brain-ch-subagent-bg', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-bg', sessionId: 'brain-ch-subagent-bg', status: 'running', task: 'bg', tools: 1, seconds: 1, background: true, autoDeliver: true });
+    registry.setChildRunning(sessionId, 'brain-ch-subagent-bg', true);
+    // A foreground blocking delegate: belongs to the interrupted turn → aborted with the parent.
+    d.store.createSession({ id: 'brain-ch-subagent-fg', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-fg', sessionId: 'brain-ch-subagent-fg', status: 'running', task: 'fg', tools: 1, seconds: 1 });
+    registry.setChildRunning(sessionId, 'brain-ch-subagent-fg', true);
+
+    await svc.abort(1, sessionId);
+
+    expect(registry.childrenOf(sessionId)).toEqual(['brain-ch-subagent-bg']);
+    expect(registry.hasPendingAbort('brain-ch-subagent-fg')).toBe(true);
+    expect(registry.hasPendingAbort('brain-ch-subagent-bg')).toBe(false);
+  });
+
+  it('interruptQueued spares a detached child while promoting the queued backlog', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const registry = registryOf(svc);
+    d.store.createSession({ id: 'brain-ch-subagent-bg', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-bg', sessionId: 'brain-ch-subagent-bg', status: 'running', task: 'bg', tools: 1, seconds: 1, background: true, autoDeliver: true });
+    registry.setChildRunning(sessionId, 'brain-ch-subagent-bg', true);
+    d.session.isStreaming = true;
+    await svc.send({ userId: 1, text: 'queued while busy', session: sessionId });
+    d.session.abort.mockImplementationOnce(async () => { d.session.isStreaming = false; });
+
+    await expect(svc.interruptQueued(1, sessionId)).resolves.toEqual({ interrupted: true, injected: true });
+
+    expect(registry.childrenOf(sessionId)).toContain('brain-ch-subagent-bg');
+  });
+
+  it('a spared detached child still delivers its result after stopSession disposed the parent', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const registry = registryOf(svc);
+    d.store.createSession({ id: 'brain-ch-subagent-detached', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-detached', sessionId: 'brain-ch-subagent-detached', status: 'running', task: 'long job', tools: 1, seconds: 10, background: true, autoDeliver: true });
+    registry.setChildRunning(sessionId, 'brain-ch-subagent-detached', true);
+
+    // The CLI closes: stopSession aborts foreground work, spares the detached child, and disposes the parent.
+    expect(await svc.stopSession(1, sessionId)).toEqual({ stopped: true, disposed: true });
+    expect(registry.has(sessionId)).toBe(false);
+
+    // The detached child finishes afterwards. Delivery must ensureLive-respawn the parent and drain the inbox.
+    runnerOf(svc).acceptSubagentCompletion(sessionId, 1, { id: 'res-detached', toolCallId: 'call-detached', sessionId: 'brain-ch-subagent-detached', status: 'done', task: 'long job', result: 'done', tools: 1, seconds: 10 });
+    await vi.waitFor(() => expect(d.store.pendingSubagentResults(sessionId)).toEqual([]));
+    expect(d.session.sendCustomMessage).toHaveBeenCalled();
+  });
+
+  it('reconcile terminalizes a foreground orphan and surfaces it in history without a hidden delivery turn', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.store.createSession({ id: 'brain-ch-subagent-fg', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.appendMessage({
+      id: 'assistant-fg', sessionId, parentId: null, role: 'assistant',
+      content: { role: 'assistant', content: [{ type: 'toolCall', id: 'delegate-fg', name: 'delegate', arguments: { task: 'inspect' } }] },
+    });
+    d.store.upsertSubagentRun(sessionId, { id: 'delegate-fg', sessionId: 'brain-ch-subagent-fg', status: 'running', task: 'inspect', tools: 1, seconds: 5 });
+
+    // childrenOf is empty (a restart drops every live registration) → the running row is a dead orphan.
+    await svc.start(1);
+
+    expect(d.store.getSubagentRuns(sessionId).find((r) => r.toolCallId === 'delegate-fg')?.status).toBe('error');
+    expect(d.store.pendingSubagentResults(sessionId)).toEqual([]);
+    expect(d.session.sendCustomMessage).not.toHaveBeenCalled();
+    expect(svc.history(1).flatMap((turn) => turn.segments ?? [])
+      .some((segment) => segment.kind === 'tool' && segment.sub?.status === 'error')).toBe(true);
+  });
+
+  it('reconcile delivers a synthetic restart result only for an autoDeliver orphan', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.store.createSession({ id: 'brain-ch-subagent-auto', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'delegate-auto', sessionId: 'brain-ch-subagent-auto', status: 'running', task: 'watch', tools: 1, seconds: 3, background: true, autoDeliver: true });
+
+    await svc.start(1);
+
+    expect(d.store.getSubagentRuns(sessionId).find((r) => r.toolCallId === 'delegate-auto')?.status).toBe('error');
+    await vi.waitFor(() => expect(d.session.sendCustomMessage).toHaveBeenCalled());
+    await vi.waitFor(() => expect(d.store.pendingSubagentResults(sessionId)).toEqual([]));
+  });
+
+  it('reconcile terminalizes a background non-autoDeliver orphan without a synthetic result', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.store.createSession({ id: 'brain-ch-subagent-bg', userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.upsertSubagentRun(sessionId, { id: 'delegate-bg', sessionId: 'brain-ch-subagent-bg', status: 'running', task: 'build', tools: 1, seconds: 2, background: true });
+
+    await svc.start(1);
+
+    expect(d.store.getSubagentRuns(sessionId).find((r) => r.toolCallId === 'delegate-bg')?.status).toBe('error');
+    expect(d.store.pendingSubagentResults(sessionId)).toEqual([]);
+    expect(d.session.sendCustomMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe('abort cascade + turn model exposure', () => {
@@ -3161,5 +3513,101 @@ describe('per-client session binding (multi-instance CLI)', () => {
     expect(recovered.snapshot.sessionId).toBe(freshId);
     expect(recovered.snapshot.history.some((row) => row.text.includes('second'))).toBe(true);
     recovered.off();
+  });
+});
+
+describe('BrainService — background processes', () => {
+  /** A fake registry handle (no real child): the plugin owns spawning, the service only reads/kills. */
+  const fakeHandle = (id: string, sessionId: string | null, userId: number | null = null): ProcessHandle & { killed: boolean } => {
+    const handle = {
+      id, command: `sleep ${id}`, cwd: '/w', startedAt: `2026-01-01T00:00:0${id}Z`,
+      sessionId, userId, killed: false,
+      running: () => true, exitCode: () => null,
+      readAll: () => `out-${id}`,
+      kill(this: { killed: boolean }) { this.killed = true; },
+    };
+    return handle;
+  };
+  // The registry is a process-global singleton — never leak handles into the next test.
+  afterEach(() => { for (const p of processRegistry.list()) processRegistry.remove(p.id); });
+
+  it('deleting a conversation kills the processes of the whole sub-agent tree', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const child = 'brain-ch-subagent-sub-dlg-1';
+    const grandchild = 'brain-ch-subagent-sub-dlg-2';
+    d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.createSession({ id: grandchild, userId: 1, model: 'm', parentSessionId: child });
+    d.store.upsertSubagentRun(sessionId, { id: 'call-1', sessionId: child, status: 'running', task: 'dig', tools: 0, seconds: 0 });
+    d.store.upsertSubagentRun(child, { id: 'call-2', sessionId: grandchild, status: 'running', task: 'dig deeper', tools: 0, seconds: 0 });
+    const parentProc = fakeHandle('1', sessionId, 1);
+    const childProc = fakeHandle('2', child);
+    const grandchildProc = fakeHandle('3', grandchild);
+    const other = fakeHandle('4', 'brain-2', 2);
+    for (const handle of [parentProc, childProc, grandchildProc, other]) processRegistry.register(handle);
+
+    svc.deleteSession(1, sessionId);
+
+    expect([parentProc.killed, childProc.killed, grandchildProc.killed]).toEqual([true, true, true]);
+    expect(other.killed).toBe(false); // another user's conversation is untouched
+    expect(processRegistry.list().map((p) => p.id)).toEqual(['4']);
+  });
+
+  it('without a session, lists EVERY process the user owns — including a delegated child that has no userId', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    const child = 'brain-ch-subagent-sub-dlg-9';
+    d.store.createSession({ id: child, userId: 1, model: 'm', parentSessionId: sessionId });
+    d.store.createSession({ id: 'brain-2', userId: 2, model: 'm' });
+    processRegistry.register(fakeHandle('1', sessionId, 1));
+    processRegistry.register(fakeHandle('2', child)); // delegated turn → handle.userId is null
+    processRegistry.register(fakeHandle('3', 'brain-2', 2)); // someone else's
+
+    expect(svc.processes(1).map((p) => ({ id: p.id, sessionId: p.sessionId }))).toEqual([
+      { id: '2', sessionId: child },
+      { id: '1', sessionId },
+    ]);
+    expect(svc.processes(2).map((p) => p.id)).toEqual(['3']);
+  });
+
+  it('a user with no conversations gets an empty list, not a thrown "unknown session"', () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    expect(svc.processes(7)).toEqual([]);
+  });
+
+  it('sessionless output/kill enforce ownership per process', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.store.createSession({ id: 'brain-2', userId: 2, model: 'm' });
+    const mine = fakeHandle('1', sessionId, 1);
+    const theirs = fakeHandle('2', 'brain-2', 2);
+    processRegistry.register(mine);
+    processRegistry.register(theirs);
+
+    expect(svc.processOutput(1, '1')).toBe('out-1');
+    expect(svc.processOutput(1, '2')).toBeNull();      // not the caller's process
+    expect(svc.processOutput(1, 'nope')).toBeNull();
+    expect(svc.killProcess(1, '2')).toBe(false);
+    expect(theirs.killed).toBe(false);
+    expect(svc.killProcess(1, '1')).toBe(true);
+    expect(mine.killed).toBe(true);
+  });
+
+  it('an EXPLICIT session scope still throws on an unknown or foreign session (the CLI 404 contract)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    d.store.createSession({ id: 'brain-2', userId: 2, model: 'm' });
+    processRegistry.register(fakeHandle('1', sessionId, 1));
+
+    expect(svc.processes(1, sessionId).map((p) => p.id)).toEqual(['1']);
+    expect(() => svc.processes(1, 'brain-2')).toThrow('unknown session');
+    expect(() => svc.processes(1, 'brain-nope')).toThrow('unknown session');
+    expect(() => svc.killProcess(1, '1', 'brain-2')).toThrow('unknown session');
+    expect(() => svc.processOutput(1, '1', 'brain-2')).toThrow('unknown session');
   });
 });

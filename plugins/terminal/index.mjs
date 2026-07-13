@@ -123,24 +123,32 @@ async function runForeground(command, cwd, outputCap, timeoutMs, onProgress) {
 }
 
 export function register(ctx) {
-  const processes = new Map(); // id → BgProcess (local: powers the incremental read_process_output tool)
-
   const currentSessionId = () => ctx.currentSessionId?.() ?? null;
-  const scopedProcesses = (sessionId = currentSessionId()) => [...processes.entries()]
-    .filter(([, bg]) => sessionId && bg.sessionId === sessionId);
-  const scopedProcess = (id) => {
-    const bg = processes.get(id);
-    return bg && bg.sessionId === currentSessionId() ? bg : undefined;
+  // The daemon-level registry (ctx.processes) is the SINGLE source of truth for background children: it is
+  // what the CLI + web panel list/read/kill, and what deleteSession/killSession prunes. The plugin used to
+  // keep a parallel Map, which nothing else could reach — so a registry-side kill (session deleted, panel ✕)
+  // left a ghost row here that still occupied a cap slot and could be read. The plugin now only owns the
+  // BgProcess object captured in each handle's closures (spawn/output/kill); everything else goes through
+  // the registry.
+  const scopedHandle = (id) => {
+    const handle = ctx.processes.get(id);
+    return handle && handle.sessionId === currentSessionId() ? handle : undefined;
   };
 
-  // Mirror each background child into the daemon-level registry so the CLI + web can list/read/kill them
-  // from a panel next to the todos (ctx.processes is the shared ProcessRegistry). The plugin still owns
-  // the BgProcess (spawn/output/kill); the registry gets a thin handle.
+  // The thin handle the registry gets: metadata + callbacks into the BgProcess this closure owns.
+  // `readNew` is the agent's incremental read (advances the buffer cursor); the daemon's panel reads
+  // `readAll`, which never moves it.
   const handleFor = (id, bg, userId, sessionId, completionMode) => ({
     id, command: bg.command, cwd: bg.cwd, startedAt: bg.startedAt, userId, sessionId,
     completionMode,
     running: () => bg.running, exitCode: () => bg.exitCode,
-    readAll: () => bg.output, kill: () => bg.kill(),
+    readAll: () => bg.output,
+    readNew: (all) => {
+      const text = all ? bg.output : bg.output.slice(bg.readOffset);
+      bg.readOffset = bg.output.length;
+      return text;
+    },
+    kill: () => bg.kill(),
   });
   // Re-emit the pinned "Background processes" card listing what's still running (empty card → removed).
   // No-op outside an interactive turn (emitCard wires no emitter for worker/cron), which is fine — the
@@ -152,7 +160,6 @@ export function register(ctx) {
       ? { id: 'bg-processes', title: `Background processes (${running.length})`, items: running.map((p) => ({ text: p.command, status: 'in_progress' })), pinned: true }
       : { id: 'bg-processes' });
   };
-  const dropProc = (id) => { processes.delete(id); ctx.processes.remove(id); };
 
   // Also caps the rolling buffer kept for background processes (BgProcess.output trim above).
   const outputCap = Math.min(Math.max(Number(ctx.config.outputCap) || DEFAULT_MAX, 10_000), 500_000);
@@ -196,19 +203,18 @@ export function register(ctx) {
           const onProgress = onUpdate ? (text) => onUpdate(ok(text)) : undefined;
           return ok(await runForeground(p.command, cwd, outputCap, commandTimeoutMs, onProgress));
         }
-        // prune finished processes before the cap check so dead entries don't block new work
+        // prune finished processes before the cap check so dead entries don't block new work (the cap is
+        // per session, so both the prune and the count stay session-scoped)
         const sessionId = currentSessionId();
         if (!sessionId) return ok('Error: background processes require an authenticated conversation.');
-        for (const [id, bg] of scopedProcesses(sessionId)) { if (!bg.running) dropProc(id); }
-        if (scopedProcesses(sessionId).length >= MAX_BG) return ok(`Error: too many background processes (${MAX_BG}); kill one first.`);
+        for (const proc of ctx.processes.listForSession(sessionId)) { if (!proc.running) ctx.processes.remove(proc.id); }
+        if (ctx.processes.listForSession(sessionId).length >= MAX_BG) return ok(`Error: too many background processes (${MAX_BG}); kill one first.`);
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
         // The operator who started it (+ the session they started it in) → wake THAT conversation when it
         // exits (markExited on close). Field is `elowenUserId` (was mis-typed as the pre-rebrand `orcaUserId`,
         // which is undefined → the wake never fired).
         const userId = ctx.currentIdentity?.()?.elowenUserId ?? null;
         const bg = new BgProcess(id, p.command, cwd, outputCap, () => { emitProcCard(sessionId); ctx.processes.markExited(id); });
-        bg.sessionId = sessionId;
-        processes.set(id, bg);
         ctx.processes.register(handleFor(id, bg, userId, sessionId, p.backgroundMode === 'service' ? 'service' : 'job'));
         emitProcCard();
         return ok(`Started background process ${id}: ${p.command}\n(cwd: ${cwd})\nUse read_process_output("${id}") to check on it.`);
@@ -223,10 +229,11 @@ export function register(ctx) {
     execute: async () => {
       const denied = denyNonOwner();
       if (denied) return denied;
-      const own = scopedProcesses().map(([, bg]) => bg);
+      const sessionId = currentSessionId();
+      const own = sessionId ? ctx.processes.listForSession(sessionId) : [];
       if (own.length === 0) return ok('No background processes.');
-      return ok(own.map((bg) =>
-        `- ${bg.id} ${bg.running ? 'RUNNING' : `exited(${bg.exitCode})`} since ${bg.startedAt}\n  $ ${bg.command}`
+      return ok(own.map((proc) =>
+        `- ${proc.id} ${proc.running ? 'RUNNING' : `exited(${proc.exitCode})`} since ${proc.startedAt}\n  $ ${proc.command}`
       ).join('\n'));
     },
   }));
@@ -241,12 +248,15 @@ export function register(ctx) {
     execute: async (_id, p) => {
       const denied = denyNonOwner();
       if (denied) return denied;
-      const bg = scopedProcess(p.id);
-      if (!bg) return ok(`Error: no background process ${p.id}.`);
-      const text = p.all ? bg.output : bg.output.slice(bg.readOffset);
-      bg.readOffset = bg.output.length;
-      const state = bg.running ? '[still running]' : `[exited ${bg.exitCode}]`;
-      if (!bg.running) { dropProc(p.id); emitProcCard(); } // final read collects the corpse
+      const handle = scopedHandle(p.id);
+      if (!handle) return ok(`Error: no background process ${p.id}.`);
+      // Sample `running` BEFORE reading: a process that exits between the read and the check would
+      // otherwise be collected here while output written after our read is still lost. Reading first from a
+      // handle we then keep (because it looked alive) at worst costs one more read call.
+      const running = handle.running();
+      const text = handle.readNew(p.all === true);
+      const state = running ? '[still running]' : `[exited ${handle.exitCode()}]`;
+      if (!running) { ctx.processes.remove(p.id); emitProcCard(); } // final read collects the corpse
       return ok(`${text || '(no new output)'}\n${state}`);
     },
   }));
@@ -258,12 +268,11 @@ export function register(ctx) {
     execute: async (_id, p) => {
       const denied = denyNonOwner();
       if (denied) return denied;
-      const bg = scopedProcess(p.id);
-      if (!bg) return ok(`Error: no background process ${p.id}.`);
-      bg.kill();
-      dropProc(p.id);
+      const handle = scopedHandle(p.id);
+      if (!handle) return ok(`Error: no background process ${p.id}.`);
+      ctx.processes.kill(p.id); // kills the child AND drops the entry
       emitProcCard();
-      return ok(`Killed ${p.id} ($ ${bg.command}).`);
+      return ok(`Killed ${p.id} ($ ${handle.command}).`);
     },
   }));
 

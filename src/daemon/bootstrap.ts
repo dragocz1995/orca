@@ -547,10 +547,11 @@ export function buildApp(opts: BuildOpts) {
   });
   processRegistry.setExitListener((info, userId, sessionId) => {
     if (!brain || userId == null) return;
-    // An active delegated child owns its background-process continuation inside the subagent plugin:
-    // it waits for session idle and runs the same child again to collect output before completing the
-    // parent result. A second daemon wake here would race and duplicate that continuation.
-    if (sessionId?.startsWith('brain-ch-subagent-') || sessionId?.startsWith('brain-ch-sub-dlg-')) return;
+    // An active delegated child owns its background-process continuation inside the subagent plugin: its
+    // collect loop waits for session idle and runs the same child again to collect output before
+    // completing the parent result. That loop is the SOLE owner of subagent exit continuation — a second
+    // daemon wake here would race and duplicate it. (Real delegate session ids are `brain-ch-subagent-*`.)
+    if (sessionId?.startsWith('brain-ch-subagent-')) return;
     const status = info.exitCode === 0 ? 'finished successfully' : `exited (code ${info.exitCode})`;
     const text = `⚙️ Background command \`${info.command}\` ${status}. If it matters, read its output with `
       + `read_process_output("${info.id}") and continue; otherwise just carry on.`;

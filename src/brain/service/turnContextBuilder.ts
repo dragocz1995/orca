@@ -16,6 +16,7 @@ import type { LiveBrain } from '../session/liveBrain.js';
 import type { LiveSessionRegistry } from '../session/liveRegistry.js';
 import { isPromptCommand } from '../slashCommands.js';
 import { summarizePermissions } from '../toolPermissions.js';
+import { xmlEscape } from '../../shared/xml.js';
 import type { PermissionApprovalService } from './permissionApproval.js';
 import type { TurnMode, TurnRequest } from './turnRequest.js';
 import { turnWorkDir } from './workDir.js';
@@ -54,28 +55,8 @@ export class TurnContextBuilder {
     const memSettings = this.d.userSettings?.(request.userId);
     const memoryBlock = await this.memoryBlock(request.userId, request.text, memSettings?.autoRecall !== false);
     const hookBlock = await this.hookBlock(request.text);
-    const identity = this.d.identity.forOwnerChat(request.userId, live.policy);
-    const elicit = (questions: AskQuestion[]) => this.d.elicitation.ask(
-      live.sessionId,
-      questions,
-      (event) => live.replay.publish(event),
-    );
-    const emitCard = (raw: unknown): void => {
-      const card = this.d.cards.set(live.sessionId, raw);
-      if (card) live.replay.publish({ type: 'card', card });
-    };
-    const emitSubagent = (update: SubagentUpdate): void => {
-      if (!this.d.store.upsertSubagentRun(live.sessionId, update)) return;
-      this.d.sessions.setChildRunning(live.sessionId, update.sessionId, update.status === 'running');
-      live.replay.publish({ type: 'subagent', ...update });
-    };
-    const emitSubagentCompletion = (completion: SubagentCompletion): void => {
-      this.d.completeSubagent?.(live.sessionId, request.userId, completion);
-    };
-    const toolPolicy = this.applyOwnerToolPolicy(request.userId, live, mode);
-    const workDir = turnWorkDir(live.policy, request.clientCwd ?? live.workDir, this.d.projectPath);
-    const permissions = this.d.permissions.turnPermissions(request.userId, live, true);
-    const permissionsBlock = permissions ? `${summarizePermissions(permissions)}\n\n` : '';
+    const scope = this.scopeOptions(request.userId, live, mode, request.clientCwd);
+    const permissionsBlock = scope.permissions ? `${summarizePermissions(scope.permissions)}\n\n` : '';
     const modeInstruction = mode === 'plan'
       ? `${this.d.prompts.render('cli/plan-mode', {}, request.userId)}\n\n`
       : '';
@@ -93,18 +74,59 @@ export class TurnContextBuilder {
             + (runningSubagents ? `\n\n${runningSubagents}` : '');
         }
         return operation(prompt);
-      }, {
-        identity,
-        elicit,
-        emitCard,
-        emitSubagent,
-        emitSubagentCompletion,
-        toolPolicy,
-        permissions,
-        workDir,
-        sessionId: live.sessionId,
-        model: { provider: live.providerId, model: live.model },
-      }),
+      }, scope),
+    };
+  }
+
+  /** The exact PI identity/policy/permission/emitter scope for an owner-chat turn on `live` — everything
+   *  runWithPolicy needs, with NO prompt composition. Shared by build() (which layers memory/hook/context
+   *  blocks on top) and buildScope() (which delivers a hidden system message with no user prompt at all). */
+  private scopeOptions(userId: number, live: LiveBrain, mode: TurnMode, clientCwd?: string) {
+    const identity = this.d.identity.forOwnerChat(userId, live.policy);
+    const elicit = (questions: AskQuestion[]) => this.d.elicitation.ask(
+      live.sessionId,
+      questions,
+      (event) => live.replay.publish(event),
+    );
+    const emitCard = (raw: unknown): void => {
+      const card = this.d.cards.set(live.sessionId, raw);
+      if (card) live.replay.publish({ type: 'card', card });
+    };
+    const emitSubagent = (update: SubagentUpdate): void => {
+      if (!this.d.store.upsertSubagentRun(live.sessionId, update)) return;
+      this.d.sessions.setChildRunning(live.sessionId, update.sessionId, update.status === 'running');
+      live.replay.publish({ type: 'subagent', ...update });
+    };
+    const emitSubagentCompletion = (completion: SubagentCompletion): void => {
+      this.d.completeSubagent?.(live.sessionId, userId, completion);
+    };
+    const toolPolicy = this.applyOwnerToolPolicy(userId, live, mode);
+    const workDir = turnWorkDir(live.policy, clientCwd ?? live.workDir, this.d.projectPath);
+    const permissions = this.d.permissions.turnPermissions(userId, live, true);
+    return {
+      identity,
+      elicit,
+      emitCard,
+      emitSubagent,
+      emitSubagentCompletion,
+      toolPolicy,
+      permissions,
+      workDir,
+      sessionId: live.sessionId,
+      model: { provider: live.providerId, model: live.model },
+    };
+  }
+
+  /** A prompt-free turn scope for delivering a hidden host/system message (e.g. a durable sub-agent
+   *  result) into a live owner session. It reuses the exact identity/policy/permission/emitter scope of a
+   *  real turn, but does NO memory retrieval, NO plugin hook bus and NO prompt composition — the operation
+   *  receives an empty prompt, which its caller (sendCustomSystem) ignores while driving PI's native
+   *  custom-message seam. */
+  buildScope(userId: number, live: LiveBrain): PreparedTurnContext {
+    const scope = this.scopeOptions(userId, live, 'build');
+    return {
+      autoSaveMemory: false,
+      run: <T>(operation: (prompt: string) => Promise<T>): Promise<T> => runWithPolicy(live.policy, () => operation(''), scope),
     };
   }
 
@@ -118,19 +140,22 @@ export class TurnContextBuilder {
     const running = this.d.store.getSubagentRuns(sessionId)
       .filter((run) => run.status === 'running' && active.has(run.sessionId));
     if (running.length === 0) return '';
-    const esc = (value: string): string => value
-      .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;').replaceAll("'", '&apos;');
     const rows = running.slice(0, 32).map((run) => {
-      const attrs = `session="${esc(run.sessionId)}" background="${run.background === true}" auto-deliver="${run.autoDeliver === true}" tools="${run.tools}" seconds="${run.seconds}"`;
-      const detail = run.detail ? `\n<progress>${esc(run.detail)}</progress>` : '';
-      return `<subagent ${attrs}>\n<task>${esc(run.task)}</task>${detail}\n</subagent>`;
+      const attrs = `session="${xmlEscape(run.sessionId)}" background="${run.background === true}" auto-deliver="${run.autoDeliver === true}" tools="${run.tools}" seconds="${run.seconds}"`;
+      // The child's current tool (`run.detail`) is a UI-only projection (web AgentsTable + CLI live
+      // progress); it is deliberately withheld from the model here (context hardening) so the parent
+      // cannot steer on the child's internal tool trace.
+      return `<subagent ${attrs}>\n<task>${xmlEscape(run.task)}</task>\n</subagent>`;
     }).join('\n');
     const automatic = running.some((run) => run.autoDeliver === true);
     const manual = running.some((run) => run.background === true && run.autoDeliver !== true);
     const delivery = [
-      automatic ? 'Jobs marked auto-deliver report their result automatically.' : '',
-      manual ? 'Other background jobs require delegate_status/delegate_result when useful; do not busy-wait.' : '',
+      // The whole point: an auto-delivered result arrives as a fresh turn, and it CANNOT be delivered while
+      // this turn is still streaming. Waiting or polling here delays the very result the model waits for.
+      automatic ? 'Jobs marked auto-deliver hand you their result on their own, in a new turn — you never fetch it, '
+        + 'and it can only arrive once this turn is over. So do the work you can do now and then end your turn; if '
+        + 'there is nothing else to do, say so briefly and end it. Do not wait for them and do not poll delegate_status.' : '',
+      manual ? 'Jobs without auto-deliver are collected with delegate_result on a later turn; do not busy-wait for them.' : '',
     ].filter(Boolean).join(' ');
     return '<system-reminder>\n<running-subagents>\n'
       + `${rows}\n</running-subagents>\n`
