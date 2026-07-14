@@ -5,18 +5,20 @@ const DAYPARTS = [[5, 'early morning'], [9, 'morning'], [12, 'midday'], [17, 'af
 const daypart = (h) => (DAYPARTS.find(([end]) => h < end)?.[1]) ?? 'night';
 
 export function register(ctx) {
-  const timezone = (typeof ctx.config.timezone === 'string' && ctx.config.timezone.trim()) || 'Europe/Prague';
-
+  // `ctx.timezone()` resolves THIS plugin's configured zone (the operator sets it right here, in Settings)
+  // and is the same value the cron scheduler reads — so "what time is it for this user" is answered once,
+  // in one place, and a schedule and the injected clock can never disagree. Read per turn, so changing the
+  // setting applies immediately.
   ctx.registerTurnContext(() => {
-    // Format in the configured timezone via Intl (no deps). new Date() is the wall clock at turn time.
-    const now = new Date();
+    const timezone = ctx.timezone();
+    // Format in that zone via Intl (no deps). new Date() is the wall clock at turn time.
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: timezone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
       hour: '2-digit', minute: '2-digit', hour12: false,
-    }).formatToParts(now).reduce((a, p) => ((a[p.type] = p.value), a), {});
+    }).formatToParts(new Date()).reduce((a, p) => ((a[p.type] = p.value), a), {});
     const hour = Number(parts.hour);
     return `Current date & time: ${parts.weekday}, ${parts.day} ${parts.month} ${parts.year}, ${parts.hour}:${parts.minute} (${timezone}, ${daypart(hour)}).`;
   });
 
-  ctx.logger.info(`runtime-context active (${timezone})`);
+  ctx.logger.info(`runtime-context active (${ctx.timezone()})`);
 }
