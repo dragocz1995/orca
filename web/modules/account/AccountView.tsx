@@ -133,10 +133,11 @@ export function AccountView() {
   const changePassword = useChangePassword();
   const { toast } = useToast();
   const { t } = useTranslation();
-  const { scale, setScale } = useUiScale();
+  const { scale, preference, setPreference } = useUiScale();
   const effects = useEffects();
   const fileRef = useRef<HTMLInputElement>(null);
-  const scalePct = Math.round(scale * 100);
+  const prefPct = Math.round(preference * 100);
+  const appliedPct = Math.round(scale * 100);
   const [section, setSection] = usePersistentState<AccountSection>(
     'elowen.account.section', 'profile', ['profile', 'security', 'notifications', 'personality', 'cli', 'terminal', 'memory']);
   const [visitedSections, setVisitedSections] = useState<Set<AccountSection>>(() => new Set([section]));
@@ -409,12 +410,18 @@ export function AccountView() {
         </SpatialGroup>
 
         <SpatialGroup>
-          {/* Whole-app zoom — a per-device display preference, applied live via the UiScaleProvider. */}
+          {/* Whole-app zoom — a per-device display preference, applied live via the UiScaleProvider. The
+              slider sets the personal factor; the window width supplies an automatic base underneath it, so
+              the applied zoom is shown alongside whenever the two disagree — otherwise a slider reading
+              100% on a visibly shrunken app looks like a bug. */}
           <SpatialRow title={t.account.uiScale} icon={ZoomIn} description={t.help.accountUiScale}>
             <div className="flex min-w-0 items-center gap-3">
-              <Slider value={scalePct} min={MIN_SCALE * 100} max={MAX_SCALE * 100} step={5} onChange={(v) => setScale(v / 100)} aria-label={t.account.uiScale} />
-              <span className="w-12 shrink-0 text-right font-mono text-sm tabular-nums text-text">{scalePct}%</span>
-              <button type="button" className="spatial-inline-action" onClick={() => setScale(DEFAULT_SCALE)} disabled={scalePct === DEFAULT_SCALE * 100}>{t.account.uiScaleReset}</button>
+              <Slider value={prefPct} min={MIN_SCALE * 100} max={MAX_SCALE * 100} step={5} onChange={(v) => setPreference(v / 100)} aria-label={t.account.uiScale} />
+              <span className="w-12 shrink-0 text-right font-mono text-sm tabular-nums text-text">{prefPct}%</span>
+              {appliedPct !== prefPct && (
+                <span className="shrink-0 font-mono text-sm tabular-nums text-text-muted" title={t.account.uiScaleApplied}>→ {appliedPct}%</span>
+              )}
+              <button type="button" className="spatial-inline-action" onClick={() => setPreference(DEFAULT_SCALE)} disabled={prefPct === DEFAULT_SCALE * 100}>{t.account.uiScaleReset}</button>
             </div>
           </SpatialRow>
           <SpatialRow title={t.account.effectsTitle} icon={Sparkles} description={t.account.effectsHint}>
