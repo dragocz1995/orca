@@ -93,6 +93,29 @@ export class ConversationLifecycle {
     return legacy?.id ?? freshUserSessionId(userId);
   }
 
+  /** Drop this user's EMPTY conversations — ones that were opened and never spoken in. Now that launching
+   *  the CLI always opens a blank conversation, a launch-and-quit (or a `/new` the user thought better of)
+   *  leaves a row behind, and without this sweep the /resume picker would slowly fill with nothing.
+   *
+   *  Deliberately narrow: a conversation with even one stored message is never touched, and neither is one
+   *  that is live, that any client stream holds, or that a start has already claimed — an empty conversation
+   *  open in another terminal belongs to that terminal. `keep` is the conversation being started right now.
+   *  An empty conversation has had no turn, so it owns no processes, goals or parked questions to clean up. */
+  private pruneEmptyConversations(userId: number, keep: string): void {
+    for (const row of this.d.store.listSessions(userId)) {
+      if (row.id === keep || isNonUserSession(row.id)) continue;
+      if (this.d.store.lastMessageAt(row.id) !== undefined) continue;      // it was spoken in — keep it
+      if (!this.d.attachments.availableForDefaultStart(row.id)) continue;   // a client is sitting in it
+      // Never touch a LIVE conversation, even an apparently empty one: "no stored messages" is not "nothing
+      // happening" — a turn can be in flight, parked on an ask_user_question, or driving a goal, none of
+      // which has written a message row yet. The litter this sweep exists for is left by a CLI that already
+      // quit, and quitting disposes its session — so the residue is precisely the rows with nothing live
+      // behind them.
+      if (this.d.sessions.has(row.id)) continue;
+      this.d.store.deleteSession(row.id);
+    }
+  }
+
   activeLive(userId: number): LiveBrain | undefined {
     return this.d.sessions.get(this.activeSessionId(userId));
   }
@@ -129,6 +152,8 @@ export class ConversationLifecycle {
       return { sessionId: claim.sessionId };
     }
     const claimGeneration = claim?.generation;
+    // Opening a blank conversation is also when the previous blank ones stop being worth keeping.
+    if (opts?.fresh) this.pruneEmptyConversations(userId, sessionId);
     // A bound CLI can be following non-active A while another client has moved the global pointer to B.
     // Its stable binding, not that shared pointer, identifies the driver this switch actually leaves.
     const leavingSessionId = opts?.clientId ? claim?.previousSessionId : prevActive;
@@ -285,7 +310,15 @@ export class ConversationLifecycle {
   async maybeRollover(userId: number, b: LiveBrain, clientCwd?: string): Promise<LiveBrain> {
     // A background delegate can outlive the parent's own prompt. Its durable parent id must stay stable
     // until the child settles, so never archive/replace a conversation that still owns running children.
+    //
+    // Nor do we cut a conversation a terminal still has OPEN. The cutoff exists to avoid dragging a stale
+    // context back in at full price after the prompt cache expired — a fair trade for a conversation nobody
+    // is looking at, but not for one the user is sitting in front of: they step away, come back, type, and
+    // would find their thread silently replaced by an empty one. An idle CLI conversation therefore stays;
+    // the user starts a new one when THEY want one (/new, or simply relaunching). Every other surface —
+    // web, Discord, cron — is unaffected and keeps rolling over as before.
     if (b.session.isStreaming || this.d.sessions.hasActiveChildren(b.sessionId)
+        || this.d.attachments.hasLiveStableClient(b.sessionId)
         || !rolloverDue({ lastMessageAt: this.d.store.lastMessageAt(b.sessionId), interactedAt: b.interactedAt, now: Date.now() })) return b;
     const carried = b.listeners;
     const oldId = b.sessionId;

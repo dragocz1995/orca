@@ -90,3 +90,46 @@ describe('ClientAttachments stable client grace cache', () => {
     expect(attachments.availableForDefaultStart('brain-A')).toBe(true); // grace identity alone does not
   });
 });
+
+// The idle rollover consults this to leave a conversation a terminal still has OPEN alone. The CLI is the
+// only surface that sends a stable client id (the web dock subscribes anonymously), so "has a live stable
+// client" IS "a terminal is sitting in this conversation".
+describe('ClientAttachments.hasLiveStableClient', () => {
+  it('is true only while an identified client\'s transport is actually attached', () => {
+    const attachments = new ClientAttachments();
+    const listener = () => {};
+    expect(attachments.hasLiveStableClient('brain-A')).toBe(false); // nobody there
+
+    attachments.attach(1, 'brain-A', listener, () => attachments.detachTransport(listener), 'cli-1', 1);
+    expect(attachments.hasLiveStableClient('brain-A')).toBe(true);
+
+    // The binding deliberately outlives its socket for a grace TTL (so a racing stop can still resolve it),
+    // but a client that has gone away must NOT keep the conversation pinned open.
+    attachments.detachTransport(listener);
+    expect(attachments.hasLiveStableClient('brain-A')).toBe(false);
+  });
+
+  it('an anonymous subscriber (the web dock) never counts — it creates no stable binding', () => {
+    const attachments = new ClientAttachments();
+    const listener = () => {};
+    attachments.attach(1, 'brain-A', listener, vi.fn()); // no clientId — the web's /brain/stream
+    expect(attachments.attachedCount('brain-A')).toBe(1); // it IS attached…
+    expect(attachments.hasLiveStableClient('brain-A')).toBe(false); // …but it is not a terminal
+  });
+
+  it('follows a rolled-over conversation onto its replacement session', () => {
+    const attachments = new ClientAttachments();
+    const listener = () => {};
+    attachments.attach(1, 'brain-old', listener, vi.fn(), 'cli-1', 1);
+    attachments.retarget('brain-old', 'brain-new');
+    expect(attachments.hasLiveStableClient('brain-old')).toBe(false);
+    expect(attachments.hasLiveStableClient('brain-new')).toBe(true);
+  });
+
+  it('is scoped to the conversation asked about, not to "any CLI anywhere"', () => {
+    const attachments = new ClientAttachments();
+    const listener = () => {};
+    attachments.attach(1, 'brain-A', listener, vi.fn(), 'cli-1', 1);
+    expect(attachments.hasLiveStableClient('brain-B')).toBe(false);
+  });
+});

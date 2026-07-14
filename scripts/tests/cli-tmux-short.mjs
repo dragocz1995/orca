@@ -163,7 +163,9 @@ try {
     'TERM=xterm-256color',
     shellQuote(process.execPath), shellQuote(cli), 'chat',
   ].join(' ');
-  const freshCli = `${cliPrefix} --new`;
+  // Deliberately BARE — no flags. Launching the CLI opens a fresh conversation, and this run is what
+  // proves it end to end: the start request it puts on the wire must carry `fresh` and no session id.
+  const freshCli = cliPrefix;
   const reopenedCli = `${cliPrefix} --session e2e-session`;
   const command = [
     `while [ ! -f ${shellQuote(startGatePath)} ]; do sleep 0.01; done`,
@@ -258,6 +260,15 @@ try {
   await waitFor('restored shell', () => capture().includes('E2E SHORT SHELL RESTORED'), 5_000);
   const shell = saveRaw('08-restored-shell');
   assert.match(shell.plain, /E2E SHORT SHELL RESTORED/, 'primary shell must remain readable after both runs');
+
+  // Launching the CLI with no flags opens a BLANK conversation instead of silently resuming whatever was
+  // last said in this directory. Asserted on the wire, from the run above that used no flags at all.
+  const startRequests = requests('/brain/start');
+  assert.equal(startRequests.length, 2, 'the harness expects one start per run');
+  assert.equal(startRequests[0].body.fresh, true, 'a bare `elowen chat` must ask for a FRESH conversation');
+  assert.equal(startRequests[0].body.session, undefined, 'a bare launch must not name a session to resume');
+  assert.equal(startRequests[1].body.session, 'e2e-session', '--session must still reopen that exact conversation');
+  assert.notEqual(startRequests[1].body.fresh, true, '--session must not also demand a fresh one');
 
   const ttyStates = readFileSync(ttyStatePath, 'utf8').trim().split('\n');
   assert.equal(ttyStates[1], ttyStates[0], 'raw/canonical/echo tty state must be restored exactly');

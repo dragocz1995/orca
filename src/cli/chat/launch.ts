@@ -32,7 +32,12 @@ export async function interactiveLogin(base: string, env: NodeJS.ProcessEnv): Pr
 }
 
 /** Resolve a token (env → cache → interactive login) and open the interactive Elowen chat TUI. The single
- *  entry point shared by the `elowen chat` command and the launcher menu's "Talk to Elowen" item. */
+ *  entry point shared by the `elowen chat` command and the launcher menu's "Talk to Elowen" item.
+ *
+ *  Opening the chat gives you a BLANK conversation. That default lives here rather than in each caller on
+ *  purpose: leaving `fresh` unset used to mean "silently resume whatever was last said in this directory",
+ *  which is not what any caller wants and is exactly the kind of thing a new entry point forgets to opt out
+ *  of. Resuming is now the deliberate act — `fresh: false` (the `-c` flag) or a named `session`. */
 export async function launchChat(
   base: string, env: NodeJS.ProcessEnv,
   opts: { model?: string; session?: string; fresh?: boolean } = {},
@@ -40,5 +45,6 @@ export async function launchChat(
   let token: string;
   try { token = resolveToken(env); }
   catch (e) { if (e instanceof NeedsLogin) token = await interactiveLogin(base, env); else throw e; }
-  await runChat({ base, token, model: opts.model, session: opts.session, fresh: opts.fresh });
+  const fresh = opts.fresh ?? !opts.session;
+  await runChat({ base, token, model: opts.model, session: opts.session, fresh });
 }

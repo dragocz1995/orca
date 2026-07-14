@@ -2595,6 +2595,89 @@ describe('idle rollover (send)', () => {
     expect(svc.listSessions(1)).toHaveLength(1);
   });
 
+  // The cutoff is a cost optimisation for conversations nobody is watching. A terminal that still has the
+  // conversation OPEN is precisely the case where it is wrong: the user steps away, comes back, types — and
+  // would find their thread silently replaced by an empty one.
+  it('does not roll over a conversation a CLI client still holds open, however long it sat idle', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send({ userId: 1, text: 'first' });
+    backdate(d);
+
+    // A CLI bound stream: identified by a stable client id, unlike the web dock's anonymous subscribe.
+    const off = svc.tapSession(1, 'brain-1', () => {}, 'cli-1', 1);
+    await svc.send({ userId: 1, text: 'second' });
+
+    expect(svc.status(1).sessionId).toBe('brain-1'); // same conversation, context intact
+    expect(svc.listSessions(1)).toHaveLength(1);     // no fresh one was minted behind their back
+
+    // …and the mechanism itself is untouched: once the terminal is gone, the same idle conversation rolls
+    // over exactly as before. The CLI's presence is the ONLY thing that held it.
+    off();
+    backdate(d);
+    await svc.send({ userId: 1, text: 'third' });
+    expect(svc.status(1).sessionId).not.toBe('brain-1');
+  });
+
+  // Launching the CLI now always opens a blank conversation, so a launch-and-quit leaves an empty row
+  // behind. Without this sweep the /resume picker would slowly fill up with nothing.
+  it('opening a fresh conversation sweeps away EMPTY ones left by a quit client, never one with content', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send({ userId: 1, text: 'something worth keeping' });
+    const spoken = svc.status(1).sessionId!;
+
+    // A CLI launches (fresh, blank) and quits without saying anything — twice.
+    const abandoned = (await svc.start(1, { fresh: true })).sessionId;
+    await svc.stopSession(1, abandoned);
+    const alsoAbandoned = (await svc.start(1, { fresh: true })).sessionId;
+    await svc.stopSession(1, alsoAbandoned);
+
+    const current = (await svc.start(1, { fresh: true })).sessionId;
+
+    const ids = svc.listSessions(1).map((s) => s.id);
+    expect(ids).toContain(spoken);            // the real conversation survives
+    expect(ids).toContain(current);           // the one we just opened survives
+    expect(ids).not.toContain(abandoned);     // the blank residue is gone
+    expect(ids).not.toContain(alsoAbandoned);
+  });
+
+  it('never sweeps a LIVE conversation, even an empty one — no stored message is not "nothing happening"', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    // A blank conversation that is still live: a turn could be in flight, parked on an ask, or driving a
+    // goal, none of which has written a message row yet.
+    const live = (await svc.start(1, { fresh: true })).sessionId;
+
+    await svc.start(1, { fresh: true });
+    expect(svc.listSessions(1).map((s) => s.id)).toContain(live);
+  });
+
+  it('never sweeps an empty conversation another client is holding open', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const held = (await svc.start(1, { fresh: true })).sessionId;
+    svc.tapSession(1, held, () => {}, 'cli-other', 1); // a second terminal is sitting in it
+
+    await svc.start(1, { fresh: true });
+    expect(svc.listSessions(1).map((s) => s.id)).toContain(held);
+  });
+
+  it('still rolls over for the web dock — an anonymous subscriber does not hold a conversation open', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send({ userId: 1, text: 'first' });
+    backdate(d);
+
+    svc.subscribe(1, () => {}); // the web's /brain/stream: no client id, no session
+    await svc.send({ userId: 1, text: 'second' });
+
+    expect(svc.status(1).sessionId).not.toBe('brain-1');
+  });
+
   it('never cuts a running turn: a stale conversation mid-stream steers instead of rolling over', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
@@ -3498,17 +3581,21 @@ describe('per-client session binding (multi-instance CLI)', () => {
     expect(svc.listSessions(1).find((s) => s.id === rolled!.id)?.attached).toBe(0);
   });
 
+  // A LIVE CLI tap now vetoes the idle rollover outright (see "does not roll over a conversation a CLI
+  // client still holds open"). So the only way a rollover still happens behind a CLI client's back is with
+  // its transport DOWN — a dropped SSE whose stable identity survives in the grace cache. That is precisely
+  // the race the retarget/stale-id machinery below exists for, and these two pin it.
   it('a client stop carrying the pre-rollover id resolves and disposes the retargeted session', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
     await svc.send({ userId: 1, text: 'first', mode: 'build', session: 'brain-1' });
     d.db.prepare("UPDATE brain_messages SET created_at = datetime('now', '-31 minutes')").run();
-    svc.tapSession(1, 'brain-1', () => {}, 'cli-a');
+    // The SSE dropped; the stable identity lives on. A send (a separate POST) still lands and rolls over.
+    svc.tapSession(1, 'brain-1', () => {}, 'cli-a')();
     await svc.send({ userId: 1, text: 'second', mode: 'build', session: 'brain-1' });
     const freshId = svc.listSessions(1).find((s) => s.id !== 'brain-1')?.id;
     expect(freshId).toBeDefined();
-    expect(svc.listSessions(1).find((s) => s.id === freshId)?.attached).toBe(1);
 
     // The request deliberately carries the stale id. Stable attachment identity is authoritative and
     // follows rollover server-side, so the replacement (not the already-dead predecessor) is stopped.
@@ -3523,14 +3610,14 @@ describe('per-client session binding (multi-instance CLI)', () => {
     const old = await svc.start(1, { clientId: 'cli-a', clientGeneration: 1 });
     await svc.send({ userId: 1, text: 'first', mode: 'build', session: old.sessionId });
     d.db.prepare("UPDATE brain_messages SET created_at = datetime('now', '-31 minutes')").run();
-    const droppedStream = svc.tapSession(1, old.sessionId, () => {}, 'cli-a', 1);
+    // The SSE dies BEFORE the rollover — the only way it can now happen without the client seeing it.
+    svc.tapSession(1, old.sessionId, () => {}, 'cli-a', 1)();
 
     await svc.send({ userId: 1, text: 'second', mode: 'build', session: old.sessionId });
     const freshId = svc.listSessions(1).find((session) => session.id !== old.sessionId)?.id;
     expect(freshId).toBeDefined();
-    // The original SSE died before it could observe the `session` event, but its stable binding remains
-    // retargeted for this generation. Reconnecting with the old URL must hydrate the fresh transcript.
-    droppedStream();
+    // The dead SSE never observed the `session` event, but its stable binding was retargeted for this
+    // generation. Reconnecting with the old URL must hydrate the fresh transcript.
     const recovered = svc.tapSessionSnapshot(1, old.sessionId, () => {}, 'cli-a', 1);
     expect(recovered.snapshot.sessionId).toBe(freshId);
     expect(recovered.snapshot.history.some((row) => row.text.includes('second'))).toBe(true);

@@ -101,6 +101,27 @@ export class ClientAttachments {
     return n;
   }
 
+  /** Whether an authenticated client that identifies itself with a STABLE client id is currently attached
+   *  to this conversation — in practice, whether a terminal has it open in front of the user.
+   *
+   *  The CLI mints a per-process client id and sends it on `/brain/start` and on its bound SSE; the web
+   *  dock subscribes anonymously (no `client`, no `session`), so it never creates a stable binding. That
+   *  asymmetry is what makes this the CLI signal, and it is load-bearing: the idle rollover consults it to
+   *  leave an open terminal conversation alone (a user coming back from lunch must not silently find a
+   *  fresh, empty one), while the web keeps its own policy. If another surface ever starts sending a client
+   *  id, it inherits that behaviour — decide it deliberately there.
+   *
+   *  A live `listener` — not the binding's mere existence — is the test: a binding deliberately outlives
+   *  its transport for a grace TTL so a racing stop can still resolve it, and a client that has gone away
+   *  must not keep a conversation pinned open. */
+  hasLiveStableClient(sessionId: string): boolean {
+    this.pruneDetached();
+    for (const binding of this.stableClients.values()) {
+      if (binding.sessionId === sessionId && binding.listener) return true;
+    }
+    return false;
+  }
+
   /** Default CLI start candidates are held as soon as /brain/start claims them, before their SSE exists.
    *  This closes the two-simultaneous-launch gap without treating an ordinary disconnected grace binding
    *  as attached for five minutes. */

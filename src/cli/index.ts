@@ -46,7 +46,10 @@ SERVICE
 
 CHAT
   chat                            open the interactive Elowen chat (talk to Elowen's brain in the terminal)
+                                    starts a NEW conversation; earlier ones stay available via /resume
                                     --model openai|anthropic  pick the configured provider
+                                    -c, --continue                resume this directory's last conversation
+                                    --session <id>                resume a specific conversation
   run "<prompt>"                  non-interactive Elowen: run one turn/slash/goal, stream it, exit
   -p, --print "<prompt>"          alias for \`run\` (claude-style)
                                     --model/--provider <id>   pick the model for this run
@@ -128,10 +131,17 @@ export async function run(argv: string[], c: ElowenClient, env: NodeJS.ProcessEn
     case 'chat': {
       // Interactive Elowen chat: a thin pi-tui client over the server-side brain. The shared launcher
       // resolves a token (env → cache → interactive login) and opens the TUI — same path as the menu.
+      const chatArgs = argv.slice(1);
+      const session = flag(chatArgs, '--session');
+      // Launching the CLI opens a BLANK conversation. Silently resuming whatever was last said in this
+      // directory made every launch a guess about intent, and the old thread is never lost — `-c` resumes
+      // it explicitly, and /resume + the /sessions picker reach any of them. An explicit --session (or
+      // --new) still means exactly what it says.
+      const resume = chatArgs.includes('--continue') || chatArgs.includes('-c');
       await launchChat(BASE, env, {
-        model: flag(argv.slice(1), '--model'),
-        session: flag(argv.slice(1), '--session'),
-        fresh: argv.includes('--new'),
+        model: flag(chatArgs, '--model'),
+        session,
+        fresh: chatArgs.includes('--new') || (!session && !resume),
       });
       break;
     }
