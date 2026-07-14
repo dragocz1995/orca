@@ -74,8 +74,8 @@ export class AdvisorService {
     const agentName = this.d.config.get().brain.agentName || 'Elowen';
     const vars = { userName: u.name || u.username, personality, agentName };
     const rawPrompt = this.d.prompts
-      ? this.d.prompts.render('advisor', vars, userId)
-      : render('advisor', vars);
+      ? this.d.prompts.render('elowen', vars, userId)
+      : render('elowen', vars);
     // agentName `advisor-<id>` → SpawnService names the tmux session `elowen-advisor-<id>`. The full
     // advisor token overrides the daemon's agent service token via extraEnv, so the advisor acts with
     // the user's own rights. The cwd is a neutral per-user dir, not a project checkout.

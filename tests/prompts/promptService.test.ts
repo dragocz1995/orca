@@ -14,7 +14,7 @@ beforeEach(() => {
 
 describe('PromptService.render', () => {
   it('ships a structured autonomous owner-chat contract without losing dynamic placeholders', () => {
-    const template = rawTemplate('advisor');
+    const template = rawTemplate('elowen');
     const requiredSections = [
       'identity',
       'relationship_and_communication',
@@ -49,7 +49,7 @@ describe('PromptService.render', () => {
     expect(template).toContain('AGENTS.md');
     expect(template).not.toContain('Do exactly what was asked — no more, no less');
 
-    const rendered = prompts.render('advisor', {
+    const rendered = prompts.render('elowen', {
       agentName: 'Elowen',
       userName: 'Alice',
       personality: 'Communicate as a pragmatic senior engineer.',
@@ -61,12 +61,12 @@ describe('PromptService.render', () => {
   });
 
   it('uses the file default when the user has no override', () => {
-    expect(prompts.render('advisor', { userName: 'Alice' }, 1)).toBe(rawTemplate('advisor').replaceAll('{{userName}}', 'Alice'));
+    expect(prompts.render('elowen', { userName: 'Alice' }, 1)).toBe(rawTemplate('elowen').replaceAll('{{userName}}', 'Alice'));
   });
 
   it('uses the file default when no userId is given', () => {
-    store.set(1, 'advisor', 'CUSTOM {{userName}}');
-    expect(prompts.render('advisor', { userName: 'Bob' })).toContain('<elowen_advisor>'); // default advisor text, not CUSTOM
+    store.set(1, 'elowen', 'CUSTOM {{userName}}');
+    expect(prompts.render('elowen', { userName: 'Bob' })).toContain('<elowen_advisor>'); // default elowen text, not CUSTOM
   });
 
   it("uses the user's override and substitutes vars", () => {
@@ -90,20 +90,20 @@ describe('PromptService.render', () => {
     expect(prompts.render('planner-fallback', {}, 1)).toBe(rawTemplate('planner-fallback'));
   });
 
-  it('appends (never replaces) the advisor override — the system identity stays intact', () => {
-    store.set(1, 'advisor', 'Always answer in Czech for {{userName}}.');
-    const out = prompts.render('advisor', { userName: 'Filip' }, 1);
-    expect(out.startsWith(rawTemplate('advisor').replaceAll('{{userName}}', 'Filip'))).toBe(true);
+  it('appends (never replaces) the elowen override — the system identity stays intact', () => {
+    store.set(1, 'elowen', 'Always answer in Czech for {{userName}}.');
+    const out = prompts.render('elowen', { userName: 'Filip' }, 1);
+    expect(out.startsWith(rawTemplate('elowen').replaceAll('{{userName}}', 'Filip'))).toBe(true);
     expect(out).toContain('<user_preferences source="account">');
     expect(out).toContain('Always answer in Czech for Filip.');
     expect(out.endsWith('</user_preferences>')).toBe(true);
   });
 
-  it('does not change the shared-channel override envelope', () => {
-    store.set(1, 'advisor-channel', 'Keep channel replies brief.');
-    const out = prompts.render('advisor-channel', {}, 1);
-    expect(out).toContain('## User preferences (added by the user)');
-    expect(out).not.toContain('<user_preferences');
+  it('uses the same override envelope for platform prompts', () => {
+    store.set(1, 'elowen-platform', 'Keep channel replies brief.');
+    const out = prompts.render('elowen-platform', {}, 1);
+    expect(out).toContain('<user_preferences source="account">');
     expect(out).toContain('Keep channel replies brief.');
+    expect(out.endsWith('</user_preferences>')).toBe(true);
   });
 });

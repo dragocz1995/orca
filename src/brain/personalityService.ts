@@ -19,8 +19,8 @@ export interface PersonalityServiceDeps {
  *  calls through here at spawn, so the chunk format can never drift.
  *
  *  Discord is a SHARED, owner-anchored channel: its personality is the channel owner's 'discord' active
- *  profile (the bot's one persona), rendered on the advisor-channel base. Owner surfaces (web/cli) are
- *  per-user sessions and render on the advisor base. */
+ *  profile (the bot's one persona), rendered on the elowen-platform overlay. Owner surfaces (web/cli) are
+ *  per-user sessions and render on the elowen base. */
 export class PersonalityService {
   constructor(private d: PersonalityServiceDeps) {}
 

@@ -146,18 +146,19 @@ export class LiveSessionSpawner {
     const skillsBlock = skills.length ? formatSkillsForPrompt(skills) : '';
     const append = [skillsBlock, ...fragments, ...(opts.extraAppend ?? []), persoAppend ?? ''].filter((s) => s.length > 0);
 
-    // Elowen identity: the editable `advisor` prompt (per-user override aware) becomes the system prompt,
+    // Elowen identity: the editable `elowen` prompt (per-user override aware) becomes the system prompt,
     // so the brain knows it is Elowen — not the underlying model's default persona.
     const u = this.d.users.get(ownerUserId);
     const userName = u?.name || u?.username || 'Filip';
     const personality = personalityText(this.d.userSettings?.(ownerUserId)?.advisorStyle ?? '');
     const agentName = this.d.agentName?.() || 'Elowen';
-    // Shared platform channels get their own persona: the senders are OTHER people, so the owner's
-    // "personal advisor" prompt (owner-name identity, terminal/control-plane framing) would misaddress
-    // everyone in the room. The channel prompt keeps the agent identity and speaks to bracketed senders.
+    // Shared platform channels (Discord, WhatsApp) get a thin overlay appended to the base prompt:
+    // the senders are OTHER people, so the base single-user framing would misaddress everyone in the
+    // room. The overlay adjusts identity for multi-user context and adds channel-specific conventions.
+    const base = this.d.prompts.render('elowen', { userName, personality, agentName }, ownerUserId);
     const persona = opts.channel
-      ? this.d.prompts.render('advisor-channel', { ownerName: userName, personality, agentName }, ownerUserId)
-      : this.d.prompts.render('advisor', { userName, personality, agentName }, ownerUserId);
+      ? base + '\n\n' + this.d.prompts.render('elowen-platform', { ownerName: userName, agentName }, ownerUserId)
+      : base;
 
     // Create the image-carrying queue mirrors before the PI session. The boundary compaction adapter reads
     // these exact arrays just before every next-turn provider request, so queued text AND attachments are

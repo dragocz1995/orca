@@ -28,7 +28,7 @@ export interface BrainDeps {
   config: BrainRuntimeConfig | (() => BrainRuntimeConfig | null);
   /** Credential store for the brain's providers (OAuth tokens live here). Default: in-memory. */
   authStorage?: AuthStorage;
-  /** Renders the brain's system prompt from the editable `advisor` template (per-user override aware). */
+  /** Renders the brain's system prompt from the editable `elowen` template (per-user override aware). */
   prompts: { render(name: string, vars: Record<string, string>, userId?: number): string };
   /** Daemon REST base the brain's tools call (ELOWEN_URL). */
   url: string;

@@ -137,7 +137,7 @@ describe('BrainService', () => {
     expect(svc.status(1).running).toBe(true);
     expect(d.store.getSession('brain-1')).toBeDefined();
     expect(d.createSession).toHaveBeenCalledTimes(1);
-    expect(d.prompts.render).toHaveBeenCalledWith('advisor', { userName: 'Filip', personality: personalityText(''), agentName: 'Elowen' }, 1);
+    expect(d.prompts.render).toHaveBeenCalledWith('elowen', { userName: 'Filip', personality: personalityText(''), agentName: 'Elowen' }, 1);
   });
 
   it('waits for an in-flight active start instead of rejecting an immediately submitted web turn', async () => {
