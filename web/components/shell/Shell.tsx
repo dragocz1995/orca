@@ -15,6 +15,7 @@ import { AdvisorLauncher } from '../../modules/advisor/AdvisorLauncher';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { useDockState } from '../../lib/useDockState';
 import { useElementWidth } from '../../lib/useElementWidth';
+import { usePersistentState } from '../../lib/usePersistentState';
 import { UiScaleProvider } from '../../lib/useUiScale';
 import { ThemeProvider } from '../../lib/useTheme';
 import { PageHeaderProvider } from '../../lib/pageHeader';
@@ -27,6 +28,21 @@ import { EffectsProvider } from '../../lib/useEffects';
  *  width (window − dock), not the viewport — so dragging the dock adapts the chrome just like resizing. */
 const DRAWER_MAX = 760;
 const RAIL_MAX = 1320;
+
+/** What the user pinned the navigation to, when the window is roomy enough to leave them the choice. */
+type NavPin = 'full' | 'rail';
+const NAV_PINS: readonly NavPin[] = ['full', 'rail'];
+
+/** The width sets a FLOOR on how compact the chrome is; the user's pin may only go compacter, never
+ *  roomier. So the collapse handle is offered exactly when the pin is what decides — in a window already
+ *  too narrow for the full rail, a toggle would be a dead control, and before the first measurement
+ *  (`regionW === 0`) there is nothing to decide yet. */
+export function resolveNav(regionW: number, pin: NavPin): { mode: SidebarMode; pinnable: boolean } {
+  if (regionW === 0) return { mode: 'full', pinnable: false };
+  if (regionW < DRAWER_MAX) return { mode: 'drawer', pinnable: false };
+  if (regionW < RAIL_MAX) return { mode: 'rail', pinnable: false };
+  return { mode: pin, pinnable: true };
+}
 
 function ShellLayout({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -54,11 +70,18 @@ function ShellLayout({ children }: { children: ReactNode }) {
   // real available space. Content inside <main> reacts to its own width via CSS container queries.
   const regionRef = useRef<HTMLDivElement>(null);
   const regionW = useElementWidth(regionRef);
-  const mode: SidebarMode = regionW === 0 ? 'full' : regionW < DRAWER_MAX ? 'drawer' : regionW < RAIL_MAX ? 'rail' : 'full';
+  // Collapsing the rail to icons is a per-device display choice, like the UI scale — it belongs to the
+  // screen you are on, not to the user record.
+  const [pin, setPin] = usePersistentState<NavPin>('elowen.nav.pin', 'full', NAV_PINS);
+  const { mode, pinnable } = resolveNav(regionW, pin);
 
   const navigation = mode === 'drawer'
     ? <Sidebar mode="drawer" drawerOpen={drawerOpen} onDrawerClose={() => setDrawerOpen(false)} side={dockLeft ? 'right' : 'left'} />
-    : <OrbitalNav compact={mode === 'rail'} side={dockLeft ? 'right' : 'left'} />;
+    : <OrbitalNav
+        compact={mode === 'rail'}
+        side={dockLeft ? 'right' : 'left'}
+        onToggleCollapse={pinnable ? () => setPin(pin === 'rail' ? 'full' : 'rail') : undefined}
+      />;
   const content = (
     <div className="flex min-w-0 flex-1 flex-col">
       {/* NOTE: no `container-type` here on purpose — it would make <main> a containing block for

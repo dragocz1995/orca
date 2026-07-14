@@ -8,6 +8,7 @@ import { useHealth } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { entryIsActive } from './NavGroup';
 import { useShellNavigation } from './useShellNavigation';
+import { CollapseHandle } from './CollapseHandle';
 import { useElementHeight } from '../../lib/useElementWidth';
 import type { NavEntry } from './NavItem';
 
@@ -40,8 +41,16 @@ export function railSpacing(count: number, stageHeight: number): number {
 }
 
 /** A straight spatial axis. The active route is always the largest node; surrounding destinations
- *  recede in place — they never slide past each other or wrap around the ends. */
-export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boolean; side?: 'left' | 'right' }) {
+ *  recede in place — they never slide past each other or wrap around the ends.
+ *
+ *  `onToggleCollapse` is what puts the collapse handle on the edge. It is absent whenever collapsing is
+ *  not the user's call — a window too narrow for the full rail is already forced compact, and a handle
+ *  that cannot change anything is worse than no handle at all. */
+export function OrbitalNav({ compact = false, side = 'left', onToggleCollapse }: {
+  compact?: boolean;
+  side?: 'left' | 'right';
+  onToggleCollapse?: () => void;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const { worlds, systemItems } = useShellNavigation();
@@ -145,6 +154,9 @@ export function OrbitalNav({ compact = false, side = 'left' }: { compact?: boole
           </div>
           <div className="flex justify-center font-mono text-[9px] tracking-[.14em] text-text-muted/35"><span>&lt;</span><span className="mx-3">{health.data?.version ? `v${health.data.version}` : '—'}</span><span>&gt;</span></div>
         </div>
+      ) : null}
+      {onToggleCollapse ? (
+        <CollapseHandle side={side} label={compact ? t.common.expandNav : t.common.collapseNav} onToggle={onToggleCollapse} />
       ) : null}
     </nav>
   );

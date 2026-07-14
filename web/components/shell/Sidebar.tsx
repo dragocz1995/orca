@@ -5,6 +5,7 @@ import { useSidebarState } from '../../lib/useSidebarState';
 import { useHealth, useTasks } from '../../lib/queries';
 import { useTranslation } from '../../lib/i18n';
 import { NavGroup } from './NavGroup';
+import { CollapseHandle } from './CollapseHandle';
 import { useShellNavigation } from './useShellNavigation';
 
 const RAIL = 68;
@@ -130,14 +131,7 @@ export function Sidebar({
         </div>
 
         {mode === 'full' ? (
-          <button
-            type="button"
-            aria-label={t.common.toggleSidebar}
-            onClick={toggle}
-            className={`group absolute ${side === 'right' ? '-left-2.5' : '-right-2.5'} top-1/2 z-10 flex h-14 w-4 -translate-y-1/2 cursor-pointer items-center justify-center`}
-          >
-            <span className="h-9 w-1 rounded-full bg-border-strong transition-all duration-200 group-hover:h-12 group-hover:bg-accent/60" />
-          </button>
+          <CollapseHandle side={side} label={t.common.toggleSidebar} onToggle={toggle} />
         ) : null}
 
         {!drawer && expanded ? (

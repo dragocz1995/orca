@@ -98,6 +98,8 @@ export const en = {
     primaryNav: 'Primary',
     expand: 'Expand',
     collapse: 'Collapse',
+    collapseNav: 'Collapse navigation to icons',
+    expandNav: 'Expand navigation',
     openCommandPalette: 'Open command palette',
     language: 'Language',
     theme: 'Theme',

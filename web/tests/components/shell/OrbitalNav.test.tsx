@@ -6,11 +6,11 @@ vi.mock('next/navigation', () => ({ usePathname: () => currentPath.value, useRou
 import { getStableOffsets, OrbitalNav, railSpacing } from '../../../components/shell/OrbitalNav';
 import { createWrapper } from '../../test-utils';
 
-function mount(compact = false) {
+function mount(compact = false, props: { side?: 'left' | 'right'; onToggleCollapse?: () => void } = {}) {
   const { wrapper: Wrapper, client } = createWrapper();
   client.setQueryData(['me'], { user: { id: 1, username: 'admin', is_admin: true } });
   client.setQueryData(['health'], { ok: true, version: '0.26.0' });
-  return render(<Wrapper><OrbitalNav compact={compact} /></Wrapper>);
+  return render(<Wrapper><OrbitalNav compact={compact} {...props} /></Wrapper>);
 }
 
 /** The vertical offset a rail item is parked at, e.g. `translate(0, calc(-50% + -66px)) scale(.9)` → -66. */
@@ -146,5 +146,37 @@ describe('OrbitalNav', () => {
     mount(true);
     expect(screen.getByTestId('future-navigation')).toHaveClass('w-[4.75rem]');
     expect(screen.getByRole('link', { name: 'Stats' })).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+describe('OrbitalNav collapse handle', () => {
+  beforeEach(() => { currentPath.value = '/stats'; });
+
+  it('is absent when collapsing is not the user’s call, so no dead control is offered', () => {
+    mount();
+    expect(screen.queryByTestId('nav-collapse-handle')).toBeNull();
+  });
+
+  it('collapses the rail on click and says so — the label flips to the way back out', () => {
+    const toggle = vi.fn();
+    const { rerender } = mount(false, { onToggleCollapse: toggle });
+    const handle = screen.getByTestId('nav-collapse-handle');
+    expect(handle).toHaveAccessibleName('Collapse navigation to icons');
+    fireEvent.click(handle);
+    expect(toggle).toHaveBeenCalledTimes(1);
+
+    const { wrapper: Wrapper } = createWrapper();
+    rerender(<Wrapper><OrbitalNav compact onToggleCollapse={toggle} /></Wrapper>);
+    expect(screen.getByTestId('nav-collapse-handle')).toHaveAccessibleName('Expand navigation');
+  });
+
+  // The rail mirrors to the right edge when the dock takes the left one. The handle belongs on the seam
+  // with the content either way — pinned to the wrong edge it would sit against the window frame.
+  it('rides the edge facing the content, whichever side the rail is on', () => {
+    const { unmount } = mount(false, { side: 'left', onToggleCollapse: () => {} });
+    expect(screen.getByTestId('nav-collapse-handle')).toHaveClass('right-0');
+    unmount();
+    mount(false, { side: 'right', onToggleCollapse: () => {} });
+    expect(screen.getByTestId('nav-collapse-handle')).toHaveClass('left-0');
   });
 });

@@ -98,6 +98,8 @@ export const cs = {
     primaryNav: 'Hlavní',
     expand: 'Rozbalit',
     collapse: 'Sbalit',
+    collapseNav: 'Sbalit navigaci na ikony',
+    expandNav: 'Rozbalit navigaci',
     openCommandPalette: 'Otevřít paletu příkazů',
     language: 'Jazyk',
     theme: 'Motiv',
