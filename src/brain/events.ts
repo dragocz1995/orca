@@ -162,8 +162,12 @@ export async function runCompaction(session: AgentSession): Promise<CompactResul
   }
 }
 
-/** One selectable option in an `ask` question. `description` is an optional one-line hint under the label. */
-interface AskOption { label: string; description?: string }
+/** One selectable option in an `ask` question. `description` is an optional one-line hint under the label.
+ *  `preview` is optional monospace content (an ASCII mockup, a code snippet, a diagram) that lets the user
+ *  SEE what the option means: when any option in a single-select question carries one, the picker switches
+ *  to a side-by-side layout showing the focused option's preview beside the list. Surfaces without a
+ *  side-by-side view (Discord, WhatsApp) simply ignore it. */
+interface AskOption { label: string; description?: string; preview?: string }
 /** A single multiple-choice question the agent poses via `ask_user_question`. `header` is a short chip
  *  label (≤30 chars); `multiSelect` allows more than one pick. `custom` says whether a free-text "Other"
  *  escape is offered — absent means true (older events predate the flag), so clients must treat only an

@@ -11,11 +11,27 @@ import { StringDecoder } from 'node:string_decoder';
 
 const DEFAULT_MAX = 60_000;              // output cap per foreground run / background buffer
 const DEFAULT_TIMEOUT_MS = 120_000;      // foreground runs get killed after this
+// Per-call foreground `timeout` (seconds). A caller may stretch a slow-but-finite run (npm install, a
+// full build) past the default instead of pushing it to the background just to survive; 10 minutes is the
+// ceiling — anything longer belongs in the background, where nothing kills it.
+const MAX_TIMEOUT_S = 600;
+const MIN_TIMEOUT_S = 1;
+// Blocking `read_process_output` — wait for a background process to finish instead of polling it. Capped
+// well under the foreground ceiling: a blocked read holds the agent's turn open, and the process keeps
+// running after a timeout, so the caller can simply block again.
+const DEFAULT_BLOCK_S = 30;
+const MAX_BLOCK_S = 120;
 const MAX_BG = 16;               // concurrent background processes
 const PROGRESS_THROTTLE_MS = 100;        // min gap between live-output pushes of a foreground run
 const PROGRESS_TAIL = 2_000;             // rolling TAIL of live output sent per push (never the whole buffer)
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
+/** Clamp a caller-supplied seconds value into [min, max], falling back to `def` when absent/garbage. */
+const clampSeconds = (value, def, min, max) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return def;
+  return Math.min(Math.max(Math.round(n), min), max);
+};
 
 // PI's local shell backend for FOREGROUND runs. Two things it gets right that a hand-rolled spawn does
 // not: (1) `waitForChildProcess` resolves on the shell's exit WITHOUT hanging on a stdout/stderr pipe a
@@ -119,7 +135,10 @@ async function runForeground(command, cwd, outputCap, timeoutMs, onProgress) {
   // Ensure the exit marker starts on its own line — the tail may not end in a newline, which would
   // otherwise glue `[exit N]` onto the last line of real output the model parses.
   const sep = body.endsWith('\n') || body.length === 0 ? '' : '\n';
-  return `$ ${command}\n(cwd: ${cwd})\n${killed ? '[killed: timeout]\n' : ''}${body}${sep}[exit ${exitCode}]`;
+  // Name the deadline that actually applied — the model has to know whether to re-run with a longer
+  // `timeout` or move the command to the background, and "[killed: timeout]" alone doesn't say which.
+  const note = killed ? `[killed: timed out after ${Math.round(timeoutMs / 1000)}s]\n` : '';
+  return `$ ${command}\n(cwd: ${cwd})\n${note}${body}${sep}[exit ${exitCode}]`;
 }
 
 export function register(ctx) {
@@ -179,12 +198,20 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'run_command', label: 'Run command',
-    description: 'Run a shell command. Foreground by default (120 s limit); pass background=true for '
-      + 'long-running work (dev servers, builds) and manage it with list_processes / read_process_output / kill_process. '
-      + 'The working directory is confined to your accessible repositories.',
+    description: [
+      'Execute a shell command and return its output.',
+      'The working directory is confined to your accessible repositories. Use absolute paths — `cd` inside a compound command is unreliable and can shift context unexpectedly. Shell state (env vars, functions) does not persist between calls; the shell is initialized fresh each time.',
+      'Prefer the dedicated file tools (read_file, edit_file, write_file, search_files, list_dir) over cat, head, tail, sed, awk or echo. Reach for the shell when the task genuinely needs it: builds, tests, git, service inspection, process management.',
+      `Foreground runs are killed after ${Math.round(DEFAULT_TIMEOUT_MS / 1000)} s; raise it with \`timeout\` (seconds, max ${MAX_TIMEOUT_S}) for a slow but finite command such as an install or a full build.`,
+      'Pass background=true for open-ended work (dev servers, watchers) — it runs detached and returns a process id with no time limit. Manage those with list_processes / read_process_output / kill_process, and use backgroundMode="service" for a long-lived process that should never be collected as a finite job.',
+      'A denied or blocked command means a permission rule stopped it — adjust the approach, do not retry it verbatim. Keep secrets out of command lines and output.',
+    ].join(' '),
     parameters: Type.Object({
       command: Type.String({ description: 'The shell command to run' }),
       cwd: Type.Optional(Type.String({ description: 'Working directory (must be within your repositories)' })),
+      timeout: Type.Optional(Type.Number({
+        description: `Foreground timeout in SECONDS (default ${Math.round(DEFAULT_TIMEOUT_MS / 1000)}, max ${MAX_TIMEOUT_S}). On expiry the process tree is killed and the output so far is returned. Ignored when background=true.`,
+      })),
       background: Type.Optional(Type.Boolean({ description: 'Run detached and return a process id' })),
       backgroundMode: Type.Optional(Type.Union([Type.Literal('job'), Type.Literal('service')], {
         description: 'job (default) keeps a delegated agent active until the finite command is collected; service is for long-lived servers/watchers.',
@@ -196,12 +223,17 @@ export function register(ctx) {
       try {
         const cwd = guardCwd(p.cwd);
         if (!p.background) {
+          // An explicit per-call `timeout` overrides the configured default, clamped to [1 s, 10 min]; the
+          // background path ignores it entirely (a detached process has no deadline to extend).
+          const timeoutMs = p.timeout === undefined
+            ? commandTimeoutMs
+            : clampSeconds(p.timeout, Math.round(commandTimeoutMs / 1000), MIN_TIMEOUT_S, MAX_TIMEOUT_S) * 1000;
           // Stream the rolling output tail live as it runs. `onUpdate` is PI's 4th execute argument (the
           // agent loop passes it, forwarded verbatim through the Elowen tool wrappers); each call emits a
           // `tool_execution_update` the daemon maps to a throttled `tool_progress` event. Absent for callers
           // that don't stream (background path never uses it — it has read_process_output instead).
           const onProgress = onUpdate ? (text) => onUpdate(ok(text)) : undefined;
-          return ok(await runForeground(p.command, cwd, outputCap, commandTimeoutMs, onProgress));
+          return ok(await runForeground(p.command, cwd, outputCap, timeoutMs, onProgress));
         }
         // prune finished processes before the cap check so dead entries don't block new work (the cap is
         // per session, so both the prune and the count stay session-scoped)
@@ -240,22 +272,41 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'read_process_output', label: 'Read process output',
-    description: 'Read NEW output of a background process since the last read (pass all=true for the full buffer).',
+    description: [
+      'Read the output (stdout + stderr) of a background process started with run_command(background=true).',
+      'By default this returns only what was written SINCE your last read and does not wait — the process keeps running.',
+      'Pass all=true for the whole buffer from process start.',
+      `Pass block=true to WAIT for the process to finish instead of polling: the call returns as soon as it exits, or after \`timeout\` seconds (default ${DEFAULT_BLOCK_S}, max ${MAX_BLOCK_S}) with the output so far and a note that it is still running. Use it whenever you need a finite command's result — never call this in a polling loop.`,
+      'The process id comes from the run_command call that started it; use list_processes if you did not start it yourself. This tool is only for shell processes — a background sub-agent result comes back through delegate_result.',
+    ].join(' '),
     parameters: Type.Object({
-      id: Type.String(),
+      id: Type.String({ description: 'Process id returned by run_command(background=true)' }),
       all: Type.Optional(Type.Boolean({ description: 'Return the whole buffer instead of just new output' })),
+      block: Type.Optional(Type.Boolean({ description: 'Wait for the process to finish before returning (default false).' })),
+      timeout: Type.Optional(Type.Number({ description: `Seconds to wait when block=true (default ${DEFAULT_BLOCK_S}, max ${MAX_BLOCK_S}). Ignored otherwise.` })),
     }),
     execute: async (_id, p) => {
       const denied = denyNonOwner();
       if (denied) return denied;
       const handle = scopedHandle(p.id);
       if (!handle) return ok(`Error: no background process ${p.id}.`);
+      // Blocking read: park until the process exits (or the deadline passes) instead of making the model
+      // poll. The wait is bounded and the process survives a timeout, so a caller that still needs the
+      // result simply blocks again. Waiting on the ALREADY-SCOPED handle is what keeps this safe — an id
+      // from another session was rejected above, so nobody can block on a conversation they can't read.
+      let waitedOut = false;
+      if (p.block === true && handle.running()) {
+        const waitS = clampSeconds(p.timeout, DEFAULT_BLOCK_S, MIN_TIMEOUT_S, MAX_BLOCK_S);
+        waitedOut = await ctx.processes.waitForExit(p.id, waitS * 1000) === 'timeout';
+      }
       // Sample `running` BEFORE reading: a process that exits between the read and the check would
       // otherwise be collected here while output written after our read is still lost. Reading first from a
       // handle we then keep (because it looked alive) at worst costs one more read call.
       const running = handle.running();
       const text = handle.readNew(p.all === true);
-      const state = running ? '[still running]' : `[exited ${handle.exitCode()}]`;
+      const state = running
+        ? `[still running${waitedOut ? ` after waiting ${clampSeconds(p.timeout, DEFAULT_BLOCK_S, MIN_TIMEOUT_S, MAX_BLOCK_S)}s` : ''}]`
+        : `[exited ${handle.exitCode()}]`;
       if (!running) { ctx.processes.remove(p.id); emitProcCard(); } // final read collects the corpse
       return ok(`${text || '(no new output)'}\n${state}`);
     },

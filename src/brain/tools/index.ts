@@ -1,5 +1,5 @@
 import type { ElowenToolCtx } from './elowenTools.js';
-import { elowenListTasks, elowenCreateTask, elowenPlan, elowenListMissions, elowenListSessions } from './elowenTools.js';
+import { elowenListTasks, elowenCreateTask, elowenUpdateTask, elowenPlan, elowenListMissions, elowenListSessions } from './elowenTools.js';
 import { buildMemoryTools } from './memoryTools.js';
 import { buildLspTools } from './lspTools.js';
 
@@ -30,7 +30,7 @@ export const BUILTIN_TOOL_OUTPUT_SHOWN: string[] = [
  *  new REST endpoint needs no changes here beyond adding one more thin wrapper. Bundles the LSP
  *  diagnostics tool (owner-chat only, like the elowen_* control plane). */
 export function buildElowenTools(ctx: ElowenToolCtx) {
-  return [elowenListTasks(ctx), elowenCreateTask(ctx), elowenPlan(ctx), elowenListMissions(ctx), elowenListSessions(ctx), ...buildLspTools()];
+  return [elowenListTasks(ctx), elowenCreateTask(ctx), elowenUpdateTask(ctx), elowenPlan(ctx), elowenListMissions(ctx), elowenListSessions(ctx), ...buildLspTools()];
 }
 
 /** Name/label/group for every BUILT-IN (native, non-plugin) brain tool, derived from the real tool

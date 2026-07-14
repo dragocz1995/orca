@@ -1608,6 +1608,7 @@ export const cs = {
     askOther: 'Jiné…',
     askOtherPlaceholder: 'Napište vlastní odpověď',
     askSubmit: 'Odeslat odpověď',
+    askPreviewHint: 'Najeďte na možnost a zobrazí se náhled',
     contextCompacted: 'Kontext zhuštěn',
     queued: 'Ve frontě',
     removeFromQueue: 'Odebrat z fronty',

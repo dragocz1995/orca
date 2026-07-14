@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 const repoRoot = join(__dirname, '..', '..');
 
-interface Normalized { question: string; header: string; multiSelect: boolean; custom: boolean; options: { label: string; description?: string }[] }
+interface Normalized { question: string; header: string; multiSelect: boolean; custom: boolean; options: { label: string; description?: string; preview?: string }[] }
 type NormalizeFn = (q: unknown) => Normalized;
 type FormatFn = (questions: { question: string }[], answers: unknown) => string;
 
@@ -44,6 +44,44 @@ describe('ask_user_question — forgiving question normalization', () => {
     const { normalizeQuestion } = await load();
     const q = normalizeQuestion({ question: 'This is a very long question that has no header set', options: ['a', 'b'] });
     expect(q.header.length).toBeLessThanOrEqual(30);
+  });
+
+  // normalizeQuestion REBUILDS every option field by field, so a new field that is not copied here is
+  // silently dropped and no renderer ever sees it — it would typecheck and simply not work.
+  describe('option previews', () => {
+    it('carries a preview through, newlines intact', async () => {
+      const { normalizeQuestion } = await load();
+      const q = normalizeQuestion({
+        question: 'Which layout?',
+        options: [
+          { label: 'Grid', description: 'cards', preview: '┌───┐ ┌───┐\n│ A │ │ B │\n└───┘ └───┘' },
+          { label: 'List', description: 'rows' },
+        ],
+      });
+      expect(q.options[0].preview).toBe('┌───┐ ┌───┐\n│ A │ │ B │\n└───┘ └───┘');
+      expect(q.options[1].preview).toBeUndefined(); // previews are per-option, not all-or-nothing
+    });
+
+    it('drops previews on a multi-select question — there is no single focused option to preview', async () => {
+      const { normalizeQuestion } = await load();
+      const q = normalizeQuestion({
+        question: 'Which layouts?',
+        multiple: true,
+        options: [{ label: 'Grid', preview: 'A B' }, { label: 'List', preview: 'A\nB' }],
+      });
+      expect(q.multiSelect).toBe(true);
+      expect(q.options.every((op) => op.preview === undefined)).toBe(true);
+    });
+
+    it('ignores a blank or non-string preview rather than rendering an empty pane', async () => {
+      const { normalizeQuestion } = await load();
+      const q = normalizeQuestion({
+        question: 'Pick',
+        options: [{ label: 'a', preview: '   ' }, { label: 'b', preview: 42 }],
+      });
+      expect(q.options[0].preview).toBeUndefined();
+      expect(q.options[1].preview).toBeUndefined();
+    });
   });
 });
 

@@ -9,10 +9,21 @@ import { padAnsi, terminalInlineText, terminalPlainText } from '../ui/text.js';
 
 const OTHER = '\u0000other';
 
+// Side-by-side preview geometry. Below MIN_SPLIT_WIDTH the two columns would each be too narrow to read,
+// so the dock stays stacked and simply drops the preview — it is an aid, never the answer itself.
+const MIN_SPLIT_WIDTH = 56;
+const MIN_LIST_WIDTH = 22;
+const MIN_PREVIEW_WIDTH = 20;
+const SPLIT_GUTTER = 3;   // ' │ ' — the divider between the columns
+const MAX_PREVIEW_LINES = 40;
+
 const fillInputBg = (text: string, width: number): string => `\x1b[${chatTheme().inputBg}m${padAnsi(text, width)}\x1b[0m`;
 const open = (code: string, text: string): string => ansi.open(code, text);
 const selectedGlyph = (active: boolean): string => active ? '☑' : '☐';
 const inlineText = terminalInlineText;
+
+/** One rendered line of one option: its text and whether it is the muted description tail. */
+interface ChoiceLine { text: string; muted: boolean }
 
 export interface AskChoiceDockOpts {
   tui: TUI;
@@ -104,6 +115,65 @@ export class AskChoiceDock implements Component, Focusable {
     if (isEnterKey(data)) { this.submit(); }
   }
 
+  /** Wrap each option into its display lines at `width`. Labels and descriptions WRAP across as many rows
+   *  as they need — a fixed label column truncated long options (the actual answer text) into an unreadable
+   *  "…", the same trap the question itself avoids. Continuation lines align under the label, past the
+   *  "  ☐ " marker gutter. */
+  private choiceLines(width: number): ChoiceLine[][] {
+    const gutter = 4; // '  ' indent + marker + ' '
+    const cont = ' '.repeat(gutter);
+    const wrapInner = Math.max(1, width - gutter);
+    return this.rows().map((item) => {
+      const marker = item.other ? '✎' : selectedGlyph(this.selected.has(item.value));
+      const labelLines = wrapTextWithAnsi(item.label, wrapInner);
+      const descLines = item.description ? wrapTextWithAnsi(item.description, wrapInner) : [];
+      return [
+        ...labelLines.map((ln, idx) => ({ text: `${idx === 0 ? `  ${marker} ` : cont}${ln}`, muted: false })),
+        ...descLines.map((ln) => ({ text: `${cont}${ln}`, muted: true })),
+      ];
+    });
+  }
+
+  /** Paint one option line into a cell of exactly `width` columns — highlighted when it belongs to the
+   *  focused option. Returns a self-contained ANSI segment, so it can sit next to another column without
+   *  its colours bleeding across the divider. */
+  private choiceCell(line: ChoiceLine, optionIndex: number, width: number): string {
+    const theme = chatTheme();
+    const item = this.rows()[optionIndex];
+    if (optionIndex === this.selectedIndex) return color.selected(padAnsi(line.text, width));
+    const picked = item ? this.selected.has(item.value) : false;
+    return fillInputBg(open(line.muted ? theme.muted : (picked ? theme.accentSoft : theme.text), line.text), width);
+  }
+
+  /** The focused option's preview, sanitized and clipped to `width`. Empty when the focused row has none
+   *  (the "Other…" row never does), which is what collapses the layout back to a single column. */
+  private previewLines(width: number): string[] {
+    const row = this.rows()[this.selectedIndex];
+    if (!row || row.other) return [];
+    const preview = this.opts.question.options.find((op) => op.label === row.value)?.preview;
+    if (!preview) return [];
+    // Preview text is monospace art: clip each line rather than reflow it, or the alignment it exists to
+    // show is destroyed. terminalPlainText strips escape sequences — this is model-authored text going
+    // straight to a terminal.
+    return terminalPlainText(preview).split('\n')
+      .slice(0, MAX_PREVIEW_LINES)
+      .map((line) => truncateToWidth(line, width, '…'));
+  }
+
+  /** Column widths for the side-by-side layout, or null when this question/terminal cannot support it:
+   *  multi-select has no single focused option to preview, no option carries a preview, or the terminal is
+   *  too narrow to give both columns a readable width. */
+  private splitWidths(innerWidth: number): { list: number; preview: number } | null {
+    if (this.opts.question.multiSelect) return null;
+    if (!this.opts.question.options.some((op) => op.preview)) return null;
+    if (innerWidth < MIN_SPLIT_WIDTH) return null;
+    const usable = innerWidth - SPLIT_GUTTER;
+    const list = Math.max(MIN_LIST_WIDTH, Math.floor(usable * 0.45));
+    const preview = usable - list;
+    if (list < MIN_LIST_WIDTH || preview < MIN_PREVIEW_WIDTH) return null;
+    return { list, preview };
+  }
+
   render(width: number): string[] {
     const w = Math.max(2, width);
     const innerWidth = Math.max(1, w - 2);
@@ -116,27 +186,10 @@ export class AskChoiceDock implements Component, Focusable {
     const selectedText = plainSelected.length
       ? plainSelected.map((item) => `✓ ${inlineText(item)}`).join('  ')
       : 'No answers selected';
-    // Labels and descriptions WRAP across as many rows as they need — a fixed label column truncated
-    // long options (the actual answer text) into an unreadable "…", the same trap the question itself
-    // avoids. Continuation lines align under the label, past the "  ☐ " marker gutter.
-    const gutter = 4; // '  ' indent + marker + ' '
-    const cont = ' '.repeat(gutter);
-    const wrapInner = Math.max(1, innerWidth - gutter);
-    const choiceGroups = this.rows().map((item, i) => {
-      const picked = this.selected.has(item.value);
-      const marker = item.other ? '✎' : selectedGlyph(picked);
-      const labelLines = wrapTextWithAnsi(item.label, wrapInner);
-      const descLines = item.description ? wrapTextWithAnsi(item.description, wrapInner) : [];
-      const visual = [
-        ...labelLines.map((ln, idx) => ({ text: `${idx === 0 ? `  ${marker} ` : cont}${ln}`, muted: false })),
-        ...descLines.map((ln) => ({ text: `${cont}${ln}`, muted: true })),
-      ];
-      const selectedRow = i === this.selectedIndex;
-      const labelColor = picked ? theme.accentSoft : theme.text;
-      return visual.map((v) => selectedRow
-        ? `${border('│')}${color.selected(padAnsi(v.text, innerWidth))}${border('│')}`
-        : row(open(v.muted ? theme.muted : labelColor, v.text)));
-    });
+    const choiceGroups = this.choiceLines(innerWidth).map((lines, i) => lines.map((line) => {
+      const cell = this.choiceCell(line, i, innerWidth);
+      return `${border('│')}${cell}${border('│')}`;
+    }));
     const choiceRows = choiceGroups.flat();
     const progress = `${this.opts.index + 1}/${this.opts.total}`;
     const titleRow = row(`  ${open(theme.text, 'Elowen needs a decision')}  ${open(theme.faint, inlineText(this.opts.question.header || 'ask_user_question'))}  ${open(theme.faint, progress)}`);
@@ -160,18 +213,50 @@ export class AskChoiceDock implements Component, Focusable {
     }
     packedActions.push(actionLine);
     const actionRows = packedActions.map((line) => row(truncateToWidth(line, innerWidth, '')));
-    const full = [
+    const frame = (body: string[]): string[] => [
       top,
       titleRow,
       // The question wraps across as many rows as it needs — truncating it made long questions unanswerable.
       ...questionRows,
       row(''),
-      ...choiceRows,
+      ...body,
       row(''),
       row(open(theme.accent, truncateToWidth(`  ${selectedText}`, innerWidth, ''))),
       ...actionRows,
       bottom,
     ];
+
+    // Side-by-side: the option list on the left, the FOCUSED option's preview on the right, so a choice
+    // between layouts/shapes can be seen rather than described. Built first and used only if it fits the
+    // row budget — otherwise the stacked layout below (with its proven squeeze) takes over, dropping the
+    // preview rather than the options.
+    const split = this.splitWidths(innerWidth);
+    if (split) {
+      const preview = this.previewLines(split.preview);
+      if (preview.length > 0) {
+        const listLines = this.choiceLines(split.list)
+          .flatMap((lines, i) => lines.map((line) => ({ line, option: i })));
+        const height = Math.max(listLines.length, preview.length);
+        // Filled with the dock's own background so the row reads as one continuous strip, not two panes
+        // floating on the terminal's default colour.
+        const divider = fillInputBg(open(theme.faint, ' │ '), SPLIT_GUTTER);
+        const splitRows: string[] = [];
+        for (let i = 0; i < height; i += 1) {
+          // Either column can run out first: pad the short one so both keep their exact width and the
+          // divider stays a straight line all the way down.
+          const entry = listLines[i];
+          const left = entry
+            ? this.choiceCell(entry.line, entry.option, split.list)
+            : fillInputBg('', split.list);
+          const right = fillInputBg(open(theme.muted, preview[i] ?? ''), split.preview);
+          splitRows.push(`${border('│')}${left}${divider}${right}${border('│')}`);
+        }
+        const splitFull = frame(splitRows);
+        if (this.maxRows == null || splitFull.length <= this.maxRows) return splitFull;
+      }
+    }
+
+    const full = frame(choiceRows);
     if (this.maxRows == null || full.length <= this.maxRows) return full;
 
     // A blocking dock on a short terminal borrows as much space as the central budget allows. If the

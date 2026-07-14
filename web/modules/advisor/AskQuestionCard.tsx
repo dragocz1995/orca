@@ -27,7 +27,11 @@ function Radio({ checked }: { checked: boolean }) {
  *  question sets `custom: false` (absent = allowed — older events predate the flag). A single submit
  *  posts all answers at once to /brain/answer, resuming the paused turn. `kind: 'approval'` (a blocked
  *  tool-permission ask) reuses the same pipeline but reads as a security decision: warning tone +
- *  distinct title; the three fixed options (Allow once / Always allow / Deny) come with the question. */
+ *  distinct title; the three fixed options (Allow once / Always allow / Deny) come with the question.
+ *
+ *  When a single-select question's options carry a `preview` (monospace: an ASCII mockup, a code snippet),
+ *  the question switches to a side-by-side layout — the option list on the left, the focused option's
+ *  preview on the right — so the user can compare the choices visually instead of reading about them. */
 export function AskQuestionCard({ questions, kind, onSubmit }: { questions: AskQuestion[]; kind?: 'approval'; onSubmit: (answers: AskAnswer[]) => void }) {
   const { t } = useTranslation();
   // Per-question selection (option labels) and free-text Other, keyed by question index.
@@ -35,6 +39,9 @@ export function AskQuestionCard({ questions, kind, onSubmit }: { questions: AskQ
   const [otherOpen, setOtherOpen] = useState<Record<number, boolean>>({});
   const [other, setOther] = useState<Record<number, string>>({});
   const [sent, setSent] = useState(false);
+  // Which option's preview is showing, per question. Follows the pointer/keyboard focus so the user can
+  // compare options WITHOUT committing to one; a click still selects as normal.
+  const [focused, setFocused] = useState<Record<number, number>>({});
 
   const toggle = (qi: number, label: string, multi: boolean): void => {
     setPicked((cur) => {
@@ -64,12 +71,12 @@ export function AskQuestionCard({ questions, kind, onSubmit }: { questions: AskQ
       <p className={`text-tiny font-medium uppercase tracking-wide ${approval ? 'text-warning' : 'text-accent'}`}>
         {approval ? t.brainChat.approvalWaiting : t.brainChat.askWaiting}
       </p>
-      {questions.map((q, qi) => (
-        <div key={qi} className="flex flex-col gap-1.5">
-          <div className="flex items-baseline gap-2">
-            <span className="shrink-0 rounded bg-elevated px-1.5 py-0.5 text-tiny font-medium text-text-muted">{q.header}</span>
-            <span className="text-sm text-text">{q.question}</span>
-          </div>
+      {questions.map((q, qi) => {
+        // A preview is a pane for ONE focused option, which multi-select has no notion of — so previews
+        // only ever drive the layout for a single-select question (the tool drops them otherwise).
+        const hasPreview = !q.multiSelect && q.options.some((op) => op.preview);
+        const focusedPreview = hasPreview ? q.options[focused[qi] ?? 0]?.preview : undefined;
+        const optionList = (
           <div className="flex flex-col gap-0.5" role={q.multiSelect ? 'group' : 'radiogroup'}>
             {q.options.map((op, oi) => {
               const on = (picked[qi] ?? []).includes(op.label);
@@ -81,6 +88,8 @@ export function AskQuestionCard({ questions, kind, onSubmit }: { questions: AskQ
                   aria-checked={on}
                   disabled={sent}
                   onClick={() => toggle(qi, op.label, q.multiSelect)}
+                  onMouseEnter={hasPreview ? () => setFocused((cur) => ({ ...cur, [qi]: oi })) : undefined}
+                  onFocus={hasPreview ? () => setFocused((cur) => ({ ...cur, [qi]: oi })) : undefined}
                   className={`flex items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/10 disabled:opacity-60 ${on ? 'bg-accent/10' : ''}`}
                 >
                   {q.multiSelect ? <Checkbox checked={on} className="mt-0.5" /> : <Radio checked={on} />}
@@ -103,17 +112,38 @@ export function AskQuestionCard({ questions, kind, onSubmit }: { questions: AskQ
               </button>
             ) : null}
           </div>
-          {q.custom !== false && otherOpen[qi] ? (
-            <Input
-              value={other[qi] ?? ''}
-              onChange={(e) => setOther((cur) => ({ ...cur, [qi]: e.target.value }))}
-              placeholder={t.brainChat.askOtherPlaceholder}
-              disabled={sent}
-              autoFocus
-            />
-          ) : null}
-        </div>
-      ))}
+        );
+        return (
+          <div key={qi} className="flex flex-col gap-1.5">
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 rounded bg-elevated px-1.5 py-0.5 text-tiny font-medium text-text-muted">{q.header}</span>
+              <span className="text-sm text-text">{q.question}</span>
+            </div>
+            {hasPreview ? (
+              // Side by side on a wide viewport; the preview stacks under the list on a narrow one, where
+              // two columns would leave neither readable.
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+                {optionList}
+                <pre
+                  data-testid={`ask-preview-${qi}`}
+                  className="max-w-full overflow-x-auto rounded-md border border-border bg-elevated p-2 font-mono text-tiny leading-relaxed text-text-muted"
+                >
+                  {focusedPreview ?? t.brainChat.askPreviewHint}
+                </pre>
+              </div>
+            ) : optionList}
+            {q.custom !== false && otherOpen[qi] ? (
+              <Input
+                value={other[qi] ?? ''}
+                onChange={(e) => setOther((cur) => ({ ...cur, [qi]: e.target.value }))}
+                placeholder={t.brainChat.askOtherPlaceholder}
+                disabled={sent}
+                autoFocus
+              />
+            ) : null}
+          </div>
+        );
+      })}
       <div>
         <Button type="button" variant="accent" onClick={submit} disabled={!ready || sent}>
           {t.brainChat.askSubmit}

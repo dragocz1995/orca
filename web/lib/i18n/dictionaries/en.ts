@@ -1608,6 +1608,7 @@ export const en = {
     askOther: 'Other…',
     askOtherPlaceholder: 'Type your own answer',
     askSubmit: 'Send answer',
+    askPreviewHint: 'Hover an option to preview it',
     contextCompacted: 'Context compacted',
     queued: 'Queued',
     removeFromQueue: 'Remove from queue',

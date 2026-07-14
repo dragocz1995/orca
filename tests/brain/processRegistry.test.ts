@@ -176,4 +176,56 @@ describe('ProcessRegistry', () => {
       await expect(p).resolves.toBe('idle');
     });
   });
+
+  // Backs read_process_output(block:true): the agent parks until ONE process finishes instead of polling.
+  describe('waitForExit', () => {
+    it('resolves exited on the process exit', async () => {
+      const reg = new ProcessRegistry();
+      const j = fakeHandle('1');
+      reg.register(j.handle);
+      const p = reg.waitForExit('1', 5_000);
+      j.state.running = false; j.state.exit = 0;
+      reg.markExited('1');
+      await expect(p).resolves.toBe('exited');
+    });
+
+    it('resolves immediately for an unknown id or an already-finished process — never parks on a corpse', async () => {
+      const reg = new ProcessRegistry();
+      await expect(reg.waitForExit('nope', 5_000)).resolves.toBe('exited');
+      const j = fakeHandle('1');
+      j.state.running = false; j.state.exit = 0;
+      reg.register(j.handle);
+      await expect(reg.waitForExit('1', 5_000)).resolves.toBe('exited');
+    });
+
+    it('a kill or a registry removal releases the waiter — no more output is ever coming', async () => {
+      const reg = new ProcessRegistry();
+      reg.register(fakeHandle('1').handle);
+      const killed = reg.waitForExit('1', 60_000);
+      reg.kill('1');
+      await expect(killed).resolves.toBe('exited');
+
+      reg.register(fakeHandle('2').handle);
+      const dropped = reg.waitForExit('2', 60_000);
+      reg.remove('2');
+      await expect(dropped).resolves.toBe('exited');
+    });
+
+    it('times out and never double-settles on a later exit', async () => {
+      vi.useFakeTimers();
+      try {
+        const reg = new ProcessRegistry();
+        const j = fakeHandle('1');
+        reg.register(j.handle);
+        const p = reg.waitForExit('1', 1_000);
+        vi.advanceTimersByTime(1_000);
+        await expect(p).resolves.toBe('timeout');
+        // The process is still alive and later exits; the settled waiter must not resolve a second time.
+        j.state.running = false; j.state.exit = 0;
+        expect(() => reg.markExited('1')).not.toThrow();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

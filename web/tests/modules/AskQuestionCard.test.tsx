@@ -59,4 +59,62 @@ describe('AskQuestionCard', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'B' }));
     expect(submit).toBeEnabled();
   });
+
+  // A `preview` lets the user compare choices visually (a layout, a code shape) rather than reading about
+  // them. It shows the FOCUSED option, so they can look at each one WITHOUT committing to a pick.
+  describe('option previews', () => {
+    const withPreview: AskQuestion = {
+      question: 'Which dashboard layout?', header: 'Layout', multiSelect: false,
+      options: [
+        { label: 'Grid', description: 'cards in a grid', preview: 'GRID-MOCKUP' },
+        { label: 'List', description: 'rows stacked', preview: 'LIST-MOCKUP' },
+      ],
+    };
+
+    it('shows the first option\'s preview, and follows the pointer to another option', () => {
+      renderCard([withPreview]);
+      const pane = screen.getByTestId('ask-preview-0');
+      expect(pane).toHaveTextContent('GRID-MOCKUP');
+
+      fireEvent.mouseEnter(screen.getByRole('radio', { name: /List/ }));
+      expect(pane).toHaveTextContent('LIST-MOCKUP');
+      expect(pane).not.toHaveTextContent('GRID-MOCKUP');
+    });
+
+    it('previewing an option does not select it — looking is not choosing', () => {
+      const onSubmit = renderCard([withPreview]);
+      fireEvent.mouseEnter(screen.getByRole('radio', { name: /List/ }));
+      expect(screen.getByRole('button', { name: en.brainChat.askSubmit })).toBeDisabled();
+
+      fireEvent.click(screen.getByRole('radio', { name: /Grid/ }));
+      fireEvent.click(screen.getByRole('button', { name: en.brainChat.askSubmit }));
+      expect(onSubmit).toHaveBeenCalledWith([{ header: 'Layout', selected: ['Grid'], other: undefined }]);
+    });
+
+    it('keyboard focus drives the preview too, so it is not pointer-only', () => {
+      renderCard([withPreview]);
+      fireEvent.focus(screen.getByRole('radio', { name: /List/ }));
+      expect(screen.getByTestId('ask-preview-0')).toHaveTextContent('LIST-MOCKUP');
+    });
+
+    it('falls back to a hint when the focused option has no preview of its own', () => {
+      renderCard([{
+        ...withPreview,
+        options: [{ label: 'Grid' }, { label: 'List', preview: 'LIST-MOCKUP' }],
+      }]);
+      expect(screen.getByTestId('ask-preview-0')).toHaveTextContent(en.brainChat.askPreviewHint);
+      fireEvent.mouseEnter(screen.getByRole('radio', { name: /List/ }));
+      expect(screen.getByTestId('ask-preview-0')).toHaveTextContent('LIST-MOCKUP');
+    });
+
+    it('renders no preview pane at all for a question without previews', () => {
+      renderCard([single]);
+      expect(screen.queryByTestId('ask-preview-0')).toBeNull();
+    });
+
+    it('renders no preview pane for a multi-select question — there is no single focused option', () => {
+      renderCard([{ ...multi, options: [{ label: 'A', preview: 'A-MOCK' }, { label: 'B' }] }]);
+      expect(screen.queryByTestId('ask-preview-0')).toBeNull();
+    });
+  });
 });

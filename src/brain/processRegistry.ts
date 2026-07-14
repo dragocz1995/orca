@@ -58,12 +58,28 @@ interface JobIdleWaiter {
   settle: (outcome: 'idle' | 'timeout') => void;
 }
 
+/** One pending waiter on a SINGLE process finishing (the agent's blocking `read_process_output`). Settles
+ *  exactly once — from `settleExitWaiters` when the process exits or leaves the registry, or from its own
+ *  timeout timer — so a later exit can never re-settle it. */
+interface ProcessExitWaiter {
+  settle: (outcome: 'exited' | 'timeout') => void;
+}
+
 export class ProcessRegistry {
   private handles = new Map<string, ProcessHandle>();
   private onChange?: (sessionId: string | null) => void;
   private onExitFn?: (info: ProcessInfo, userId: number | null, sessionId: string | null) => void;
   private exited = new Set<string>();
   private jobIdleWaiters = new Map<string, Set<JobIdleWaiter>>();
+  private exitWaiters = new Map<string, Set<ProcessExitWaiter>>();
+
+  /** Release everyone blocked on this process: it exited, was killed, or was dropped — in every case it
+   *  will never produce more output, so a blocking read must stop waiting. */
+  private settleExitWaiters(id: string): void {
+    // settle() removes each waiter from the set (and an emptied set from the map); iterate a snapshot.
+    const waiters = this.exitWaiters.get(id);
+    if (waiters) for (const waiter of [...waiters]) waiter.settle('exited');
+  }
 
   private notifySession(sessionId: string | null | undefined): void {
     this.onChange?.(sessionId ?? null);
@@ -98,6 +114,7 @@ export class ProcessRegistry {
     const h = this.handles.get(id);
     if (!h || this.exited.has(id)) return;
     this.exited.add(id);
+    this.settleExitWaiters(id);
     this.notifySession(h.sessionId);
     this.onExitFn?.(toInfo(h), h.userId ?? null, h.sessionId ?? null);
   }
@@ -137,6 +154,7 @@ export class ProcessRegistry {
     h.kill();
     this.handles.delete(id);
     this.exited.delete(id);
+    this.settleExitWaiters(id);
     this.notifySession(h.sessionId);
     return true;
   }
@@ -160,7 +178,10 @@ export class ProcessRegistry {
     const sessionId = this.handles.get(id)?.sessionId ?? null;
     const existed = this.handles.delete(id);
     this.exited.delete(id);
-    if (existed) this.notifySession(sessionId);
+    if (existed) {
+      this.settleExitWaiters(id);
+      this.notifySession(sessionId);
+    }
     return existed;
   }
 
@@ -177,6 +198,38 @@ export class ProcessRegistry {
       if (handle.sessionId === sessionId && handle.completionMode !== 'service' && handle.running()) count++;
     }
     return count;
+  }
+
+  /** Resolve when ONE process finishes, so the agent's `read_process_output(block:true)` can wait for a
+   *  build/test run instead of polling it in a loop. Returns 'exited' immediately when the id is unknown or
+   *  the process already finished, once it exits (or is killed/dropped — either way no more output is
+   *  coming), or 'timeout' if a finite `timeoutMs` passes first. The timer is unref'd so a pending wait
+   *  never keeps the daemon alive, and each waiter settles exactly once. */
+  waitForExit(id: string, timeoutMs?: number): Promise<'exited' | 'timeout'> {
+    const handle = this.handles.get(id);
+    if (!handle || !handle.running()) return Promise.resolve('exited');
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiters = this.exitWaiters.get(id) ?? new Set<ProcessExitWaiter>();
+      const waiter: ProcessExitWaiter = {
+        settle: (outcome) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          const set = this.exitWaiters.get(id);
+          set?.delete(waiter);
+          if (set && set.size === 0) this.exitWaiters.delete(id);
+          resolve(outcome);
+        },
+      };
+      waiters.add(waiter);
+      this.exitWaiters.set(id, waiters);
+      if (timeoutMs !== undefined && Number.isFinite(timeoutMs)) {
+        timer = setTimeout(() => waiter.settle('timeout'), timeoutMs);
+        timer.unref?.();
+      }
+    });
   }
 
   /** Resolve when the session has no RUNNING background jobs left (service processes are excluded — a

@@ -276,13 +276,139 @@ describe('terminal plugin — configurable commandTimeoutMs', () => {
       config: { terminal: { commandTimeoutMs: 30_000 } },
     });
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'sleep 32' }), { identity: owner });
-    expect(res.content[0].text).toContain('[killed: timeout]');
+    // The kill note names the deadline that fired, so the model can tell "raise the timeout" from
+    // "this belongs in the background".
+    expect(res.content[0].text).toContain('[killed: timed out after 30s]');
   }, 40_000);
 
   it('unset commandTimeoutMs keeps the (larger) default: the same duration finishes normally', async () => {
     const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log });
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'sleep 32' }), { identity: owner });
-    expect(res.content[0].text).not.toContain('[killed: timeout]');
+    expect(res.content[0].text).not.toContain('[killed:');
     expect(res.content[0].text).toContain('[exit 0]');
   }, 40_000);
+});
+
+// The per-call `timeout` is what lets a slow-but-finite command (npm install, a full build) run to
+// completion in the foreground instead of being pushed to the background purely to survive the clock.
+describe('terminal plugin — per-call run_command timeout', () => {
+  let reg: PluginRegistry;
+  let dir: string;
+  beforeAll(async () => {
+    // A configured 30s default (the floor) — every case below must beat it, proving the per-call value,
+    // not the config, decided the outcome.
+    reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log,
+      config: { terminal: { commandTimeoutMs: 30_000 } },
+    });
+    dir = mkdtempSync(join(tmpdir(), 'elowen-term-calltimeout-'));
+  });
+
+  it('an explicit timeout overrides the configured default and kills the command at ITS deadline', async () => {
+    const started = Date.now();
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'sleep 20', timeout: 1 }), { identity: owner });
+    expect(res.content[0].text).toContain('[killed: timed out after 1s]');
+    expect(Date.now() - started).toBeLessThan(15_000); // nowhere near the configured 30s default
+  }, 30_000);
+
+  it('output produced before the deadline survives the kill', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'echo partial; sleep 20', timeout: 1 }), { identity: owner });
+    expect(res.content[0].text).toContain('partial');
+    expect(res.content[0].text).toContain('[killed: timed out after 1s]');
+  }, 30_000);
+
+  it('a timeout past the 600s ceiling is clamped, not honored verbatim', async () => {
+    // Proving the clamp without waiting 10 minutes: the clamped value is what the kill note reports.
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'echo fast', timeout: 99_999 }), { identity: owner });
+    expect(res.content[0].text).toContain('[exit 0]');
+    const capped = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'sleep 20', timeout: 0 }), { identity: owner });
+    expect(capped.content[0].text).toContain('[killed: timed out after 1s]'); // 0 clamps UP to the 1s floor
+  }, 30_000);
+
+  it('background=true ignores timeout — a detached process has no deadline to shorten', async () => {
+    const scope = { identity: owner, sessionId: 'brain-term-bg-timeout' };
+    const started = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'run_command', { command: 'sleep 20', background: true, timeout: 1 }), scope);
+    const id = /Started background process (\S+):/.exec(started.content[0].text)?.[1];
+    expect(id).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 2_500)); // well past the (ignored) 1s timeout
+    expect(processRegistry.list().find((p) => p.id === id)?.running).toBe(true);
+  }, 20_000);
+});
+
+// Blocking reads exist so the agent stops burning turns polling a build it started. The wait is bounded
+// and never destructive: a timed-out wait leaves the process running for a later read.
+describe('terminal plugin — read_process_output(block)', () => {
+  let reg: PluginRegistry;
+  let dir: string;
+  beforeAll(async () => {
+    reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log });
+    dir = mkdtempSync(join(tmpdir(), 'elowen-term-block-'));
+  });
+
+  const inSession = (sessionId: string, name: string, params: Record<string, unknown>) =>
+    runWithPolicy(userPolicy([dir]), () => runTool(reg, name, params), { identity: owner, sessionId });
+  const startBg = async (sessionId: string, command: string): Promise<string> => {
+    const res = await inSession(sessionId, 'run_command', { command, background: true });
+    const id = /Started background process (\S+):/.exec(res.content[0].text)?.[1];
+    expect(id).toBeTruthy();
+    return id!;
+  };
+
+  it('block=true returns as soon as the process exits, with its full final output', async () => {
+    const session = 'brain-term-block-exit';
+    const id = await startBg(session, `node -e "setTimeout(() => { console.log('finished'); }, 600)"`);
+    const started = Date.now();
+    const res = await inSession(session, 'read_process_output', { id, block: true, timeout: 30 });
+    const elapsed = Date.now() - started;
+
+    expect(res.content[0].text).toContain('finished');
+    expect(res.content[0].text).toContain('[exited 0]');
+    expect(elapsed).toBeGreaterThan(300);  // it really waited for the child…
+    expect(elapsed).toBeLessThan(10_000);  // …and returned on the exit, not on the 30s deadline
+    expect(processRegistry.list().find((p) => p.id === id)).toBeUndefined(); // the exit read collects it
+  }, 20_000);
+
+  it('block=true on an already-finished process returns immediately', async () => {
+    const session = 'brain-term-block-done';
+    const id = await startBg(session, 'echo instant');
+    await new Promise((r) => setTimeout(r, 500)); // let it exit before we read
+    const started = Date.now();
+    const res = await inSession(session, 'read_process_output', { id, block: true, timeout: 60 });
+    expect(res.content[0].text).toContain('instant');
+    expect(res.content[0].text).toContain('[exited 0]');
+    expect(Date.now() - started).toBeLessThan(2_000); // no waiting on a corpse
+  }, 20_000);
+
+  it('a timed-out block reports the wait and leaves the process running for a later read', async () => {
+    const session = 'brain-term-block-timeout';
+    const id = await startBg(session, `node -e "console.log('early'); setTimeout(() => {}, 30000)"`);
+    const res = await inSession(session, 'read_process_output', { id, block: true, timeout: 1 });
+
+    expect(res.content[0].text).toContain('early');           // output so far is still returned
+    expect(res.content[0].text).toContain('[still running after waiting 1s]');
+    // Not collected — the caller can block again, or kill it.
+    expect(processRegistry.list().find((p) => p.id === id)?.running).toBe(true);
+  }, 20_000);
+
+  it('without block the read stays a non-waiting snapshot', async () => {
+    const session = 'brain-term-block-off';
+    const id = await startBg(session, `node -e "setTimeout(() => { console.log('late'); }, 5000)"`);
+    const started = Date.now();
+    const res = await inSession(session, 'read_process_output', { id });
+    expect(res.content[0].text).toContain('[still running]');
+    expect(res.content[0].text).not.toContain('after waiting');
+    expect(Date.now() - started).toBeLessThan(1_000);
+  }, 20_000);
+
+  it('a killed process releases a blocked reader instead of hanging it to the deadline', async () => {
+    const session = 'brain-term-block-killed';
+    const id = await startBg(session, 'sleep 30');
+    const started = Date.now();
+    const read = inSession(session, 'read_process_output', { id, block: true, timeout: 120 });
+    await new Promise((r) => setTimeout(r, 300));
+    processRegistry.kill(id); // the web panel's ✕, or the conversation being deleted
+
+    await read;
+    expect(Date.now() - started).toBeLessThan(10_000); // released on the kill, not after 120s
+  }, 20_000);
 });

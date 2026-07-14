@@ -109,7 +109,7 @@ export interface BrainMessage { role: string; text: string; segments?: BrainSegm
 
 /** ask_user_question wire shapes (mirror src/brain/events.ts). The `ask` SSE event carries `id` +
  *  `questions`; the client POSTs `answers` back to /brain/answer. */
-interface AskOption { label: string; description?: string }
+interface AskOption { label: string; description?: string; preview?: string }
 export interface AskQuestion { question: string; header: string; multiSelect: boolean; custom?: boolean; options: AskOption[] }
 export interface AskAnswer { header: string; selected: string[]; other?: string }
 

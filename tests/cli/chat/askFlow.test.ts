@@ -182,6 +182,98 @@ describe('AskChoiceDock', () => {
   });
 });
 
+// A `preview` lets the user SEE a choice (an ASCII mockup, a code shape) instead of reading about it. The
+// dock then splits into two columns: the option list, and the FOCUSED option's preview.
+describe('AskChoiceDock — option previews', () => {
+  const previewQuestion = (): AskQuestion => ({
+    question: 'Which dashboard layout?',
+    header: 'Layout',
+    multiSelect: false,
+    options: [
+      { label: 'Grid', description: 'cards in a grid', preview: 'GRID-AAA\nGRID-BBB' },
+      { label: 'List', description: 'rows stacked', preview: 'LIST-AAA\nLIST-BBB' },
+    ],
+  });
+
+  const dockFor = (question: AskQuestion): AskChoiceDock => new AskChoiceDock({
+    tui: fakeTui(), question, index: 0, total: 1,
+    onSubmit: vi.fn(), onOther: vi.fn(), onCancel: vi.fn(),
+  });
+
+  it('shows the focused option\'s preview beside the list, and follows the selection', () => {
+    const dock = dockFor(previewQuestion());
+    const first = dock.render(90).map(stripAnsi);
+
+    // The list and the first option's preview share the same rows — that is what "side by side" means.
+    const gridRow = first.find((line) => line.includes('Grid'));
+    expect(gridRow).toBeTruthy();
+    expect(gridRow).toContain('GRID-AAA');
+    expect(first.join('\n')).toContain('GRID-BBB');
+    expect(first.join('\n')).not.toContain('LIST-AAA'); // only the focused option is previewed
+
+    dock.handleInput('\x1b[B'); // move down to "List"
+    const second = dock.render(90).map(stripAnsi).join('\n');
+    expect(second).toContain('LIST-AAA');
+    expect(second).toContain('LIST-BBB');
+    expect(second).not.toContain('GRID-AAA');
+  });
+
+  it('keeps every row inside the requested width', () => {
+    const dock = dockFor(previewQuestion());
+    for (const line of dock.render(90)) expect(visibleWidth(line)).toBe(90);
+  });
+
+  it('clips a preview line that is wider than its column instead of breaking the layout', () => {
+    const wide: AskQuestion = {
+      ...previewQuestion(),
+      options: [{ label: 'Grid', preview: 'X'.repeat(500) }, { label: 'List', preview: 'short' }],
+    };
+    const dock = dockFor(wide);
+    for (const line of dock.render(90)) expect(visibleWidth(line)).toBe(90);
+  });
+
+  it('falls back to the stacked layout on a narrow terminal — the options matter, the preview does not', () => {
+    const dock = dockFor(previewQuestion());
+    const narrow = dock.render(40).map(stripAnsi);
+    for (const line of dock.render(40)) expect(visibleWidth(line)).toBe(40);
+    expect(narrow.join('\n')).toContain('Grid');
+    expect(narrow.join('\n')).not.toContain('GRID-AAA'); // no room for a second column
+  });
+
+  it('stays stacked when no option carries a preview (nothing changes for existing questions)', () => {
+    const dock = dockFor({ ...previewQuestion(), options: [{ label: 'Grid' }, { label: 'List' }] });
+    const lines = dock.render(90).map(stripAnsi).join('\n');
+    expect(lines).toContain('Grid');
+    expect(lines).toContain('List');
+    expect(lines).not.toContain('│ '.repeat(2)); // no second column divider
+  });
+
+  it('shows no preview pane while the free-text "Other…" row is focused', () => {
+    const dock = dockFor({ ...previewQuestion(), custom: true });
+    dock.handleInput('\x1b[B'); // List
+    dock.handleInput('\x1b[B'); // Other…
+    const lines = dock.render(90).map(stripAnsi).join('\n');
+    expect(lines).toContain('Other...');
+    expect(lines).not.toContain('GRID-AAA');
+    expect(lines).not.toContain('LIST-AAA');
+  });
+
+  it('drops the preview rather than the options when the row budget is tight', () => {
+    const dock = dockFor({
+      ...previewQuestion(),
+      options: [
+        { label: 'Grid', preview: Array.from({ length: 30 }, (_, i) => `GRID-${i}`).join('\n') },
+        { label: 'List', preview: 'LIST' },
+      ],
+    });
+    dock.setMaxRows(12);
+    const lines = dock.render(90);
+    expect(lines.length).toBeLessThanOrEqual(12);
+    for (const line of lines) expect(visibleWidth(line)).toBe(90);
+    expect(lines.map(stripAnsi).join('\n')).toContain('Grid'); // the choice survives the squeeze
+  });
+});
+
 describe('runAskFlow', () => {
   it('borrows the editor slot for the ask dock, then restores the editor on completion', () => {
     const tui = fakeTui();

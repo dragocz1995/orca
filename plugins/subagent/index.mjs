@@ -15,8 +15,59 @@ const MAX_STORED_TASK_CHARS = 2_000;
 const MAX_COLLECT_TURNS = 8;
 const JOB_WAIT_TIMEOUT_MS = 5 * 60_000;
 
+// The read-only toolset: everything that can look but never touch. Written out rather than derived from a
+// pattern, because "read-only" is a security promise the caller relies on — a new tool joins this list
+// deliberately, and never by accidentally matching a prefix. Names absent from an installation (a disabled
+// plugin) simply never resolve; allow-listing them is harmless.
+const READ_ONLY_TOOLS = [
+  'read_file', 'search_files', 'list_dir', 'file_info', 'git_status', 'codebase_search', 'codebase_status',
+];
+
 const ok = (text, details = {}) => ({ content: [{ type: 'text', text }], details });
 const errorText = (e) => e instanceof Error ? e.message : String(e);
+
+/** Resolve the child's plugin-tool allow-list from `read_only` / `tools`, or undefined when the caller
+ *  asked for no restriction. Returns `{ error }` for a request that cannot be honored.
+ *
+ *  The one invariant: this may only ever NARROW. A caller who is already restricted to an allow-list can
+ *  hand its child a subset of that list and nothing more — delegation must never be a way to widen access
+ *  (the child inherits the caller's deny-list untouched, and the host re-applies account denies on top). */
+export function resolveDelegateTools(inheritedAllow, readOnly, requested, available) {
+  const sets = [];
+  if (readOnly === true) sets.push(READ_ONLY_TOOLS);
+  if (Array.isArray(requested)) {
+    const names = [...new Set(requested.map((t) => String(t ?? '').trim()).filter(Boolean))];
+    // An explicitly EMPTY list is a mistake, not a request for "everything". Reading it as "no restriction"
+    // would hand the whole toolset to a caller who asked for none of it — the exact inversion of intent.
+    if (names.length === 0) {
+      return { error: '`tools` was empty. Name the tools the sub-agent should have, or omit the parameter to give it yours.' };
+    }
+    const unknown = names.filter((name) => !available.includes(name));
+    if (unknown.length) {
+      return { error: `unknown tool(s): ${unknown.join(', ')}. Pass names exactly as they appear in your own toolset.` };
+    }
+    // Tools the CALLER does not hold cannot be granted — but dropping them silently would spawn a child
+    // that mysteriously cannot do the job it was given. Say so instead.
+    const notHeld = inheritedAllow ? names.filter((name) => !inheritedAllow.includes(name)) : [];
+    if (notHeld.length) {
+      return { error: `you do not have ${notHeld.join(', ')} yourself, so you cannot give ${notHeld.length > 1 ? 'them' : 'it'} to a sub-agent. Delegation can only ever narrow your own access.` };
+    }
+    sets.push(names);
+  }
+  if (sets.length === 0) return { allow: undefined }; // no restriction asked for — inherit the caller's scope
+
+  // read_only + tools together means the intersection: both are restrictions, and honoring only one of them
+  // would hand the child MORE than the caller asked for.
+  let allow = sets[0];
+  for (const set of sets.slice(1)) allow = allow.filter((name) => set.includes(name));
+  // A read-only caller asking for a read-only child keeps whatever they both hold; nothing here can widen.
+  if (inheritedAllow) allow = allow.filter((name) => inheritedAllow.includes(name));
+
+  if (allow.length === 0) {
+    return { error: 'that leaves the sub-agent with no tools at all. Ask for tools you actually hold yourself.' };
+  }
+  return { allow };
+}
 const clip = (text, limit) => text.length <= limit ? text : `${text.slice(0, limit)}\n[truncated]`;
 const principalOf = (identity) => {
   if (!identity) return null;
@@ -178,19 +229,28 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'delegate', label: 'Delegate to sub-agent',
-    description: 'Hand a self-contained task to a fresh sub-agent with its own clean context. By default '
-      + 'this waits for and returns the result. Set background=true for an independent side-quest: the call '
-      + 'returns a job id immediately and the finished result is delivered back to you in a NEW turn. Do the '
-      + 'work you can do meanwhile, then END YOUR TURN — you are woken up when the result lands. Never poll '
-      + 'delegate_status in a loop waiting for it. The sub-agent has the same tools and access as you.',
+    description: [
+      'Hand a self-contained task to a fresh sub-agent with its own clean context. It has the same tools and access as you, but it CANNOT see this conversation — the task text is the only instruction it gets, so it must be complete and standalone.',
+      'Delegate when the subtask is self-contained and only the conclusion matters, not the exploration trail; when answering would mean reading across many files and you want the summary rather than the file dumps; or when you have independent work to run in parallel. Do NOT delegate a single-fact lookup where you already know the file or symbol, work that needs nuanced judgment about the user\'s intent, or anything so small that spawning an agent costs more than doing it.',
+      'By default the call BLOCKS and returns the sub-agent\'s final result. Set background=true for an independent side-quest: it returns a job id immediately and the result is delivered to you in a NEW turn — do other work meanwhile, then end your turn. You are woken when it lands, so never poll delegate_status in a loop.',
+      'To launch several independent sub-agents, put multiple delegate calls in ONE response so they run concurrently; do not serialize them. Once you have delegated a search, do not also run it yourself.',
+      'Use read_only=true when the sub-agent only needs to look (explore, search, report) — it then gets read-only tools and cannot write, run commands or delegate further. Use `tools` to hand it an exact toolset. Either way you can only ever narrow what you already hold.',
+      'The sub-agent inherits your model; pass `model` only when the user explicitly asked for a different one. Its final message comes back to you, not to the user — relay what matters. There is no way to continue a finished sub-agent: a follow-up is a NEW delegation, carrying whatever context it needs.',
+    ].join(' '),
     parameters: Type.Object({
-      task: Type.String({ description: 'The complete, self-contained instruction for the sub-agent — it does not see this conversation.' }),
+      task: Type.String({ description: 'The complete, self-contained instruction for the sub-agent — it does not see this conversation. Include all context, constraints and the output format you want back.' }),
       model: Type.Optional(Type.String({
         description: 'Run the sub-agent on a DIFFERENT model — pass this ONLY when the user explicitly asked for it. '
           + 'Value from delegate_models ("provider/model" or a bare model id). Omit it to inherit your own model.',
       })),
       background: Type.Optional(Type.Boolean({
         description: 'Start asynchronously and return a stable job id immediately. Omit or false to wait for the result.',
+      })),
+      read_only: Type.Optional(Type.Boolean({
+        description: `Give the sub-agent only read-only tools (${READ_ONLY_TOOLS.join(', ')}) — no writing, no shell, no further delegation. Use it for any task that just explores and reports.`,
+      })),
+      tools: Type.Optional(Type.Array(Type.String(), {
+        description: 'Give the sub-agent EXACTLY these tools and nothing else. Names must match your own toolset. Combined with read_only, the two intersect. You can only narrow your own access, never widen it.',
       })),
     }),
     execute: async (id, p) => {
@@ -212,8 +272,17 @@ export function register(ctx) {
       // Capture every PARENT turn accessor before the child is scheduled. Child callbacks run in their
       // own turn scope. `parentSessionId` is persisted by the host so delegated usage rolls up to the
       // conversation that paid for it, while the captured emitter keeps abort cascading intact.
+      const parentAccess = ctx.currentAccess();
+      // A restricted child is minted here, from the PARENT's own scope, and travels as part of the immutable
+      // delegated boundary the host persists — so an evicted child resumes just as narrow as it started.
+      const restricted = resolveDelegateTools(parentAccess.toolPolicy?.allow, p.read_only, p.tools, ctx.toolNames());
+      if (restricted.error) return ok(`Error: ${restricted.error}`);
+      const toolPolicy = restricted.allow
+        ? { ...(parentAccess.toolPolicy?.deny ? { deny: parentAccess.toolPolicy.deny } : {}), allow: restricted.allow }
+        : parentAccess.toolPolicy;
       const access = {
-        ...ctx.currentAccess(),
+        ...parentAccess,
+        ...(toolPolicy ? { toolPolicy } : {}),
         model,
         parentSessionId: ctx.currentSessionId(),
         // The delegate transcript belongs to THIS delegation and to no earlier one — never roll it over

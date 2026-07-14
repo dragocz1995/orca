@@ -3,8 +3,10 @@
 // react, not thrown, matching how the elowen_* tools surface API errors.
 import { defineTool, withFileMutationQueue, truncateHead, truncateLine, formatSize, generateDiffString, generateUnifiedPatch, resizeImage, formatDimensionNote } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -261,6 +263,240 @@ function detectImageMime(buf) {
 }
 const INLINE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
+// ── PDF ──────────────────────────────────────────────────────────────────────
+// Read via poppler (pdftotext / pdftoppm / pdfinfo) rather than a bundled parser: it handles the real
+// world's malformed PDFs, and it is OPTIONAL in exactly the way `rg` is for search_files — absent, we say
+// so plainly instead of silently returning nothing. A page with a text layer comes back as text; a scanned
+// page (no text layer) is rendered to a PNG and returned as an image, which is the only way its content
+// reaches a model at all.
+const PDF_MAX_PAGES = 20;          // per call — the spec's cap, and enough to keep one call's output sane
+const PDF_MAX_IMAGE_PAGES = 5;     // rendered pages per call; each is ~0.5-1 MB of base64, so cap them hard
+// Rendered pages are sized by their LONG EDGE, not by dpi. A PDF may declare a MediaBox up to 200x200
+// INCHES; at any fixed dpi that is a gigapixel render — hundreds of MB of PNG on disk and gigabytes of RGBA
+// once decoded, so one hostile (or merely oversized) document could OOM the daemon. Fixing the long edge
+// bounds the cost no matter what the page claims, and 2000px is exactly the ceiling the image resize below
+// would clamp to anyway — so nothing is ever rendered large only to be shrunk.
+const PDF_MAX_RENDER_PX = 2000;
+const PDF_TIMEOUT_MS = 30_000;
+const PDF_MAX_BUFFER = 8_000_000;
+
+const isPdf = (buf) => startsWithAscii(buf, 0, '%PDF-');
+
+/** Expand a `pages` spec — "3", "1-5", "1,3,5" (and combinations) — into a sorted, deduplicated page list.
+ *  Returns `{ error }` for a malformed spec or one that asks for more than PDF_MAX_PAGES, so the model gets
+ *  a reason it can act on rather than a silently truncated read. Ranges are rejected BEFORE expansion, so
+ *  "1-999999" cannot balloon the set. */
+export function parsePageSpec(spec) {
+  const text = String(spec ?? '').trim();
+  if (!text) return { error: 'pages is empty' };
+  const pages = new Set();
+  for (const raw of text.split(',')) {
+    const part = raw.trim();
+    if (!part) continue;
+    const range = /^(\d+)\s*-\s*(\d+)$/.exec(part);
+    const single = /^(\d+)$/.exec(part);
+    let from;
+    let to;
+    if (range) { from = Number(range[1]); to = Number(range[2]); }
+    else if (single) { from = Number(single[1]); to = from; }
+    else return { error: `"${part}" is not a page or a range — use "3", "1-5" or "1,3,5"` };
+    if (from < 1 || to < from) return { error: `"${part}" is not a valid page range (pages start at 1)` };
+    if (to - from + 1 > PDF_MAX_PAGES) return { error: `"${part}" spans more than ${PDF_MAX_PAGES} pages` };
+    for (let page = from; page <= to; page += 1) {
+      pages.add(page);
+      if (pages.size > PDF_MAX_PAGES) return { error: `at most ${PDF_MAX_PAGES} pages can be read in one call` };
+    }
+  }
+  if (pages.size === 0) return { error: 'pages is empty' };
+  return { pages: [...pages].sort((a, b) => a - b) };
+}
+
+/** Total page count via pdfinfo, or null when it cannot be determined (we then just try the pages asked for
+ *  and let pdftotext report an empty result). Doubles as the poppler-availability probe. */
+async function pdfPageCount(abs) {
+  const { stdout } = await execFileP('pdfinfo', [abs], { encoding: 'utf8', timeout: PDF_TIMEOUT_MS, maxBuffer: PDF_MAX_BUFFER });
+  const m = /^Pages:\s+(\d+)$/m.exec(stdout);
+  return m ? Number(m[1]) : null;
+}
+
+/** One page's text layer (empty string for a scanned page). `-layout` preserves the visual column layout,
+ *  which is what makes tables and invoices readable instead of an interleaved word soup. */
+async function pdfPageText(abs, page) {
+  const { stdout } = await execFileP('pdftotext', ['-layout', '-f', String(page), '-l', String(page), abs, '-'], {
+    encoding: 'utf8', timeout: PDF_TIMEOUT_MS, maxBuffer: PDF_MAX_BUFFER,
+  });
+  return stdout;
+}
+
+/** Render one page to PNG bytes. pdftoppm only writes to disk, so this runs through a temp dir that is
+ *  always removed — including when the render throws. */
+async function pdfPageImage(abs, page) {
+  const dir = mkdtempSync(join(tmpdir(), 'elowen-pdf-'));
+  try {
+    const prefix = join(dir, 'page');
+    // `-scale-to` fixes the long edge and overrides any dpi setting — which is the point: the output size
+    // is decided by us, never by what the page declares its dimensions to be.
+    await execFileP('pdftoppm', [
+      '-png', '-scale-to', String(PDF_MAX_RENDER_PX),
+      '-f', String(page), '-l', String(page), '-singlefile', abs, prefix,
+    ], { timeout: PDF_TIMEOUT_MS, maxBuffer: PDF_MAX_BUFFER });
+    return readFileSync(`${prefix}.png`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Embed rendered page bytes as an image content block, resized like any other image read. Returns null
+ *  when it cannot be embedded (Photon unavailable AND the raw PNG is over the API's payload ceiling). */
+async function pdfImageBlock(png) {
+  const resized = await resizeImage(png, 'image/png', { maxWidth: 2000, maxHeight: 2000 }).catch(() => null);
+  if (resized && INLINE_IMAGE_TYPES.has(resized.mimeType)) {
+    return { type: 'image', data: resized.data, mimeType: resized.mimeType };
+  }
+  if (png.length <= IMAGE_MAX_BYTES) return { type: 'image', data: png.toString('base64'), mimeType: 'image/png' };
+  return null;
+}
+
+/** Read the requested pages of a PDF: text where there is a text layer, a rendered image where there is
+ *  not. Returns the PI tool-result shape directly. */
+async function readPdf(abs, pageSpec, supportsImages, readCap) {
+  const parsed = parsePageSpec(pageSpec);
+  if (parsed.error) return fail('read_file', new Error(`Invalid pages: ${parsed.error}.`), { path: abs, pdf: true });
+
+  let total = null;
+  try {
+    total = await pdfPageCount(abs);
+  } catch (e) {
+    // ENOENT here means poppler is not installed; anything else is a genuinely broken/encrypted PDF.
+    if (e && typeof e === 'object' && e.code === 'ENOENT') {
+      return fail('read_file', new Error('Reading PDFs requires poppler-utils (pdfinfo/pdftotext/pdftoppm), which is not installed on this host.'), { path: abs, pdf: true });
+    }
+    return fail('read_file', new Error(`Could not read the PDF: ${e instanceof Error ? e.message : String(e)}`), { path: abs, pdf: true });
+  }
+
+  const wanted = total === null ? parsed.pages : parsed.pages.filter((p) => p <= total);
+  const outOfRange = total === null ? [] : parsed.pages.filter((p) => p > total);
+  if (wanted.length === 0) {
+    return fail('read_file', new Error(`The PDF has ${total} page(s); none of the requested pages exist.`), { path: abs, pdf: true, pageCount: total });
+  }
+
+  const parts = [];
+  const images = [];
+  let rendered = 0;
+  let skippedImages = 0;
+  for (const page of wanted) {
+    const text = await pdfPageText(abs, page);
+    if (text.trim()) {
+      parts.push(`--- page ${page} ---\n${text.trimEnd()}`);
+      continue;
+    }
+    // No text layer — a scanned page. Rendering is the only way its content reaches the model at all, but
+    // each image is expensive, so cap them and tell the caller which pages were left out.
+    if (rendered >= PDF_MAX_IMAGE_PAGES || !supportsImages) { skippedImages += 1; continue; }
+    const block = await pdfImageBlock(await pdfPageImage(abs, page)).catch(() => null);
+    if (!block) { skippedImages += 1; continue; }
+    images.push(block);
+    rendered += 1;
+    parts.push(`--- page ${page} (no text layer — rendered as an image below) ---`);
+  }
+
+  const body = parts.join('\n\n');
+  const capped = truncateHead(body, { maxBytes: readCap, maxLines: Infinity });
+  const notes = [];
+  if (capped.truncated) notes.push(`[Text truncated at the ${formatSize(readCap)} read limit — request fewer pages.]`);
+  if (outOfRange.length) notes.push(`[Skipped page(s) ${outOfRange.join(', ')}: the PDF has ${total}.]`);
+  if (skippedImages) {
+    notes.push(supportsImages
+      ? `[${skippedImages} page(s) had no text layer and were not rendered (limit ${PDF_MAX_IMAGE_PAGES} images per call) — request them in a smaller \`pages\` range.]`
+      : `[${skippedImages} page(s) had no text layer and the current model cannot accept images.]`);
+  }
+  const text = [capped.content || '(no text on the requested pages)', ...notes].join('\n\n');
+  return {
+    content: [{ type: 'text', text }, ...images],
+    details: {
+      ok: true, tool: 'read_file', path: abs, pdf: true, pageCount: total,
+      pages: wanted, renderedPages: rendered, truncated: capped.truncated || skippedImages > 0,
+    },
+  };
+}
+
+// ── Read-before-modify guard ─────────────────────────────────────────────────
+// Editing a file the agent never looked at is how content silently disappears: it writes from assumption,
+// not from what is actually there. So a mutation of an EXISTING file requires that this conversation has
+// read it, and that it still holds the bytes the agent saw.
+//
+// The state is per BRAIN SESSION (ctx.currentSessionId), so a sub-agent's reads never vouch for its
+// parent's edits — each conversation must have seen a file itself. Outside a turn there is no session to
+// key on and the guard is inert rather than wrong.
+//
+// The subtlety is our own formatters plugin: it rewrites the file from a `tools.call.after` hook, AFTER
+// write_file/edit_file has already returned, so the bytes on disk stop matching what we recorded — and we
+// get no signal that it happened. Treating that as "changed behind your back" would refuse every edit that
+// follows a formatted write: the guard would spend its life blocking us rather than protecting us.
+//
+// We cannot tell a formatter's rewrite from an outsider's, so the two mutations are held to DIFFERENT bars,
+// on one principle: a blind full overwrite is never allowed against bytes the agent has not seen; a targeted
+// edit is, because its `oldText` anchor still has to match the current content to apply at all.
+//   - write_file: any divergence refuses. Post-formatter, an overwrite means re-reading first — rare, and
+//     the refusal says exactly that.
+//   - edit_file: a divergence from content WE authored (`ours`) is forgiven once and re-baselined — that is
+//     the formatter's window — while a file we only READ and never wrote is fully protected either way.
+const READ_STATE_MAX_SESSIONS = 64;
+const READ_STATE_MAX_FILES = 512;
+/** sessionId → (absolute path → { hash, ours }). Bounded LRU-ish: Map preserves insertion order, so the
+ *  oldest entry is evicted once a cap is passed. */
+const readState = new Map();
+
+const hashOf = (buf) => createHash('sha256').update(buf).digest('hex');
+
+function sessionFiles(sessionId) {
+  let files = readState.get(sessionId);
+  // Re-insert on every touch, so eviction is by least-recently-USED, not by creation order. Insertion
+  // order alone would evict the oldest-OPENED conversation — typically the long-running CLI session the
+  // operator is actually sitting in — as soon as 64 short-lived sub-agent/cron sessions had come and gone,
+  // and its next edit would be refused with a bewildering "has not been read in this conversation".
+  if (files) readState.delete(sessionId);
+  else files = new Map();
+  readState.set(sessionId, files);
+  if (readState.size > READ_STATE_MAX_SESSIONS) readState.delete(readState.keys().next().value);
+  return files;
+}
+
+/** Record that this conversation now knows `abs` holds exactly `content`. `ours` marks content WE just
+ *  wrote (as opposed to read), which is what earns the one post-write formatter forgiveness above. */
+export function markFileRead(sessionId, abs, content, ours = false) {
+  if (!sessionId) return;
+  const files = sessionFiles(sessionId);
+  files.delete(abs); // re-insert so the entry counts as freshest for eviction
+  files.set(abs, { hash: hashOf(content), ours });
+  if (files.size > READ_STATE_MAX_FILES) files.delete(files.keys().next().value);
+}
+
+/** Why a mutation of `abs` must not proceed, or null when it may. `current` is the file's bytes on disk, or
+ *  null when it does not exist yet (a brand-new file is always allowed — there is nothing to lose).
+ *  `tolerateAuthoredDrift` is set by edit_file only: see the note above on why an anchored edit may proceed
+ *  through the formatter's window while a blind overwrite may not.
+ *
+ *  PURE — it decides, it never records. A mutation that is allowed here but then FAILS (an `oldText` that
+ *  no longer matches) must leave the recorded state exactly as it was: baselining the divergent bytes at
+ *  decision time would bless content the agent never actually saw, and the blind overwrite it is supposed
+ *  to refuse would sail through on the next call. Only a mutation that really lands re-records (markFileRead). */
+export function readGuardError(sessionId, abs, current, tolerateAuthoredDrift = false) {
+  if (!sessionId) return null;  // no turn scope to key on — inert, not wrong
+  if (current === null) return null; // new file: nothing was there to overwrite
+  const entry = readState.get(sessionId)?.get(abs);
+  if (!entry) {
+    return `${abs} has not been read in this conversation. Read it first — editing a file you have not seen `
+      + 'risks overwriting content you never reviewed.';
+  }
+  if (hashOf(current) === entry.hash) return null;
+  // Content we wrote, reshaped afterwards (the formatters hook). An anchored edit may proceed: its `oldText`
+  // still has to match these current bytes to apply at all, which is what keeps it honest.
+  if (entry.ours && tolerateAuthoredDrift) return null;
+  return `${abs} has changed on disk since you last read it. Read it again before writing — otherwise your `
+    + 'change is based on stale content and would discard whatever else was written.';
+}
+
 function safeRegex(query) {
   try { return new RegExp(query, 'i'); }
   catch { return new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); }
@@ -366,25 +602,41 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'read_file', label: 'Read file',
     description: [
-      'Read a UTF-8 text file or an image within the accessible repositories.',
-      'Use when you need exact source text, config, logs, or docs before editing.',
-      'Do not use for broad discovery; use search_files or list_dir first.',
-      'Input requires an absolute path. For large files use offset/limit (1-indexed lines) and follow the continuation hint.',
-      'Images (jpg/png/gif/webp/bmp) are returned as an attachment. Output may be truncated; details.truncated tells you if more targeted reads are needed.',
+      'Read a UTF-8 text file, an image, or a PDF within the accessible repositories.',
+      'This is the right tool when you need exact source text, config, logs or docs before editing. For broad discovery across the codebase, use search_files or list_dir first.',
+      'The path must be absolute. For a large file use offset (1-indexed line to start from) and limit (max lines) and read only the part you need — details.truncated and the continuation hint tell you where to resume.',
+      'Images (jpg/png/gif/webp/bmp) come back as an attachment you can see.',
+      `PDFs require \`pages\` ("3", "1-5" or "1,3,5"; at most ${PDF_MAX_PAGES} pages per call). Pages with a text layer are returned as text; a scanned page with no text layer is rendered and returned as an image.`,
+      'Do not re-read a file you just edited to check the change landed — edit_file and write_file would have errored if the write failed, so a verification read costs a round and tells you nothing.',
     ].join(' '),
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path to the file' }),
       offset: Type.Optional(Type.Number({ description: 'Line number to start reading from (1-indexed)' })),
       limit: Type.Optional(Type.Number({ description: 'Maximum number of lines to read' })),
+      pages: Type.Optional(Type.String({ description: `PDF pages to read: "3", "1-5" or "1,3,5" (max ${PDF_MAX_PAGES} per call). Required for a PDF; ignored for any other file.` })),
     }),
     execute: async (_id, p, _signal, _onUpdate, ectx) => {
       try {
         const abs = ctx.assertPathAllowed(p.path);
         const raw = readFileSync(abs);
+        const model = ectx?.model ?? ctx.model;
+        const supportsImages = !model || (Array.isArray(model.input) ? model.input.includes('image') : true);
+        if (isPdf(raw)) {
+          // A PDF has no meaningful line-based read, so `pages` is not optional here — decoding it as UTF-8
+          // would hand the model a screenful of binary and look like a successful read.
+          if (p.pages === undefined) {
+            return fail('read_file', new Error(`This is a PDF. Pass \`pages\` to read it — e.g. pages="1-5" (max ${PDF_MAX_PAGES} per call).`), { path: abs, pdf: true });
+          }
+          const result = await readPdf(abs, p.pages, supportsImages, readCap);
+          // Only a read that actually SHOWED the agent something counts. A bad `pages` spec, an encrypted
+          // PDF or a missing poppler must not leave the file marked as read — that would license a later
+          // blind write_file over a document nobody ever saw.
+          if (result.details?.ok) markFileRead(ctx.currentSessionId?.(), abs, raw);
+          return result;
+        }
         const mime = detectImageMime(raw);
         if (mime) {
-          const model = ectx?.model ?? ctx.model;
-          const supportsImages = !model || (Array.isArray(model.input) ? model.input.includes('image') : true);
+          markFileRead(ctx.currentSessionId?.(), abs, raw);
           const details = { ok: true, tool: 'read_file', truncated: false, path: abs, bytes: raw.length, image: true, mimeType: mime };
           const resized = await resizeImage(raw, mime, { maxWidth: 2000, maxHeight: 2000 }).catch(() => null);
           let data = resized?.data;
@@ -414,6 +666,9 @@ export function register(ctx) {
           }
           return { content: [{ type: 'text', text: note }, { type: 'image', data, mimeType: outMime }], details };
         }
+        // Record the WHOLE file's bytes, not just the slice returned: the guard tracks what is on disk, and
+        // a paginated read still tells the agent this file exists and what it currently is.
+        markFileRead(ctx.currentSessionId?.(), abs, raw);
         const body = raw.toString('utf-8');
         const allLines = body.split('\n');
         // A trailing newline yields a phantom empty final element — it terminates the last line, it is not a
@@ -454,21 +709,31 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'write_file', label: 'Write file',
     description: [
-      'Create or overwrite a UTF-8 text file within the accessible repositories.',
-      'Use only when you intend to replace the full file content.',
-      'Prefer edit_file for localized changes. Output includes a human summary, details.diff for UI/review and details.patch (unified) for tooling.',
+      'Create a new UTF-8 text file, or fully replace an existing one, within the accessible repositories.',
+      'Use it only when you intend to replace the ENTIRE file content — for a localized change use edit_file instead.',
+      'Creating a new file is always fine. To overwrite an EXISTING file you must have read it in this conversation first: overwriting a file you have not inspected discards content you never reviewed, so the write is refused until you have.',
+      'Output includes a human summary, details.diff for review and details.patch (unified) for tooling. Read the diff before you consider an overwrite done.',
     ].join(' '),
-    parameters: Type.Object({ path: Type.String(), content: Type.String() }),
+    parameters: Type.Object({
+      path: Type.String({ description: 'Absolute path to the file' }),
+      content: Type.String({ description: 'The complete new content of the file' }),
+    }),
     execute: async (_id, p) => {
       try {
         const abs = ctx.assertPathAllowed(p.path);
+        const sessionId = ctx.currentSessionId?.();
         // Serialize the read-modify-write against other mutations of the SAME file (different files still
         // run in parallel) so a concurrent edit can't slip between the diff-baseline read and the write.
+        // The guard check lives INSIDE the queue for the same reason: a file that changed between the check
+        // and the write would defeat the point of checking.
         return await withFileMutationQueue(abs, async () => {
-          let before = null;
-          try { before = readFileSync(abs, 'utf-8'); } catch { /* new file */ }
+          let beforeBuf = null;
+          try { beforeBuf = readFileSync(abs); } catch { /* new file */ }
+          const guard = readGuardError(sessionId, abs, beforeBuf);
+          if (guard) return ok('write_file', `Error: ${guard}`, { ok: false, path: abs });
           writeFileSync(abs, p.content, 'utf-8');
-          const base = before ?? '';
+          markFileRead(sessionId, abs, Buffer.from(p.content, 'utf-8'), true);
+          const base = beforeBuf?.toString('utf-8') ?? '';
           const diff = displayDiff(base, p.content);
           const patch = unifiedPatch(abs, base, p.content);
           return ok('write_file', `Wrote ${Buffer.byteLength(p.content)} bytes to ${abs}`, {
@@ -483,10 +748,10 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'edit_file', label: 'Edit file',
     description: [
-      'Replace an exact text snippet in a UTF-8 file within the accessible repositories.',
-      'Use for targeted edits after reading enough surrounding context.',
-      'Matching tolerates smart quotes, Unicode dashes and trailing whitespace, and preserves the file BOM/CRLF. By default oldText must match exactly once; set replaceAll only when every occurrence should change.',
-      'Output includes details.diff for review and details.patch (unified). If oldText is missing or ambiguous, read the file again and provide more context.',
+      'Replace an exact text snippet in a UTF-8 file within the accessible repositories. Use it for a targeted change, after reading enough surrounding context to locate the change precisely.',
+      'You must have read the file in this conversation before editing it, and it must not have changed on disk since — an edit written from assumption, or against content that moved, is how work gets silently discarded.',
+      'By default oldText must match exactly ONCE, so the snippet has to be unique — if it appears more than once, include more surrounding context. Matching tolerates smart quotes, Unicode dashes and trailing whitespace, and the file\'s BOM and CRLF line endings are preserved. Set replaceAll only when every occurrence really is the same change.',
+      'Output includes details.diff for review and details.patch (unified). If oldText is missing or ambiguous, read the file again and give more context.',
     ].join(' '),
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path to the file' }),
@@ -497,10 +762,16 @@ export function register(ctx) {
     execute: async (_id, p) => {
       try {
         const abs = ctx.assertPathAllowed(p.path);
+        const sessionId = ctx.currentSessionId?.();
         // Serialize the read-modify-write against other mutations of the SAME file (different files still
         // run in parallel) so a concurrent write can't slip between the match read and the write.
         return await withFileMutationQueue(abs, async () => {
-          const before = readFileSync(abs, 'utf-8');
+          const beforeBuf = readFileSync(abs);
+          // `true`: an anchored edit may proceed through a post-write reformat of our OWN content — its
+          // oldText still has to match what is on disk now. A blind overwrite (write_file) gets no such pass.
+          const guard = readGuardError(sessionId, abs, beforeBuf, true);
+          if (guard) return ok('edit_file', `Error: ${guard}`, { ok: false, path: abs });
+          const before = beforeBuf.toString('utf-8');
           if (p.oldText === p.newText) return ok('edit_file', 'Error: oldText and newText are identical.', { ok: false, path: abs });
           const plan = planEdit(before, p.oldText, p.newText, p.replaceAll ?? false);
           if (plan.error === 'empty') return ok('edit_file', 'Error: oldText must not be empty.', { ok: false, path: abs });
@@ -508,6 +779,7 @@ export function register(ctx) {
           if (plan.error === 'ambiguous') return ok('edit_file', `Error: oldText matches ${plan.count} times. Provide more context to make it unique, or set replaceAll.`, { ok: false, path: abs, matches: plan.count });
           if (plan.newContent === plan.content) return ok('edit_file', 'Error: the replacement produced identical content.', { ok: false, path: abs });
           writeFileSync(abs, plan.after, 'utf-8');
+          markFileRead(sessionId, abs, Buffer.from(plan.after, 'utf-8'), true);
           const diff = displayDiff(plan.content, plan.newContent);
           const patch = unifiedPatch(abs, plan.content, plan.newContent);
           return ok('edit_file', `Edited ${abs} (${plan.count > 1 ? `${plan.count} replacements` : '1 replacement'})`, {

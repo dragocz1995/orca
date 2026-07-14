@@ -18,9 +18,14 @@ const optionSchema = Type.Union(
     Type.Object({
       label: Type.String({ description: 'Display text (1-5 words, concise).' }),
       description: Type.Optional(Type.String({ description: 'Optional one-line explanation of the choice.' })),
+      preview: Type.Optional(Type.String({
+        description: 'Optional monospace content shown beside the list when this option is focused — an ASCII '
+          + 'mockup, a code snippet, a diagram. Use it when the choice is something the user should SEE rather '
+          + 'than read about (UI layouts, API shapes, config). Single-select questions only; newlines are kept.',
+      })),
     }),
   ],
-  { description: 'Either a plain string label, or an object {label, description?}.' },
+  { description: 'Either a plain string label, or an object {label, description?, preview?}.' },
 );
 
 /** One question, mirroring opencode's structured question schema. ONLY `question` + `options` are
@@ -41,14 +46,23 @@ const questionSchema = Type.Object({
  *  header derives from the question, empty-label options are dropped. `multiple` (opencode name) and
  *  the legacy `multiSelect` are both honored; `custom` defaults to true (free-text answer allowed). */
 export function normalizeQuestion(q) {
+  const multiSelect = q.multiple === true || q.multiSelect === true;
   const options = (Array.isArray(q.options) ? q.options : [])
-    .map((o) => (typeof o === 'string' ? { label: o.trim() } : { label: String(o?.label ?? '').trim(), description: o?.description }))
+    .map((o) => {
+      if (typeof o === 'string') return { label: o.trim() };
+      const option = { label: String(o?.label ?? '').trim(), description: o?.description };
+      // A preview is a side-by-side pane for the FOCUSED option — a concept multi-select does not have
+      // (every row is independently on or off). Dropping it here keeps every surface consistent, instead
+      // of each renderer having to decide what a preview means when three boxes are ticked.
+      if (!multiSelect && typeof o?.preview === 'string' && o.preview.trim()) option.preview = o.preview;
+      return option;
+    })
     .filter((o) => o.label);
   const header = (typeof q.header === 'string' && q.header.trim() ? q.header : String(q.question ?? '')).trim().slice(0, 30);
   return {
     question: String(q.question ?? '').trim(),
     header,
-    multiSelect: q.multiple === true || q.multiSelect === true,
+    multiSelect,
     custom: q.custom !== false,
     options,
   };
@@ -73,14 +87,24 @@ export function register(ctx) {
     name: 'ask_user_question',
     label: 'Ask the user',
     description:
-      'Ask the user one or more structured questions and WAIT for their answer before continuing. '
-      + 'Use it at any genuine decision point instead of asking open-ended questions in prose — it shows '
-      + 'clickable choices and pauses the turn until the user picks. Prefer concrete options with a safe, '
-      + 'recommended default FIRST (mark it in its description, e.g. "recommended") so the user can '
-      + 'one-click the default. Only `question` and `options` are required per question; `header` (≤30 '
-      + 'chars), `multiple` (select several) and `custom` (allow a free-text answer, default true) are '
-      + 'optional, and an option may be a plain string. Never add an "Other" option yourself — free text '
-      + 'is offered automatically unless you set `custom: false`.\n'
+      'Ask the user one or more structured questions and WAIT for their answer before continuing. It shows '
+      + 'clickable choices and pauses the turn until they pick.\n'
+      + 'Use it ONLY when you are blocked on a decision that is genuinely the user\'s to make — one you cannot '
+      + 'resolve from the request, the codebase, the environment, or a sensible default. Reserve it for choices '
+      + 'where their answer changes what you do next. If the choice is reversible and low-stakes, make the most '
+      + 'reasonable assumption, say so in one line, and carry on. Never ask "Should I proceed?" — if you can act, act.\n'
+      + 'When you do ask, give a recommendation rather than an open question: put the safest option FIRST and '
+      + 'mark it in its description (e.g. "recommended"), so the user can one-click it. Keep labels to 1-5 words '
+      + 'and put the trade-offs in each option\'s `description`. Bundle related decisions into one call (up to 4 '
+      + 'questions) instead of asking them one after another.\n'
+      + 'Only `question` and `options` are required; an option may be a plain string. `header` (≤30 chars) is a '
+      + 'short chip label, `multiple` lets the user pick several, and `custom` (default true) offers a free-text '
+      + 'answer — set it false only when the answer MUST be one of the options. Never add an "Other" option '
+      + 'yourself; free text is offered automatically.\n'
+      + 'Give an option a `preview` (monospace: an ASCII mockup, a code snippet, a diagram) when the user needs '
+      + 'to SEE the choice rather than read about it — comparing UI layouts, API shapes or config. The picker '
+      + 'then shows the focused option\'s preview beside the list. Single-select only; do not use previews for '
+      + 'plain preference questions where the labels already say it.\n'
       + 'Minimal example: {"questions":[{"question":"Which colour?","options":["Blue","Green","Red"]}]}',
     parameters: Type.Object({
       questions: Type.Array(questionSchema, { minItems: 1, maxItems: 4, description: '1–4 questions asked together.' }),
@@ -99,12 +123,13 @@ export function register(ctx) {
 
   // Nudge the model to reach for the tool at decision points instead of burying options in prose.
   ctx.registerSystemPromptFragment(
-    'When you need the user to make a decision, call `ask_user_question` rather than asking open-ended '
-    + 'questions in prose — it shows clickable options and pauses until the user picks. Offer concrete '
-    + 'options with a safe, recommended default listed first; keep labels short (1–5 words) and put '
-    + 'detail in option descriptions. Each question needs only `question` + `options` (options can be '
-    + 'plain strings); `header`, `multiple` and `custom` are optional. Set `custom: false` only when the '
-    + 'answer must be one of the options. Put choices only in `options`, never numbered in the text.',
+    'When a decision is genuinely the user\'s to make, call `ask_user_question` rather than asking an '
+    + 'open-ended question in prose — it shows clickable options and pauses until they pick. Ask only once '
+    + 'the cheaper answers are exhausted: resolve it from the environment, from convention, or from a '
+    + 'reversible default first, and state the assumption instead of blocking. When you do ask, lead with a '
+    + 'recommendation: safest option first, labels of 1–5 words, the trade-offs in each option\'s '
+    + 'description, and a `preview` when the user should SEE the choice (a layout, a code shape) rather '
+    + 'than read about it. Put choices only in `options`, never numbered in the question text.',
   );
 
   ctx.logger.info('askuser tool registered');
