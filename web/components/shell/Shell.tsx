@@ -29,6 +29,13 @@ import { EffectsProvider } from '../../lib/useEffects';
 const DRAWER_MAX = 760;
 const RAIL_MAX = 1320;
 
+/** The measure the interface is read at, and it tracks the room available rather than being one frozen
+ *  number: the column grows with the window but SLOWER than it (72vw), so a bigger screen buys real
+ *  content instead of a wider, emptier table. The two rails are what make it safe — below 90rem a narrow
+ *  window would keep the column fluid and hand every extra pixel back to the sprawl the cap exists to
+ *  stop, and above 128rem an ultrawide would stretch a table across the whole desk. */
+const CONTENT_MAX = 'max-w-[clamp(90rem,72vw,128rem)]';
+
 /** What the user pinned the navigation to, when the window is roomy enough to leave them the choice. */
 type NavPin = 'full' | 'rail';
 const NAV_PINS: readonly NavPin[] = ['full', 'rail'];
@@ -89,12 +96,19 @@ function ShellLayout({ children }: { children: ReactNode }) {
           context menus) to it. Content views scope their own `@container` around just the grid/list
           instead, keeping overlays outside it. */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable]">
-        {/* Frameless page heading + global actions. In drawer mode it also opens mobile navigation. */}
-        <TopBar
-          onMenuClick={mode === 'drawer' ? () => setDrawerOpen(true) : undefined}
-          showLocation={false}
-        />
-        <div className="px-2 pb-8"><RouteTransition>{children}</RouteTransition></div>
+        {/* The measure the interface is read at. Without it the content is purely fluid, and every extra
+            pixel of room — a wide monitor, or the CSS px the automatic zoom hands the layout when it
+            scales down — goes into stretching the same table across a wider, emptier row. Capping it
+            keeps a table's density tied to its type size instead of to the window. The heading rides
+            inside the cap so it stays aligned with the content beneath it. */}
+        <div className={`mx-auto flex w-full flex-col ${CONTENT_MAX}`}>
+          {/* Frameless page heading + global actions. In drawer mode it also opens mobile navigation. */}
+          <TopBar
+            onMenuClick={mode === 'drawer' ? () => setDrawerOpen(true) : undefined}
+            showLocation={false}
+          />
+          <div className="px-2 pb-8"><RouteTransition>{children}</RouteTransition></div>
+        </div>
       </main>
     </div>
   );
