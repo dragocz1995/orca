@@ -4,25 +4,31 @@ import { openDb } from '../../../src/store/db.js';
 import { BrainStore } from '../../../src/store/brainStore.js';
 import { TaskStore } from '../../../src/store/taskStore.js';
 import { EventBus } from '../../../src/api/sse.js';
-import { currentWorkDir } from '../../../src/plugins/policyContext.js';
+import { currentWorkDir, currentSessionId } from '../../../src/plugins/policyContext.js';
 import { UserPromptStore } from '../../../src/store/userPromptStore.js';
 import { PromptService } from '../../../src/prompts/promptService.js';
 
 /** A controllable fake PI session: prompt() blocks until the test releases it, so we can order
- *  tool calls / agent settlement deterministically. Each prompt records the turn's bound workDir so
- *  tests can assert every run starts back at the task's checkout. */
+ *  tool calls / agent settlement deterministically. Each prompt records the turn's bound workDir and
+ *  session id so tests can assert every run starts back at the task's checkout, under the task's own
+ *  conversation. */
 function fakeSession() {
   const releases: (() => void)[] = [];
   const workDirs: (string | undefined)[] = [];
+  const sessionIds: (string | undefined)[] = [];
   const session = {
     sessionId: 'pi-1',
     messages: [{ usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.02 } } }],
-    prompt: vi.fn(() => { workDirs.push(currentWorkDir()); return new Promise<void>((res) => releases.push(res)); }),
+    prompt: vi.fn(() => {
+      workDirs.push(currentWorkDir());
+      sessionIds.push(currentSessionId());
+      return new Promise<void>((res) => releases.push(res));
+    }),
     subscribe: vi.fn(() => () => {}),
     dispose: vi.fn(),
     abort: vi.fn(async () => {}),
   };
-  return { session, workDirs, release: () => releases.shift()?.() };
+  return { session, workDirs, sessionIds, release: () => releases.shift()?.() };
 }
 
 function setup(opts: { idleMs?: number; prompts?: unknown } = {}) {
@@ -34,7 +40,7 @@ function setup(opts: { idleMs?: number; prompts?: unknown } = {}) {
   const bus = new EventBus();
   const published: unknown[] = [];
   bus.subscribe((e) => { published.push(e); });
-  const { session, workDirs, release } = fakeSession();
+  const { session, workDirs, sessionIds, release } = fakeSession();
   const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
   const recorded: unknown[] = [];
   const systemPrompts: string[] = [];
@@ -53,7 +59,7 @@ function setup(opts: { idleMs?: number; prompts?: unknown } = {}) {
     resourceLoaderFactory: (o) => { systemPrompts.push(o.systemPrompt); return undefined; },
   });
   const launchInput = { projectId: 1, projectPath: '/repo', taskId: 'T-1', agentName: 'a1', spec: { program: 'elowen', model: 'relay/kimi' } };
-  return { svc, tasks, session, workDirs, release, fetchImpl, recorded, systemPrompts, published, launchInput, advance: (ms: number) => { now += ms; }, db };
+  return { svc, tasks, session, workDirs, sessionIds, release, fetchImpl, recorded, systemPrompts, published, launchInput, advance: (ms: number) => { now += ms; }, db };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -99,6 +105,19 @@ describe('BrainWorkerService', () => {
     expect(workDirs).toEqual(['/repo']);
     release(); await settle(); // kickoff settles unclosed → nudge runs as a fresh scope
     expect(workDirs).toEqual(['/repo', '/repo']);
+  });
+
+  // Plugin tools key their per-conversation state on ctx.currentSessionId(), which reads the turn scope
+  // — NOT the id the session was persisted under. Leaving it out of the scope did not merely hide the id:
+  // the files plugin's read-before-modify guard keys on it and turns itself OFF when there is none, so a
+  // worker could rewrite a file it had never read. Background processes key on it too, so every worker's
+  // shared it. Pin the id into both runs (kickoff and nudge), or the guard silently dies again.
+  it('every run carries the task conversation id, so session-keyed plugin state (the read guard) is live', async () => {
+    const { svc, launchInput, sessionIds, release } = setup();
+    await svc.launch(launchInput);
+    expect(sessionIds).toEqual(['brain-task-T-1']);
+    release(); await settle(); // kickoff settles unclosed → nudge runs as a fresh scope
+    expect(sessionIds).toEqual(['brain-task-T-1', 'brain-task-T-1']);
   });
 
   it('an unclosed agent_end gets one nudge, then the task reverts to open with a resume note', async () => {

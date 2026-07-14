@@ -229,7 +229,11 @@ export class BrainWorkerService {
     // runWithMeter wraps the whole run so every OpenRouter completion's reported cost folds into worker.meter.
     // workDir binds the run's tool default-cwd to the task's checkout; re-passed on every run so any
     // directory the agent moved to mid-run resets back at the next one.
-    void runWithMeter(worker.meter, () => runWithPolicy(policy, () => session.prompt(kickoff), { workDir: cwd }))
+    // sessionId is what plugin tools key their per-conversation state on (ctx.currentSessionId): the
+    // read-before-modify guard, and the ownership of background processes. Omitting it did not merely
+    // hide the id — it silently DISABLED both, and left every worker's background processes sharing one
+    // anonymous scope where they could read each other's output.
+    void runWithMeter(worker.meter, () => runWithPolicy(policy, () => session.prompt(kickoff), { workDir: cwd, sessionId }))
       .then(() => this.onAgentEnd(worker, policy))
       .catch((e: unknown) => {
         log.error(`brain worker ${sessionName} failed: ${String(e)}`);
@@ -251,7 +255,7 @@ export class BrainWorkerService {
       const nudge = 'You ended your turn without closing the task. If the work is complete, call elowen_close_task now with a summary; otherwise finish the remaining work first, then close.';
       projectUserTurn(this.d.store, worker.sessionId, nudge);
       try {
-        await runWithMeter(worker.meter, () => runWithPolicy(policy, () => worker.session.prompt(nudge), { workDir: worker.cwd }));
+        await runWithMeter(worker.meter, () => runWithPolicy(policy, () => worker.session.prompt(nudge), { workDir: worker.cwd, sessionId: worker.sessionId }));
         return this.onAgentEnd(worker, policy);
       } catch (e) {
         log.error(`brain worker ${worker.sessionName} nudge failed: ${String(e)}`);
