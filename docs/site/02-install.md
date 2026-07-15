@@ -42,10 +42,51 @@ it, read it, and reason about it.
   binary and no toolchain, terminals degrade gracefully — everything else keeps
   working.
 
+## One-line install
+
+The shortest path from a bare machine to a running Elowen. A small bootstrap
+script installs everything the machine is missing — a modern Node.js and the
+global **`elowen`** package — then hands over to `elowen install`, the tested
+provisioner that sets up tmux, the systemd services, an optional reverse proxy
+and the first admin. You end up with a running daemon and Web UI.
+
+```bash
+# Linux (Debian/Ubuntu)
+curl -fsSL https://raw.githubusercontent.com/dragocz95/elowen/main/install.sh | bash
+```
+
+```powershell
+# Windows — installs into WSL2 (run in an elevated PowerShell)
+irm https://raw.githubusercontent.com/dragocz95/elowen/main/install.ps1 | iex
+```
+
+Elowen runs its agents inside tmux and its services under systemd, both
+Linux-only, so on **Windows** the bootstrap enables **WSL2**, installs Ubuntu if
+it is missing, and runs the exact same Linux install inside it. A first-time WSL
+setup needs one reboot — re-run the command afterwards to finish. The Web UI is
+then reachable from Windows at `http://localhost:4500`.
+
+Two optional environment variables tune the run:
+
+- `ELOWEN_VERSION` — pin a specific npm version instead of the latest
+  (`ELOWEN_VERSION=0.27.3`).
+- `ELOWEN_INSTALL_ARGS` — flags forwarded to `elowen install`. Pass
+  `--unattended` (with the deployment and admin flags) for a fully
+  non-interactive install:
+
+  ```bash
+  ELOWEN_INSTALL_ARGS='--unattended --localhost --admin-user admin --admin-pass CHANGEME --agents none' \
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/dragocz95/elowen/main/install.sh)"
+  ```
+
+Piping a script into a shell runs code from the network — inspect it first if
+you prefer: `curl -fsSL .../install.sh | less`.
+
 ## npm global (recommended)
 
-The fastest path. Install the package globally — it ships as **`elowen`**, and
-the binary it puts on your PATH is **`elowen`** — then run the onboarding wizard:
+The fastest path when Node.js 22+ is already present. Install the package
+globally — it ships as **`elowen`**, and the binary it puts on your PATH is
+**`elowen`** — then run the onboarding wizard:
 
 ```bash
 npm install -g elowen

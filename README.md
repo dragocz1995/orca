@@ -27,6 +27,20 @@ It is deliberately self-hosted: a Node.js daemon, SQLite, a Next.js Web UI, and 
 
 ## Start here
 
+**One-line install** — provisions a fresh box end to end (Node.js, the `elowen` package, tmux, systemd services, the first admin) and leaves a running daemon and Web UI:
+
+```bash
+# Linux (Debian/Ubuntu)
+curl -fsSL https://raw.githubusercontent.com/dragocz95/elowen/main/install.sh | bash
+```
+
+```powershell
+# Windows — installs into WSL2 (run in an elevated PowerShell)
+irm https://raw.githubusercontent.com/dragocz95/elowen/main/install.ps1 | iex
+```
+
+**Already have Node.js 22+?** Install locally and onboard by hand:
+
 ```bash
 npm install -g elowen
 elowen setup
@@ -35,7 +49,23 @@ elowen
 
 `elowen setup` walks through the local account, a project, an AI provider, optional memory embeddings, and code intelligence. A bare `elowen` opens the terminal chat; `elowen doctor` explains what is ready and what still needs attention.
 
-> **Requirements:** Node.js 22+ and tmux.
+> **Requirements:** Node.js 22+ and tmux. The one-line installer takes care of both; on Windows it runs inside WSL2 because tmux and systemd are Linux-only.
+
+<details>
+<summary><b>How the one-line installer works</b></summary>
+
+The bootstrap script is deliberately thin — it does only what has to happen *before* Elowen exists on the machine, then hands the rest to `elowen install`, the project's own provisioner:
+
+1. **Preflight** — confirms a Debian/Ubuntu (apt) system and ensures `curl`.
+2. **Node.js** — installs Node.js 22+ from NodeSource when it is missing or too old; a suitable Node already present is left untouched.
+3. **Package** — installs the global `elowen` package from npm (`ELOWEN_VERSION` pins a specific release).
+4. **Provision** — hands over to `elowen install`, which sets up tmux, the systemd services (`elowen-daemon`, `elowen-web`, auto-update), an optional reverse proxy, and the first admin. The interactive wizard runs on the real terminal even under `curl … | bash`; pass `ELOWEN_INSTALL_ARGS='--unattended …'` for a fully non-interactive run.
+
+It is safe to re-run: an existing install is never reprovisioned without confirmation (or `ELOWEN_FORCE=1`), and a globally-linked development checkout is refused outright so a reinstall can't detach it.
+
+On **Windows** the PowerShell script enables WSL2, installs Ubuntu if needed, turns on systemd inside the distro, and then runs the exact same `install.sh` — a first-time WSL setup needs one reboot, after which you re-run the command. The Web UI is reachable from Windows at `http://localhost:4500`.
+
+</details>
 
 ```bash
 elowen chat                         # interactive terminal chat
@@ -162,6 +192,21 @@ cd web && npm run dev # run the Web UI in dev mode
 ```
 
 See [CONTRIBUTING](./CONTRIBUTING.md) before opening a pull request.
+
+## Built with
+
+Elowen is a small, self-hosted stack of stable, modern tooling — no external services required.
+
+| Area | Technology |
+|---|---|
+| **Runtime** | [Node.js](https://nodejs.org) 22+ (ESM), distributed on [npm](https://www.npmjs.com/package/elowen) |
+| **Agent core** | The [PI](https://www.npmjs.com/package/@earendil-works/pi-ai) SDK — `pi-ai`, `pi-coding-agent`, and the `pi-tui` terminal UI |
+| **Daemon & API** | [Hono](https://hono.dev) on `@hono/node-server`, with `@hono/node-ws` for the WebSocket terminal |
+| **Storage** | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — a single SQLite file |
+| **Web UI** | [Next.js](https://nextjs.org) (standalone) + React |
+| **Agent execution** | [tmux](https://github.com/tmux/tmux) sessions, with [node-pty](https://github.com/microsoft/node-pty) for live PTY streaming |
+| **Tools & channels** | [Model Context Protocol](https://modelcontextprotocol.io) SDK, [Baileys](https://github.com/WhiskeySockets/Baileys) (WhatsApp), `qrcode`, `web-push` |
+| **Validation** | [Zod](https://zod.dev) and TypeBox for typed, validated boundaries |
 
 ## License
 
