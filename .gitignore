@@ -9,6 +9,7 @@ logs/
 .superpowers/
 superpowers/
 docs/superpowers/
+docs/plans/
 docs/_DOCS_AUDIT.md
 CLAUDE.md
 data/
