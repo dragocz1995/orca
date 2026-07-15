@@ -37,7 +37,17 @@ The **Tasks** workspace is the primary operational surface. Its header exposes t
 
 ![Task list and detail drawer](images/web-ui-tasks.png)
 
-**Kanban** presents the same task state as columns. **Sessions** shows live tmux-backed workers and allows you to open a terminal view when the executor supports it. **Timeline** and **Stats** provide the historical side: activity, commits, and usage rather than another competing task list.
+**Kanban** presents the same task state as columns.
+
+![Kanban board](images/web-ui-kanban.png)
+
+**Sessions** shows live tmux-backed workers and allows you to open a terminal view when the executor supports it. Its second tab keeps the brain conversation history from every surface — web, CLI, channels, and task agents — in one place.
+
+![Sessions and conversation history](images/web-ui-sessions.png)
+
+**Timeline** and **Stats** provide the historical side: activity, commits, and usage rather than another competing task list.
+
+![Timeline of commits and active files](images/web-ui-timeline.png)
 
 ## Projects and editor
 
