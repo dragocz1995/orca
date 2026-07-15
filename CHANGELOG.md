@@ -5,7 +5,24 @@ All notable changes to Elowen are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.27.3] - 2026-07-15
+
 ### Fixed
+- **A long scheduled report arrives in full instead of clipped.** A cron reply that ran past one message's
+  limit was cut off mid-content; it is now split across messages, so a large report — a full list, a long
+  digest — comes through complete. How much of a guard `check`'s output is fed into the run is configurable
+  too (Settings → Plugins → cronjob), for collectors that emit a lot of data.
+- **The cron editor saves one job at a time.** Saving from a page that had gone stale used to rewrite the
+  whole jobs array and could silently drop jobs added in the meantime by the scheduler or the assistant's
+  own cron tools; each row now persists on its own, and a corrupt jobs file is left untouched rather than
+  rebuilt from empty.
+- **No more black patches in the CLI panels.** An ANSI reset inside a coloured row wiped the row's
+  background, so padding and the gaps between coloured words fell through to the terminal default as black
+  stripes; every row now re-applies its background after each reset.
+- **Repeated tool calls collapse in Discord.** Consecutive calls to the same tool now fold into a single
+  "tool ×N" line instead of one line each.
+- **The editor's file list and code pane scroll again and fit the window.** The editor had lost its
+  scrollbars and stopped adapting to the screen height when its wrapper carried no height of its own.
 - **Scheduled jobs now run on YOUR clock, not the server's.** "daily 07:30" meant 07:30 wherever the daemon
   happened to be hosted — so a Prague user on a US server got their morning report in the afternoon. Every
   schedule (`daily`, `weekly`, cron expressions, active-hours windows, and `at HH:MM` wake-ups) is now read
