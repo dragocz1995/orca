@@ -179,9 +179,12 @@ export const elowenClient = {
   uninstallPlugin: (name: string) => req<{ ok: true }>(`/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   /** Restore a soft-removed bundled plugin (reappears disabled in the installed list). Applies live. */
   restorePlugin: (name: string) => req<PluginInfo>(`/plugins/${encodeURIComponent(name)}/restore`, json({})),
-  /** The cronjob plugin's raw jobs list; saving replaces the whole array (applies live, no restart). */
+  /** The cronjob plugin's jobs list. Writes name ONE job — the list is shared with the scheduler and the
+   *  brain's cron tools, so sending a whole array back would delete jobs this page never saw. Applies
+   *  live, no restart. */
   cronJobs: () => req<CronJob[]>('/plugins/cronjob/jobs'),
-  saveCronJobs: (jobs: CronJob[]) => req<{ ok: boolean }>('/plugins/cronjob/jobs', json(jobs, 'PUT')),
+  saveCronJob: (job: CronJob) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(job.id)}`, json(job, 'PUT')),
+  deleteCronJob: (id: string) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** The skills plugin's markdown skills (bundled + user); user skills are created/deleted per file. */
   pluginSkills: () => req<PluginSkill[]>('/plugins/skills/list'),
   createPluginSkill: (skill: { name: string; description: string; content: string; disableModelInvocation?: boolean }) => req<{ ok: boolean }>('/plugins/skills', json(skill)),

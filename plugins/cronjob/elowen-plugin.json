@@ -58,6 +58,17 @@
       "hint": "Timeout for a job's cheap guard `check` command."
     },
     {
+      "key": "checkOutputChars",
+      "label": "Check output limit (chars)",
+      "type": "number",
+      "min": 2000,
+      "max": 200000,
+      "step": 1000,
+      "placeholder": "32000",
+      "default": 32000,
+      "hint": "How much of a guard `check`'s output is fed into the brain turn. Raise it for collectors that emit large aggregated data."
+    },
+    {
       "key": "sessionIdleMs",
       "label": "Fresh-session idle threshold (ms)",
       "type": "number",

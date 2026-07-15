@@ -16,15 +16,19 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
  *   runs automatically on unmount, so a change made moments before close is never silently dropped.
  * - `retry()`: re-run the save after a failure.
  *
- * Validation is preserved by the caller: make `save` a no-op (return without mutating) while the form
- * is invalid — the debounce simply won't persist until it becomes valid.
+ * `savable` is the form's VALIDITY, and it is a separate knob from `ready` on purpose: `ready` says the
+ * form has been seeded (so the seed value itself is never written back), while `savable` says the current
+ * value is worth writing. Folding validity into `ready` looks equivalent and is not — a form that is
+ * seeded locally and only becomes valid once the user finishes typing would have its first valid edit
+ * consumed as the "seed run" and never persisted. While the form is invalid the save is held (and any
+ * pending one cancelled), so the status never claims a save that did not happen.
  */
 export function useAutoSaveStatus(
   deps: readonly unknown[],
   save: () => Promise<void> | void,
-  opts: { ready?: boolean; delay?: number } = {},
+  opts: { ready?: boolean; savable?: boolean; delay?: number } = {},
 ): { status: SaveStatus; retry: () => void; flush: () => void } {
-  const { ready = true, delay = 800 } = opts;
+  const { ready = true, savable = true, delay = 800 } = opts;
   const seeded = useRef(false);
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -62,12 +66,17 @@ export function useAutoSaveStatus(
   useEffect(() => {
     if (!ready) return;
     if (!seeded.current) { seeded.current = true; return; } // consume the seed run
+    if (!savable) { // an invalid value is not a save waiting to happen — drop the pending one
+      if (timer.current) clearTimeout(timer.current);
+      pending.current = false;
+      return;
+    }
     pending.current = true;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(run, delay);
     return () => { if (timer.current) clearTimeout(timer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, run, delay, ...deps]);
+  }, [ready, savable, run, delay, ...deps]);
 
   const flush = useCallback(() => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }

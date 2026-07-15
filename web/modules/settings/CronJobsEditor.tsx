@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CalendarClock, Check, ChevronDown, ChevronRight, Clock, Hash, MessageSquare, Plus, Trash2, X } from 'lucide-react';
 import { useAutoSaveStatus } from '../../lib/useAutoSaveStatus';
 import { compactElapsed, parseTs } from '../../lib/format';
@@ -16,24 +16,15 @@ import { ManageSelectionModal, type ManageSelectionItem } from '../../components
 import { SelectionSummary } from '../../components/ui/SelectionSummary';
 import { BrainModelField } from '../../components/ui/BrainModelField';
 import { useTranslation } from '../../lib/i18n';
+import { isValidSchedule } from '../../lib/cronSchedule';
 import { useCronJobs, useDiscordChannels, useBrainModels } from '../../lib/queries';
-import { useSaveCronJobs } from '../../lib/mutations';
-import type { CronJob, DiscordChannelOption } from '../../lib/types';
+import { useSaveCronJob, useDeleteCronJob } from '../../lib/mutations';
+import type { BrainModelOption, CronJob, DiscordChannelOption } from '../../lib/types';
 
 const textareaClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent';
 
-/** Whether a recurring schedule spec is valid — the live indicator next to the schedule field.
- *  Mirrors `parseSchedule` in plugins/cronjob/index.mjs (and the daemon's PUT validation). */
-function isValidSchedule(spec: string): boolean {
-  const s = spec.trim();
-  const every = /^every\s+(\d+)\s*(m|h)$/i.exec(s);
-  if (every) return Number(every[1]) >= 1;
-  return /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i.test(s)
-    || /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i.test(s);
-}
-
-/** A job the daemon's PUT validation would accept — auto-save holds off until every row qualifies,
- *  so a freshly added (still empty) job never fires a 400 toast mid-typing. */
+/** A job the daemon's PUT validation would accept — auto-save holds off until the row qualifies, so a
+ *  freshly added (still empty) job never fires a 400 toast mid-typing. */
 const isSavable = (j: CronJob): boolean =>
   j.name.trim() !== '' && j.prompt.trim() !== '' && (j.runAt ? true : isValidSchedule(j.schedule));
 
@@ -85,176 +76,257 @@ function ChannelField({ value, onChange, channels }: { value: string; onChange: 
   );
 }
 
-/** Cron jobs manager (the cronjob plugin detail): each job is a collapsible row — status dot, name,
- *  schedule/destination badges and last run in the header; editable fields when expanded. Edits
- *  auto-persist as one PUT of the whole list; the plugin's scheduler re-reads the file every tick,
- *  so changes apply live without a restart. */
+/** One job: a collapsible row — status dot, name, schedule/destination badges and last run in the
+ *  header; editable fields when expanded. The row edits and persists ITSELF (one PUT of this job), so a
+ *  page that has not seen a job someone else just added can never write it away.
+ *
+ *  `job` is the server's copy and stays the source of truth for the scheduler-owned fields (last run,
+ *  last result); `draft` holds what the user is typing. When the server's copy changes and the row has no
+ *  unsaved edit, the draft adopts it — otherwise a job the brain's cron tools changed behind this page's
+ *  back would be shown stale and overwritten by the row's next save. */
+function CronJobRow({ job, persisted, channels, models, onRemoved }: {
+  job: CronJob;
+  persisted: boolean;
+  channels: DiscordChannelOption[];
+  models: BrainModelOption[];
+  onRemoved: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const save = useSaveCronJob();
+  const del = useDeleteCronJob();
+  const [draft, setDraft] = useState<CronJob>(job);
+  const [open, setOpen] = useState(!persisted); // a row the user just added opens straight into its fields
+  const [confirming, setConfirming] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  /** Edits this row has not persisted yet. Only a clean row adopts a server change. */
+  const dirty = useRef(false);
+  /** Deleting a row unmounts it, and the auto-save flushes a pending edit on unmount — which would
+   *  recreate the job we just deleted. Once it is gone, its save is a no-op; a DELETE that FAILS clears
+   *  this again, or the row would sit there swallowing every further edit while reporting "saved". */
+  const deleted = useRef(false);
+  /** The save currently on the wire, and whether this row ever reached the server at all. A delete has to
+   *  wait for the former (or the PUT lands after the DELETE and the job comes back) and only needs to send
+   *  a DELETE when the latter is true. */
+  const inFlight = useRef<Promise<unknown> | null>(null);
+  const everSaved = useRef(persisted);
+
+  const autosave = useAutoSaveStatus([draft], async () => {
+    if (deleted.current) return;
+    const sent = draftRef.current;
+    everSaved.current = true;
+    const request = save.mutateAsync(sent);
+    inFlight.current = request;
+    try {
+      await request;
+      if (draftRef.current === sent) dirty.current = false; // still clean only if nothing was typed meanwhile
+    } catch (error) {
+      toast(t.cron.saveError, 'error');
+      throw error;
+    } finally {
+      if (inFlight.current === request) inFlight.current = null;
+    }
+  }, { savable: isSavable(draft), delay: 900 });
+
+  // Adopt the server's copy whenever it changes under a row with nothing unsaved in it.
+  const serverCopy = JSON.stringify(job);
+  useEffect(() => {
+    if (dirty.current || deleted.current) return;
+    setDraft(job);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverCopy]);
+
+  const patch = (p: Partial<CronJob>) => {
+    dirty.current = true;
+    setDraft((cur) => ({ ...cur, ...p }));
+  };
+
+  const remove = async () => {
+    deleted.current = true;
+    setConfirming(false);
+    onRemoved(job.id);
+    await inFlight.current?.catch(() => {}); // a DELETE must not overtake the save it would undo
+    if (!everSaved.current) return;          // a row that never reached the server has nothing to delete
+    try { await del.mutateAsync(job.id); }
+    catch {
+      deleted.current = false; // the job is still there — let the row keep saving
+      toast(t.cron.deleteError, 'error');
+    }
+  };
+
+  const enabled = draft.enabled !== false;
+  const validSchedule = draft.runAt ? true : isValidSchedule(draft.schedule);
+  const lastRunMs = parseTs(job.lastRun);
+  const dest = draft.notifyChannelId ? channels.find((ch) => ch.id === draft.notifyChannelId)?.name ?? draft.notifyChannelId : null;
+
+  return (
+    <div className="@container rounded-lg border border-border bg-elevated/40">
+      <div className="flex items-center gap-2 p-3">
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          {open ? <ChevronDown size={15} className="shrink-0 text-text-muted" aria-hidden /> : <ChevronRight size={15} className="shrink-0 text-text-muted" aria-hidden />}
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${enabled ? 'bg-success' : 'bg-text-muted/50'}`}
+            title={enabled ? t.cron.enabled : t.cron.paused}
+            aria-hidden
+          />
+          <span className="truncate text-sm font-medium text-text">{draft.name || t.cron.jobNew}</span>
+          {/* The badges are shrink-0 and would crowd the name off a narrow (mobile) row — the
+              destination badge and last-run hide on mobile; only the compact schedule stays. */}
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {lastRunMs != null ? (
+              <span className="hidden text-tiny text-text-muted @sm:inline" title={new Date(lastRunMs).toLocaleString()}>
+                {t.cron.lastRun.replace('{t}', compactElapsed(Date.now() - lastRunMs))}
+              </span>
+            ) : null}
+            <Badge tone={validSchedule ? 'default' : 'danger'}>
+              {draft.runAt ? <CalendarClock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden /> : <Clock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden />}
+              {draft.schedule}
+            </Badge>
+            <span className="hidden @sm:inline-flex">
+              <Badge>
+                <Hash size={10} className="mr-1 inline-block align-[-1px]" aria-hidden />
+                {dest ?? t.cron.channelDefault}
+              </Badge>
+            </span>
+          </span>
+        </button>
+        {/* In the header, not in the expanded body: a save that fails while the row is collapsed still has
+            to show itself — and still has to offer Retry. */}
+        <AutoSaveStatus status={autosave.status} onRetry={autosave.retry} />
+        <Button variant="ghost" icon={Trash2} aria-label={t.cron.removeJob} onClick={() => setConfirming(true)} />
+      </div>
+      {open ? (
+        <div className="flex flex-col gap-3 border-t border-border p-3">
+          <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+            <Field label={t.cron.name}>
+              <Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} placeholder="morning-digest" />
+            </Field>
+            <Field label={t.cron.schedule} hint={t.help.cronSchedule}>
+              <div className="relative">
+                <Input value={draft.schedule} onChange={(e) => patch({ schedule: e.target.value })} className="pr-8 font-mono" placeholder="daily 06:00" />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2" title={validSchedule ? t.cron.scheduleValid : t.cron.scheduleInvalid}>
+                  {validSchedule
+                    ? <Check size={14} className="text-success" aria-label={t.cron.scheduleValid} />
+                    : <X size={14} className="text-danger" aria-label={t.cron.scheduleInvalid} />}
+                </span>
+              </div>
+            </Field>
+            <Field label={t.cron.hours} hint={t.help.cronHours}>
+              <Input value={draft.hours ?? ''} onChange={(e) => patch({ hours: e.target.value || undefined })} className="font-mono" placeholder="5-21" />
+            </Field>
+            <Field label={t.cron.enabled}>
+              <span className="flex h-9 items-center gap-2 text-sm text-text-muted">
+                <Toggle checked={enabled} onChange={(v) => patch({ enabled: v })} label={`${draft.name || t.cron.jobNew}: ${t.cron.enabled}`} />
+                {enabled ? t.cron.enabled : t.cron.paused}
+              </span>
+            </Field>
+            {/* Positive toggle over the stored `plain` flag: checked = header shown (plain unset). */}
+            <Field label={t.cron.header} hint={t.help.cronHeader}>
+              <span className="flex h-9 items-center text-sm text-text-muted">
+                <Toggle checked={draft.plain !== true} onChange={(v) => patch({ plain: v ? undefined : true })} label={`${draft.name || t.cron.jobNew}: ${t.cron.header}`} />
+              </span>
+            </Field>
+          </div>
+          <Field label={t.cron.check} hint={t.help.cronCheck}>
+            <textarea
+              value={draft.check ?? ''}
+              onChange={(e) => patch({ check: e.target.value || undefined })}
+              rows={2}
+              className={textareaClass}
+              placeholder="test -n &quot;$(ls /new-bookings 2>/dev/null)&quot; &amp;&amp; cat /new-bookings/*"
+            />
+          </Field>
+          <Field label={t.cron.prompt} hint={t.help.cronPrompt}>
+            <textarea value={draft.prompt} onChange={(e) => patch({ prompt: e.target.value })} rows={5} className={textareaClass} />
+          </Field>
+          <Field label={t.cron.channel} hint={t.help.cronChannel}>
+            <ChannelField
+              value={draft.notifyChannelId ?? ''}
+              onChange={(v) => patch({ notifyChannelId: v || undefined })}
+              channels={channels}
+            />
+          </Field>
+          <Field label={t.cron.model} hint={t.help.cronModel}>
+            <BrainModelField
+              value={draft.model ? `${draft.model.provider}/${draft.model.model}` : ''}
+              onChange={(v) => {
+                const slash = v.indexOf('/');
+                patch({ model: slash > 0 ? { provider: v.slice(0, slash), model: v.slice(slash + 1) } : undefined });
+              }}
+              models={models}
+              title={t.cron.model}
+              subtitle={t.help.cronModel}
+              defaultLabel={t.cron.modelDefault}
+              keyOf={(m) => `${m.provider}/${m.model}`}
+            />
+          </Field>
+          {job.lastResult ? (
+            <Field label={t.cron.lastResult}>
+              <p className="whitespace-pre-wrap rounded-md border border-border bg-bg px-3 py-2 text-xs text-text-muted">{job.lastResult}</p>
+            </Field>
+          ) : null}
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirming}
+        title={t.cron.deleteTitle}
+        description={t.cron.deleteDesc.replace('{name}', draft.name || t.cron.jobNew)}
+        confirmLabel={t.cron.removeJob}
+        onConfirm={remove}
+        onClose={() => setConfirming(false)}
+      />
+    </div>
+  );
+}
+
+/** Cron jobs manager (the cronjob plugin detail). The list is the SERVER's — a job the scheduler or the
+ *  brain's cron_add tool creates shows up on the next refetch — and each row persists itself. A row added
+ *  here lives locally only until the server has it; from then on the server's copy is the row. */
 export function CronJobsEditor() {
   const { t } = useTranslation();
   const { data, isLoading } = useCronJobs();
   const channels = useDiscordChannels();
   const models = useBrainModels();
-  const save = useSaveCronJobs();
-  const { toast } = useToast();
-  const [jobs, setJobs] = useState<CronJob[]>([]);
-  const [seeded, setSeeded] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<CronJob[]>([]);
 
-  // Seed ONCE from the server — the save mutation invalidates ['cron-jobs'], and re-seeding on that
-  // refetch would clobber whatever the user typed while the auto-save was in flight.
-  useEffect(() => { if (data && !seeded) { setJobs(data); setSeeded(true); } }, [data, seeded]);
+  // A draft the server has taken is the server's now. Keeping it would resurrect the job as an unsaved
+  // row the moment anything else deletes it — and one keystroke there would write it straight back.
+  useEffect(() => {
+    if (!data) return;
+    const ids = new Set(data.map((j) => j.id));
+    setDrafts((cur) => (cur.some((j) => ids.has(j.id)) ? cur.filter((j) => !ids.has(j.id)) : cur));
+  }, [data]);
 
-  const autosave = useAutoSaveStatus([jobs], async () => {
-    try { await save.mutateAsync(jobs); }
-    catch (error) { toast(t.cron.saveError, 'error'); throw error; }
-  }, { ready: seeded && jobs.every(isSavable), delay: 900 });
+  if (isLoading || !data) return <LoadingState />;
 
-  if (isLoading || !seeded) return <LoadingState />;
+  const saved = new Set(data.map((j) => j.id));
+  const rows = [...data, ...drafts.filter((j) => !saved.has(j.id))];
 
-  const patch = (id: string, p: Partial<CronJob>) => setJobs((cur) => cur.map((j) => (j.id === id ? { ...j, ...p } : j)));
-  const toggleRow = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const addJob = () => {
     // Same id shape the plugin's own cron_add tool generates.
     const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    setExpanded((prev) => new Set(prev).add(id));
-    setJobs((cur) => [...cur, { id, name: '', schedule: 'every 1h', prompt: '', enabled: false, createdAt: new Date().toISOString() }]);
+    setDrafts((cur) => [...cur, { id, name: '', schedule: 'every 1h', prompt: '', enabled: false, createdAt: new Date().toISOString() }]);
   };
-  const removeJob = (id: string) => setJobs((cur) => cur.filter((j) => j.id !== id));
-
-  const channelName = (id?: string) => (id ? channels.data?.find((ch) => ch.id === id)?.name ?? id : null);
-  const deleteTarget = jobs.find((j) => j.id === pendingDelete);
+  const dropDraft = (id: string) => setDrafts((cur) => cur.filter((j) => j.id !== id));
 
   return (
     <div className="flex flex-col gap-3">
-      {jobs.length === 0 ? <p className="text-xs italic text-text-muted">{t.cron.empty}</p> : null}
-      {jobs.map((job) => {
-        const open = expanded.has(job.id);
-        const enabled = job.enabled !== false;
-        const validSchedule = job.runAt ? true : isValidSchedule(job.schedule);
-        const lastRunMs = parseTs(job.lastRun);
-        const dest = channelName(job.notifyChannelId);
-        return (
-          <div key={job.id} className="@container rounded-lg border border-border bg-elevated/40">
-            <div className="flex items-center gap-2 p-3">
-              <button type="button" onClick={() => toggleRow(job.id)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                {open ? <ChevronDown size={15} className="shrink-0 text-text-muted" aria-hidden /> : <ChevronRight size={15} className="shrink-0 text-text-muted" aria-hidden />}
-                <span
-                  className={`h-2 w-2 shrink-0 rounded-full ${enabled ? 'bg-success' : 'bg-text-muted/50'}`}
-                  title={enabled ? t.cron.enabled : t.cron.paused}
-                  aria-hidden
-                />
-                <span className="truncate text-sm font-medium text-text">{job.name || t.cron.jobNew}</span>
-                {/* The badges are shrink-0 and would crowd the name off a narrow (mobile) row — the
-                    destination badge and last-run hide on mobile; only the compact schedule stays. */}
-                <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                  {lastRunMs != null ? (
-                    <span className="hidden text-tiny text-text-muted @sm:inline" title={new Date(lastRunMs).toLocaleString()}>
-                      {t.cron.lastRun.replace('{t}', compactElapsed(Date.now() - lastRunMs))}
-                    </span>
-                  ) : null}
-                  <Badge tone={validSchedule ? 'default' : 'danger'}>
-                    {job.runAt ? <CalendarClock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden /> : <Clock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden />}
-                    {job.schedule}
-                  </Badge>
-                  <span className="hidden @sm:inline-flex">
-                    <Badge>
-                      <Hash size={10} className="mr-1 inline-block align-[-1px]" aria-hidden />
-                      {dest ?? t.cron.channelDefault}
-                    </Badge>
-                  </span>
-                </span>
-              </button>
-              <Button variant="ghost" icon={Trash2} aria-label={t.cron.removeJob} onClick={() => setPendingDelete(job.id)} />
-            </div>
-            {open ? (
-              <div className="flex flex-col gap-3 border-t border-border p-3">
-                <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
-                  <Field label={t.cron.name}>
-                    <Input value={job.name} onChange={(e) => patch(job.id, { name: e.target.value })} placeholder="morning-digest" />
-                  </Field>
-                  <Field label={t.cron.schedule} hint={t.help.cronSchedule}>
-                    <div className="relative">
-                      <Input value={job.schedule} onChange={(e) => patch(job.id, { schedule: e.target.value })} className="pr-8 font-mono" placeholder="daily 06:00" />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2" title={validSchedule ? t.cron.scheduleValid : t.cron.scheduleInvalid}>
-                        {validSchedule
-                          ? <Check size={14} className="text-success" aria-label={t.cron.scheduleValid} />
-                          : <X size={14} className="text-danger" aria-label={t.cron.scheduleInvalid} />}
-                      </span>
-                    </div>
-                  </Field>
-                  <Field label={t.cron.hours} hint={t.help.cronHours}>
-                    <Input value={job.hours ?? ''} onChange={(e) => patch(job.id, { hours: e.target.value || undefined })} className="font-mono" placeholder="5-21" />
-                  </Field>
-                  <Field label={t.cron.enabled}>
-                    <span className="flex h-9 items-center gap-2 text-sm text-text-muted">
-                      <Toggle checked={enabled} onChange={(v) => patch(job.id, { enabled: v })} label={`${job.name || t.cron.jobNew}: ${t.cron.enabled}`} />
-                      {enabled ? t.cron.enabled : t.cron.paused}
-                    </span>
-                  </Field>
-                  {/* Positive toggle over the stored `plain` flag: checked = header shown (plain unset). */}
-                  <Field label={t.cron.header} hint={t.help.cronHeader}>
-                    <span className="flex h-9 items-center text-sm text-text-muted">
-                      <Toggle checked={job.plain !== true} onChange={(v) => patch(job.id, { plain: v ? undefined : true })} label={`${job.name || t.cron.jobNew}: ${t.cron.header}`} />
-                    </span>
-                  </Field>
-                </div>
-                <Field label={t.cron.check} hint={t.help.cronCheck}>
-                  <textarea
-                    value={job.check ?? ''}
-                    onChange={(e) => patch(job.id, { check: e.target.value || undefined })}
-                    rows={2}
-                    className={textareaClass}
-                    placeholder="test -n &quot;$(ls /new-bookings 2>/dev/null)&quot; &amp;&amp; cat /new-bookings/*"
-                  />
-                </Field>
-                <Field label={t.cron.prompt} hint={t.help.cronPrompt}>
-                  <textarea value={job.prompt} onChange={(e) => patch(job.id, { prompt: e.target.value })} rows={5} className={textareaClass} />
-                </Field>
-                <Field label={t.cron.channel} hint={t.help.cronChannel}>
-                  <ChannelField
-                    value={job.notifyChannelId ?? ''}
-                    onChange={(v) => patch(job.id, { notifyChannelId: v || undefined })}
-                    channels={channels.data ?? []}
-                  />
-                </Field>
-                <Field label={t.cron.model} hint={t.help.cronModel}>
-                  <BrainModelField
-                    value={job.model ? `${job.model.provider}/${job.model.model}` : ''}
-                    onChange={(v) => {
-                      const slash = v.indexOf('/');
-                      patch(job.id, { model: slash > 0 ? { provider: v.slice(0, slash), model: v.slice(slash + 1) } : undefined });
-                    }}
-                    models={models.data ?? []}
-                    title={t.cron.model}
-                    subtitle={t.help.cronModel}
-                    defaultLabel={t.cron.modelDefault}
-                    keyOf={(m) => `${m.provider}/${m.model}`}
-                  />
-                </Field>
-                {job.lastResult ? (
-                  <Field label={t.cron.lastResult}>
-                    <p className="whitespace-pre-wrap rounded-md border border-border bg-bg px-3 py-2 text-xs text-text-muted">{job.lastResult}</p>
-                  </Field>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+      {rows.length === 0 ? <p className="text-xs italic text-text-muted">{t.cron.empty}</p> : null}
+      {rows.map((job) => (
+        <CronJobRow
+          key={job.id}
+          job={job}
+          persisted={saved.has(job.id)}
+          channels={channels.data ?? []}
+          models={models.data ?? []}
+          onRemoved={dropDraft}
+        />
+      ))}
       <div className="flex items-center justify-between gap-3">
         <button type="button" className="spatial-inline-action" onClick={addJob}><Plus size={14} aria-hidden />{t.cron.addJob}</button>
-        <AutoSaveStatus status={autosave.status} onRetry={autosave.retry} />
       </div>
-
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        title={t.cron.deleteTitle}
-        description={deleteTarget ? t.cron.deleteDesc.replace('{name}', deleteTarget.name || t.cron.jobNew) : undefined}
-        confirmLabel={t.cron.removeJob}
-        onConfirm={() => { if (pendingDelete) removeJob(pendingDelete); setPendingDelete(null); }}
-        onClose={() => setPendingDelete(null)}
-      />
     </div>
   );
 }

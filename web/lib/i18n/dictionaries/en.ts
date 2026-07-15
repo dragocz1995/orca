@@ -1686,7 +1686,8 @@ export const en = {
     lastRun: 'ran {t} ago',
     lastResult: 'Last result',
     header: 'Header with the job name',
-    saveError: 'Saving the jobs failed',
+    saveError: 'Saving the job failed',
+    deleteError: 'Deleting the job failed',
   },
   skills: {
     title: 'Skills',

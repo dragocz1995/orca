@@ -3,6 +3,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { discoverPlugins } from '../../plugins/loader.js';
 import { buildContributionReport, emptyContributionReport, pluginContributions } from '../../plugins/contributionReport.js';
 import { MarketplaceError } from '../../plugins/marketplace.js';
+import { isValidSchedule } from '../../shared/cronSchedule.js';
 import { OAUTH_BUILTIN } from '../../brain/providers.js';
 import { oauthBuiltinCatalog } from '../../brain/models.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -13,17 +14,6 @@ import type { ElowenApp, RouteContext } from '../context.js';
 function marketplaceFail(c: Context, e: unknown) {
   const status: ContentfulStatusCode = e instanceof MarketplaceError ? (e.status as ContentfulStatusCode) : 500;
   return c.json({ error: e instanceof Error ? e.message : 'marketplace operation failed' }, status);
-}
-
-/** Whether a recurring cron-job schedule spec is valid. Mirrors `parseSchedule` in
- *  plugins/cronjob/index.mjs (the daemon can't import the plugin's untyped ESM entry):
- *  "every <N>m" / "every <N>h" (≥ 1), "daily HH:MM", "weekly <mon..sun> HH:MM". */
-function isValidCronSchedule(spec: string): boolean {
-  const s = spec.trim();
-  const every = /^every\s+(\d+)\s*(m|h)$/i.exec(s);
-  if (every) return Number(every[1]) >= 1;
-  return /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i.test(s)
-    || /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i.test(s);
 }
 
 /** One text-capable Discord destination for the cron-job channel picker. */
@@ -346,77 +336,104 @@ export function registerPluginRoutes(app: ElowenApp, ctx: RouteContext): void {
     return c.json(listing().find((p) => p.name === name) ?? { ok: true });
   });
 
-  // ── Cron jobs (cronjob plugin): the raw jobs.json array, managed as one list. The plugin's
-  // scheduler re-reads the file from disk every tick (30 s), so REST edits apply live — no restart. ──
+  // ── Cron jobs (cronjob plugin): jobs.json is a SHARED list — the scheduler stamps runs into it, the
+  // brain's cron_add/cron_remove tools write it, and this UI edits it. So a write here names exactly ONE
+  // job and the file is read-modify-written around it. It must never take the whole array from the
+  // client: a page that loaded its snapshot before someone else added a job would delete that job on the
+  // next save, and a browser tab left open for a day is enough to lose one. The plugin's scheduler
+  // re-reads the file every tick (30 s), so an edit applies live — no restart. ──
   const cronJobsFile = (): string | null => (d.pluginDataRoot ? join(d.pluginDataRoot, 'cronjob', 'jobs.json') : null);
+  /** The jobs on disk. THROWS when the file is there but unreadable — a caller about to write the list
+   *  back must abort, not rebuild it from an empty base: the plugin's own store rewrites jobs.json with a
+   *  plain (non-atomic) writeFileSync, so a read that lands mid-write must never be mistaken for "there
+   *  are no jobs". Only the read-only GET may treat that as empty. */
+  const readCronJobs = (file: string): Record<string, unknown>[] => {
+    if (!existsSync(file)) return [];
+    const parsed: unknown = JSON.parse(readFileSync(file, 'utf-8'));
+    if (!Array.isArray(parsed)) throw new Error('jobs.json is not an array');
+    return parsed as Record<string, unknown>[];
+  };
+  /** The fields a client owns. Everything else a job carries on disk is the SCHEDULER's (lastRun,
+   *  lastSlot, lastResult) and is merged back from the file — writing a stale lastRun back would make an
+   *  interval job due again on the next tick, and a dropped lastSlot would re-fire a slot already run. */
+  const CRON_FIELDS = ['id', 'name', 'schedule', 'prompt', 'check', 'hours', 'notifyChannelId', 'plain', 'model', 'enabled', 'runAt', 'createdAt'] as const;
+  /** Why this job is not storable, or null when it is. */
+  const cronJobError = (j: Record<string, unknown>): string | null => {
+    for (const k of ['id', 'name', 'schedule', 'prompt'] as const) {
+      if (typeof j[k] !== 'string' || (j[k] as string).trim() === '') return `a job needs a non-empty "${k}"`;
+    }
+    const oneShot = j.runAt !== undefined;
+    if (oneShot ? typeof j.runAt !== 'string' || Number.isNaN(Date.parse(j.runAt)) : !isValidSchedule(j.schedule as string)) {
+      return `invalid schedule "${String(j.schedule)}" — use "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00" or a 5-field cron expression`;
+    }
+    // Optional cheap guard command — must be a string when present (empty = no guard).
+    if (j.check !== undefined && typeof j.check !== 'string') return 'check must be omitted or a string';
+    // Optional plain delivery flag — suppresses the "⏰ job name" header on delivered results.
+    if (j.plain !== undefined && typeof j.plain !== 'boolean') return 'plain must be omitted or a boolean';
+    // Optional per-job model: either absent, or an object carrying non-empty provider + model strings.
+    if (j.model !== undefined) {
+      const m = j.model as { provider?: unknown; model?: unknown } | null;
+      if (typeof m !== 'object' || m === null || typeof m.provider !== 'string' || typeof m.model !== 'string' || !m.provider.trim() || !m.model.trim()) {
+        return 'model must be omitted or an object with non-empty provider and model';
+      }
+    }
+    return null;
+  };
 
   app.get('/plugins/cronjob/jobs', (c) => {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     const file = cronJobsFile();
-    if (!file || !existsSync(file)) return c.json([]);
-    try { return c.json(JSON.parse(readFileSync(file, 'utf-8'))); }
-    catch { return c.json([]); } // corrupted file → the same "empty" the plugin's own store reports
+    if (!file) return c.json([]);
+    try { return c.json(readCronJobs(file)); }
+    catch { return c.json([]); } // a read-only view may show an unreadable file as empty; a write may not
   });
 
-  // Replace the whole jobs array (the UI edits the full list). Every job needs id/name/schedule/prompt;
-  // a recurring schedule must parse, a one-shot job carries a parseable `runAt` instead.
-  app.put('/plugins/cronjob/jobs', async (c) => {
+  // Upsert ONE job, leaving every other job on disk exactly as it is.
+  app.put('/plugins/cronjob/jobs/:id', async (c) => {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     const file = cronJobsFile();
     if (!file) return c.json({ error: 'plugin data dir unavailable' }, 503);
-    const body = (await c.req.json().catch(() => null)) as Record<string, unknown>[] | null;
-    if (!Array.isArray(body)) return c.json({ error: 'body must be an array of jobs' }, 400);
-    for (const j of body) {
-      for (const k of ['id', 'name', 'schedule', 'prompt'] as const) {
-        if (typeof j?.[k] !== 'string' || (j[k] as string).trim() === '') return c.json({ error: `each job needs a non-empty "${k}"` }, 400);
-      }
-      const oneShot = j.runAt !== undefined;
-      if (oneShot ? typeof j.runAt !== 'string' || Number.isNaN(Date.parse(j.runAt)) : !isValidCronSchedule(j.schedule as string)) {
-        return c.json({ error: `invalid schedule "${String(j.schedule)}" — use "every 15m", "every 2h", "daily 07:30" or "weekly sun 20:00"` }, 400);
-      }
-      // Optional cheap guard command — must be a string when present (empty = no guard).
-      if (j.check !== undefined && typeof j.check !== 'string') {
-        return c.json({ error: 'check must be omitted or a string' }, 400);
-      }
-      // Optional plain delivery flag — suppresses the "⏰ job name" header on delivered results.
-      if (j.plain !== undefined && typeof j.plain !== 'boolean') {
-        return c.json({ error: 'plain must be omitted or a boolean' }, 400);
-      }
-      // Optional per-job model: either absent, or an object carrying non-empty provider + model strings.
-      if (j.model !== undefined) {
-        const m = j.model as { provider?: unknown; model?: unknown } | null;
-        if (typeof m !== 'object' || m === null || typeof m.provider !== 'string' || typeof m.model !== 'string' || !m.provider.trim() || !m.model.trim()) {
-          return c.json({ error: 'model must be omitted or an object with non-empty provider and model' }, 400);
-        }
-      }
-    }
-    // Runtime fields (lastRun/lastResult) belong to the SCHEDULER, not the client: the UI edits a
-    // snapshot, and writing its stale lastRun back would make an interval job due again on the next
-    // tick — an enabled "every 5m" job would fire instantly after every save. Merge them from disk,
-    // and arm a job that just flipped to enabled (or arrived new as enabled) from NOW, so it waits
-    // for its next natural slot instead of firing immediately.
-    let onDisk: Record<string, unknown>[] = [];
-    try { onDisk = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf-8')) as Record<string, unknown>[]) : []; }
-    catch { onDisk = []; }
-    const prevById = new Map(onDisk.map((j) => [j.id, j]));
-    const now = new Date().toISOString();
-    // Persist only known fields — the client edits a whole-list snapshot, so a whitelist keeps it from
-    // smuggling arbitrary keys into jobs.json that the scheduler would later read.
-    const FIELDS = ['id', 'name', 'schedule', 'prompt', 'check', 'hours', 'notifyChannelId', 'plain', 'model', 'enabled', 'runAt', 'createdAt'] as const;
-    const merged = body.map((j) => {
-      const edit: Record<string, unknown> = {};
-      for (const k of FIELDS) if (j[k] !== undefined) edit[k] = j[k];
-      const prev = prevById.get(j.id);
-      // One-shot (runAt) jobs are excluded from arming: they fire exactly once while lastRun is EMPTY.
-      const enabling = !j.runAt && edit.enabled !== false && (!prev || prev.enabled === false);
-      return {
-        ...edit,
-        ...(prev?.lastResult !== undefined ? { lastResult: prev.lastResult } : {}),
-        ...(enabling ? { lastRun: now } : prev?.lastRun !== undefined ? { lastRun: prev.lastRun } : {}),
-      };
-    });
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'body must be a job object' }, 400);
+    // The URL names the job — a body id can't redirect the write onto another one.
+    const job: Record<string, unknown> = { ...body, id: c.req.param('id') };
+    const error = cronJobError(job);
+    if (error) return c.json({ error }, 400);
+
+    let jobs: Record<string, unknown>[];
+    try { jobs = readCronJobs(file); }
+    catch { return c.json({ error: 'jobs file is unreadable — refusing to write over it' }, 500); }
+    const prev = jobs.find((j) => j.id === job.id);
+    const edit: Record<string, unknown> = {};
+    for (const k of CRON_FIELDS) if (job[k] !== undefined) edit[k] = job[k];
+    const runtime: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(prev ?? {})) if (!(CRON_FIELDS as readonly string[]).includes(k)) runtime[k] = v;
+    // A job that just flipped to enabled (or arrived new as enabled) is armed from NOW, so it waits for
+    // its next natural slot instead of firing immediately. Arming means BOTH halves of the scheduler's run
+    // state: `lastSlot` decides a daily/weekly job on slot identity alone, so leaving Monday's slot behind
+    // on a job re-enabled on Thursday would fire it on the spot. One-shot (runAt) jobs are excluded — they
+    // fire exactly once, while lastRun is empty.
+    const enabling = !job.runAt && edit.enabled !== false && (!prev || prev.enabled === false);
+    if (enabling) delete runtime.lastSlot;
+    const saved = { ...edit, ...runtime, ...(enabling ? { lastRun: new Date().toISOString() } : {}) };
+
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify(merged, null, 2));
+    writeFileSync(file, JSON.stringify(prev ? jobs.map((j) => (j.id === job.id ? saved : j)) : [...jobs, saved], null, 2));
+    return c.json({ ok: true });
+  });
+
+  // Idempotent: deleting a job that is already gone is a success, not a 404. A client racing its own
+  // in-flight save (or another tab) must be able to say "this job should not exist" without having to know
+  // whether it currently does.
+  app.delete('/plugins/cronjob/jobs/:id', (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const file = cronJobsFile();
+    if (!file) return c.json({ error: 'plugin data dir unavailable' }, 503);
+    let jobs: Record<string, unknown>[];
+    try { jobs = readCronJobs(file); }
+    catch { return c.json({ error: 'jobs file is unreadable — refusing to write over it' }, 500); }
+    const rest = jobs.filter((j) => j.id !== c.req.param('id'));
+    if (rest.length !== jobs.length) writeFileSync(file, JSON.stringify(rest, null, 2));
     return c.json({ ok: true });
   });
 

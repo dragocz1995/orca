@@ -15,6 +15,9 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_TICK_MS = 30_000;
 const DEFAULT_CHECK_TIMEOUT_MS = 60_000; // a guard shell must finish fast; a hung check never blocks the tick loop
 const CHECK_MAX_BUFFER = 1024 * 1024; // 1 MB of stdout is plenty of "what's new" to hand the brain
+// How much of a guard's stdout is fed into the brain turn. A collector that aggregates real data (a full
+// debtor list, a daily digest) easily runs past a few KB, so the cap is generous; it only trims runaway output.
+const DEFAULT_CHECK_OUTPUT_CHARS = 32_000;
 const DEFAULT_CRON_TURN_ATTEMPTS = 2; // one retry on a request-time failure (a transient relay/gateway/network blip)
 const DEFAULT_CRON_RETRY_BACKOFF_MS = 3_000; // brief pause before the retry so the transient condition can clear
 // The per-turn idle rollover forwarded to the host as access.sessionIdleMs. It is OPT-IN, not defaulted:
@@ -383,6 +386,7 @@ class CronAdapter {
     this.turnAttempts = clampConfig(config.retryAttempts, DEFAULT_CRON_TURN_ATTEMPTS, 1, 5);
     this.retryBackoffMs = clampConfig(config.retryBackoffMs, DEFAULT_CRON_RETRY_BACKOFF_MS, 1_000, 30_000);
     this.checkTimeoutMs = clampConfig(config.checkTimeoutMs, DEFAULT_CHECK_TIMEOUT_MS, 10_000, 300_000);
+    this.checkOutputMaxChars = clampConfig(config.checkOutputChars, DEFAULT_CHECK_OUTPUT_CHARS, 2_000, 200_000);
     // Idle cutoff forwarded per turn to the host (access.sessionIdleMs). Unset → undefined (host default,
     // like Discord); explicit 0 → Infinity (rollover off); explicit > 0 → clamped up to a 1-min floor,
     // no upper clamp. See resolveSessionIdleMs.
@@ -441,7 +445,7 @@ class CronAdapter {
       // Hand the brain the guard's fresh output (if any) so it acts on it directly instead of re-running
       // the collector via a tool — the whole point of the gate is one cheap check, not a check + a re-fetch.
       let userText = checkOutput
-        ? `${job.prompt}\n\n--- Check output (fresh data to act on) ---\n${checkOutput.slice(0, 8000)}`
+        ? `${job.prompt}\n\n--- Check output (fresh data to act on) ---\n${checkOutput.slice(0, this.checkOutputMaxChars)}`
         : job.prompt;
       // An origin-bound wake-up replays INTO the user conversation it was scheduled from: frame the
       // prompt so the model knows this is its own earlier schedule firing, not the user speaking now.
@@ -505,7 +509,10 @@ class CronAdapter {
         // `plain` jobs deliver the reply as-is (persona messages in a dedicated channel don't want
         // the "⏰ job name" banner); the footer subtext stays — it matches streamed replies.
         const header = job.plain ? '' : `⏰ **${job.name}**\n`;
-        const body = `${header}${String(reply).slice(0, 1800)}${footer ? `\n\n${footer}` : ''}`;
+        // Deliver the full reply: the platform sink chunks anything past one message's limit
+        // (Discord splits on line boundaries), so a long report — e.g. a 60-item debtor list —
+        // arrives complete across several messages instead of being clipped mid-list.
+        const body = `${header}${String(reply)}${footer ? `\n\n${footer}` : ''}`;
         await this.deliver(body, job.notifyChannelId).catch(() => {});
       }
     }

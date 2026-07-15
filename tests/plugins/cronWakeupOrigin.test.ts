@@ -298,17 +298,19 @@ describe('cron scheduler config (user-configurable limits)', () => {
     expect(adapter.turnAttempts).toBe(2);
     expect(adapter.retryBackoffMs).toBe(3_000);
     expect(adapter.checkTimeoutMs).toBe(60_000);
+    expect(adapter.checkOutputMaxChars).toBe(32_000);
   });
 
   it('configured values are clamped into the declared min/max bounds', async () => {
     const dataRoot = freshDataRoot();
     const { adapter } = await loadCron(dataRoot, undefined, {
-      tickMs: 1, retryAttempts: 99, retryBackoffMs: 999_999, checkTimeoutMs: 1,
+      tickMs: 1, retryAttempts: 99, retryBackoffMs: 999_999, checkTimeoutMs: 1, checkOutputChars: 999_999,
     });
     expect(adapter.tickMs).toBe(10_000); // clamped up to the min
     expect(adapter.turnAttempts).toBe(5); // clamped down to the max
     expect(adapter.retryBackoffMs).toBe(30_000); // clamped down to the max
     expect(adapter.checkTimeoutMs).toBe(10_000); // clamped up to the min
+    expect(adapter.checkOutputMaxChars).toBe(200_000); // clamped down to the max
   });
 
   it('a configured retryAttempts=1 disables the retry — the transient failure is delivered as-is, no backoff wait', async () => {

@@ -308,10 +308,16 @@ export function useRestorePlugin() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (name: string) => elowenClient.restorePlugin(name), onSuccess: () => invalidatePluginViews(qc) });
 }
-/** Replace the cronjob plugin's whole jobs array (auto-saved by the cron editor). */
-export function useSaveCronJobs() {
+/** Persist ONE cron job (auto-saved per row by the cron editor) — never the whole list, which a stale
+ *  page would use to delete jobs added meanwhile by the scheduler or the brain's cron tools. */
+export function useSaveCronJob() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (jobs: CronJob[]) => elowenClient.saveCronJobs(jobs), onSuccess: () => qc.invalidateQueries({ queryKey: ['cron-jobs'] }) });
+  return useMutation({ mutationFn: (job: CronJob) => elowenClient.saveCronJob(job), onSuccess: () => qc.invalidateQueries({ queryKey: ['cron-jobs'] }) });
+}
+/** Delete ONE cron job. */
+export function useDeleteCronJob() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => elowenClient.deleteCronJob(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['cron-jobs'] }) });
 }
 /** Create (or overwrite) a user skill of the skills plugin. Applies live via plugin hot-reload. */
 export function useCreatePluginSkill() {

@@ -1686,7 +1686,8 @@ export const cs = {
     lastRun: 'běžela před {t}',
     lastResult: 'Poslední výsledek',
     header: 'Hlavička s názvem úlohy',
-    saveError: 'Uložení úloh selhalo',
+    saveError: 'Uložení úlohy se nezdařilo',
+    deleteError: 'Smazání úlohy se nezdařilo',
   },
   skills: {
     title: 'Skilly',
