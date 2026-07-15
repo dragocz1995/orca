@@ -56,8 +56,8 @@ export function EditorView() {
           <ControlSurfaceDocument className="editor-control-surface">
             <MotionPresence mode="wait">
               {projectId == null
-                ? <MotionLayoutItem key="empty"><EmptyState title={t.editor.noProjects} description={t.editor.noProjectsDescription} icon={Code2} /></MotionLayoutItem>
-                : <MotionLayoutItem key={projectId}><ProjectEditor projectId={projectId} onClose={onClose} fill /></MotionLayoutItem>}
+                ? <MotionLayoutItem key="empty" className="h-full"><EmptyState title={t.editor.noProjects} description={t.editor.noProjectsDescription} icon={Code2} /></MotionLayoutItem>
+                : <MotionLayoutItem key={projectId} className="h-full"><ProjectEditor projectId={projectId} onClose={onClose} fill /></MotionLayoutItem>}
             </MotionPresence>
           </ControlSurfaceDocument>
         </div>

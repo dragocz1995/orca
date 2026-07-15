@@ -43,6 +43,17 @@ describe('EditorView', () => {
     expect(screen.queryByRole('img', { name: 'Elowen' })).toBeNull();
   });
 
+  it('fills the surface height so the editor panes can scroll instead of overflowing', () => {
+    // The editor is nested workspace-content → control surface → MotionLayoutItem → ProjectEditor,
+    // and ProjectEditor sizes itself to 100% of its parent. If the MotionLayoutItem wrapper is not
+    // full-height, that 100% collapses to content height and the file list / editor lose their
+    // scrollbars. Lock the wrapper to full height.
+    const { wrapper } = createWrapper();
+    render(<EditorView />, { wrapper });
+    const paneWrapper = screen.getByTestId('editor').parentElement;
+    expect(paneWrapper?.classList.contains('h-full')).toBe(true);
+  });
+
   it('shows an empty state when there are no projects', () => {
     projectList = [];
     const { wrapper } = createWrapper();
