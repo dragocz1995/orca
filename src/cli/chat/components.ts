@@ -492,18 +492,26 @@ const LEGACY_SIGN = /^\s*\d+ ([-+ ]) /;
 const PI_ROW = /^([-+ ])\s*(\d+) (.*)$/;
 const LEGACY_ROW = /^\s*(\d+) ([-+ ]) (.*)$/;
 
-function diffLine(line: string, width?: number): string {
+function diffLine(line: string, width?: number): string[] {
   const pi = PI_ROW.exec(line);
   const legacy = LEGACY_ROW.exec(line);
   const sign = pi?.[1] ?? legacy?.[2] ?? ' ';
   const num = pi?.[2] ?? legacy?.[1] ?? '';
   const text = pi?.[3] ?? legacy?.[3] ?? line;
   const gutter = `${num.padStart(5)} ${sign}`;
-  const plainRow = ` ${gutter} ${text}`;
-  const padded = width ? padAnsi(plainRow, width) : plainRow;
-  if (sign === '+') return DIFF_ADD(padded);
-  if (sign === '-') return DIFF_DEL(padded);
-  return CODE_ROW(`${color.faint(gutter)} ${color.dim(text)}`, width);
+  // Wrap the source under a fixed gutter instead of truncating it: continuation rows repeat the gutter
+  // width as blanks, so an over-wide line stays fully readable and column-aligned. Row width is
+  // ` ${gutter} ${text}`, i.e. gutter + 2 framing spaces; a caller with no width keeps the single-row form.
+  const gutterPad = ' '.repeat(visibleWidth(gutter));
+  const textWidth = width ? Math.max(1, width - visibleWidth(gutter) - 2) : undefined;
+  const segments = textWidth ? wrapTextWithAnsi(text, textWidth) : [text];
+  return segments.map((seg, i) => {
+    const g = i === 0 ? gutter : gutterPad;
+    const padded = width ? padAnsi(` ${g} ${seg}`, width) : ` ${g} ${seg}`;
+    if (sign === '+') return DIFF_ADD(padded);
+    if (sign === '-') return DIFF_DEL(padded);
+    return CODE_ROW(`${color.faint(g)} ${color.dim(seg)}`, width);
+  });
 }
 
 /** Sanitize a display diff into terminal-safe raw rows. This is the single expensive parse pass; both
@@ -515,12 +523,14 @@ function parseDiffRows(diff: string): string[] {
 /** Colour pre-parsed diff rows (see {@link parseDiffRows}) with stable line numbers and git-style
  *  add/delete backgrounds, capped so a huge edit can't flood the conversation. */
 function renderDiffRows(rows: readonly string[], maxLines = 60, rowWidth?: number): string[] {
-  const rendered = rows.map((l) => {
+  // Cap on LOGICAL diff rows (so "+N more lines" stays a diff-line count), then wrap each shown row —
+  // one over-wide source line can now expand into several visual rows without inflating that count.
+  const rendered = rows.slice(0, maxLines).flatMap((l) => {
     const s = PI_ROW.exec(l)?.[1] ?? LEGACY_SIGN.exec(l)?.[1];
-    return s === '+' || s === '-' || s === ' ' ? diffLine(l, rowWidth) : CODE_ROW(color.dim(l), rowWidth);
+    return s === '+' || s === '-' || s === ' ' ? diffLine(l, rowWidth) : [CODE_ROW(color.dim(l), rowWidth)];
   });
-  const shown = rendered.slice(0, maxLines).map((l) => `    ${l}`);
-  if (rendered.length > maxLines) shown.push(`    ${FAINTC(`… +${rendered.length - maxLines} more lines`)}`);
+  const shown = rendered.map((l) => `    ${l}`);
+  if (rows.length > maxLines) shown.push(`    ${FAINTC(`… +${rows.length - maxLines} more lines`)}`);
   return shown;
 }
 

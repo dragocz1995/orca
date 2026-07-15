@@ -34,3 +34,25 @@ describe('framedDiffBlock single-parse', () => {
     expect(diffParses).toHaveLength(1);
   });
 });
+
+const stripAnsi = (s: string): string => s.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-9;]*m/g, '');
+
+describe('framedDiffBlock wraps over-wide lines instead of truncating them', () => {
+  beforeAll(() => initTheme());
+
+  it('preserves the full content of a long line across wrapped rows (no ellipsis)', () => {
+    const long = 'x'.repeat(200);
+    const { lines } = framedDiffBlock(`+    1 ${long}`, 80, 'diff', false);
+    const plain = lines.map(stripAnsi).join('\n');
+    expect(plain).not.toContain('…');
+    expect((plain.match(/x/g) ?? []).length).toBe(200);
+    // the single logical row must now span more than one visual body row
+    const bodyRows = lines.filter((l) => stripAnsi(l).includes('x'));
+    expect(bodyRows.length).toBeGreaterThan(1);
+  });
+
+  it('keeps every wrapped row within the block width', () => {
+    const { lines } = framedDiffBlock(`-    7 ${'abcdefgh '.repeat(30)}`, 80, 'diff', false);
+    for (const line of lines) expect(stripAnsi(line).length).toBeLessThanOrEqual(80);
+  });
+});
