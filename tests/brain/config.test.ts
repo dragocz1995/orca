@@ -34,6 +34,32 @@ describe('brainConfigFromElowen', () => {
     expect(brainConfigFromElowen(config, auth)?.providers.map((p) => p.id)).toEqual(['muj-claude']);
   });
 
+  // Disconnecting an account drops only its AuthStorage credential. The entry it leaves behind is a pure
+  // model-selection carrier the settings grid hides on purpose, so a surviving one is an unreachable ghost
+  // group offering models that can only 401.
+  it('drops an oauth entry whose account is no longer connected', () => {
+    const config = new ConfigStore(openDb(':memory:'));
+    config.update({ brain: { providers: [
+      { id: 'anthropic', label: 'Claude account', type: 'oauth-anthropic', baseUrl: '', models: ['claude-opus-4-5'] },
+      { id: 'proxy', label: 'Proxy', type: 'openai', baseUrl: 'https://proxy.example.test/v1', models: ['claude-opus-4-5'], apiKey: 'k' },
+    ] } });
+    const noAccounts = { get: () => undefined } as never;
+    // The proxy serving the same model id must survive — it is a different route with its own key.
+    expect(brainConfigFromElowen(config, noAccounts)?.providers.map((p) => p.id)).toEqual(['proxy']);
+  });
+
+  // The entry is the carrier of the account's model selection, so it must NOT be pruned from storage —
+  // reconnecting has to bring the same models back.
+  it('restores the same oauth entry once the account reconnects', () => {
+    const config = new ConfigStore(openDb(':memory:'));
+    config.update({ brain: { providers: [
+      { id: 'anthropic', label: 'Claude account', type: 'oauth-anthropic', baseUrl: '', models: ['claude-opus-4-5'] },
+    ] } });
+    expect(brainConfigFromElowen(config, { get: () => undefined } as never)).toBeNull(); // disconnected
+    const reconnected = { get: (p: string) => (p === 'anthropic' ? { type: 'oauth' } : undefined) } as never;
+    expect(brainConfigFromElowen(config, reconnected)?.providers.map((p) => p.models)).toEqual([['claude-opus-4-5']]);
+  });
+
   it('dedicated brain.providers win over the relay fallback', () => {
     const config = new ConfigStore(openDb(':memory:'));
     config.update({
