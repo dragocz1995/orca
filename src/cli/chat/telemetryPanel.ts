@@ -2,7 +2,7 @@ import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import type { Component } from '@earendil-works/pi-tui';
 import { MASCOT_ART } from './mascot.js';
 import { FLOAT_BAND } from './mascotFloat.js';
-import { ProcessPanel, SubagentPanel, WorkflowPanel } from './components.js';
+import { ProcessPanel, SubagentPanel, WorkflowPanel, ruledHeader } from './components.js';
 import type { SubagentPanelEntry } from './components.js';
 import type { WorkflowState } from '../../brain/transcript.js';
 import { chatTheme, color, paintRow } from './theme.js';
@@ -153,7 +153,7 @@ export class TelemetryPanel implements Component {
       {
         id: 'context', minimumRows: 3,
         rows: [
-          `  ${color.bold(color.text('Context'))}`,
+          ruledHeader(`${color.faint('─')} ${color.bold(color.text('Context'))}`, width),
           `  ${color.text(tokens)} ${color.faint('tokens')} ${color.faint(`· ${pct}`)}${usage ? ` ${color.faint(`· $${usage.cost.toFixed(2)}`)}` : ''}`,
           `${' '.repeat(PANEL_BAR_MARGIN)}${this.contextBar(usage?.percent ?? 0, width)}`,
         ],
@@ -179,14 +179,14 @@ export class TelemetryPanel implements Component {
     sections.push({
       id: 'project', minimumRows: 3,
       rows: [
-        `  ${color.bold(color.text('Project'))}`,
+        ruledHeader(`${color.faint('─')} ${color.bold(color.text('Project'))}`, width),
         `  ${color.text(truncateToWidth(inlineText(st.cwd), Math.max(1, width - 4), '…'))}`,
         `  ${color.faint('branch')} ${color.accent(inlineText(st.branch || 'unknown'))}`,
       ],
     });
     const mcpRows = this.mcpRows(st.mcp, width);
     if (mcpRows.length > 0) sections.push({ id: 'mcp', rows: mcpRows, minimumRows: 1 });
-    const lspRows = this.lspRows(st.lspEnabled);
+    const lspRows = this.lspRows(st.lspEnabled, width);
     if (lspRows.length > 0) sections.push({ id: 'lsp', rows: lspRows, minimumRows: lspRows.length });
     return sections;
   }
@@ -271,7 +271,7 @@ export class TelemetryPanel implements Component {
   private rateLimitRows(limits: BrainRateLimits | null, width: number): string[] {
     if (!limits || limits.windows.length === 0) return [];
     const meta = [limits.planType, limits.stale ? 'stale' : ''].filter(Boolean).map((value) => inlineText(String(value))).join(' · ');
-    const rows = [`  ${color.bold(color.text('Limits'))}${meta ? ` ${color.faint(meta)}` : ''}`];
+    const rows = [ruledHeader(`${color.faint('─')} ${color.bold(color.text('Limits'))}${meta ? ` ${color.faint(meta)}` : ''}`, width)];
     for (const window of limits.windows) rows.push(this.rateLimitWindowRow(window, width));
     return rows;
   }
@@ -281,7 +281,7 @@ export class TelemetryPanel implements Component {
     const budget = goal.turn_budget > 0 ? `${goal.turns_used}/${goal.turn_budget} turns` : `${goal.turns_used} turns`;
     const title = truncateToWidth(inlineText(goal.goal), Math.max(1, width - 4), '…');
     const rows = [
-      `  ${color.bold(color.text('Goal'))} ${color.faint(budget)}`,
+      ruledHeader(`${color.faint('─')} ${color.bold(color.text('Goal'))} ${color.faint(budget)}`, width),
       `  ${color.accent('◆')} ${color.text('Active')} ${color.faint(`· ${formatDuration(goalElapsedSeconds(goal))}`)}`,
     ];
     if (title) rows.push(`  ${color.dim(title)}`);
@@ -343,7 +343,7 @@ export class TelemetryPanel implements Component {
     if (!mcp) return [];
     const connected = mcp.filter((s) => s.status === 'connected');
     if (connected.length === 0) return [];
-    const rows = [`  ${color.bold(color.text('MCP'))} ${color.faint(`${connected.length}/${mcp.length} active`)}`];
+    const rows = [ruledHeader(`${color.faint('─')} ${color.bold(color.text('MCP'))} ${color.faint(`${connected.length}/${mcp.length} active`)}`, width)];
     for (const server of connected.slice(0, MCP_NAMES_SHOWN)) {
       rows.push(`  ${color.success('●')} ${color.text(truncateToWidth(inlineText(server.name), Math.max(1, width - 6), '…'))}`);
     }
@@ -351,10 +351,10 @@ export class TelemetryPanel implements Component {
     return rows;
   }
 
-  private lspRows(lspEnabled: boolean | null): string[] {
+  private lspRows(lspEnabled: boolean | null, width: number): string[] {
     if (lspEnabled == null) return [];
     return [
-      `  ${color.bold(color.text('LSP'))}`,
+      ruledHeader(`${color.faint('─')} ${color.bold(color.text('LSP'))}`, width),
       `  ${lspEnabled ? color.success('●') : color.faint('○')} ${color.text(lspEnabled ? 'Active' : 'Inactive')} ${color.faint('· /lsp toggles')}`,
     ];
   }

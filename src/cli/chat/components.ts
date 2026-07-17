@@ -34,6 +34,15 @@ const GREENC = color.success;
 const inlineText = terminalInlineText;
 const TODO_PREVIEW_ITEMS = 4;
 
+/** A rail section header with a faint rule filling the row behind the (pre-styled) content. The rule
+ *  lives INSIDE the header row, so visually separating sections costs no extra height and row-based
+ *  hit-testing keeps its current offsets. Over-wide content truncates exactly as before. */
+export function ruledHeader(content: string, width: number): string {
+  const fill = width - visibleWidth(content) - 1;
+  if (fill <= 0) return truncateToWidth(content, Math.max(1, width), '…');
+  return `${content} ${FAINTC('─'.repeat(fill))}`;
+}
+
 /** Pick a useful compact Todo snapshot instead of blindly showing the first rows forever.
  *  The preview combines recent progress with the work that matters next, then restores source order
  *  so an interleaved checklist still reads naturally. An active item is always preferred over a
@@ -216,8 +225,8 @@ export class SubagentPanel implements Component {
     const range = this.canScroll()
       ? `  ${this.scrollOffset + 1}–${Math.min(this.entries.length, this.scrollOffset + capacity)}/${this.entries.length} ↕`
       : `  ${this.entries.length}`;
-    const header = `  ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Sub-agents'))}${FAINTC(range)} ${FAINTC('click')}`;
-    const lines: string[] = [truncateToWidth(header, Math.max(1, width), '…')];
+    const header = `${FAINTC('─')} ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Sub-agents'))}${FAINTC(range)} ${FAINTC('click')}`;
+    const lines: string[] = [ruledHeader(header, Math.max(1, width))];
     if (this.collapsed) return lines;
     const shownEntries = this.entries.slice(this.scrollOffset, this.scrollOffset + capacity);
     for (const e of shownEntries) {
@@ -304,8 +313,8 @@ export class WorkflowPanel implements Component {
     const range = this.canScroll()
       ? `  ${this.scrollOffset + 1}–${Math.min(this.entries.length, this.scrollOffset + capacity)}/${this.entries.length} ↕`
       : `  ${this.entries.length}`;
-    const header = `  ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Workflow'))}${FAINTC(range)} ${FAINTC('click')}`;
-    const lines: string[] = [truncateToWidth(header, Math.max(1, width), '…')];
+    const header = `${FAINTC('─')} ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Workflow'))}${FAINTC(range)} ${FAINTC('click')}`;
+    const lines: string[] = [ruledHeader(header, Math.max(1, width))];
     if (this.collapsed) return lines;
     const shownEntries = this.entries.slice(this.scrollOffset, this.scrollOffset + capacity);
     for (const w of shownEntries) {
@@ -359,7 +368,7 @@ export class ProcessPanel implements Component {
   render(width = 80, now = Date.now()): string[] {
     this.killZones = new Map();
     if (this.entries.length === 0 || this.maxRows <= 0) return [];
-    const lines = [`  ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Processes'))}${FAINTC(`  ${this.entries.length} running`)} ${FAINTC('click ✕')}`];
+    const lines = [ruledHeader(`${FAINTC('─')} ${FAINTC(this.collapsed ? '▸' : '▾')} ${bold(WHITE('Processes'))}${FAINTC(`  ${this.entries.length} running`)} ${FAINTC('click ✕')}`, Math.max(1, width))];
     if (this.collapsed) return lines;
     const room = Math.max(0, this.maxRows - 1);
     const needsSummary = this.entries.length > room;
