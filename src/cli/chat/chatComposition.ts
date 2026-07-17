@@ -3,6 +3,7 @@ import type { Component, MarkdownTheme, TUI } from '@earendil-works/pi-tui';
 import { color } from './theme.js';
 import { StatusBar, CardPanel, SubagentPanel, spinnerFrame } from './components.js';
 import type { SubagentPanelEntry } from './components.js';
+import type { BrainStatus } from './brainClient.js';
 import type { WorkflowState } from '../../brain/transcript.js';
 import { openWorkflowModal as showWorkflowModal } from './workflowModal.js';
 import { activeMention, CLIPBOARD_MENTION, imageMimeFor, rankMentionFiles, bumpMentionFrecency, mentionInsertText } from './mentions.js';
@@ -401,11 +402,17 @@ export function createChatComposition(
     chatWidth,
   );
   const activeViewport = (): ChatViewport => rt.childView ? (childViewport ?? parentViewport) : parentViewport;
+  /** The context/cost of whichever agent the user is looking at: the open sub-agent's own numbers, else the
+   *  parent's. Deliberately a ternary rather than `?? rt.usage` — a null child usage means "this child has
+   *  reported nothing yet", and falling back would paint the PARENT's context and cost under a child's
+   *  transcript, which is the exact bug this fixes. Null renders as `—`, which the panel already handles. */
+  const focusedUsage = (): BrainStatus['usage'] => rt.childView ? rt.childView.usage : rt.usage;
   let currentRunSeconds = 0;
   let currentAgents: readonly SubagentPanelEntry[] = [];
   let currentWorkflows: readonly WorkflowState[] = [];
   telemetry = new TelemetryPanel(() => ({
-    usage: rt.usage,
+    usage: focusedUsage(),
+    focusedSubagent: rt.childView?.sessionId ?? null,
     cwd: cwdLabel,
     branch: branchLabel,
     mcp: rt.mcpList,
@@ -572,7 +579,7 @@ export function createChatComposition(
     bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now(), rt.queued.length > 0, agents.some((agent) => agent.status === 'running' && agent.background !== true))}`)
       + (footerState === 'idle' && shellContext.pending ? `   ${color.warning('· ! output → next message')}` : ''));
     const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
-    const line = statusline(rt.lineCfg ? { ...rt.lineCfg, showModel: false } : null, rt.usage, rt.modelName);
+    const line = statusline(rt.lineCfg ? { ...rt.lineCfg, showModel: false } : null, focusedUsage(), rt.modelName);
     const activeGoal = goalMeta(rt.goal);
     const metaLeft = modelMetaLine(
       rt.workMode,
@@ -593,6 +600,7 @@ export function createChatComposition(
     // making background work disappear entirely while still preventing duplicates on wide layouts.
     cardPanel.set(rt.cards.filter((c) => c.id !== 'bg-processes' || !panelVisible()));
     subPanel.set(panelAvailable() ? [] : agents);
+    subPanel.setSelected(rt.childView?.sessionId ?? null);
     // Pending mid-turn queue strip above the composer (with the remove-last keybind hint when bound).
     const removeChord = keymap.chordLabel('queue_remove');
     queuedMessages.set(rt.queued, rt.queued.length && removeChord ? `${removeChord} removes the last queued message` : null);

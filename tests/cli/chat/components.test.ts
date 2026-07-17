@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { initTheme } from '@earendil-works/pi-coding-agent';
 import { UserBlock, StatusBar, CardPanel, SubagentPanel, ProcessPanel, QueuedMessages, ApprovalDock, diffBlock, framedDiffBlock, cardBlock, toolOutputBlock } from '../../../src/cli/chat/components.js';
+import { chatTheme } from '../../../src/cli/chat/theme.js';
 
 const strip = (lines: string[]): string[] => lines.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''));
 
@@ -351,6 +352,32 @@ describe('SubagentPanel', () => {
     expect(plain).toContain('✗');
     expect(p.targetAt(2)).toBe('done');
     expect(p.targetAt(3)).toBe('error');
+  });
+
+  it('highlights the focused agent and leaves the rest plain, without moving the click targets', () => {
+    const p = new SubagentPanel();
+    const other = { ...running, sessionId: 'brain-ch-subagent-b', task: 'audit the store layer' };
+    p.set([running, other]);
+    const selectedBg = chatTheme().selectedBg;
+
+    const unselected = p.render(80);
+    expect(unselected[1]).not.toContain(selectedBg);
+    expect(unselected[2]).not.toContain(selectedBg);
+
+    p.setSelected('brain-ch-subagent-a');
+    const rendered = p.render(80);
+    expect(rendered[1]).toContain(selectedBg);
+    expect(rendered[2]).not.toContain(selectedBg);
+    // The highlight must survive the row's own content: text and glyph intact, geometry unchanged.
+    const plain = rendered[1]!.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toContain('research the config layer');
+    expect(plain).toContain('●');
+    expect(visibleWidth(rendered[1]!)).toBe(visibleWidth(rendered[2]!) + 2);
+    expect(p.targetAt(1)).toBe('brain-ch-subagent-a');
+    expect(p.targetAt(2)).toBe('brain-ch-subagent-b');
+
+    p.setSelected(null);
+    expect(p.render(80)[1]).not.toContain(selectedBg);
   });
 
   it('lists running agents with task + live counters, and maps rows to their session', () => {

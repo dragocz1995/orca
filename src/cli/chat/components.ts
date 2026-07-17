@@ -180,11 +180,14 @@ export class SubagentPanel implements Component {
   private scrollOffset = 0;
   /** Row index (0-based within this panel's output) → the sub-agent session that row opens. */
   private rowTargets = new Map<number, string>();
+  /** The sub-agent the user is currently switched into, or null while the parent is focused. */
+  private selected: string | null = null;
   invalidate(): void { /* re-rendered on the next frame */ }
   set(entries: readonly SubagentPanelEntry[]): void {
     this.entries = entries.filter((e) => e.status === 'running' || e.resultDelivery === 'pending');
     this.clampScroll();
   }
+  setSelected(sessionId: string | null): void { this.selected = sessionId; }
   setMaxRows(rows: number): void {
     this.maxRows = Math.max(0, Math.floor(rows));
     this.clampScroll();
@@ -214,15 +217,23 @@ export class SubagentPanel implements Component {
     if (this.collapsed) return lines;
     const shownEntries = this.entries.slice(this.scrollOffset, this.scrollOffset + capacity);
     for (const e of shownEntries) {
+      // Built plain first, then coloured — geometry is measured on the plain strings (identical, since
+      // visibleWidth strips ANSI) and the selected row MUST receive text with no escapes of its own: SGR
+      // has no stack, so an embedded colour would end the highlight at the first glyph.
       const meta = [e.model, formatDuration(e.seconds), e.tokens ? `${formatK(e.tokens)} tok` : '']
         .filter(Boolean).map((value) => inlineText(String(value))).join(' · ');
-      const metaText = FAINTC(truncateToWidth(meta, Math.max(10, Math.floor(width * 0.5)), '…'));
-      const task = DIM(truncateToWidth(inlineText(e.task), Math.max(10, width - visibleWidth(metaText) - 12), '…'));
-      const icon = e.status === 'running' ? color.warning('●') : e.status === 'done' ? color.success('✓') : color.error('✗');
-      const row = `    ${icon} ${task} ${FAINTC('click')}`;
-      const gap = Math.max(1, width - visibleWidth(row) - visibleWidth(metaText) - 2);
+      const metaPlain = truncateToWidth(meta, Math.max(10, Math.floor(width * 0.5)), '…');
+      const taskPlain = truncateToWidth(inlineText(e.task), Math.max(10, width - visibleWidth(metaPlain) - 12), '…');
+      const iconPlain = e.status === 'running' ? '●' : e.status === 'done' ? '✓' : '✗';
+      const rowPlain = `    ${iconPlain} ${taskPlain} click`;
+      const gap = Math.max(1, width - visibleWidth(rowPlain) - visibleWidth(metaPlain) - 2);
       this.rowTargets.set(lines.length, e.sessionId);
-      lines.push(`${row}${' '.repeat(gap)}${metaText}`);
+      if (e.sessionId === this.selected) {
+        lines.push(color.selected(padAnsi(`${rowPlain}${' '.repeat(gap)}${metaPlain}`, width)));
+        continue;
+      }
+      const icon = e.status === 'running' ? color.warning('●') : e.status === 'done' ? color.success('✓') : color.error('✗');
+      lines.push(`    ${icon} ${DIM(taskPlain)} ${FAINTC('click')}${' '.repeat(gap)}${FAINTC(metaPlain)}`);
     }
     return lines;
   }

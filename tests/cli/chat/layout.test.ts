@@ -552,6 +552,17 @@ describe('chat layout components', () => {
     }
   });
 
+  it('reports no context or cost at all for a focused agent that has reported none', () => {
+    // A sub-agent the user just switched into has no numbers yet. Showing a dash is the honest answer;
+    // falling back to the parent's would attribute one conversation's context and spend to another.
+    const panel = new TelemetryPanel(() => telemetryState({ usage: null }));
+    const plain = panel.render(46).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toContain('Context');
+    expect(plain).toContain('—');
+    expect(plain).not.toContain('$');
+    expect(plain).not.toContain('█');
+  });
+
   it('shows compact 5h and weekly subscription meters, and hides them when unavailable', () => {
     const hidden = new TelemetryPanel(() => telemetryState());
     expect(hidden.render(46).join('\n')).not.toContain('Limits');

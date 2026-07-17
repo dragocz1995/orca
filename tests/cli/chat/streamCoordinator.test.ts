@@ -310,6 +310,75 @@ describe('StreamCoordinator — idle rollover', () => {
   });
 });
 
+describe('StreamCoordinator — focused sub-agent usage', () => {
+  const usage = { tokens: 5_000, contextWindow: 200_000, percent: 2.5, totalTokens: 9_000, cost: 0.42 };
+
+  type Lane = (frame: BrainEvent | Record<string, unknown>) => void;
+
+  /** Fake client whose child lane hands back its own frame callback, keyed by session. */
+  function childLaneClient(lanes: Map<string, Lane>): BrainClient {
+    return {
+      stream: (cb: Lane, _s?: AbortSignal, _r?: number, _x?: unknown, session?: string) => {
+        if (session) lanes.set(session, cb);
+        return Promise.resolve();
+      },
+      history: () => Promise.resolve([]),
+      processes: () => Promise.resolve([]),
+      rebind: () => {},
+    } as unknown as BrainClient;
+  }
+
+  function snapshot(events: BrainEvent[]): Record<string, unknown> {
+    return { type: 'snapshot', cursor: 0, history: [], events, truncated: false };
+  }
+
+  function coordinator(rt: ChatState, lanes: Map<string, Lane>): StreamCoordinator {
+    const flows = { launchAsk: () => {}, openPlanDecision: () => {} } as unknown as Flows;
+    return new StreamCoordinator(
+      rt, { client: childLaneClient(lanes) }, actions(), flows,
+      new SnapshotHydrator<BrainEvent>(), new HydrationNoticeOwner(),
+    );
+  }
+
+  it('takes the child\'s context and cost from its own lane and leaves the parent\'s untouched', async () => {
+    const lanes = new Map<string, Lane>();
+    const rt = state();
+    rt.usage = { tokens: 1, contextWindow: 2, percent: 3, totalTokens: 4, cost: 5 };
+    const stream = coordinator(rt, lanes);
+
+    void stream.openSubagent('brain-ch-a');
+    await Promise.resolve();
+    // Opening replays the child's snapshot: its numbers are known without any extra fetch — and no fetch
+    // is possible, since /brain/status rejects a non-user session id.
+    lanes.get('brain-ch-a')!(snapshot([{ type: 'step', step: 1, maxSteps: 0, usage }]));
+    expect(rt.childView?.usage).toEqual(usage);
+
+    // A later live frame keeps it current.
+    const moved = { ...usage, tokens: 7_000, cost: 0.99 };
+    lanes.get('brain-ch-a')!({ type: 'idle', model: 'm', usage: moved });
+    expect(rt.childView?.usage).toEqual(moved);
+
+    // The parent's own numbers describe a different conversation — they must never move.
+    expect(rt.usage).toEqual({ tokens: 1, contextWindow: 2, percent: 3, totalTokens: 4, cost: 5 });
+  });
+
+  it('starts a newly focused child with no numbers rather than inheriting the previous one\'s', async () => {
+    const lanes = new Map<string, Lane>();
+    const rt = state();
+    const stream = coordinator(rt, lanes);
+
+    void stream.openSubagent('brain-ch-a');
+    await Promise.resolve();
+    lanes.get('brain-ch-a')!(snapshot([{ type: 'step', step: 1, maxSteps: 0, usage }]));
+    expect(rt.childView?.usage).toEqual(usage);
+
+    void stream.openSubagent('brain-ch-b');
+    await Promise.resolve();
+    expect(rt.childView?.sessionId).toBe('brain-ch-b');
+    expect(rt.childView?.usage).toBeNull();
+  });
+});
+
 describe('StreamCoordinator — bounded hydration lifecycle', () => {
   const runtime = (): ChatState => state([], {
     conversationTitle: 'parent', workMode: 'build', queued: [], processes: [],

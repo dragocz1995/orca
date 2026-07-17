@@ -250,7 +250,7 @@ export class StreamCoordinator implements StreamCoordinatorPort {
       const ac = new AbortController();
       rt.childAc = ac;
       const transcript = new TranscriptModel();
-      rt.childView = { sessionId, transcript, processes: [], loading: true };
+      rt.childView = { sessionId, transcript, processes: [], loading: true, usage: null };
       render('child:opening');
       let processRevision = 0;
 
@@ -294,7 +294,14 @@ export class StreamCoordinator implements StreamCoordinatorPort {
         }
         const repairAtTerminal = truncatedSnapshotPending && (event.type === 'idle' || event.type === 'error');
         if (event.type === 'process') { processRevision += 1; rt.childView.processes = event.processes; }
-        else rt.childView.transcript.apply(event);
+        else {
+          // The child's lane already carries its own context/cost on every step and idle — the parent lane
+          // harvests the identical field. Taking it here is what lets the panel follow the focused agent;
+          // the child's snapshot replays through this same fold, so opening one needs no extra fetch (and
+          // no fetch is possible: /brain/status rejects a non-user session id).
+          if ((event.type === 'idle' || event.type === 'step') && event.usage) rt.childView.usage = event.usage;
+          rt.childView.transcript.apply(event);
+        }
         render(`child:${event.type}`);
         if (repairAtTerminal) {
           truncatedSnapshotPending = false;

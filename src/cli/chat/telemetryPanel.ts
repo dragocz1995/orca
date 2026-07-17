@@ -25,6 +25,9 @@ export interface TelemetryState {
   processes?: ProcessInfo[];
   /** Running delegated sessions. Settled agents stay in the transcript; only live work appears here. */
   subagents?: readonly SubagentPanelEntry[];
+  /** The sub-agent the user is switched into, so the rail says WHICH agent the Context section describes.
+   *  Null on the parent. Optional: the panel renders identically without it. */
+  focusedSubagent?: string | null;
   /** Running sub-agent workflows (DAGs). Each row opens the navigable workflow modal. */
   workflows?: readonly WorkflowState[];
   /** OpenAI OAuth subscription usage. Null on other providers/accounts, which hides the whole section. */
@@ -140,6 +143,7 @@ export class TelemetryPanel implements Component {
     this.processPanel.setMaxRows(PROCESS_ROWS_SHOWN);
     const processRows = this.processPanel.render(width);
     this.subagentPanel.set(st.subagents ?? []);
+    this.subagentPanel.setSelected(st.focusedSubagent ?? null);
     this.subagentPanel.setMaxRows(SUBAGENT_ROWS_SHOWN);
     const subagentRows = this.subagentPanel.render(width);
     this.workflowPanel.set(st.workflows ?? []);
