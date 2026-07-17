@@ -162,10 +162,30 @@ const REGISTRY_TOOL_RENAMES: Readonly<Record<string, string>> = {
   // mem0 — namespaced, not Memory*, see above
   'add_memory':     'Mem0Add',
   'search_memory':  'Mem0Search',
-  // image-gen / image-edit
-  'generate_image': 'ImageGenerate',
-  'edit_image':     'ImageEdit',
+  // image-gen / image-edit. Verb-first, because each is a plugin with ONE tool rather than a service with
+  // a family of them — the same shape as `create_skill` → CreateSkill and `scan_code` → ScanCode. A family
+  // is what earns a prefix (CronAdd, MemorySearch, and Mem0Search just above).
+  'generate_image': 'GenerateImage',
+  'edit_image':     'EditImage',
 };
 
 /** Remap one stored registry-plugin tool name. Not-renamed → unchanged. */
 export const renameRegistryTool = (name: string): string => REGISTRY_TOOL_RENAMES[name] ?? name;
+
+/**
+ * Repair for the two image tools, which 0.27.5 renamed prefix-first before the plugins themselves shipped
+ * verb-first. `generate_image` became `ImageGenerate` for the short while 0.27.5 was the published release;
+ * the map above now says `GenerateImage`, but v3 had already marked itself done for anyone who ran it, and
+ * a corrected map is not retroactive. The tools never answered to the prefix-first names — no plugin ever
+ * registered them — so a rule left on one matches nothing at all, and a DENY that matches nothing is a
+ * tool switched back on.
+ *
+ * Only these two. The rest of v3's map (todo, web, mem0) was right the first time and is not re-applied.
+ */
+const IMAGE_TOOL_REPAIR: Readonly<Record<string, string>> = {
+  'ImageGenerate': 'GenerateImage',
+  'ImageEdit':     'EditImage',
+};
+
+/** Remap one stored image tool name off the short-lived 0.27.5 spelling. Anything else → unchanged. */
+export const repairImageTool = (name: string): string => IMAGE_TOOL_REPAIR[name] ?? name;

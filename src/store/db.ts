@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { renameRegistryTool, renameTool } from './toolRenames.js';
+import { renameRegistryTool, renameTool, repairImageTool } from './toolRenames.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -133,6 +133,7 @@ export function openDb(path: string): Db {
   migrateToolNames(db);
   migrateMcpToolNames(db);
   migrateRegistryToolNames(db);
+  repairImageToolNames(db);
   return db;
 }
 
@@ -286,6 +287,15 @@ function migrateMcpToolNames(db: Db): void {
  *  daemon cannot rename a tool inside a plugin it does not ship. */
 function migrateRegistryToolNames(db: Db): void {
   runOnce(db, 3, () => renameStoredToolNames(db, renameRegistryTool));
+}
+
+/** v4 — repair the two image tools 0.27.5 spelled prefix-first (see IMAGE_TOOL_REPAIR).
+ *
+ *  A database that skipped 0.27.5 gets the corrected names from v3 and finds nothing to do here; one that
+ *  ran it is carrying names no plugin has ever registered, and only this can reach them — v3 is marked
+ *  done and will not re-read its map. */
+function repairImageToolNames(db: Db): void {
+  runOnce(db, 4, () => renameStoredToolNames(db, repairImageTool));
 }
 
 /** Apply `mutate` to a parsed JSON object and re-serialize. A blob that is corrupt or not an object is

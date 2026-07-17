@@ -163,7 +163,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     mid.close();
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools).toBe('run_command');
-    expect(db.pragma('user_version', { simple: true })).toBe(3); // every one-shot migration is done
+    expect(db.pragma('user_version', { simple: true })).toBe(4); // every one-shot migration is done
   });
 
   it("rewrites a platform role's tool allow-list, keeping the unrestricted markers intact", () => {
@@ -204,7 +204,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('mcp__chrome_devtools__click,mcp__chrome_devtools__performance_analyze_insight,mcp_ghost_thing,Bash');
-    expect(db.pragma('user_version', { simple: true })).toBe(3);
+    expect(db.pragma('user_version', { simple: true })).toBe(4);
   });
 
   it('prefers the longest matching server, so one name cannot be split by another\'s prefix', () => {
@@ -228,7 +228,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('mcp_chrome_devtools_click');
-    expect(db.pragma('user_version', { simple: true })).toBe(3); // still marked done — there was nothing to do
+    expect(db.pragma('user_version', { simple: true })).toBe(4); // still marked done — there was nothing to do
   });
 
   it('leaves a corrupt permissions blob exactly as found', () => {
@@ -275,7 +275,7 @@ describe('openDb — registry plugin tool rename (v3)', () => {
     });
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
-      .toBe('TodoWrite,WebFetch,ImageGenerate,Bash,sarah_hair_booking');
+      .toBe('TodoWrite,WebFetch,GenerateImage,Bash,sarah_hair_booking');
   });
 
   it('namespaces mem0 rather than colliding with the brain\'s own memory tools', () => {
@@ -313,6 +313,30 @@ describe('openDb — registry plugin tool rename (v3)', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('Bash,todo_write');
-    expect(db.pragma('user_version', { simple: true })).toBe(3);
+    expect(db.pragma('user_version', { simple: true })).toBe(4);
+  });
+
+  it('names the image tools verb-first, the way a one-tool plugin is named', () => {
+    // `create_skill` → CreateSkill, `scan_code` → ScanCode. A prefix is what a FAMILY earns (CronAdd,
+    // Mem0Search); image-gen and image-edit are one tool each.
+    const path = seedPreRegistryRename((db) => {
+      db.prepare("INSERT INTO users (id, username, password_hash, disabled_tools) VALUES (1, 'a', 'h', 'generate_image,edit_image')").run();
+    });
+    const db = openDb(path);
+    expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
+      .toBe('GenerateImage,EditImage');
+  });
+
+  it('repairs a rule left on 0.27.5\'s short-lived prefix-first image names', () => {
+    // 0.27.5 shipped `generate_image` → ImageGenerate, a name no plugin ever registered. v3 is marked done
+    // for anyone who ran it, so only v4 can reach those rules — and a rule matching nothing is a dead DENY.
+    const path = seedPreRegistryRename((db) => {
+      db.prepare("INSERT INTO users (id, username, password_hash, disabled_tools) VALUES (1, 'a', 'h', 'ImageGenerate,ImageEdit,Bash')").run();
+      db.pragma('user_version = 3'); // v3 already ran, with the wrong map
+    });
+    const db = openDb(path);
+    expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
+      .toBe('GenerateImage,EditImage,Bash');
+    expect(db.pragma('user_version', { simple: true })).toBe(4);
   });
 });
