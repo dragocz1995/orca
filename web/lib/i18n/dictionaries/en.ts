@@ -522,6 +522,11 @@ export const en = {
     confirmDeleteDesc: 'Its whole conversation history will be permanently removed. This cannot be undone.',
     confirmDeleteAllTitle: 'Delete every session?',
     confirmDeleteAllDesc: 'Every conversation — chat, CLI and channels — will be permanently removed. This cannot be undone.',
+    retentionLabel: 'Automatic conversation cleanup',
+    retentionHint: 'Hourly, removes old idle conversations. Running, active and channel sessions are never deleted.',
+    retentionOlderThan: 'Older than',
+    retentionDays: 'days',
+    retentionSaveError: 'Could not save the cleanup setting',
   },
   kanban: {
     board: 'Board',

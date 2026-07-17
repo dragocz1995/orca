@@ -522,6 +522,11 @@ export const cs = {
     confirmDeleteDesc: 'Celá historie konverzace bude trvale odstraněna. Tuto akci nelze vrátit.',
     confirmDeleteAllTitle: 'Smazat všechny relace?',
     confirmDeleteAllDesc: 'Všechny konverzace — chat, CLI i kanály — budou trvale odstraněny. Tuto akci nelze vrátit.',
+    retentionLabel: 'Automatický úklid konverzací',
+    retentionHint: 'Každou hodinu odstraní staré nečinné konverzace. Běžící, aktivní ani kanálové relace se nemažou.',
+    retentionOlderThan: 'Starší než',
+    retentionDays: 'dní',
+    retentionSaveError: 'Nastavení úklidu se nepodařilo uložit',
   },
   kanban: {
     board: 'Deska',

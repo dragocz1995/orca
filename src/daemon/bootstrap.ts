@@ -839,6 +839,20 @@ export function buildApp(opts: BuildOpts) {
     const purgeEvents = () => { try { events.purgeOlderThan(); } catch (e) { log.error('event purge failed', e); } };
     purgeEvents();
     const stopEventPurge = clock.setInterval(purgeEvents, 3_600_000);
+    // Optional session retention (admin, off by default): hourly, delete each user's own idle
+    // conversations older than the configured age. Skips running/active/has-running-child sessions and the
+    // non-user channel/task shells (enforced in BrainService + the store query). No-op while disabled.
+    const purgeStaleSessions = () => {
+      const retention = config.get().sessionRetention;
+      if (!retention.enabled || !brain || !users) return;
+      try {
+        let removed = 0;
+        for (const user of users.list()) removed += brain.purgeStaleSessionsForUser(user.id, retention.days);
+        if (removed > 0) log.info(`session retention: removed ${removed} conversation(s) older than ${retention.days} days`);
+      } catch (e) { log.error('session retention sweep failed', e); }
+    };
+    purgeStaleSessions();
+    const stopSessionPurge = clock.setInterval(purgeStaleSessions, 3_600_000);
     // Sweep expired terminal-WS tickets so a burst of unredeemed tickets can't grow the map unbounded.
     const stopTicketSweep = clock.setInterval(() => tickets.sweep(clock.now()), 60_000);
     // PR feedback loop (no-op unless PR mode + open PRs): poll each open PR for fresh actionable review
@@ -880,7 +894,7 @@ export function buildApp(opts: BuildOpts) {
     const stopEmbedQueue = clock.setInterval(() => {
       void embedQueue.drain().catch((e) => log.error('embed queue drain failed', e));
     }, 30_000);
-    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopDecisionSweep(); stopTokenPurge(); stopEventPurge(); stopTicketSweep(); stopPrFeedback(); stopBrainWorkerWatchdog(); stopEmbedQueue(); };
+    return () => { stopDeriver(); stopOverseer(); stopScheduler(); stopJanitor(); stopStuck(); stopOverseerWatchdog(); stopDecisionSweep(); stopTokenPurge(); stopEventPurge(); stopSessionPurge(); stopTicketSweep(); stopPrFeedback(); stopBrainWorkerWatchdog(); stopEmbedQueue(); };
   };
   return { app, startLoops, tickets, tmux };
 }

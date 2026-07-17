@@ -698,6 +698,21 @@ export class BrainService {
     return n;
   }
 
+  /** Retention janitor: delete this user's own idle top-level conversations older than `days`. The store
+   *  query already excludes non-user shells, delegated children and unspoken rows; here we add the live
+   *  exclusions it cannot see — a running session, the user's active conversation, and any session whose
+   *  sub-agent is still running (deleting it would kill that child). Returns the count removed. */
+  purgeStaleSessionsForUser(userId: number, days: number): number {
+    const activeId = this.lifecycle.activeSessionId(userId);
+    let n = 0;
+    for (const id of this.d.store.staleConversationIds(userId, days)) {
+      if (id === activeId) continue;
+      if (this.sessions.has(id) || this.sessions.hasActiveChildren(id)) continue;
+      n += this.deleteManagedSession(userId, id);
+    }
+    return n;
+  }
+
   /** Start (or resume) a conversation — see ConversationLifecycle.start. */
   async start(userId: number, opts?: { provider?: string; model?: string; session?: string; fresh?: boolean; cwd?: string; clientId?: string; clientGeneration?: number }): Promise<{ sessionId: string }> {
     const started = await this.lifecycle.start(userId, opts);

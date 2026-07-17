@@ -405,6 +405,27 @@ export class BrainStore {
     return new Set(rows.map((row) => row.id));
   }
 
+  /** Ids of a user's own top-level conversations whose last activity is older than `days` — the
+   *  candidates for the retention janitor. The DB-derivable exclusions live HERE so they are applied
+   *  atomically and can never drift from the delete: a non-user session (channel/task shell), a delegated
+   *  child (`parent_session_id` set — deleting one out from under its parent tree is wrong), and an
+   *  unspoken empty shell are all filtered out. The live-state exclusions (running, active, running
+   *  children) cannot be seen from SQLite and are the caller's to apply before deleting. `days` is clamped
+   *  to a positive integer — it is interpolated into a SQLite date modifier, so it must never be a string. */
+  staleConversationIds(userId: number, days: number): string[] {
+    const d = Number.isFinite(days) && days >= 1 ? Math.floor(days) : 90;
+    const rows = this.db.prepare(
+      `SELECT s.id FROM brain_sessions s
+       WHERE s.user_id = ?
+         AND s.parent_session_id IS NULL
+         AND s.id NOT LIKE 'brain-ch-%'
+         AND s.id NOT LIKE 'brain-task-%'
+         AND s.updated_at < datetime('now', '-${d} days')
+         AND EXISTS (SELECT 1 FROM brain_messages m WHERE m.session_id = s.id)`
+    ).all(userId) as { id: string }[];
+    return rows.map((row) => row.id);
+  }
+
   /** Per-user overview stats for the users admin panel: total session count and the model used in the
    *  most sessions over the whole history (indexed on user_id). One count + one grouped query, no N+1.
    *  `topModel` is null when the user has no sessions with a recorded model. */

@@ -317,6 +317,26 @@ describe('BrainStore', () => {
     expect(store.getSession('a')?.work_dir).toBe('/repo/project');
   });
 
+  it('staleConversationIds returns only a user\'s own aged, spoken-in, top-level conversations', () => {
+    const spoke = (id: string) => store.appendMessage({ id: `${id}-m`, sessionId: id, parentId: null, role: 'user', content: { text: 'hi' } });
+    const age = (id: string) => db.prepare("UPDATE brain_sessions SET updated_at = datetime('now', '-90 days') WHERE id = ?").run(id);
+
+    store.createSession({ id: 'old-convo', userId: 7, model: 'm' }); spoke('old-convo'); age('old-convo');
+    store.createSession({ id: 'fresh-convo', userId: 7, model: 'm' }); spoke('fresh-convo'); // recent → kept
+    store.createSession({ id: 'old-unspoken', userId: 7, model: 'm' }); age('old-unspoken'); // empty shell → skip
+    store.createSession({ id: 'brain-ch-x', userId: 7, model: 'm' }); spoke('brain-ch-x'); age('brain-ch-x'); // channel → skip
+    store.createSession({ id: 'brain-task-y', userId: 7, model: 'm' }); spoke('brain-task-y'); age('brain-task-y'); // task → skip
+    store.createSession({ id: 'root', userId: 7, model: 'm' }); spoke('root'); age('root');
+    store.createSession({ id: 'delegated', userId: 7, model: 'm', parentSessionId: 'root' }); spoke('delegated'); age('delegated'); // child → skip
+    store.createSession({ id: 'other-user', userId: 9, model: 'm' }); spoke('other-user'); age('other-user'); // not this user → skip
+
+    expect(store.staleConversationIds(7, 30).sort()).toEqual(['old-convo', 'root']);
+    // A shorter horizon than the sessions' age still returns them; a longer one excludes everything.
+    expect(store.staleConversationIds(7, 365)).toEqual([]);
+    // Foreign user's own aged conversation is visible only under their id.
+    expect(store.staleConversationIds(9, 30)).toEqual(['other-user']);
+  });
+
   it('lastMessageAt returns the newest message timestamp, undefined for an empty session', () => {
     store.createSession({ id: 'a', userId: 1, model: 'm' });
     expect(store.lastMessageAt('a')).toBeUndefined();

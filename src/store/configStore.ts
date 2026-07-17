@@ -47,6 +47,11 @@ export interface ElowenConfig {
   providers: Providers;
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
+  /** Automatic cleanup of stale brain conversations. Off by default (opt-in): when on, an hourly janitor
+   *  deletes user conversations whose last activity is older than `days`. Never touches running sessions,
+   *  the active pointer, sessions with running children, delegated children, or the non-user channel/task
+   *  sessions — only a user's own idle conversations. */
+  sessionRetention: { enabled: boolean; days: number };
   /** When on, the hourly systemd timer (`elowen update --auto`) upgrades to the latest npm release and
    *  restarts the services — but only while no mission is running. Off by default (opt-in). */
   autoUpdate: boolean;
@@ -243,6 +248,7 @@ const DEFAULT_CONFIG: ElowenConfig = {
   providers: { ...DEFAULT_PROVIDERS },
   defaults: { exec: 'sonnet', autonomy: 'L3', maxSessions: 1 },
   security: { tokenTtlDays: 30 },
+  sessionRetention: { enabled: false, days: 90 },
   autoUpdate: false,
   lspEnabled: true,
   webPush: { publicKey: '', publicKeySet: false },
@@ -265,6 +271,7 @@ interface Stored {
   ghToken: string | null;
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
+  sessionRetention: { enabled: boolean; days: number };
   autoUpdate: boolean;
   lspEnabled: boolean;
   /** Persisted VAPID keypair; null until generated on first boot. Private key stays daemon-side. */
@@ -299,6 +306,7 @@ const defaultStored = (): Stored => ({
   ghToken: null,
   defaults: { ...DEFAULT_CONFIG.defaults },
   security: { ...DEFAULT_CONFIG.security },
+  sessionRetention: { ...DEFAULT_CONFIG.sessionRetention },
   autoUpdate: false,
   lspEnabled: true,
   webPush: null,
@@ -317,6 +325,7 @@ export interface ConfigPatch {
   providers?: Providers;
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
   security?: { tokenTtlDays?: number };
+  sessionRetention?: { enabled?: boolean; days?: number };
   autoUpdate?: boolean;
   lspEnabled?: boolean;
   plugins?: { enabled?: string[]; removed?: string[]; config?: Record<string, Record<string, unknown>> };
@@ -354,6 +363,10 @@ export class ConfigStore {
         ghToken: typeof p.ghToken === 'string' ? p.ghToken : null,
         defaults: { exec: p.defaults?.exec ?? d.defaults.exec, autonomy: p.defaults?.autonomy ?? d.defaults.autonomy, maxSessions: p.defaults?.maxSessions ?? d.defaults.maxSessions },
         security: { tokenTtlDays: p.security?.tokenTtlDays ?? d.security.tokenTtlDays },
+        sessionRetention: {
+          enabled: typeof p.sessionRetention?.enabled === 'boolean' ? p.sessionRetention.enabled : d.sessionRetention.enabled,
+          days: p.sessionRetention?.days ?? d.sessionRetention.days,
+        },
         autoUpdate: typeof p.autoUpdate === 'boolean' ? p.autoUpdate : d.autoUpdate,
         lspEnabled: typeof p.lspEnabled === 'boolean' ? p.lspEnabled : d.lspEnabled,
         // Both halves of the keypair must be non-empty strings, else treat as not-yet-generated.
@@ -408,6 +421,7 @@ export class ConfigStore {
       providers: s.providers,
       defaults: s.defaults,
       security: s.security,
+      sessionRetention: s.sessionRetention,
       autoUpdate: s.autoUpdate,
       lspEnabled: s.lspEnabled,
       // Only the public key is exposed; `publicKeySet` reflects whether a full keypair exists.
@@ -480,6 +494,11 @@ export class ConfigStore {
       defaults: { exec: defaultExec, autonomy: patch.defaults?.autonomy ?? cur.defaults.autonomy, maxSessions: patch.defaults?.maxSessions ?? cur.defaults.maxSessions },
       // Clamp to a sane positive integer — the value is interpolated into a SQL date modifier.
       security: { tokenTtlDays: clampTtlDays(patch.security?.tokenTtlDays, cur.security.tokenTtlDays) },
+      // `days` feeds the same kind of SQLite date modifier, so it takes the same positive-integer clamp.
+      sessionRetention: {
+        enabled: typeof patch.sessionRetention?.enabled === 'boolean' ? patch.sessionRetention.enabled : cur.sessionRetention.enabled,
+        days: clampTtlDays(patch.sessionRetention?.days, cur.sessionRetention.days),
+      },
       autoUpdate: patch.autoUpdate ?? cur.autoUpdate,
       lspEnabled: typeof patch.lspEnabled === 'boolean' ? patch.lspEnabled : cur.lspEnabled,
       webPush: cur.webPush, // VAPID keys are managed via setWebPushKeys, never through the config patch

@@ -39,6 +39,7 @@ export interface ElowenConfig {
   providers: Record<string, { bin: string; args: string; skipPermissions: boolean; resume: boolean }>;
   defaults: { exec: string; autonomy: string; maxSessions: number };
   security: { tokenTtlDays: number };
+  sessionRetention: { enabled: boolean; days: number };
   autoUpdate: boolean;
   plugins?: { enabled: string[]; removed?: string[] };
   brain?: { providers: BrainProvider[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number>; limits?: BrainLimits };
@@ -149,6 +150,7 @@ export interface ConfigPatch {
   providers?: Record<string, { bin: string; args: string }>;
   defaults?: { exec?: string; autonomy?: string; maxSessions?: number };
   security?: { tokenTtlDays?: number };
+  sessionRetention?: { enabled?: boolean; days?: number };
   autoUpdate?: boolean;
   /** Wholesale brain provider list; an entry may carry `apiKey` to (re)set that provider's secret. */
   brain?: { providers?: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]; agentName?: string; maxSteps?: number; modelContextWindows?: Record<string, number>; limits?: Partial<BrainLimits> };

@@ -114,6 +114,19 @@ describe('ConfigStore', () => {
     cfg.update({ security: { tokenTtlDays: 9.8 } });     // floored
     expect(cfg.get().security.tokenTtlDays).toBe(9);
   });
+  it('defaults sessionRetention to off with a 90-day horizon, toggles, and clamps days', () => {
+    expect(cfg.get().sessionRetention).toEqual({ enabled: false, days: 90 });
+    cfg.update({ sessionRetention: { enabled: true, days: 30 } });
+    expect(cfg.get().sessionRetention).toEqual({ enabled: true, days: 30 });
+    // An unrelated patch must not silently flip retention off or reset the horizon.
+    cfg.update({ autoUpdate: true });
+    expect(cfg.get().sessionRetention).toEqual({ enabled: true, days: 30 });
+    // days feeds a SQL date modifier → same positive-integer clamp as tokenTtlDays.
+    cfg.update({ sessionRetention: { days: 0 } });   // invalid → keep 30
+    expect(cfg.get().sessionRetention.days).toBe(30);
+    cfg.update({ sessionRetention: { days: 45.9 } }); // floored
+    expect(cfg.get().sessionRetention.days).toBe(45);
+  });
   it('defaults autoUpdate to off (opt-in) and toggles it', () => {
     expect(cfg.get().autoUpdate).toBe(false);
     cfg.update({ autoUpdate: true });
