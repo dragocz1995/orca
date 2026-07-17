@@ -163,7 +163,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     mid.close();
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools).toBe('run_command');
-    expect(db.pragma('user_version', { simple: true })).toBe(2); // every one-shot migration is done
+    expect(db.pragma('user_version', { simple: true })).toBe(3); // every one-shot migration is done
   });
 
   it("rewrites a platform role's tool allow-list, keeping the unrestricted markers intact", () => {
@@ -204,7 +204,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('mcp__chrome_devtools__click,mcp__chrome_devtools__performance_analyze_insight,mcp_ghost_thing,Bash');
-    expect(db.pragma('user_version', { simple: true })).toBe(2);
+    expect(db.pragma('user_version', { simple: true })).toBe(3);
   });
 
   it('prefers the longest matching server, so one name cannot be split by another\'s prefix', () => {
@@ -228,7 +228,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('mcp_chrome_devtools_click');
-    expect(db.pragma('user_version', { simple: true })).toBe(2); // still marked done — there was nothing to do
+    expect(db.pragma('user_version', { simple: true })).toBe(3); // still marked done — there was nothing to do
   });
 
   it('leaves a corrupt permissions blob exactly as found', () => {
@@ -250,5 +250,69 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     const deny = new Set(users.get(1)?.disabled_tools ?? []);
     expect(toolPermitted('Bash', { deny })).toBe(false);
     expect(toolPermitted('Read', { deny })).toBe(true);
+  });
+});
+
+describe('openDb — registry plugin tool rename (v3)', () => {
+  /** A DB whose rules predate the registry plugins' own TitleCase release. Rewound to 2, not 0: this is
+   *  the real starting point — v1 and v2 had already run and marked themselves done, which is the whole
+   *  reason these names could not ride along in v1's map. */
+  function seedPreRegistryRename(seed: (db: Database.Database) => void): string {
+    dir = mkdtempSync(join(tmpdir(), 'elowen-db-'));
+    const path = join(dir, 'old.db');
+    const db = openDb(path);
+    seed(db);
+    db.pragma('user_version = 2');
+    db.close();
+    return path;
+  }
+
+  it('rewrites a deny-list written against the registry plugins, leaving other names alone', () => {
+    const path = seedPreRegistryRename((db) => {
+      db.prepare("INSERT INTO users (id, username, password_hash, disabled_tools) VALUES (1, 'a', 'h', ?)")
+        // Registry tools, one built-in already migrated by v1, and one name we do not own.
+        .run('todo_write,web_fetch,generate_image,Bash,sarah_hair_booking');
+    });
+    const db = openDb(path);
+    expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
+      .toBe('TodoWrite,WebFetch,ImageGenerate,Bash,sarah_hair_booking');
+  });
+
+  it('namespaces mem0 rather than colliding with the brain\'s own memory tools', () => {
+    // MemorySearch/MemoryAdd already belong to the built-in memory toolset, which mem0 REPLACES. Renaming
+    // onto those names would point one rule at two different backends.
+    const path = seedPreRegistryRename((db) => {
+      db.prepare("INSERT INTO users (id, username, password_hash, disabled_tools) VALUES (1, 'a', 'h', 'search_memory,add_memory')").run();
+    });
+    const db = openDb(path);
+    const denied = (db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools;
+    expect(denied).toBe('Mem0Search,Mem0Add');
+    expect(denied).not.toContain('MemorySearch');
+  });
+
+  it('a migrated deny still denies, and the tool it names is the one the plugin now offers', () => {
+    const path = seedPreRegistryRename((db) => {
+      db.prepare("INSERT INTO users (id, username, password_hash, disabled_tools) VALUES (1, 'a', 'h', 'todo_write')").run();
+    });
+    const users = new UserStore(openDb(path));
+    const deny = new Set(users.get(1)?.disabled_tools ?? []);
+    expect(toolPermitted('TodoWrite', { deny })).toBe(false); // the name todo/0.5.0 registers
+    expect(toolPermitted('TodoRead', { deny })).toBe(true);
+  });
+
+  it('runs once, and leaves a database that never had these plugins untouched', () => {
+    const path = seedPreRegistryRename((db) => {
+      db.prepare("INSERT INTO users (id, username, password_hash, disabled_tools) VALUES (1, 'a', 'h', 'Bash')").run();
+    });
+    openDb(path).close();
+    // A later plugin claims the freed snake_case name and the user denies it. Re-running would rewrite
+    // their rule to TodoWrite and deny the wrong tool.
+    const mid = openDb(path);
+    mid.prepare("UPDATE users SET disabled_tools = 'Bash,todo_write' WHERE id = 1").run();
+    mid.close();
+    const db = openDb(path);
+    expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
+      .toBe('Bash,todo_write');
+    expect(db.pragma('user_version', { simple: true })).toBe(3);
   });
 });

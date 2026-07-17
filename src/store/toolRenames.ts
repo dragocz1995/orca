@@ -135,3 +135,37 @@ const TOOL_RENAMES: Readonly<Record<string, string>> = {
 
 /** Remap one stored tool name. Not-renamed → unchanged (see TOOL_RENAMES on why that is the right default). */
 export const renameTool = (name: string): string => TOOL_RENAMES[name] ?? name;
+
+/**
+ * The same rename for the tools that ship from the marketplace registry (todo, web, mem0, image-gen,
+ * image-edit) rather than in the box.
+ *
+ * A map of its own, deliberately. TOOL_RENAMES above is the v1 migration's frozen contract over what was
+ * installed WITH the daemon; these plugins carry their own versions and renamed on their own release, after
+ * v1 had already run and marked itself done. So they get their own migration (db.ts v3) over their own map,
+ * and each migration keeps encoding the history it actually shipped.
+ *
+ * The stakes are the built-ins' stakes: these names are exact-match keys in a user's deny-list and saved
+ * rules, and a stale DENY does not raise — it stops matching, and the tool it was switched off comes back on.
+ *
+ * `search_memory` deliberately does NOT become `MemorySearch`. That name is already the brain's own memory
+ * tool, and mem0 REPLACES that backend rather than extending it — two tools answering to one name is how a
+ * call reaches the wrong store. Namespaced to its plugin instead.
+ */
+const REGISTRY_TOOL_RENAMES: Readonly<Record<string, string>> = {
+  // todo
+  'todo_write':     'TodoWrite',
+  'todo_read':      'TodoRead',
+  // web
+  'web_search':     'WebSearch',
+  'web_fetch':      'WebFetch',
+  // mem0 — namespaced, not Memory*, see above
+  'add_memory':     'Mem0Add',
+  'search_memory':  'Mem0Search',
+  // image-gen / image-edit
+  'generate_image': 'ImageGenerate',
+  'edit_image':     'ImageEdit',
+};
+
+/** Remap one stored registry-plugin tool name. Not-renamed → unchanged. */
+export const renameRegistryTool = (name: string): string => REGISTRY_TOOL_RENAMES[name] ?? name;

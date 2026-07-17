@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { renameTool } from './toolRenames.js';
+import { renameRegistryTool, renameTool } from './toolRenames.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -132,6 +132,7 @@ export function openDb(path: string): Db {
   db.exec("UPDATE user_prompts SET name = 'elowen-platform' WHERE name = 'advisor-channel'");
   migrateToolNames(db);
   migrateMcpToolNames(db);
+  migrateRegistryToolNames(db);
   return db;
 }
 
@@ -268,6 +269,23 @@ function migrateMcpToolNames(db: Db): void {
       return name;
     });
   });
+}
+
+/** v3 — the marketplace registry's plugin tools → TitleCase (see REGISTRY_TOOL_RENAMES).
+ *
+ *  Those plugins install from the registry on versions of their own, so they renamed one release after the
+ *  built-ins did — by which time v1 had run and marked itself done, and a map grown after the fact would
+ *  never be applied to anyone. Hence a version of its own.
+ *
+ *  Safe to run against a database that never had these plugins, and against one already carrying the new
+ *  names: the map is keyed on the old names alone, so anything else passes through untouched.
+ *
+ *  A rule survives the rename; the WINDOW between the two updates does not. Until the plugin itself is
+ *  updated it still offers `todo_write` while the rule now says `TodoWrite`, and the rule matches nothing
+ *  in the meantime — which for a DENY means the tool is briefly back on. Unavoidable from this side: the
+ *  daemon cannot rename a tool inside a plugin it does not ship. */
+function migrateRegistryToolNames(db: Db): void {
+  runOnce(db, 3, () => renameStoredToolNames(db, renameRegistryTool));
 }
 
 /** Apply `mutate` to a parsed JSON object and re-serialize. A blob that is corrupt or not an object is
