@@ -5,6 +5,16 @@ All notable changes to Elowen are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.27.6] - 2026-07-17
+
+### Fixed
+- **The image tools are named `GenerateImage` and `EditImage`**, not the `ImageGenerate` / `ImageEdit` that
+  0.27.5 briefly migrated saved rules onto. A prefix is what a family of tools earns (`CronAdd`,
+  `MemorySearch`, `Mem0Search`); image-gen and image-edit are one tool each, and a plugin like that reads
+  verb-first — the same shape as `CreateSkill` and `ScanCode`. A rule 0.27.5 moved onto the prefix-first
+  spelling is repaired on first start; the tools never answered to those names, so such a rule was matching
+  nothing at all. Only relevant if you updated during 0.27.5.
+
 ## [0.27.5] - 2026-07-17
 
 ### Changed
