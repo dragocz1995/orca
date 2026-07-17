@@ -1,13 +1,26 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb, type Db } from '../../src/store/db.js';
 import { BrainStore } from '../../src/store/brainStore.js';
-import { answeredToolCallPrefix, settlePartialTurn, projectUserTurn, projectEvent } from '../../src/brain/persistence.js';
-import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
+import {
+  answeredToolCallPrefix, settlePartialTurn, projectUserTurn, createSessionPersistenceProjector,
+} from '../../src/brain/persistence.js';
+import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 
 /** PI message shapes, trimmed to the fields the persistence path actually reads. */
 const assistantSaying = (text: string) => ({ role: 'assistant', content: [{ type: 'text', text }] });
 const assistantCalling = (...ids: string[]) => ({ role: 'assistant', content: ids.map((id) => ({ type: 'toolCall', id, name: 'bash', arguments: {} })) });
 const toolResult = (toolCallId: string) => ({ role: 'toolResult', toolCallId, toolName: 'bash', content: [{ type: 'text', text: 'ok' }], isError: false });
+
+/** The real projector, wired as the session factory wires it. Everything mid-turn MUST be driven through
+ *  this rather than by calling the store directly: the previous version of this fix hooked an event PI
+ *  only ever emits with `type: "custom"` entries, so the mirror never once ran in production — and these
+ *  tests all passed anyway, because they reached past the projector straight into the store. `session` is
+ *  read only by the compaction path, which none of these tests take. */
+const projectorFor = (store: BrainStore, sessionId: string): ((event: AgentSessionEvent) => void) =>
+  createSessionPersistenceProjector(store, { messages: [] } as unknown as AgentSession, sessionId, 200_000);
+
+/** What PI emits the moment it has finished one message of the live turn. */
+const messageEnd = (message: unknown) => ({ type: 'message_end', message }) as unknown as AgentSessionEvent;
 
 const rolesOf = (store: BrainStore, id: string) => store.getMessages(id).map((m) => m.role);
 const textsOf = (store: BrainStore, id: string) => store.getMessages(id).map((m) => JSON.parse(m.content).content?.[0]?.text ?? JSON.parse(m.content).content);
@@ -51,9 +64,41 @@ describe('a turn interrupted by a daemon restart', () => {
     store.createSession({ id: 's1', userId: 1, model: 'm' });
   });
 
-  /** What the session's live projector does while PI works through a turn. */
-  const midTurn = (...messages: unknown[]) => messages.forEach((m, i) =>
-    store.appendPendingMessage({ id: `entry-${i}`, sessionId: 's1', role: (m as { role: string }).role, content: m }));
+  /** PI working through a turn, driven through the real projector. */
+  const midTurn = (...messages: unknown[]) => {
+    const project = projectorFor(store, 's1');
+    messages.forEach((m) => project(messageEnd(m)));
+  };
+
+  // The regression that matters: the mirror has to actually FIRE. Asserting on the store alone cannot see
+  // a projector that silently drops every event, which is exactly how this shipped broken once already.
+  it('mirrors each message as PI finishes it, without waiting for the turn to settle', () => {
+    const project = projectorFor(store, 's1');
+    projectUserTurn(store, 's1', 'do the thing');
+
+    project(messageEnd(assistantCalling('t1')));
+    expect(store.pendingMessages('s1')).toHaveLength(1);
+    project(messageEnd(toolResult('t1')));
+    expect(store.pendingMessages('s1').map((row) => row.role)).toEqual(['assistant', 'toolResult']);
+  });
+
+  // The real prompt already has a clean durable row; PI's live user message carries the turn framing
+  // (memory/permission blocks, raw image bytes, the no-reply nudge) that must never reach history.
+  it('never mirrors a user message', () => {
+    const project = projectorFor(store, 's1');
+    project(messageEnd({ role: 'user', content: [{ type: 'text', text: 'framing the model sees, not history' }] }));
+    expect(store.pendingMessages('s1')).toEqual([]);
+  });
+
+  // PI routes these to other entry types, and agent_end never reports them as run output — a mirrored row
+  // would be one no settled turn could ever reconcile away.
+  it('never mirrors a role that agent_end will not account for', () => {
+    const project = projectorFor(store, 's1');
+    for (const role of ['custom', 'bashExecution', 'compactionSummary', 'branchSummary']) {
+      project(messageEnd({ role, content: [] }));
+    }
+    expect(store.pendingMessages('s1')).toEqual([]);
+  });
 
   it('keeps the work the agent had already done when the daemon dies mid-turn', () => {
     projectUserTurn(store, 's1', 'do the thing');
@@ -92,13 +137,16 @@ describe('a turn that settles normally', () => {
 
   const agentEnd = (...messages: unknown[]) => ({ type: 'agent_end', messages, willRetry: false }) as unknown as AgentSessionEvent;
 
+  // Drives the same projector instance through the whole turn, exactly as a live session does: PI mirrors
+  // each message as it lands, then agent_end settles the run.
   it('replaces the mid-turn rows instead of duplicating the whole turn', () => {
+    const project = projectorFor(store, 's1');
     projectUserTurn(store, 's1', 'do the thing');
-    store.appendPendingMessage({ id: 'e0', sessionId: 's1', role: 'assistant', content: assistantCalling('t1') });
-    store.appendPendingMessage({ id: 'e1', sessionId: 's1', role: 'toolResult', content: toolResult('t1') });
-    store.appendPendingMessage({ id: 'e2', sessionId: 's1', role: 'assistant', content: assistantSaying('done') });
+    project(messageEnd(assistantCalling('t1')));
+    project(messageEnd(toolResult('t1')));
+    project(messageEnd(assistantSaying('done')));
 
-    projectEvent(store, 's1', agentEnd({ role: 'user', content: 'do the thing' }, assistantCalling('t1'), toolResult('t1'), assistantSaying('done')));
+    project(agentEnd({ role: 'user', content: 'do the thing' }, assistantCalling('t1'), toolResult('t1'), assistantSaying('done')));
 
     expect(rolesOf(store, 's1')).toEqual(['user', 'assistant', 'toolResult', 'assistant']);
     expect(store.pendingMessages('s1')).toEqual([]);
@@ -107,15 +155,10 @@ describe('a turn that settles normally', () => {
   // A run with no pre-projected user row (an internal nudge) takes persistAgentRun's fallback append path.
   // That path must still land on a store the provisional rows have already been cleared from.
   it('does not duplicate on the fallback append path either', () => {
-    store.appendPendingMessage({ id: 'e0', sessionId: 's1', role: 'assistant', content: assistantSaying('nudged reply') });
-    projectEvent(store, 's1', agentEnd(assistantSaying('nudged reply')));
+    const project = projectorFor(store, 's1');
+    project(messageEnd(assistantSaying('nudged reply')));
+    project(agentEnd(assistantSaying('nudged reply')));
     expect(rolesOf(store, 's1')).toEqual(['assistant']);
     expect(store.pendingMessages('s1')).toEqual([]);
-  });
-
-  it('a re-delivered entry (resubscribe) cannot write the same row twice', () => {
-    store.appendPendingMessage({ id: 'e0', sessionId: 's1', role: 'assistant', content: assistantSaying('once') });
-    store.appendPendingMessage({ id: 'e0', sessionId: 's1', role: 'assistant', content: assistantSaying('once') });
-    expect(store.pendingMessages('s1')).toHaveLength(1);
   });
 });

@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS brain_sessions (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_brain_sessions_user ON brain_sessions(user_id);
--- `pending` marks a row written MID-TURN, straight off PI's `entry_appended`, before the turn settled.
+-- `pending` marks a row written MID-TURN, straight off PI's `message_end`, before the turn settled.
 -- Without those rows a daemon restart in the middle of a long turn threw away every tool call and every
 -- word the agent had produced: the settled `agent_end` was the only thing that ever reached SQLite. They
 -- are provisional — the authoritative `agent_end` write discards them and re-persists the run in PI's

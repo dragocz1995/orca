@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
-import type { AgentSession, AgentSessionEvent, SessionEntry } from '@earendil-works/pi-coding-agent';
+import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { BrainRunMessage, BrainStore } from '../store/brainStore.js';
 import { extractText, NO_REPLY_NUDGE } from './messageView.js';
 import { currentMeter } from './openrouterMeter.js';
@@ -56,20 +56,23 @@ export function projectEvent(store: BrainStore, sessionId: string, event: AgentS
   store.touchSession(sessionId);
 }
 
-/** Mirror ONE message PI just appended to the live turn. Everything a turn produces used to reach SQLite
- *  only at `agent_end`, so a daemon restart mid-turn discarded every tool call and every word of a long
- *  run — the user's prompt was all that survived. These rows close that window; `agent_end` then discards
- *  and re-persists them, because only IT knows the run's real order once a mid-turn steer is in play.
+/** Mirror ONE message PI just finished, the moment it finishes it. Everything a turn produces used to
+ *  reach SQLite only at `agent_end`, so a daemon restart mid-turn discarded every tool call and every word
+ *  of a long run — the user's prompt was all that survived. These rows close that window; `agent_end` then
+ *  discards and re-persists them, because only IT knows the run's real order once a mid-turn steer is in
+ *  play.
  *
- *  User messages are skipped: `projectUserTurn` already wrote a clean row for the real prompt before
- *  `prompt()`, and PI's live user entries carry the ephemeral turn framing (memory/permission blocks, raw
- *  image bytes, NO_REPLY_NUDGE) that must never become durable history. */
-function projectPendingEntry(store: BrainStore, sessionId: string, entry: SessionEntry): void {
-  if (entry.type !== 'message') return;
-  const message = entry.message as { role?: string };
-  const role = message.role ?? 'assistant';
-  if (role === 'user') return;
-  store.appendPendingMessage({ id: entry.id, sessionId, role, content: entry.message });
+ *  Mirrors exactly `assistant` and `toolResult` — the roles PI itself turns into a durable history entry
+ *  on this same event (`appendMessage` in agent-session's `message_end` handler), minus `user`. User
+ *  messages are skipped because `projectUserTurn` already wrote a clean row for the real prompt before
+ *  `prompt()`, and PI's live user messages carry the ephemeral turn framing (memory/permission blocks, raw
+ *  image bytes, NO_REPLY_NUDGE) that must never become durable history. Every other role PI routes to a
+ *  different entry type or does not store at all, and `agent_end` never reports it as run output — so
+ *  mirroring one would strand a row that no settled turn would ever reconcile. */
+function projectPendingMessage(store: BrainStore, sessionId: string, message: unknown): void {
+  const role = (message as { role?: string }).role ?? 'assistant';
+  if (role !== 'assistant' && role !== 'toolResult') return;
+  store.appendPendingMessage({ id: randomUUID(), sessionId, role, content: message });
 }
 
 /** Rows still marked pending when a session is (re)spawned belong to a turn that never settled — the
@@ -153,10 +156,13 @@ export function createSessionPersistenceProjector(
       agentRunOpen = true;
       return;
     }
-    // Mid-turn mirror. Deliberately NOT gated on `agentRunOpen`: PI appends the entry as soon as it has
-    // the message, and the point of the row is to exist before the turn is allowed to end.
-    if (event.type === 'entry_appended') {
-      projectPendingEntry(store, sessionId, event.entry);
+    // Mid-turn mirror. Deliberately NOT gated on `agentRunOpen`: PI emits this as soon as it has the
+    // finished message, and the point of the row is to exist before the turn is allowed to end.
+    // MUST stay on `message_end`, never `entry_appended`: PI emits the latter from exactly one place —
+    // its ExtensionAPI's `appendEntry`, which hardcodes `type: "custom"` — so an `entry.type === 'message'`
+    // test there can never be true and this mirror silently never runs.
+    if (event.type === 'message_end') {
+      projectPendingMessage(store, sessionId, event.message);
       return;
     }
     if (event.type === 'agent_end') {

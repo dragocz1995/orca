@@ -558,10 +558,12 @@ export class BrainStore {
       .run(messageId, sessionId).changes > 0;
   }
 
-  /** Mirror ONE message the moment PI appends it to the live turn, so a daemon restart mid-turn no longer
-   *  discards the whole run. Provisional by construction: `agent_end` discards these and re-persists the
-   *  run in PI's real execution order. Keyed on PI's own entry id and idempotent, so a re-delivered event
-   *  (a resubscribe) cannot double-write a row. */
+  /** Mirror ONE message the moment PI finishes it, so a daemon restart mid-turn no longer discards the
+   *  whole run. Provisional by construction: these rows never outlive their turn — `persistAgentRun`
+   *  drops every pending row in the same transaction that writes the settled run in PI's real execution
+   *  order, and rows that survive at all are the remains of a turn that never settled, graduated by
+   *  `settlePartialTurn` on respawn. The caller mints the id: PI's `message_end` carries the finished
+   *  message but no entry id of its own. */
   appendPendingMessage(input: { id: string; sessionId: string; role: string; content: unknown }): void {
     this.db.prepare(
       `INSERT INTO brain_messages (id, session_id, parent_id, role, content, pending)
