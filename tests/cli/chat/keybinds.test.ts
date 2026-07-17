@@ -3,7 +3,7 @@ import {
   chordFromInput, createKeymap, createLeaderState, keybindDefault, keybindRows, parseKeybind, KEYBIND_ACTIONS,
 } from '../../../src/cli/chat/keys.js';
 import {
-  bottomHints, INTERRUPT_CONFIRM_MS, interruptPress, startScreenHints, quitHint,
+  bottomHints, INTERRUPT_CONFIRM_MS, interruptPress, startScreenHints, quitHint, modelMetaLine,
 } from '../../../src/cli/chat/chatComposition.js';
 
 // Raw bytes the terminal sends for the chords under test.
@@ -271,5 +271,29 @@ describe('hint lines reflect the keymap', () => {
     expect(idle).not.toContain('stash');
     expect(quitHint(keymap)).toBe('');
     expect(startScreenHints(createKeymap({ mode_toggle: 'f2' }))).toContain('f2 mode');
+  });
+});
+
+describe('modelMetaLine', () => {
+  // The line carries ANSI colour; strip it so the assertions are about order, not styling.
+  const plain = (s: string) => s.replace(/\[[0-9;]*m/g, '').trim();
+
+  it('puts the activity chip directly after the mode label', () => {
+    // The spinner is the one element that appears and disappears mid-turn. Next to the fixed-width mode
+    // label it holds still; at the far end of the line it drifts with the model name's length.
+    const line = plain(modelMetaLine('build', 'anthropic/claude-opus-4-8', 'off', '* 19s', true, false, null));
+    expect(line).toBe('Build * 19s · claude-opus-4-8 anthropic off YOLO');
+    expect(line.indexOf('19s')).toBeLessThan(line.indexOf('claude-opus-4-8'));
+  });
+
+  it('closes the gap when no turn is running', () => {
+    // Idle must not leave a stray separator or a double space where the chip was.
+    expect(plain(modelMetaLine('plan', 'anthropic/claude-opus-4-8', '', undefined, false, false, null)))
+      .toBe('Plan · claude-opus-4-8 anthropic');
+  });
+
+  it('keeps a bare model id and the goal chips intact', () => {
+    expect(plain(modelMetaLine('workflow', 'k3', 'max', '* 2s', false, false, { primary: 'goal', suffix: 'ship it' })))
+      .toBe('Workflow * 2s · goal · k3 max ship it');
   });
 });

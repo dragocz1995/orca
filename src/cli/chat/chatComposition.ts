@@ -142,7 +142,11 @@ export function interruptPress(armedUntil: number, now: number, windowMs = INTER
     : { armedUntil: now + windowMs, abort: false };
 }
 
-function modelMetaLine(
+/** The composer's meta line. `generating` (the spinner + elapsed chip) sits directly after the mode label
+ *  rather than at the far end: it is the one part that appears and disappears mid-turn, and next to the
+ *  fixed-width mode label it stays where the eye already is instead of shifting with the model name's
+ *  length. Pure — unit-testable without a TTY. */
+export function modelMetaLine(
   mode: BrainWorkMode,
   modelName: string,
   thinkingLevel: string,
@@ -157,6 +161,7 @@ function modelMetaLine(
   const model = slash > 0 ? raw.slice(slash + 1) : raw;
   return [
     `  ${color.accent(WORK_MODE_LABEL[mode])}`,
+    generating ?? '',
     color.faint('·'),
     activeGoal?.primary ?? '',
     activeGoal ? color.faint('·') : '',
@@ -166,7 +171,6 @@ function modelMetaLine(
     fast ? color.accent('FAST') : '',
     // Warning-toned so auto-approved tool asks are never invisible (session /yolo or the persisted default).
     yolo ? color.warning('YOLO') : '',
-    generating ?? '',
     activeGoal?.suffix ?? '',
   ].filter(Boolean).join(' ');
 }
