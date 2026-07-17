@@ -31,8 +31,14 @@ import { abortSessionWork } from '../session/abortSessionWork.js';
 
 /** PI already classifies and retries transient provider failures. Reuse that same classifier after its
  * retry budget is exhausted so the final transcript never leaks a provider-specific transport or stream
- * error that PI itself treated as temporary. */
+ * error that PI itself treated as temporary.
+ *
+ * The raw message is logged BEFORE the classifier, unconditionally: a retryable one is about to be masked
+ * out of the transcript, so the log is the only place its cause survives. That cause is the point — an
+ * aborted outbound request reaches nginx as a bare 499 with no reason attached, and the SDK's own
+ * `Request timed out.` is what distinguishes a transport deadline from every other provider failure. */
 function publicProviderError(message: string, sessionId: string, provider: string, model: string): string {
+  logger('brain-provider').warn(`provider error on ${provider}/${model} (${sessionId}): ${message}`);
   if (!isRetryableAssistantError({ role: 'assistant', stopReason: 'error', errorMessage: message } as never)) return message;
   logger('brain-provider').warn(`provider retries exhausted for ${provider}/${model} (${sessionId})`);
   return 'Provider request failed after automatic retries. Please retry the turn.';
@@ -256,8 +262,13 @@ export class LiveSessionSpawner {
       else if (raw === 'turn_start') {
         steps += 1;
         const maxSteps = this.d.maxSteps?.() ?? 0;
-        if (maxSteps > 0 && steps > maxSteps) void abortSessionWork(session).catch(() => { /* already settling */ });
-        else {
+        if (maxSteps > 0 && steps > maxSteps) {
+          // The abort below is indistinguishable from every other cause once it leaves the process: it
+          // cancels the in-flight request, which the proxy in front of the provider logs as a bare client
+          // disconnect. This line is the only place that says the ceiling is what did it.
+          logger('brain-step-ceiling').warn(`session ${sessionId} hit the step ceiling (${steps} > ${maxSteps}); aborting the run`);
+          void abortSessionWork(session).catch(() => { /* already settling */ });
+        } else {
           const usage = withDescendantUsage(usageOf(session), this.d.store.descendantUsage(sessionId));
           replay.publish({ type: 'step', step: steps, maxSteps, usage });
         }
