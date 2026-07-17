@@ -282,6 +282,20 @@ describe('TranscriptModel', () => {
     expect(t?.role === 'elowen' && t.streaming).toBe(false);
   });
 
+  it('exposes the streaming tail authoring window through the composing getter', () => {
+    const model = new TranscriptModel([]);
+    expect(model.composing).toBe(false);
+    model.apply({ type: 'text', delta: 'let me check' });
+    expect(model.composing).toBe(false);
+    model.apply({ type: 'tool_authoring' });
+    expect(model.composing).toBe(true);
+    // The window closes with the tool marker, and a settled turn never reports composing.
+    model.apply({ type: 'tool', name: 'Read', id: 't1' });
+    expect(model.composing).toBe(false);
+    model.apply({ type: 'idle' });
+    expect(model.composing).toBe(false);
+  });
+
   it('protects the cached sub-agent projection from caller mutation', () => {
     const model = new TranscriptModel([{
       role: 'assistant', text: '', segments: [{

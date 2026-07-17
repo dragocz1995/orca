@@ -20,7 +20,7 @@ const turnOf = (...items: ToolItem[]): ChatTurn => ({
 
 const render = (turn: ChatTurn, expandedTools: Set<string> = new Set()) =>
   new TurnRenderer(getMarkdownTheme()).render(turn, 0, 96, {
-    showThoughts: true, thinkingSeconds: 0, expandedThoughts: new Set(), expandedTools,
+    showThoughts: true, thinkingSeconds: 0, composingMarkerReady: false, expandedThoughts: new Set(), expandedTools,
   });
 const text = (rows: { line: string }[]) => rows.map((row) => row.line).join('\n');
 /** The rendered words, free of colour codes and of wherever the terminal happened to wrap them — so an

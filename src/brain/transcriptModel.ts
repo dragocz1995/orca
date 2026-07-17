@@ -98,6 +98,12 @@ export class TranscriptModel implements TranscriptRead {
   get revision(): number { return this.currentRevision; }
   get turnCount(): number { return this.turns.length; }
   get thinking(): boolean { return this.thinkingState || this.compactionActive; }
+  /** True while the streaming tail turn is authoring a tool call — the window the "writing tool call"
+   * hint watches. Derived from the tail turn so it needs no state parallel to `composing` on the turn. */
+  get composing(): boolean {
+    const last = this.turns.at(-1);
+    return last?.role === 'elowen' && !!last.streaming && !!last.composing;
+  }
   get activity(): 'agent' | 'compaction' | null {
     return this.compactionActive ? 'compaction' : this.thinkingState ? 'agent' : null;
   }

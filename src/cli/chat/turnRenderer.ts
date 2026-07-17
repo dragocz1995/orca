@@ -29,6 +29,8 @@ export interface TranscriptRow {
 export interface TurnRenderOptions {
   showThoughts: boolean;
   thinkingSeconds: number;
+  /** The frame loop has decided the authoring window stalled long enough to surface the hint. */
+  composingMarkerReady: boolean;
   expandedThoughts: ReadonlySet<string>;
   expandedTools: ReadonlySet<string>;
 }
@@ -204,9 +206,10 @@ export class TurnRenderer {
       for (const line of this.renderTextWithPlans(segment.text, width)) add(line);
     }
     // While the model is writing a tool call whose marker hasn't rendered yet, the transcript would
-    // otherwise sit frozen (the text is done, the tool row not started). Surface that it is working — even
-    // when it already printed prose, which is exactly when the bare `…` below would not show.
-    if (turn.streaming && turn.composing) add(`  ${color.faint('⚙ writing tool call…')}`);
+    // otherwise sit frozen (the text is done, the tool row not started). Only surface it once the window
+    // has stalled past the threshold (`composingMarkerReady`) — quick tool calls stay silent so the hint
+    // reads as "something is taking a while", not as noise on every call.
+    if (turn.streaming && turn.composing && options.composingMarkerReady) add(`  ${color.faint('--- Writing tool call ---')}`);
     else if (!hasText && turn.streaming) add(`  ${color.faint('…')}`);
     addBlank();
     return rows;

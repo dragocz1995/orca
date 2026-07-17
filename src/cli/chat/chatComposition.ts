@@ -143,6 +143,10 @@ export const INTERRUPT_CONFIRM_MS = 1_800;
  *  after looking back at the screen, short enough that it is gone before it reads as state. */
 export const NOTICE_TTL_MS = 4_000;
 
+/** How long the model must author a tool call with nothing new reaching the chat before the
+ *  "writing tool call" hint appears. Short authoring windows stay silent; only a genuine stall surfaces. */
+export const COMPOSE_MARKER_MS = 10_000;
+
 /** Pure half of the notice-expiry contract (mirrors `interruptPress`: the shell owns the timer, this
  *  makes the boundary testable). Decides what the frame loop does with the notice slot it just saw:
  *  `idle` — unchanged, any timer already running still owns it; `arm` — new transient text, start its
@@ -529,6 +533,7 @@ export function createChatComposition(
   };
 
   let thinkStart = 0;
+  let composeStart = 0;
   let interruptArmedUntil = 0;
   /** The armed window came from the daemon reporting its queue already drained — i.e. `rt.queued` is stale.
    *  ONLY then may the next Esc bypass the queue branch; a window armed by an ordinary first press must not,
@@ -579,6 +584,13 @@ export function createChatComposition(
     animations.updateThinking(animateThinking);
     animations.updateGoal(rt.goal?.status === 'active' && !animateThinking);
     currentRunSeconds = thinkStart ? Math.max(0, Math.round((Date.now() - thinkStart) / 1000)) : 0;
+    // A tool-call authoring window only earns the "writing tool call" hint once it has stalled past the
+    // threshold — the live thinking timer already re-renders four times a second, so no dedicated timer is
+    // needed for the gate to flip. The window is shared with the child lane, like the thinking clock above.
+    if (rt.transcript.composing || rt.childView?.transcript.composing) {
+      if (!composeStart) composeStart = Date.now();
+    } else composeStart = 0;
+    const composingMarkerReady = composeStart > 0 && Date.now() - composeStart >= COMPOSE_MARKER_MS;
     parentViewport.setState({
       transcript: rt.transcript,
       conversationKey: client.boundSession,
@@ -586,6 +598,7 @@ export function createChatComposition(
       notice: rt.notice,
       modelName: rt.modelName,
       thinkingSeconds: currentRunSeconds,
+      composingMarkerReady,
       showThoughts: rt.showThoughts,
     });
     if (rt.childView) {
@@ -602,6 +615,7 @@ export function createChatComposition(
           : (rt.notice || color.dim('· sub-agent session — your messages go to this agent')),
         modelName: rt.modelName,
         thinkingSeconds: currentRunSeconds,
+        composingMarkerReady,
         showThoughts: rt.showThoughts,
       });
     } else if (childViewport) {

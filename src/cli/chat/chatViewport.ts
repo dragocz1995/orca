@@ -36,6 +36,10 @@ export interface ChatViewportState {
   notice: string;
   modelName: string;
   thinkingSeconds: number;
+  /** The tool-call authoring window has stalled past its threshold, so the streaming turn may show the
+   * "writing tool call" hint. Owned by the frame loop (it holds the clock); the turn only knows it is
+   * composing, not for how long. */
+  composingMarkerReady?: boolean;
   /** Render the model's Thought rows (default true) — `/reasoning show` toggles it. */
   showThoughts?: boolean;
 }
@@ -766,6 +770,7 @@ export class ChatViewport implements Component {
     return this.turnRenderer.render(turn, turnIndex, width, {
       showThoughts: this.state.showThoughts !== false,
       thinkingSeconds: this.state.thinkingSeconds,
+      composingMarkerReady: this.state.composingMarkerReady === true,
       expandedThoughts: this.expandedThoughts,
       expandedTools: this.expandedTools,
     });
