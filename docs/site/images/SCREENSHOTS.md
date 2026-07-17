@@ -21,6 +21,7 @@ Public documentation screenshots are captured from a live Elowen instance and re
 | `brain-chat.png` | Dashboard with the chat dock open | 1755px desktop | Elowen answering a product question in the web chat dock | Disposable demo instance. |
 | `getting-started-chat.png` | Dashboard with the chat dock open | 1755px desktop | Elowen introducing its capabilities in the web chat dock | Disposable demo instance. |
 | `../../screenshots/cli/16-gpt-limits.png` | Terminal chat with GPT-5.5 and telemetry | 956px terminal | GPT-5.5 terminal conversation with live context and subscription limits | Captured in a disposable English-only demo session; the prompt, reply, and working directory are non-sensitive. |
+| `../../screenshots/cli/17-workflow-modal.png` | Workflow view over a running four-node DAG | 120x34 terminal | Workflow view with the dependency tree on the left and the selected node's detail on the right | Captured in a disposable English-only demo session and cropped to the modal; the node names, task text, and scratch paths are fictional. |
 
 ## How the web UI screenshots are produced
 

@@ -87,6 +87,7 @@ elowen up | down                    # manage local services
 | **Talk anywhere** | One agent across terminal, Web UI, Discord, and WhatsApp — same projects, memory, and permissions on every surface. |
 | **Persistent goals** | Give a conversation a concrete outcome, subgoals, a turn budget, and a hard safety ceiling. It pauses when it needs you and resumes with its bearings intact. |
 | **Delegation** | Hand focused work to a sub-agent on a different model. Its live status, tool activity, and result stay attached to the parent conversation — never a black box. |
+| **Workflows** | Let the agent decompose a job into a DAG of sub-agents and run it: independent steps in parallel, dependents waiting for what they need. The dependency tree, each node's progress and its transcript stay in the conversation — during the run and long after it. |
 | **Missions** | Turn one outcome into ordered phases, with an optional dedicated pilot to plan and an overseer to judge progress and reviews. |
 | **Permissions** | Per-user model ceilings and granular tool rules decide what may run, what must ask, and what is denied. Approval is a real pause in the work, not a best-effort ping. |
 | **Durable memory** | Memory that carries across surfaces, and a durable queue that holds your mid-turn follow-up instead of dropping it. |

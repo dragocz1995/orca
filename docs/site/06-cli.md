@@ -52,7 +52,15 @@ If you send a message while a turn is running, Elowen stores it in that session'
 
 ## Modes and permissions
 
-**Plan mode** (`/plan` or the chat control) hides mutating tools while the agent works out an approach. When a plan is ready, choose whether to implement it or keep refining it. This is a real policy boundary, not just a visual label.
+The chat control (`shift+tab`) cycles three working modes, and each slash command selects one directly.
+
+**Build** is the default: the agent works the task itself, in one thread.
+
+**Plan mode** (`/plan`) hides mutating tools while the agent works out an approach. When a plan is ready, choose whether to implement it or keep refining it. This is a real policy boundary, not just a visual label.
+
+**Workflow mode** (`/workflow`) asks the agent to orchestrate rather than execute: decompose the request into a DAG of self-contained sub-tasks and run it, so independent work happens in parallel and each step gets a fresh, focused sub-agent. Unlike Plan mode this is a prompt bias, not a policy boundary — the agent keeps its full toolset and still does a trivial request directly rather than wrapping it in a workflow. It does not ask before running; the plan is the workflow.
+
+Switching mode mid-conversation is recorded in the transcript, and the agent is told what changed, so it adopts the new mode on its next turn instead of carrying on as before.
 
 Approvals remain explicit for actions the policy requires. `/yolo` can enable session-level auto-approval where the account permits it, but deny rules and hard safety boundaries still apply. Use it only when you understand the scope of the current session.
 
@@ -65,6 +73,27 @@ The sub-agent plugin can delegate a focused, bounded task. The parent transcript
 ![Elowen terminal chat showing a live todo list](../screenshots/cli/09-todos.png)
 
 ![Elowen terminal chat showing a delegated sub-agent](../screenshots/cli/11-subagent.png)
+
+## Workflows
+
+A workflow is a DAG of sub-agents. The agent declares nodes — each a self-contained task with its dependencies — and the engine runs them as those dependencies clear: independent nodes in parallel, dependents waiting for what they need. Every node is a fresh sub-agent that cannot see the parent conversation, so each task is written to stand alone, and a running node can extend the DAG when the work reveals more work.
+
+Use a workflow when subtasks have an order or a shared result (gather → analyze → write); for a handful of unrelated tasks, plain parallel delegation is simpler. Nodes inherit the caller's allowed scope and can only ever narrow it — a workflow cannot reach past what the person who started it may already do.
+
+The transcript carries a marker with a live tally of node states, and the telemetry rail lists workflows while they run. Clicking either opens the workflow view:
+
+![Workflow view with the dependency tree on the left and the selected node's detail on the right](../screenshots/cli/17-workflow-modal.png)
+
+The node list on the left is the dependency tree; the detail beside it belongs to the selected node — its status, model, tokens, elapsed time, dependencies, task, and the tool it is running right now. A node that waits on several others is drawn under the first of them and names the rest in its detail, since one indented list cannot show two parents.
+
+| Key | Action |
+| --- | --- |
+| `↑` `↓` | Move through the tree |
+| `PgUp` `PgDn` | Page through a long DAG |
+| `Enter` | Open the selected node's transcript |
+| `Esc` | Close |
+
+The marker stays in the transcript after the workflow ends, so a finished DAG can be reopened and read later — including its nodes' transcripts. A workflow interrupted by a daemon restart is recorded as cancelled rather than left looking like it is still running.
 
 ## Non-interactive runs
 
