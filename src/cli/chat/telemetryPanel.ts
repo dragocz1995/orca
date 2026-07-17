@@ -331,10 +331,18 @@ export class TelemetryPanel implements Component {
     return this.progressBar(percent, cells);
   }
 
+  /** A smooth eighth-block usage meter: full cells for whole progress, one fractional head cell for
+   *  the remainder, and a light dashed track behind. Usage is pressure, so the fill shifts accent →
+   *  warning (70 %) → error (90 %); the percentage number beside it stays in the neutral text color. */
   private progressBar(percent: number, cells: number): string {
     const value = Math.max(0, Math.min(100, percent));
-    const filled = Math.max(0, Math.min(cells, Math.round((value / 100) * cells)));
-    return `${color.accent('█'.repeat(filled))}${color.faint('░'.repeat(cells - filled))}`;
+    const eighths = Math.round((value / 100) * cells * 8);
+    const filled = Math.floor(eighths / 8);
+    const frac = eighths % 8;
+    const tone = value >= 90 ? color.error : value >= 70 ? color.warning : color.accent;
+    const head = frac > 0 && filled < cells ? '▏▎▍▌▋▊▉'[frac - 1]! : '';
+    const track = '╌'.repeat(Math.max(0, cells - filled - (head ? 1 : 0)));
+    return `${tone('█'.repeat(filled) + head)}${color.faint(track)}`;
   }
 
   /** Active (connected) MCP servers by name plus a connected/total count; hidden when unavailable

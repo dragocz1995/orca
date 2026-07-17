@@ -590,23 +590,22 @@ describe('chat layout components', () => {
   it('scales the context bar with the panel width, keeping equal edge margins', () => {
     const cells = (width: number): number => {
       const panel = new TelemetryPanel(() => telemetryState());
-      // The empty-cell glyphs identify the meter row (the panel logo uses ▀▄ half-blocks, not these).
-      const bar = panel.render(width).find((line) => /[▱░]/.test(line))!;
-      return bar.match(/[▰▱█░]/g)!.length;
+      // The dashed track identifies the meter row (the panel logo uses ▀▄ half-blocks, not these).
+      const bar = panel.render(width).find((line) => /╌/.test(line))!;
+      return bar.match(/[█▏▎▍▌▋▊▉╌]/g)!.length;
     };
     // Bar spans the panel minus a 2-column margin on each side, at any drag-resized width.
     expect(cells(36)).toBe(32);
     expect(cells(68)).toBe(64);
   });
 
-  it('uses the same block meter glyphs for Context and OAuth limits at every panel width', () => {
+  it('uses the same smooth meter glyphs for Context and OAuth limits at every panel width', () => {
     const panel = new TelemetryPanel(() => telemetryState({ usage: { tokens: 50, contextWindow: 100, percent: 50, totalTokens: 50, cost: 0 } }));
     for (const width of [36, 40, 60]) {
       const rendered = panel.render(width).join('\n');
       expect(rendered).toContain('█');
-      expect(rendered).toContain('░');
-      expect(rendered).not.toContain('▰');
-      expect(rendered).not.toContain('▱');
+      expect(rendered).toContain('╌');
+      expect(rendered).not.toContain('░');
     }
   });
 
