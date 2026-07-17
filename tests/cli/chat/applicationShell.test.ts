@@ -15,6 +15,7 @@ import type { TuiDiagnostics } from '../../../src/cli/chat/tuiDiagnostics.js';
 import { startScreenBox, startScreenInputTop, TOP_RULE_ROWS } from '../../../src/cli/chat/startScreen.js';
 import { TerminalLifecycle } from '../../../src/cli/chat/terminalLifecycle.js';
 import { terminalPlainText } from '../../../src/cli/ui/text.js';
+import { TranscriptModel } from '../../../src/brain/transcriptModel.js';
 import { compositionHarness } from './chatCompositionHarness.js';
 
 type Harness = ReturnType<typeof compositionHarness>;
@@ -1248,6 +1249,43 @@ describe('chat application shell ownership', () => {
     const narrowRoot = renderMountedRoot(h).map(terminalPlainText).join('\n');
     expect(narrowRoot).toContain('Sub-agents');
     expect(narrowRoot).toContain('agent-0');
+    composition.dispose();
+    composition.stop();
+  });
+
+  it("shows the child's model and elapsed time (not the parent's) in the composer meta row", async () => {
+    const h = compositionHarness({ columns: 160, rows: 30, turns: 4 });
+    // Parent model is test/provider-model, reasoning level medium (from the harness). Drill into a child.
+    const childTranscript = new TranscriptModel([{ role: 'assistant', text: 'child working' }]);
+    childTranscript.apply({ type: 'text', delta: 'thinking…' }); // child is active → activity 'agent'
+    h.rt.childView = {
+      sessionId: 'child-42',
+      transcript: childTranscript,
+      processes: [],
+      loading: false,
+      usage: null,
+    };
+    vi.spyOn(h.stream, 'subagentStates').mockReturnValue([{
+      sessionId: 'child-42',
+      task: 'the sub-task',
+      status: 'running',
+      detail: 'reading',
+      tools: 2,
+      seconds: 137,
+      model: 'anthropic/haiku-child',
+    }]);
+    const composition = makeComposition(h);
+    composition.resume();
+    composition.renderForced('test:child-meta');
+    await vi.runOnlyPendingTimersAsync();
+    const rendered = renderMountedRoot(h).map(terminalPlainText).join('\n');
+    // Child model, not the parent's.
+    expect(rendered).toContain('haiku-child');
+    expect(rendered).not.toContain('provider-model');
+    // Child's elapsed seconds (137s → "2m 17s"), from the rail entry.
+    expect(rendered).toContain('2m 17s');
+    // The parent's reasoning-level label is dropped for a child (level unknown).
+    expect(rendered).not.toContain('medium');
     composition.dispose();
     composition.stop();
   });

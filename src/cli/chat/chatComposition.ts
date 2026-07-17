@@ -648,12 +648,27 @@ export function createChatComposition(
   const metaLeftLine = (opts: { leader?: boolean; goalSuffix?: boolean; level?: boolean; provider?: boolean; fast?: boolean } = {}): string => {
     const goal = goalMeta(rt.goal);
     const trimmedGoal = goal && opts.goalSuffix === false ? { primary: goal.primary, suffix: '' } : goal;
-    const modelArg = opts.provider === false ? rt.modelName.replace(/^[^/]+\//, '') : rt.modelName;
+    const child = rt.childView;
+    // Drilled into a sub-agent: the meta row must describe the CHILD, not the parent. Its model and
+    // elapsed seconds come from the matching subagent rail entry; its activity from the child transcript.
+    // The child's reasoning level is not tracked, so that segment is dropped entirely (the fit cascade
+    // already handles the shorter variant). Work mode stays the parent's — it is a session-wide setting
+    // the sub-agent inherits, not a per-agent one, so showing it under a child is correct.
+    const childEntry = child ? currentAgents.find((agent) => agent.sessionId === child.sessionId) : undefined;
+    // Fall back to the parent model name when the entry has none yet: sub-agents inherit the parent's
+    // model, so it is the right default rather than a wrong one, and '—' would flicker before the first
+    // rail entry lands.
+    const rawModel = child ? (childEntry?.model ?? rt.modelName) : rt.modelName;
+    const modelArg = opts.provider === false ? rawModel.replace(/^[^/]+\//, '') : rawModel;
+    const activity = child ? child.transcript.activity : rt.transcript.activity;
+    const seconds = child ? (childEntry?.seconds ?? currentRunSeconds) : currentRunSeconds;
+    // Parent shows its live reasoning level; a child never does (level unknown → drop the segment).
+    const level = child || opts.level === false ? '' : (rt.thinkingLevelLabels[rt.thinkingLevel] ?? rt.thinkingLevel);
     return modelMetaLine(
       rt.workMode,
       modelArg,
-      opts.level === false ? '' : (rt.thinkingLevelLabels[rt.thinkingLevel] ?? rt.thinkingLevel),
-      activityChip(rt.transcript.activity, currentRunSeconds),
+      level,
+      activityChip(activity, seconds),
       rt.yoloOn,
       opts.fast === false ? false : rt.fastOn,
       trimmedGoal,
