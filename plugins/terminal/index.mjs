@@ -86,46 +86,90 @@ class BgProcess {
   }
 }
 
-async function runForeground(command, cwd, outputCap, timeoutMs, onProgress) {
-  // Streaming UTF-8 decoder: PI hands us raw Buffer chunks; decode incrementally so a multibyte
-  // character split across two chunks is reassembled instead of turning into U+FFFD. Keep only a bounded
-  // rolling tail (2× the cap of headroom for a clean line-aware final trim) so a runaway command can't
-  // grow `out` without limit; truncateTail below produces the final tail — bash errors live at the END,
-  // so we keep the tail (not the head). NOTE: PI's exec funnels BOTH stdout and stderr into this single
-  // `onData` (bash.js does `child.stdout.on('data', onData); child.stderr.on('data', onData)`), so — unlike
-  // BgProcess where we own the pipes — we cannot split them into per-stream decoders here; a multibyte char
-  // split exactly across a stdout/stderr boundary is an unavoidable PI-level edge (rare, merged stream).
-  const decoder = new StringDecoder('utf8');
-  let out = '';
-  // Live output: push a bounded rolling TAIL to onProgress as the command runs, THROTTLED so a chatty
-  // command (npm test / build) can't flood the stream. onProgress is absent for callers that don't stream.
-  let lastEmit = 0;
-  const emitProgress = () => {
-    if (!onProgress) return;
-    const now = Date.now();
-    if (now - lastEmit < PROGRESS_THROTTLE_MS) return;
-    lastEmit = now;
-    onProgress(out.length > PROGRESS_TAIL ? out.slice(out.length - PROGRESS_TAIL) : out);
-  };
-  const onData = (d) => {
-    out += decoder.write(d);
-    if (out.length > outputCap * 2) out = out.slice(out.length - outputCap * 2);
-    emitProgress();
-  };
-  let exitCode = null;
-  let killed = false;
-  try {
-    // PI's exec takes its timeout in SECONDS; on expiry it SIGKILLs the whole process tree and throws
-    // `timeout:<seconds>`. It also throws for a missing cwd or shell-spawn failure. `env: process.env`
-    // preserves the daemon's environment (PATH etc.) the same way the old spawn did.
-    const res = await bashOps.exec(command, cwd, { onData, env: process.env, timeout: Math.ceil(timeoutMs / 1000) });
-    exitCode = res.exitCode;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.startsWith('timeout:')) { killed = true; exitCode = null; }
-    else return `Error: ${msg}`;
+/** One FOREGROUND Bash run that Ctrl+B can detach into a background job. It wraps PI's exec (for the
+ *  same tree-kill + pipe handling the old plain path had) but owns its OWN AbortController and deadline
+ *  timer instead of PI's built-in timeout — that ownership is what lets a detach cancel the deadline and
+ *  leave the process running. Its field shape matches BgProcess so `handleFor` registers it unchanged;
+ *  on detach the plugin flips the handle's completionMode to 'job' and it becomes an ordinary process. */
+class ForegroundRun {
+  constructor(id, command, cwd, outputCap, timeoutMs) {
+    this.id = id;
+    this.command = command;
+    this.cwd = cwd;
+    this.startedAt = new Date().toISOString();
+    this.output = '';
+    this.readOffset = 0;
+    this.exitCode = null;
+    this.outputCap = outputCap;
+    this.timeoutMs = timeoutMs;
+    this.detached = false;
+    this.timedOut = false;
+    this.spawnError = null;
+    this.controller = new AbortController();
+    // NOTE: PI's exec funnels BOTH stdout and stderr into one `onData`, so — unlike BgProcess where we own
+    // the pipes — we keep a single decoder; a multibyte char split exactly across a stdout/stderr boundary
+    // is an unavoidable PI-level edge (rare, merged stream).
+    this._decoder = new StringDecoder('utf8');
+    this._timer = null;
+    this._resolveDetached = null;
+    this.detachedPromise = new Promise((resolve) => { this._resolveDetached = resolve; });
   }
-  out += decoder.end(); // flush any bytes held for a trailing partial character
+  get running() { return this.exitCode === null; }
+  /** Move to the background: resolve the race and drop the deadline (parity with background=true, which
+   *  has no time limit). The process is NOT signalled — it keeps running as a detached job. Idempotent. */
+  detach() {
+    if (this.detached) return;
+    this.detached = true;
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    this._resolveDetached();
+  }
+  /** Registry kill / session delete: cancel via the same signal PI wires to killProcessTree. */
+  kill() {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    this.controller.abort();
+  }
+  /** Run to completion or abort. Appends to the rolling buffer (bounded, cursor-adjusted on trim like
+   *  BgProcess) and sets exitCode/timedOut/spawnError; the caller reads those fields once it settles.
+   *  Never rejects — every failure mode is captured into state. */
+  async run(onProgress) {
+    let lastEmit = 0;
+    const emitProgress = () => {
+      // Stop pushing once detached: the tool's onUpdate sink belongs to a turn that has already moved on.
+      if (!onProgress || this.detached) return;
+      const now = Date.now();
+      if (now - lastEmit < PROGRESS_THROTTLE_MS) return;
+      lastEmit = now;
+      onProgress(this.output.length > PROGRESS_TAIL ? this.output.slice(this.output.length - PROGRESS_TAIL) : this.output);
+    };
+    const onData = (d) => {
+      this.output += this._decoder.write(d);
+      if (this.output.length > this.outputCap * 2) { // keep the tail; new-output reads follow the trim
+        const drop = this.output.length - this.outputCap * 2;
+        this.output = this.output.slice(drop);
+        this.readOffset = Math.max(0, this.readOffset - drop);
+      }
+      emitProgress();
+    };
+    // Plugin-owned deadline (PI's own timer is disarmed with timeout: undefined so we can cancel it on
+    // detach). Firing it aborts the tree via the signal PI wired to killProcessTree — same effect PI's
+    // built-in timeout had.
+    this._timer = setTimeout(() => { this.timedOut = true; this.controller.abort(); }, this.timeoutMs);
+    try {
+      const res = await bashOps.exec(this.command, this.cwd, { onData, env: process.env, signal: this.controller.signal, timeout: undefined });
+      this.exitCode = res.exitCode;
+    } catch (e) {
+      // An abort (deadline OR registry kill) surfaces as a throw; exitCode stays null so the run reads as
+      // killed. Any other throw (missing cwd, shell-spawn failure) is a real error the caller reports bare.
+      if (!this.controller.signal.aborted) this.spawnError = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+      this.output += this._decoder.end(); // flush any bytes held for a trailing partial character
+    }
+  }
+}
+
+/** Format a settled run's rolling buffer into the `$ cmd … [exit N]` block the model reads. */
+function formatRunResult(command, cwd, out, exitCode, note, outputCap) {
   // Byte-only cap: `maxLines: Infinity` overrides PI's 2000-line default, which would otherwise
   // silently clip long-but-small output (e.g. a lint report) far under the configured `outputCap`.
   const t = truncateTail(out, { maxBytes: outputCap, maxLines: Infinity });
@@ -135,9 +179,6 @@ async function runForeground(command, cwd, outputCap, timeoutMs, onProgress) {
   // Ensure the exit marker starts on its own line — the tail may not end in a newline, which would
   // otherwise glue `[exit N]` onto the last line of real output the model parses.
   const sep = body.endsWith('\n') || body.length === 0 ? '' : '\n';
-  // Name the deadline that actually applied — the model has to know whether to re-run with a longer
-  // `timeout` or move the command to the background, and "[killed: timeout]" alone doesn't say which.
-  const note = killed ? `[killed: timed out after ${Math.round(timeoutMs / 1000)}s]\n` : '';
   return `$ ${command}\n(cwd: ${cwd})\n${note}${body}${sep}[exit ${exitCode}]`;
 }
 
@@ -174,11 +215,18 @@ export function register(ctx) {
   // web panel reads the live list from GET /brain/processes.
   const emitProcCard = (sessionId = currentSessionId()) => {
     if (!sessionId) return;
-    const running = ctx.processes.listForSession(sessionId).filter((p) => p.running);
+    // An in-flight foreground command is not a background process — exclude it so another process exiting
+    // mid-run can't redraw this card with the caller's own live command listed in it.
+    const running = ctx.processes.listForSession(sessionId).filter((p) => p.running && p.completionMode !== 'foreground');
     ctx.emitCard(running.length
       ? { id: 'bg-processes', title: `Background processes (${running.length})`, items: running.map((p) => ({ text: p.command, status: 'in_progress' })), pinned: true }
       : { id: 'bg-processes' });
   };
+
+  // In-flight FOREGROUND runs, keyed by process id, that Ctrl+B can detach. An entry lives only while its
+  // Bash tool call is genuinely running: it is added at spawn and removed the moment the run settles or
+  // detaches. `detachForeground` (registered below) resolves each matching run's race.
+  const foregroundRuns = new Map();
 
   // Also caps the rolling buffer kept for background processes (BgProcess.output trim above).
   const outputCap = Math.min(Math.max(Number(ctx.config.outputCap) || DEFAULT_MAX, 10_000), 500_000);
@@ -233,14 +281,57 @@ export function register(ctx) {
           // `tool_execution_update` the daemon maps to a throttled `tool_progress` event. Absent for callers
           // that don't stream (background path never uses it — it has ProcessOutput instead).
           const onProgress = onUpdate ? (text) => onUpdate(ok(text)) : undefined;
-          return ok(await runForeground(p.command, cwd, outputCap, timeoutMs, onProgress));
+          const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+          const run = new ForegroundRun(id, p.command, cwd, outputCap, timeoutMs);
+          // Register the run as `foreground` so Ctrl+B (which reads the live process list) can detach it,
+          // and so a detach flips the SAME handle to `job` — an ordinary background process from then on,
+          // with no further special-casing. A sessionless (worker/cron) run stays plain and non-detachable:
+          // it has no conversation to background into.
+          const fgSession = currentSessionId();
+          let handle = null;
+          if (fgSession) {
+            const userId = ctx.currentIdentity?.()?.elowenUserId ?? null;
+            handle = handleFor(id, run, userId, fgSession, 'foreground');
+            ctx.processes.register(handle);
+            // Terminal tools are owner-only, so the principal is always the operator — match what
+            // BrainService sends on the detach control (`elowen:<userId>`).
+            foregroundRuns.set(id, { run, sessionId: fgSession, principal: userId !== null ? `elowen:${userId}` : null });
+          }
+          const execPromise = run.run(onProgress);
+          // A DETACHED run that later exits wakes the conversation to read its output — the exact lifecycle
+          // Bash(background:true) gets via BgProcess.onClose. A run that finishes in the foreground uses
+          // remove() below instead, which never notifies.
+          void execPromise.then(() => {
+            if (!run.detached) return;
+            emitProcCard(fgSession);
+            ctx.processes.markExited(id);
+          });
+          await Promise.race([execPromise, run.detachedPromise]);
+          if (run.detached) {
+            foregroundRuns.delete(id);
+            if (handle) { handle.completionMode = 'job'; ctx.processes.register(handle); }
+            emitProcCard(fgSession);
+            return ok(`Moved to background as process ${id}: ${p.command}\n(cwd: ${cwd})\nStill running with no time limit; use ProcessOutput("${id}") to check on it.`);
+          }
+          // Foreground completion: drop the registry entry WITHOUT a nudge, exactly as a non-backgrounded
+          // command produced no lingering process before this change.
+          foregroundRuns.delete(id);
+          if (handle) ctx.processes.remove(id);
+          if (run.spawnError) return ok(`Error: ${run.spawnError}`);
+          // Name the deadline that actually applied so the model knows whether to re-run with a longer
+          // `timeout` or move to the background; a bare kill (registry/session delete) reads as `[killed]`.
+          const note = run.timedOut
+            ? `[killed: timed out after ${Math.round(timeoutMs / 1000)}s]\n`
+            : run.exitCode === null ? '[killed]\n' : '';
+          return ok(formatRunResult(p.command, cwd, run.output, run.exitCode, note, outputCap));
         }
         // prune finished processes before the cap check so dead entries don't block new work (the cap is
         // per session, so both the prune and the count stay session-scoped)
         const sessionId = currentSessionId();
         if (!sessionId) return ok('Error: background processes require an authenticated conversation.');
         for (const proc of ctx.processes.listForSession(sessionId)) { if (!proc.running) ctx.processes.remove(proc.id); }
-        if (ctx.processes.listForSession(sessionId).length >= MAX_BG) return ok(`Error: too many background processes (${MAX_BG}); kill one first.`);
+        // Exclude an in-flight foreground command from the cap: it is not a background slot holder.
+        if (ctx.processes.listForSession(sessionId).filter((proc) => proc.completionMode !== 'foreground').length >= MAX_BG) return ok(`Error: too many background processes (${MAX_BG}); kill one first.`);
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
         // The operator who started it (+ the session they started it in) → wake THAT conversation when it
         // exits (markExited on close). Field is `elowenUserId` (was mis-typed as the pre-rebrand `orcaUserId`,
@@ -262,7 +353,9 @@ export function register(ctx) {
       const denied = denyNonOwner();
       if (denied) return denied;
       const sessionId = currentSessionId();
-      const own = sessionId ? ctx.processes.listForSession(sessionId) : [];
+      // Exclude any of the caller's own in-flight foreground commands: this tool's contract is background
+      // processes, and a parallel tool call could otherwise surface the command running alongside it.
+      const own = sessionId ? ctx.processes.listForSession(sessionId).filter((proc) => proc.completionMode !== 'foreground') : [];
       if (own.length === 0) return ok('No background processes.');
       return ok(own.map((proc) =>
         `- ${proc.id} ${proc.running ? 'RUNNING' : `exited(${proc.exitCode})`} since ${proc.startedAt}\n  $ ${proc.command}`
@@ -326,6 +419,22 @@ export function register(ctx) {
       return ok(`Killed ${p.id} ($ ${handle.command}).`);
     },
   }));
+
+  // Ctrl+B backgrounds a running foreground command: resolve its race (ForegroundRun.detach) so the tool
+  // returns "moved to background" and the run becomes an ordinary job. Matches on the same principal +
+  // session the plugin captured at spawn, mirroring the subagent plugin's control. Detaching is idempotent
+  // and only touches still-foreground runs, so a double-fire can never double-count.
+  ctx.registerControl('terminal', {
+    detachForeground: ({ sessionId, principal }) => {
+      let detached = 0;
+      for (const entry of foregroundRuns.values()) {
+        if (entry.run.detached || entry.sessionId !== sessionId || entry.principal !== principal) continue;
+        entry.run.detach();
+        detached += 1;
+      }
+      return { detached };
+    },
+  });
 
   ctx.logger.info('registered Bash (+background), list/read/kill process tools');
 }

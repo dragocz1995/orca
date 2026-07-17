@@ -296,10 +296,12 @@ export class InputRouter {
     if (editing && keymap.isLeader(data)) { leader.arm(); context.render('input:leader-arm'); return { consume: true }; }
     const action = editing ? keymap.directAction(data) : null;
     // Ctrl+B is also the editor's standard backward-character chord. Claim it only while a real
-    // foreground delegate can be detached; otherwise PI's editor keeps its native cursor behavior.
-    if (action === 'subagent_background'
-      && !stream.subagentStates().some((agent) => agent.status === 'running' && agent.background !== true)) {
-      return undefined;
+    // foreground delegate OR a running foreground command can be detached; otherwise PI's editor keeps its
+    // native cursor behavior.
+    if (action === 'subagent_background') {
+      const hasForegroundSubagent = stream.subagentStates().some((agent) => agent.status === 'running' && agent.background !== true);
+      const hasForegroundCommand = rt.processes.some((proc) => proc.running && proc.completionMode === 'foreground');
+      if (!hasForegroundSubagent && !hasForegroundCommand) return undefined;
     }
     if (action) { context.dispatchAction(action); return { consume: true }; }
     if (editing && editor.getText() === '' && data === '/') {

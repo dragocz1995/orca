@@ -89,6 +89,17 @@ describe('stream interrupt + shell row budget', () => {
     expect(bottomHints(map, 'thinking', false, false, true)).toContain('esc inject queued');
   });
 
+  it('names the Ctrl+B background hint for whichever foreground work is waiting', () => {
+    const map = createKeymap();
+    // No foreground work → no background hint at all.
+    expect(bottomHints(map, 'thinking', false, false, false, false, false)).not.toContain('background');
+    // A foreground delegate names the sub-agent; a foreground command names the command.
+    expect(bottomHints(map, 'thinking', false, false, false, true, false)).toContain('background sub-agent');
+    expect(bottomHints(map, 'thinking', false, false, false, false, true)).toContain('background command');
+    // A delegate takes precedence in the label when both are foreground (the chord detaches both).
+    expect(bottomHints(map, 'thinking', false, false, false, true, true)).toContain('background sub-agent');
+  });
+
 });
 
 describe('chordFromInput — raw keypress → chord spec', () => {

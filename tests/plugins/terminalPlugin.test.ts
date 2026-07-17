@@ -335,6 +335,103 @@ describe('terminal plugin — per-call Bash timeout', () => {
   }, 20_000);
 });
 
+// Ctrl+B backgrounds a still-running foreground command: the plugin registers each foreground run as the
+// transient `foreground` mode, and the daemon's detach control flips it to an ordinary `job` that keeps
+// running and nudges the conversation on exit — the exact lifecycle Bash(background=true) already has.
+describe('terminal plugin — foreground detach (Ctrl+B backgrounds a running command)', () => {
+  let reg: PluginRegistry;
+  let dir: string;
+  // A real operator identity carries elowenUserId; the plugin captures principal `elowen:<id>` at spawn,
+  // which is what the daemon's detach control matches on.
+  const uidOwner: TurnIdentity = { platform: 'elowen', userId: '1', admin: true, owner: true, elowenUserId: 1 };
+  beforeAll(async () => {
+    reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['terminal'], logger: log });
+    dir = mkdtempSync(join(tmpdir(), 'elowen-term-detach-'));
+  });
+  // The exit listener is a singleton on the shared registry; reset it so a test's counter never leaks.
+  afterEach(() => { processRegistry.setExitListener(() => {}); });
+
+  const control = () => {
+    const c = reg.controls.get('terminal');
+    if (!c) throw new Error('terminal control not registered');
+    return c as unknown as { detachForeground: (i: { sessionId: string; principal: string }) => { detached: number } };
+  };
+  const inSession = (sessionId: string, name: string, params: Record<string, unknown>) =>
+    runWithPolicy(userPolicy([dir]), () => runTool(reg, name, params), { identity: uidOwner, sessionId });
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('registers a foreground handle while running and removes it on completion with no nudge', async () => {
+    const session = 'brain-fg-plain';
+    let nudged = 0;
+    processRegistry.setExitListener(() => { nudged += 1; });
+    const p = inSession(session, 'Bash', { command: `node -e "setTimeout(() => process.stdout.write('done'), 400)"` });
+    await settle(150);
+    const live = processRegistry.listForSession(session);
+    expect(live.map((x) => x.completionMode)).toEqual(['foreground']);
+    const res = await p;
+    expect(res.content[0].text).toContain('done');
+    expect(res.content[0].text).toContain('[exit 0]');
+    expect(processRegistry.listForSession(session)).toHaveLength(0); // removed on completion
+    expect(nudged).toBe(0); // a foreground command that finished on its own never wakes the conversation
+  }, 15_000);
+
+  it('detach moves the running command to the background as a job, then nudges on its exit', async () => {
+    const session = 'brain-fg-detach';
+    let nudgedId = '';
+    processRegistry.setExitListener((info) => { nudgedId = info.id; });
+    const p = inSession(session, 'Bash', { command: `node -e "console.log('early'); setTimeout(() => console.log('late'), 1200)"` });
+    await settle(300); // 'early' printed, still running
+    expect(control().detachForeground({ sessionId: session, principal: 'elowen:1' })).toEqual({ detached: 1 });
+    const res = await p;
+    const id = /Moved to background as process (\S+):/.exec(res.content[0].text)?.[1];
+    expect(id).toBeTruthy();
+    const listed = processRegistry.listForSession(session).find((x) => x.id === id);
+    expect(listed?.completionMode).toBe('job'); // now an ordinary background job
+    expect(listed?.running).toBe(true);
+    const out = await inSession(session, 'ProcessOutput', { id: id!, all: true });
+    expect(out.content[0].text).toContain('early');
+    await settle(1500); // let the detached process finish
+    expect(nudgedId).toBe(id); // the detached run's exit wakes the conversation, like Bash(background)
+  }, 15_000);
+
+  it('detaching cancels the deadline: the command survives past its per-call timeout', async () => {
+    const session = 'brain-fg-deadline';
+    const p = inSession(session, 'Bash', { command: 'sleep 10', timeout: 2 }); // would be killed at 2s
+    await settle(500);
+    expect(control().detachForeground({ sessionId: session, principal: 'elowen:1' })).toEqual({ detached: 1 });
+    const res = await p;
+    const id = /Moved to background as process (\S+):/.exec(res.content[0].text)?.[1];
+    await settle(2200); // past the original 2s deadline
+    expect(processRegistry.listForSession(session).find((x) => x.id === id)?.running).toBe(true);
+  }, 15_000);
+
+  it('a session or principal mismatch detaches nothing and the command completes in the foreground', async () => {
+    const session = 'brain-fg-mismatch';
+    const p = inSession(session, 'Bash', { command: `node -e "setTimeout(() => process.stdout.write('ok'), 400)"` });
+    await settle(150);
+    expect(control().detachForeground({ sessionId: 'brain-other', principal: 'elowen:1' })).toEqual({ detached: 0 });
+    expect(control().detachForeground({ sessionId: session, principal: 'elowen:999' })).toEqual({ detached: 0 });
+    const res = await p;
+    expect(res.content[0].text).toContain('ok');
+    expect(res.content[0].text).toContain('[exit 0]'); // finished normally, not "moved to background"
+  }, 15_000);
+
+  it('an in-flight foreground command does not consume a background slot', async () => {
+    const session = 'brain-fg-cap';
+    const fg = inSession(session, 'Bash', { command: 'sleep 8' }); // foreground, in flight
+    await settle(200);
+    expect(processRegistry.listForSession(session).some((x) => x.completionMode === 'foreground')).toBe(true);
+    for (let i = 0; i < 16; i += 1) { // all MAX_BG slots still free — the foreground run is excluded
+      const r = await inSession(session, 'Bash', { command: 'sleep 8', background: true });
+      expect(r.content[0].text).toMatch(/Started background process/);
+    }
+    const refused = await inSession(session, 'Bash', { command: 'sleep 8', background: true });
+    expect(refused.content[0].text).toMatch(/too many background processes/);
+    control().detachForeground({ sessionId: session, principal: 'elowen:1' }); // resolve the fg run cleanly
+    await fg;
+  }, 25_000);
+});
+
 // Blocking reads exist so the agent stops burning turns polling a build it started. The wait is bounded
 // and never destructive: a timed-out wait leaves the process running for a later read.
 describe('terminal plugin — ProcessOutput(block)', () => {

@@ -18,7 +18,10 @@ export interface ProcessHandle {
   userId?: number | null;
   /** The brain session it was started in (e.g. `brain-<uid>`) — the wake is bound to THIS conversation. */
   sessionId?: string | null;
-  completionMode?: 'job' | 'service';
+  /** `foreground` is the transient mode of a still-in-flight `Bash` tool call that the CLI's Ctrl+B can
+   *  detach; on detach the plugin flips the same handle to `job` and it becomes an ordinary background
+   *  process. It is deliberately NOT counted as a running job (see `runningJobCountForSession`). */
+  completionMode?: 'job' | 'service' | 'foreground';
   running: () => boolean;
   exitCode: () => number | null;
   readAll: () => string;
@@ -41,7 +44,7 @@ export interface ProcessInfo {
   sessionId: string | null;
   running: boolean;
   exitCode: number | null;
-  completionMode?: 'job' | 'service';
+  completionMode?: 'job' | 'service' | 'foreground';
 }
 
 const toInfo = (h: ProcessHandle): ProcessInfo => ({
@@ -195,7 +198,10 @@ export class ProcessRegistry {
   runningJobCountForSession(sessionId: string): number {
     let count = 0;
     for (const handle of this.handles.values()) {
-      if (handle.sessionId === sessionId && handle.completionMode !== 'service' && handle.running()) count++;
+      // A mode-less handle counts as a job (preserving prior semantics); `service` and the transient
+      // `foreground` mode of an in-flight Bash tool call do not — the latter would otherwise deadlock a
+      // delegate's collect loop, which blocks on this count, against its own running command.
+      if (handle.sessionId === sessionId && (handle.completionMode ?? 'job') === 'job' && handle.running()) count++;
     }
     return count;
   }

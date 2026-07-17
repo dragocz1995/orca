@@ -44,7 +44,9 @@ import { CANONICAL_THINKING_LEVELS, canonicalThinkingLevel } from './modelCapabi
 
 export type { BrainDeps } from './brainDeps.js';
 
-interface SubagentControl {
+/** Shared shape of a plugin control that Ctrl+B can use to detach a foreground wait (delegate or command)
+ *  into background work. Both the subagent and terminal plugins register one under their own key. */
+interface DetachControl {
   detachForeground(input: { sessionId: string; principal: string }): { detached: number };
 }
 
@@ -920,7 +922,23 @@ export class BrainService {
     const target = this.preflightSend(userId, session, client);
     const registry = await this.d.plugins?.get();
     const raw = registry?.controls.get('subagent');
-    const control = raw && typeof raw === 'object' ? raw as unknown as SubagentControl : undefined;
+    const control = raw && typeof raw === 'object' ? raw as unknown as DetachControl : undefined;
+    if (!control || typeof control.detachForeground !== 'function') return { detached: 0 };
+    return control.detachForeground({ sessionId: target, principal: `elowen:${userId}` });
+  }
+
+  /** Convert every running foreground `Bash` command in this conversation into a detached background job.
+   * Mirror of detachForegroundSubagents against the terminal plugin's control — the plugin keeps the
+   * process running and its eventual exit nudges this same conversation, exactly like Bash(background). */
+  async detachForegroundCommands(
+    userId: number,
+    session?: string,
+    client?: BoundClientRequest,
+  ): Promise<{ detached: number }> {
+    const target = this.preflightSend(userId, session, client);
+    const registry = await this.d.plugins?.get();
+    const raw = registry?.controls.get('terminal');
+    const control = raw && typeof raw === 'object' ? raw as unknown as DetachControl : undefined;
     if (!control || typeof control.detachForeground !== 'function') return { detached: 0 };
     return control.detachForeground({ sessionId: target, principal: `elowen:${userId}` });
   }

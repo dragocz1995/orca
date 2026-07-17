@@ -175,6 +175,29 @@ describe('ProcessRegistry', () => {
       reg.markExited('1');
       await expect(p).resolves.toBe('idle');
     });
+
+    // Regression: a foreground Bash command (the transient mode Ctrl+B can detach) must NOT count as a job.
+    // If it did, a delegate's collect loop — which blocks on this exact count — would deadlock against the
+    // command it is itself running.
+    it('excludes a foreground command from the job count, so an idle wait resolves at once', async () => {
+      const reg = new ProcessRegistry();
+      const fg = fakeHandle('fg'); fg.handle.sessionId = 's'; fg.handle.completionMode = 'foreground';
+      reg.register(fg.handle);
+      expect(reg.runningJobCountForSession('s')).toBe(0);
+      await expect(reg.waitForSessionJobsIdle('s')).resolves.toBe('idle');
+    });
+
+    it('counts a mode-less handle as a job, and a foreground handle flipped to job', () => {
+      const reg = new ProcessRegistry();
+      const loose = fakeHandle('loose'); loose.handle.sessionId = 's'; // no completionMode
+      reg.register(loose.handle);
+      expect(reg.runningJobCountForSession('s')).toBe(1);
+      const fg = fakeHandle('fg'); fg.handle.sessionId = 's'; fg.handle.completionMode = 'foreground';
+      reg.register(fg.handle);
+      expect(reg.runningJobCountForSession('s')).toBe(1); // foreground still excluded
+      fg.handle.completionMode = 'job'; reg.register(fg.handle); // detach flips it to a real job
+      expect(reg.runningJobCountForSession('s')).toBe(2);
+    });
   });
 
   // Backs ProcessOutput(block:true): the agent parks until ONE process finishes instead of polling.

@@ -112,15 +112,21 @@ export function bottomHints(
   interruptArmed = false,
   hasQueued = false,
   hasForegroundSubagent = false,
+  hasForegroundCommand = false,
 ): string {
   const k = (action: KeybindAction, label: string): string => {
     const chord = keymap.chordLabel(action);
     return chord ? `${chord} ${label}` : '';
   };
+  // One chord backgrounds whatever is in the foreground; name it for whichever is actually waiting (a
+  // delegate takes precedence in the label when both are, but the chord detaches both).
+  const backgroundHint = hasForegroundSubagent
+    ? k('subagent_background', 'background sub-agent')
+    : hasForegroundCommand ? k('subagent_background', 'background command') : '';
   const parts = state === 'child'
     ? ['⏎ message the sub-agent', 'esc back', k('subagent_cycle', 'next session')]
     : state === 'thinking'
-      ? [hasQueued ? 'esc inject queued' : interruptArmed ? 'esc again to interrupt' : 'esc interrupt', hasForegroundSubagent ? k('subagent_background', 'background sub-agent') : '', '/help commands', k('reasoning_cycle', 'reasoning'), hasSubagents ? k('subagent_cycle', 'subagents') : '']
+      ? [hasQueued ? 'esc inject queued' : interruptArmed ? 'esc again to interrupt' : 'esc interrupt', backgroundHint, '/help commands', k('reasoning_cycle', 'reasoning'), hasSubagents ? k('subagent_cycle', 'subagents') : '']
       : ['⏎ send', '/ slash', '@ files', '! shell', k('stash', 'stash'), k('mode_toggle', 'mode'), k('reasoning_cycle', 'reasoning'), k('telemetry_toggle', 'telemetry')];
   return parts.filter(Boolean).join('   ·   ');
 }
@@ -145,7 +151,7 @@ export const NOTICE_TTL_MS = 4_000;
 
 /** How long the model must author a tool call with nothing new reaching the chat before the
  *  "writing tool call" hint appears. Short authoring windows stay silent; only a genuine stall surfaces. */
-export const COMPOSE_MARKER_MS = 10_000;
+const COMPOSE_MARKER_MS = 10_000;
 
 /** Pure half of the notice-expiry contract (mirrors `interruptPress`: the shell owns the timer, this
  *  makes the boundary testable). Decides what the frame loop does with the notice slot it just saw:
@@ -629,7 +635,7 @@ export function createChatComposition(
     currentAgents = stream.subagentStates(); // one transcript scan per frame, shared by rail + fallback
     currentWorkflows = stream.workflowStates();
     const agents = currentAgents;
-    bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now(), rt.queued.length > 0, agents.some((agent) => agent.status === 'running' && agent.background !== true))}`)
+    bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now(), rt.queued.length > 0, agents.some((agent) => agent.status === 'running' && agent.background !== true), rt.processes.some((proc) => proc.running && proc.completionMode === 'foreground'))}`)
       + (footerState === 'idle' && shellContext.pending ? `   ${color.warning('· ! output → next message')}` : ''));
     const projectLine = `${color.dim(resources.cwdLabel)}${resources.branchLabel ? color.faint(` · ${resources.branchLabel}`) : ''}`;
     const line = statusline(rt.lineCfg ? { ...rt.lineCfg, showModel: false } : null, focusedUsage(), rt.modelName);
@@ -1040,29 +1046,46 @@ export function createChatComposition(
         }
         // Cycle main conversation → each sub-agent session → back to main (opencode-style).
         case 'subagent_cycle': stream.cycleSubagent(); return;
-        // A foreground delegate blocks the parent tool result. Ctrl+B resolves only that wait; the child
-        // channel stays alive and its completion is delivered back to the parent asynchronously.
+        // Ctrl+B backgrounds whatever is waiting in the foreground: a delegate's blocked parent tool result
+        // and/or a running Bash command. Each detach resolves only that wait — the child channel or the
+        // process keeps running and its completion is delivered back to this conversation asynchronously.
         case 'subagent_background': {
-          const foreground = stream.subagentStates()
+          const fgSubagents = stream.subagentStates()
             .filter((agent) => agent.status === 'running' && agent.background !== true).length;
-          if (foreground === 0) {
-            rt.notice = color.dim('no foreground sub-agent is waiting');
-            render('input:subagent-background-empty');
+          const fgCommands = rt.processes
+            .filter((proc) => proc.running && proc.completionMode === 'foreground').length;
+          if (fgSubagents === 0 && fgCommands === 0) {
+            rt.notice = color.dim('nothing running in the foreground to background');
+            render('input:foreground-background-empty');
             return;
           }
-          rt.notice = color.dim('moving sub-agent to background…');
-          rt.noticeSticky = true; // live progress — the outcome below replaces it and expires normally
-          lifetime.runSession(
-            () => client.backgroundSubagents(),
-            ({ detached }) => {
-              rt.notice = detached > 0
-                ? color.success(`moved ${detached} sub-agent${detached === 1 ? '' : 's'} to background`)
-                : color.dim('sub-agent already finished or moved to background');
-              render('state:subagent-background-complete');
-            },
-            (error) => { rt.notice = color.error(error.message); render('state:subagent-background-error'); },
-          );
-          render('input:subagent-background');
+          rt.notice = color.dim('moving foreground work to the background…');
+          rt.noticeSticky = true; // live progress — an outcome below replaces it and expires normally
+          if (fgSubagents > 0) {
+            lifetime.runSession(
+              () => client.backgroundSubagents(),
+              ({ detached }) => {
+                rt.notice = detached > 0
+                  ? color.success(`moved ${detached} sub-agent${detached === 1 ? '' : 's'} to background`)
+                  : color.dim('sub-agent already finished or moved to background');
+                render('state:subagent-background-complete');
+              },
+              (error) => { rt.notice = color.error(error.message); render('state:subagent-background-error'); },
+            );
+          }
+          if (fgCommands > 0) {
+            lifetime.runSession(
+              () => client.backgroundCommands(),
+              ({ detached }) => {
+                rt.notice = detached > 0
+                  ? color.success(`moved ${detached} command${detached === 1 ? '' : 's'} to background`)
+                  : color.dim('command already finished or moved to background');
+                render('state:command-background-complete');
+              },
+              (error) => { rt.notice = color.error(error.message); render('state:command-background-error'); },
+            );
+          }
+          render('input:foreground-background');
           return;
         }
         // Drop the most recent pending mid-turn queued message. Optimistic local pop; the server's `queue`

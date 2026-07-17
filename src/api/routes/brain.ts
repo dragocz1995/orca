@@ -278,6 +278,17 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
+  // Ctrl+B: move a running foreground Bash command to the background without killing it. The plugin keeps
+  // it running; its exit later nudges this same conversation, exactly like Bash(background=true).
+  app.post('/brain/commands/background', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const { session, client, generation } = await parseBody(c, brainStopSchema);
+    const boundClient = session && client && generation ? { id: client, generation } : undefined;
+    try { return c.json(await d.brain.detachForegroundCommands(c.get('user').id, session, boundClient)); }
+    catch (e) { return c.json({ error: (e as Error).message }, 409); }
+  });
+
   // Closing a session-bound client: abort its active run and dispose the live PI session only when no
   // other client is attached. Persisted history remains resumable.
   app.post('/brain/session/stop', async c => {
