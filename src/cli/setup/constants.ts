@@ -50,4 +50,5 @@ export const OAUTH_CHOICES: { type: BrainProviderType; label: string; builtin: s
   { type: 'oauth-openai-codex', label: 'Sign in with Codex / OpenAI', builtin: 'openai-codex' },
   { type: 'oauth-anthropic', label: 'Sign in with Claude', builtin: 'anthropic' },
   { type: 'oauth-github-copilot', label: 'Sign in with GitHub Copilot', builtin: 'github-copilot' },
+  { type: 'oauth-kimi', label: 'Sign in with Kimi', builtin: 'kimi-coding' },
 ];

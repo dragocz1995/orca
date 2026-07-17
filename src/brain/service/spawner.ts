@@ -86,7 +86,15 @@ export class LiveSessionSpawner {
     const route = resolveBrainModelRoute(registry, cfg, opts.selection);
     const { model } = route;
     const capabilities = modelCapabilities(model);
-    const requestProfile = { fast: capabilities.fast && opts.fast === true };
+    // Temperature is the provider entry's own setting, read from the same route that chose the model, and
+    // absent unless the operator set one — see ProviderRequestProfile on why absent must stay the default.
+    const requestProfile = {
+      fast: capabilities.fast && opts.fast === true,
+      ...(() => {
+        const t = cfg.providers.find((p) => p.id === route.providerId)?.temperature;
+        return t === undefined ? {} : { temperature: t };
+      })(),
+    };
     // The CONFIG entry id this session runs on comes from the same authoritative route as the descriptor,
     // so delegation never has to re-derive which provider won default/explicit selection.
     const providerId = route.providerId;

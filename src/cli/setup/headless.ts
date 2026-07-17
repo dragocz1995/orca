@@ -88,7 +88,9 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
     const existing = providers.find((x) => x.type === type && x.baseUrl === baseUrl);
     const id = existing?.id ?? uniqueSlug(deriveSlug(label), new Set(providers.map((x) => x.id)));
     const models = model ? [model] : (existing?.models ?? []);
-    const entry = { id, label: existing?.label ?? label, type, baseUrl, models, ...(existing?.api ? { api: existing.api } : {}), ...(o.apiKey ? { apiKey: o.apiKey } : {}) };
+    // `api` and `temperature` are carried forward for the same reason keepProvider carries them: the store
+    // replaces the list wholesale, so a field this rebuild forgets is erased from the very entry it edits.
+    const entry = { id, label: existing?.label ?? label, type, baseUrl, models, ...(existing?.api ? { api: existing.api } : {}), ...(existing?.temperature === undefined ? {} : { temperature: existing.temperature }), ...(o.apiKey ? { apiKey: o.apiKey } : {}) };
     const kept = providers.filter((e) => e.id !== id).map(keepProvider);
     const saved = await apiJson(ctx, 'PUT', '/config', { brain: { providers: [...kept, entry] } });
     if (!saved.ok) return die(`Saving the provider failed (${saved.status}).`);
@@ -125,7 +127,7 @@ export async function runHeadlessSetup(base: string, env: NodeJS.ProcessEnv, arg
     if (o.memoryKey) {
       const id = existing?.id ?? uniqueSlug('openrouter', new Set(providers.map((x) => x.id)));
       const kept = providers.filter((e) => e.id !== id).map(keepProvider);
-      const saved = await apiJson(ctx, 'PUT', '/config', { brain: { providers: [...kept, { id, label: existing?.label ?? 'OpenRouter', type: 'openai', baseUrl: OPENROUTER_BASE, models: existing?.models ?? [], ...(existing?.api ? { api: existing.api } : {}), apiKey: o.memoryKey }] } });
+      const saved = await apiJson(ctx, 'PUT', '/config', { brain: { providers: [...kept, { id, label: existing?.label ?? 'OpenRouter', type: 'openai', baseUrl: OPENROUTER_BASE, models: existing?.models ?? [], ...(existing?.api ? { api: existing.api } : {}), ...(existing?.temperature === undefined ? {} : { temperature: existing.temperature }), apiKey: o.memoryKey }] } });
       if (saved.ok) providerId = id;
       else warn('memory', `couldn't save the OpenRouter provider (${saved.status})`);
     } else if (existing?.apiKeySet) {

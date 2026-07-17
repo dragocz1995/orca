@@ -4,7 +4,7 @@ import { apiJson } from '../http.js';
 import type { WizardCtx } from '../types.js';
 
 /** A brain provider from the public config view — secrets masked to `apiKeySet`. */
-export interface PublicProvider { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; api?: 'openai-completions' | 'openai-responses'; apiKeySet: boolean }
+export interface PublicProvider { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; api?: 'openai-completions' | 'openai-responses'; apiKeySet: boolean; temperature?: number }
 
 /** Read the configured brain providers (public view). */
 export async function getBrainProviders(ctx: WizardCtx): Promise<PublicProvider[]> {
@@ -13,10 +13,16 @@ export async function getBrainProviders(ctx: WizardCtx): Promise<PublicProvider[
 }
 
 /** Re-send shape for an existing provider when replacing the whole list: NO apiKey, so the config store
- *  keeps its stored key (never echoing or dropping a secret). The wire-API pin (`api`) MUST ride along —
- *  the store treats an absent `api` as an explicit reset to auto. */
-export function keepProvider(e: PublicProvider): { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; api?: 'openai-completions' | 'openai-responses' } {
-  return { id: e.id, label: e.label, type: e.type, baseUrl: e.baseUrl, models: e.models, ...(e.api ? { api: e.api } : {}) };
+ *  keeps its stored key (never echoing or dropping a secret). Every OTHER field the operator can set MUST
+ *  ride along — the store replaces `brain.providers` wholesale and merges back only the key, so anything
+ *  omitted here is silently erased. That applies to the wire-API pin (`api`, absent reads as a reset to
+ *  auto) and to `temperature` (absent reads as "send the model's default"). */
+export function keepProvider(e: PublicProvider): { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[]; api?: 'openai-completions' | 'openai-responses'; temperature?: number } {
+  return {
+    id: e.id, label: e.label, type: e.type, baseUrl: e.baseUrl, models: e.models,
+    ...(e.api ? { api: e.api } : {}),
+    ...(e.temperature === undefined ? {} : { temperature: e.temperature }),
+  };
 }
 
 /** Point the default task executor at the embedded (in-process) engine on a provider. PUTs ONLY the

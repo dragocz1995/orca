@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { AuthStorage } from '@earendil-works/pi-coding-agent';
 import { buildBrainRegistry, resolveBrainModel, resolveBrainModelRoute, openAiApiFor } from '../../src/brain/providers.js';
 import { applyProviderRequestProfile, modelCapabilities } from '../../src/brain/modelCapabilities.js';
+import { KIMI_CLI_VERSION } from '../../src/brain/kimiOAuth.js';
 import type { BrainRuntimeConfig } from '../../src/brain/providers.js';
 
 const cfg: BrainRuntimeConfig = {
@@ -171,6 +173,84 @@ describe('brain providers', () => {
     const payload = { model: 'gpt-5.5', input: [] };
     expect(applyProviderRequestProfile(payload, { fast: true })).toEqual({ ...payload, service_tier: 'priority' });
     expect(applyProviderRequestProfile(payload, { fast: false })).toBe(payload);
+  });
+
+  describe('temperature projection', () => {
+    const payload = { model: 'k3', messages: [] };
+
+    it('sends nothing when no temperature is configured', () => {
+      // Identity, not a copy: the hook uses that to skip patching the request entirely, so a provider
+      // without a temperature must reach the wire exactly as PI built it. Models like Kimi K3 reject any
+      // value but their default, so "absent" is the only safe default and `undefined` would not do — it
+      // would still serialize the key.
+      expect(applyProviderRequestProfile(payload, { fast: false })).toBe(payload);
+      expect('temperature' in applyProviderRequestProfile(payload, { fast: false })).toBe(false);
+    });
+
+    it('passes a configured temperature through, including 0', () => {
+      expect(applyProviderRequestProfile(payload, { fast: false, temperature: 0.7 })).toEqual({ ...payload, temperature: 0.7 });
+      // 0 is a real setting, not "unset" — a falsy check here would silently drop it.
+      expect(applyProviderRequestProfile(payload, { fast: false, temperature: 0 })).toEqual({ ...payload, temperature: 0 });
+    });
+
+    it('composes with Fast rather than replacing it', () => {
+      expect(applyProviderRequestProfile(payload, { fast: true, temperature: 1.5 }))
+        .toEqual({ ...payload, service_tier: 'priority', temperature: 1.5 });
+    });
+  });
+
+  describe('Kimi Code (kimi-coding)', () => {
+    const empty: BrainRuntimeConfig = { providers: [] };
+
+    it('registers the OAuth provider where AuthStorage will look for it', async () => {
+      // The trap this guards: npm installs two physical copies of pi-ai, each with its own OAuth registry,
+      // and only the one nested under pi-coding-agent is the registry AuthStorage reads. Registering via
+      // registerProvider({ oauth }) is what lands in the right one; importing registerOAuthProvider
+      // directly would silently register into the copy nobody reads and login would 404.
+      const auth = AuthStorage.inMemory();
+      buildBrainRegistry(empty, auth);
+      expect(auth.getOAuthProviders().map((p) => p.id)).toContain('kimi-coding');
+    });
+
+
+    it("keeps PI's built-in models and adds the ones the account can reach", () => {
+      // registerProvider replaces a provider's model list wholesale, so the builtins are only still here
+      // because we copy them forward.
+      const ids = buildBrainRegistry(empty).getAll().filter((m) => m.provider === 'kimi-coding').map((m) => m.id);
+      expect(ids).toEqual(expect.arrayContaining(['k2p7', 'kimi-for-coding', 'kimi-k2-thinking']));
+      expect(ids).toContain('k3');
+    });
+
+    it("keeps Kimi's per-model User-Agent on the wire, for copied and added models alike", async () => {
+      // Asserted on the resolved request headers, NOT on `model.headers`: registerProvider moves them into
+      // a side store and nulls the descriptor field, so a test reading the descriptor would pass while the
+      // header silently vanished from every request.
+      //
+      // Both a copied builtin AND an added model are checked because they take their headers from
+      // different places (the builtin's own descriptor vs the template's). Testing only one leaves the
+      // other free to lose its User-Agent green.
+      const reg = buildBrainRegistry(empty);
+      const wireAgent = async (id: string) => {
+        const model = reg.getAll().find((m) => m.provider === 'kimi-coding' && m.id === id);
+        const resolved = await (reg as unknown as {
+          getApiKeyAndHeaders(m: unknown): Promise<{ headers?: Record<string, string> }>;
+        }).getApiKeyAndHeaders(model);
+        return resolved.headers?.['User-Agent'];
+      };
+      expect(await wireAgent('k2p7')).toBe(`KimiCLI/${KIMI_CLI_VERSION}`); // copied from PI
+      expect(await wireAgent('k3')).toBe(`KimiCLI/${KIMI_CLI_VERSION}`); // added by us
+    });
+
+    it('knows k3 reasons and offers only the effort Kimi documents', () => {
+      // K3 always thinks, and `max` is its only level — and already its default, so this changes no request.
+      // Regression guard: with kimi-for-coding missing from the capability catalog, k3 read as a
+      // non-reasoning model.
+      const model = buildBrainRegistry(empty).getAll().find((m) => m.provider === 'kimi-coding' && m.id === 'k3');
+      expect(model?.reasoning).toBe(true);
+      expect(model?.thinkingLevelMap?.max).toBe('max');
+      expect(model?.thinkingLevelMap?.low).toBeNull();
+      expect(model?.thinkingLevelMap?.high).toBeNull();
+    });
   });
 
   it('registers a hand-typed model id on the fly for a custom endpoint', () => {

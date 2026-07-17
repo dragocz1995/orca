@@ -15,7 +15,7 @@ import { logger } from '../../shared/logger.js';
 let missingBoundaryCompactionWarned = false;
 
 /** Everything one PI brain session needs, composed by the caller: the chat brain renders the Elowen
- *  persona and gates elowen_* tools by session kind; the task worker bakes in its close tool and the
+ *  persona and gates Elowen* tools by session kind; the task worker bakes in its close tool and the
  *  worker-brain prompt. The factory only assembles. */
 export interface SessionSpec {
   sessionId: string;
@@ -113,14 +113,17 @@ function codexReasoningSummary(pi: ExtensionAPI): void {
   });
 }
 
-/** ChatGPT OAuth Fast mode is OpenAI's priority service tier. The state object is deliberately mutable:
- *  `/fast` changes it live and this hook reads the newest value on every model round-trip. */
-function codexRequestProfile(profile: ProviderRequestProfile): (pi: ExtensionAPI) => void {
+/** The session's request switches: ChatGPT OAuth Fast mode (OpenAI's priority service tier) and the
+ *  provider entry's configured temperature. The state object is deliberately mutable: `/fast` changes it
+ *  live and this hook reads the newest value on every model round-trip. With no switch active the
+ *  projection returns its input unchanged and we patch nothing at all. */
+function providerRequestProfile(profile: ProviderRequestProfile): (pi: ExtensionAPI) => void {
   return (pi) => {
     pi.on('before_provider_request', (event) => {
-      if (!profile.fast) return undefined;
       const payload = event.payload as Record<string, unknown> | null | undefined;
-      return payload ? applyProviderRequestProfile(payload, profile) : undefined;
+      if (!payload) return undefined;
+      const next = applyProviderRequestProfile(payload, profile);
+      return next === payload ? undefined : next;
     });
   };
 }
@@ -152,7 +155,7 @@ function defaultResourceLoaderFactory(o: BrainResourceLoaderOptions): ResourceLo
       extensionFactories: [
         ...(o.codexReasoningFix ? [codexReasoningSummary] : []),
         ...(o.compactionModelRouteExtension ? [o.compactionModelRouteExtension] : []),
-        ...(o.requestProfile ? [codexRequestProfile(o.requestProfile)] : []),
+        ...(o.requestProfile ? [providerRequestProfile(o.requestProfile)] : []),
       ],
     } : {}),
   });

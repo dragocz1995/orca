@@ -58,7 +58,7 @@ export interface BrainLimits {
 }
 
 /** How a brain provider talks upstream: a custom endpoint (API key) or a connected OAuth account. */
-export type BrainProviderType = 'openai' | 'anthropic' | 'oauth-anthropic' | 'oauth-github-copilot' | 'oauth-openai-codex';
+export type BrainProviderType = 'openai' | 'anthropic' | 'oauth-anthropic' | 'oauth-github-copilot' | 'oauth-openai-codex' | 'oauth-kimi';
 export interface BrainProvider {
   id: string;
   label: string;
@@ -68,6 +68,8 @@ export interface BrainProvider {
   /** Wire API for `openai`-type entries. Absent = auto (api.openai.com → Responses, else Completions). */
   api?: 'openai-completions' | 'openai-responses';
   apiKeySet: boolean;
+  /** Sampling temperature. Absent = the field is not sent and the model's own default applies. */
+  temperature?: number;
 }
 /** One Elowen AI (brain) model. `source` = how its provider authenticates (drives the OAuth badge). */
 export interface BrainModelOption {

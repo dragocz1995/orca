@@ -1383,6 +1383,10 @@ export const en = {
     apiKeyKeepHint: 'Leave empty to keep the stored key.',
     wireApi: 'Wire API',
     wireApiHint: 'Auto uses the Responses API for api.openai.com and Chat Completions elsewhere. Pick Responses only when the endpoint supports it.',
+    temperature: 'Temperature',
+    temperaturePlaceholder: 'Model default',
+    temperatureInvalid: 'Temperature must be a number between 0 and 2, or empty to use the model default.',
+    temperatureHint: 'How much the model varies its wording: lower is steadier, higher is more inventive. Leave this empty to send nothing and let the model use its own default. Applies only to this provider, because some models accept no other value — Kimi K3 and Claude Opus 4.7 and newer reject any temperature but their default.',
     wireApiAuto: 'Auto',
     wireApiResponses: 'Responses',
     wireApiCompletions: 'Chat Completions',
@@ -1416,6 +1420,7 @@ export const en = {
       'oauth-anthropic': 'Claude account',
       'oauth-openai-codex': 'ChatGPT account',
       'oauth-github-copilot': 'GitHub Copilot',
+      'oauth-kimi': 'Kimi account',
     },
   },
   plugins: {

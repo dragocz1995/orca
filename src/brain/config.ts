@@ -7,6 +7,7 @@ const OAUTH_LABELS: Record<string, string> = {
   'oauth-anthropic': 'Claude account',
   'oauth-github-copilot': 'GitHub Copilot',
   'oauth-openai-codex': 'ChatGPT account',
+  'oauth-kimi': 'Kimi account',
 };
 
 /** Derive the brain's provider set from Elowen config + connected OAuth accounts. Precedence:

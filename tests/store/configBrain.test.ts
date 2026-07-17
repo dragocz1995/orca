@@ -99,4 +99,42 @@ describe('brain provider wire-API (api) round-trip', () => {
     expect(cs.get().brain.providers.find((p) => p.id === 'an')!.api).toBeUndefined();
     expect(cs.get().brain.providers.find((p) => p.id === 'oa')!.api).toBeUndefined();
   });
+
+  it('persists an oauth-kimi entry', () => {
+    // The runtime allowlist in sanitizeBrainProviders is a membership test, not an exhaustive one, so a
+    // type the union gained and the array did not is dropped here without a word.
+    const cs = new ConfigStore(openDb(':memory:'));
+    cs.update({ brain: { providers: [{ id: 'kimi-coding', label: 'Kimi account', type: 'oauth-kimi', baseUrl: '', models: [], apiKey: null }] } });
+    expect(cs.get().brain.providers.map((p) => p.type)).toEqual(['oauth-kimi']);
+  });
+
+  describe('temperature', () => {
+    const withTemp = (temperature: unknown) => {
+      const cs = new ConfigStore(openDb(':memory:'));
+      cs.update({ brain: { providers: [{ ...entry, temperature }] } });
+      return cs.brainProviders()[0]?.temperature;
+    };
+
+    it('round-trips a value in range, including the edges and 0', () => {
+      expect(withTemp(0.7)).toBe(0.7);
+      expect(withTemp(0)).toBe(0); // a real setting, not "unset"
+      expect(withTemp(2)).toBe(2);
+    });
+
+    it('drops anything out of range or not a finite number', () => {
+      // Dropped rather than clamped: sending a temperature we invented is worse than sending none, and
+      // "none" is a valid request against every endpoint.
+      for (const bad of [-0.1, 2.1, Number.NaN, Number.POSITIVE_INFINITY, '0.7', null, {}]) {
+        expect(withTemp(bad)).toBeUndefined();
+      }
+    });
+
+    it('is absent by default so no temperature reaches the wire', () => {
+      // Load-bearing: Kimi K3 rejects any temperature but its own default, as does Claude Opus 4.7+.
+      const cs = new ConfigStore(openDb(':memory:'));
+      cs.update({ brain: { providers: [entry] } });
+      expect(cs.brainProviders()[0]).not.toHaveProperty('temperature');
+      expect(cs.get().brain.providers[0]).not.toHaveProperty('temperature');
+    });
+  });
 });

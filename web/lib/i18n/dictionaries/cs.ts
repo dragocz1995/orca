@@ -1383,6 +1383,10 @@ export const cs = {
     apiKeyKeepHint: 'Prázdné = ponechat uložený klíč.',
     wireApi: 'Wire API',
     wireApiHint: 'Auto použije Responses API pro api.openai.com a jinde Chat Completions. Responses zvolte jen tehdy, když ho endpoint podporuje.',
+    temperature: 'Teplota',
+    temperaturePlaceholder: 'Výchozí hodnota modelu',
+    temperatureInvalid: 'Teplota musí být číslo mezi 0 a 2, nebo prázdná pro výchozí hodnotu modelu.',
+    temperatureHint: 'Jak moc model obměňuje formulace: nižší hodnota je ustálenější, vyšší nápaditější. Ponechte prázdné, aby se hodnota vůbec neodesílala a model použil vlastní výchozí. Nastavuje se u každého poskytovatele zvlášť, protože některé modely jinou hodnotu nepřijímají — Kimi K3 a Claude Opus 4.7 a novější odmítnou jakoukoli teplotu kromě své výchozí.',
     wireApiAuto: 'Auto',
     wireApiResponses: 'Responses',
     wireApiCompletions: 'Chat Completions',
@@ -1416,6 +1420,7 @@ export const cs = {
       'oauth-anthropic': 'Účet Claude',
       'oauth-openai-codex': 'Účet ChatGPT',
       'oauth-github-copilot': 'GitHub Copilot',
+      'oauth-kimi': 'Účet Kimi',
     },
   },
   plugins: {

@@ -27,11 +27,14 @@ const OAUTH_TYPES: { type: BrainProviderType; icon: string }[] = [
   { type: 'oauth-anthropic', icon: 'claude' },
   { type: 'oauth-openai-codex', icon: 'gpt' },
   { type: 'oauth-github-copilot', icon: 'copilot' },
+  { type: 'oauth-kimi', icon: 'kimi' },
 ];
 const API_TYPES: BrainProviderType[] = ['openai', 'anthropic'];
 
-type Draft = { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string; apiKey: string; api: '' | 'openai-completions' | 'openai-responses' };
-const emptyDraft = (): Draft => ({ id: '', label: '', type: 'openai', baseUrl: '', models: '', apiKey: '', api: '' });
+// `temperature` is a string because the field is free text: '' means "send none", which is a distinct,
+// meaningful state rather than a missing value, and 0 is a legitimate setting.
+type Draft = { id: string; label: string; type: BrainProviderType; baseUrl: string; models: string; apiKey: string; api: '' | 'openai-completions' | 'openai-responses'; temperature: string };
+const emptyDraft = (): Draft => ({ id: '', label: '', type: 'openai', baseUrl: '', models: '', apiKey: '', api: '', temperature: '' });
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
 
 /** Connect dialog: shows the provider's auth URL (+ device code), collects the pasted code when the
@@ -187,6 +190,17 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
             />
           </Field>
         ) : null}
+        <Field label={t.brain.temperature} hint={t.brain.temperatureHint}>
+          <Input
+            type="number"
+            min={0}
+            max={2}
+            step={0.1}
+            value={d.temperature}
+            onChange={(e) => setD({ ...d, temperature: e.target.value })}
+            placeholder={t.brain.temperaturePlaceholder}
+          />
+        </Field>
         <Field label={t.brain.models} hint={Array.isArray(probed) ? t.brain.modelsHintPicker : d.type === 'openai' ? t.brain.modelsHintAuto : t.brain.modelsHint}>
           {probed === 'loading' ? (
             <LoadingState />
@@ -304,7 +318,7 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
 
   // A connected account's model selection lives on its explicit provider entry (id = the builtin
   // provider name, so `elowen:<id>/<model>` execs stay stable whether the entry is synthetic or saved).
-  const OAUTH_ENTRY_ID: Record<string, string> = { 'oauth-anthropic': 'anthropic', 'oauth-openai-codex': 'openai-codex', 'oauth-github-copilot': 'github-copilot' };
+  const OAUTH_ENTRY_ID: Record<string, string> = { 'oauth-anthropic': 'anthropic', 'oauth-openai-codex': 'openai-codex', 'oauth-github-copilot': 'github-copilot', 'oauth-kimi': 'kimi-coding' };
   const oauthEntryOf = (type: BrainProviderType) => providers.find((p) => p.type === type);
 
   const persist = (next: (Omit<BrainProvider, 'apiKeySet'> & { apiKey?: string })[]) =>
@@ -314,11 +328,21 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
     });
 
   const upsert = (d: Draft) => {
+    // Blank means "send no temperature", which is a real setting, not a missing one — so '' is omitted
+    // rather than coerced to 0. Anything else must clear the same 0..2 bar the daemon enforces: without
+    // this the value is POSTed, silently dropped server-side, and the operator is told it saved.
+    const temperature = d.temperature.trim();
+    const parsed = Number(temperature);
+    if (temperature && !(Number.isFinite(parsed) && parsed >= 0 && parsed <= 2)) {
+      toast(t.brain.temperatureInvalid, 'error');
+      return; // modal stays open on the offending value
+    }
     const entry = {
       id: d.id, label: d.label.trim(), type: d.type, baseUrl: d.baseUrl.trim(),
       models: d.models.split('\n').map((m) => m.trim()).filter(Boolean),
       ...(d.type === 'openai' && d.api ? { api: d.api } : {}),
       ...(d.apiKey.trim() ? { apiKey: d.apiKey.trim() } : {}),
+      ...(temperature ? { temperature: parsed } : {}),
     };
     const keyless = providers.map(({ apiKeySet, ...p }) => p);
     persist(keyless.some((p) => p.id === entry.id) ? keyless.map((p) => (p.id === entry.id ? entry : p)) : [...keyless, entry]);
@@ -421,7 +445,7 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
                   <>
                   <Badge>{t.brain.types[p.type]}</Badge>
                   {p.apiKeySet ? <Badge tone="accent"><KeyRound size={10} className="mr-1" aria-hidden />{t.brain.keySet}</Badge> : null}
-                  <Button variant="ghost" icon={Pencil} aria-label={`${t.brain.editProvider}: ${p.label}`} onClick={() => setModal({ id: p.id, label: p.label, type: p.type, baseUrl: p.baseUrl, models: p.models.join('\n'), apiKey: '', api: p.api ?? '' })} />
+                  <Button variant="ghost" icon={Pencil} aria-label={`${t.brain.editProvider}: ${p.label}`} onClick={() => setModal({ id: p.id, label: p.label, type: p.type, baseUrl: p.baseUrl, models: p.models.join('\n'), apiKey: '', api: p.api ?? '', temperature: p.temperature === undefined ? '' : String(p.temperature) })} />
                   <Button variant="ghost" icon={Trash2} aria-label={`${t.brain.removeProvider}: ${p.label}`} onClick={() => setRemoveTarget(p.id)} />
                   </>
                 )}

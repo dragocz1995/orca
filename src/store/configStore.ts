@@ -75,7 +75,7 @@ export interface ElowenConfig {
 /** How a brain provider authenticates/talks upstream. `openai` = any OpenAI-compatible endpoint;
  *  `anthropic` = the Anthropic Messages API; `oauth-*` = a pi-ai OAuth account (no API key stored here —
  *  tokens live in the brain's AuthStorage file). */
-export type BrainProviderType = 'openai' | 'anthropic' | 'oauth-anthropic' | 'oauth-github-copilot' | 'oauth-openai-codex';
+export type BrainProviderType = 'openai' | 'anthropic' | 'oauth-anthropic' | 'oauth-github-copilot' | 'oauth-openai-codex' | 'oauth-kimi';
 
 /** Which wire API an `openai`-type entry speaks. Absent → auto: the official OpenAI endpoint gets the
  *  Responses API (richer: server-side prompt caching, reasoning summaries), everything else the
@@ -91,12 +91,18 @@ interface BrainProviderPublic {
   models: string[];
   api?: BrainProviderApi;
   apiKeySet: boolean;
+  /** Not a secret — the operator set it and needs to see it back. See BrainProviderStored.temperature. */
+  temperature?: number;
 }
 
 interface BrainProviderStored {
   id: string; label: string; type: BrainProviderType; baseUrl: string; models: string[];
   api?: BrainProviderApi;
   apiKey: string | null;
+  /** Sampling temperature for this endpoint. Absent → the field is never sent and the model's own default
+   *  applies, which is the only safe default: some models accept nothing else (Kimi K3 answers
+   *  `only 1 is allowed for this model`, Claude Opus 4.7+ rejects non-default values too). */
+  temperature?: number;
 }
 
 /** Keep only well-formed brain provider entries; drop anything with a missing id/type so a loose PUT
@@ -105,7 +111,9 @@ function sanitizeBrainProviders(input: unknown): BrainProviderStored[] {
   if (!Array.isArray(input)) return [];
   const out: BrainProviderStored[] = [];
   const seen = new Set<string>();
-  const TYPES: BrainProviderType[] = ['openai', 'anthropic', 'oauth-anthropic', 'oauth-github-copilot', 'oauth-openai-codex'];
+  // Must list every BrainProviderType: this is a membership test, not an exhaustive one, so a type the
+  // union gained and this array did not is dropped on save without a word.
+  const TYPES: BrainProviderType[] = ['openai', 'anthropic', 'oauth-anthropic', 'oauth-github-copilot', 'oauth-openai-codex', 'oauth-kimi'];
   for (const v of input) {
     if (!v || typeof v !== 'object') continue;
     const p = v as Partial<BrainProviderStored>;
@@ -120,6 +128,10 @@ function sanitizeBrainProviders(input: unknown): BrainProviderStored[] {
       models: Array.isArray(p.models) ? p.models.filter((m): m is string => typeof m === 'string' && !!m) : [],
       // Wire-API override is only meaningful for openai-type entries; anything else drops to auto.
       ...(p.type === 'openai' && (p.api === 'openai-responses' || p.api === 'openai-completions') ? { api: p.api } : {}),
+      // Out-of-range or non-finite drops the field entirely rather than clamping: sending a temperature we
+      // invented is worse than sending none, since "none" is a valid, working request everywhere.
+      ...(typeof p.temperature === 'number' && Number.isFinite(p.temperature) && p.temperature >= 0 && p.temperature <= 2
+        ? { temperature: p.temperature } : {}),
       apiKey: typeof p.apiKey === 'string' && p.apiKey ? p.apiKey : null,
     });
   }

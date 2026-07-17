@@ -74,6 +74,7 @@ import { EmbeddingQueue } from '../embeddings/embedQueue.js';
 import { MemoryService } from '../brain/memoryService.js';
 import { toEmbeddingConfig } from '../store/configStore.js';
 import { brainConfigFromElowen } from '../brain/config.js';
+import { registerKimiOAuth } from '../brain/providers.js';
 import { listBrainModels } from '../brain/models.js';
 import { setToolOutputCaps, setToolOutputPolicy } from '../brain/messageView.js';
 import { makeToolOutputPolicy } from '../brain/toolOutput.js';
@@ -378,6 +379,9 @@ export function buildApp(opts: BuildOpts) {
   // pi refreshes them in place. Lives next to the brain's cwd, never inside a repo checkout.
   const brainDir = (() => { const p = join(dirname(opts.dbPath), 'brain'); mkdirSync(p, { recursive: true }); return p; })();
   const brainAuth = opts.dbPath === ':memory:' ? AuthStorage.inMemory() : AuthStorage.create(join(brainDir, 'auth.json'));
+  // Kimi is not one of PI's import-time built-ins, so it has to be registered before a sign-in can arrive
+  // — see registerKimiOAuth. Must stay ahead of BrainOAuthManager, which is what serves /brain/oauth/*.
+  registerKimiOAuth(brainAuth);
   const brainOauth = new BrainOAuthManager(brainAuth);
   // Live provider resolver: adding a provider / connecting an account in Settings applies to the next
   // brain start without a daemon restart.

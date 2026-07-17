@@ -292,7 +292,11 @@ describe('brain oauth routes', () => {
     expect((await app.request('/brain/oauth/status', auth(amyTok))).status).toBe(403);
     const res = await app.request('/brain/oauth/status', auth(adminTok));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ 'oauth-anthropic': false, 'oauth-github-copilot': false, 'oauth-openai-codex': false });
+    // Exhaustive on purpose: the map is derived from OAUTH_BUILTIN, so a new account type has to show up
+    // here, and a type that silently fails to reach the routes shows up as a missing key.
+    expect(await res.json()).toEqual({
+      'oauth-anthropic': false, 'oauth-github-copilot': false, 'oauth-openai-codex': false, 'oauth-kimi': false,
+    });
   });
 
   it('start rejects an unknown type (404)', async () => {

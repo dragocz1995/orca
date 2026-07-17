@@ -40,7 +40,8 @@ describe('BrainSection — OAuth account model picker', () => {
 
     expect(container.querySelector('[data-settings-document]')).toBeNull();
     expect(container.querySelectorAll('[data-settings-group]')).toHaveLength(3);
-    expect(container.querySelectorAll('.settings-row')).toHaveLength(6);
+    // One row per OAuth account type (Claude, ChatGPT, Copilot, Kimi) plus the provider entries.
+    expect(container.querySelectorAll('.settings-row')).toHaveLength(7);
     expect(container.querySelector('.spatial-group')).toBeNull();
     expect(container.querySelector('.border-y.divide-y')).toBeNull();
   });

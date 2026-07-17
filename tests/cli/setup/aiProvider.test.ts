@@ -38,6 +38,28 @@ describe('cli/setup.keepProvider', () => {
     expect(kept).not.toHaveProperty('apiKey');
     expect(kept).not.toHaveProperty('apiKeySet');
   });
+
+  it('carries every operator-set field, so an unrelated wizard save cannot erase one', () => {
+    // The store replaces brain.providers wholesale and merges back only the key, so a field this rebuild
+    // omits is erased from an entry the operator never touched. Connecting a NEW account must not wipe the
+    // temperature or wire-API pin set on an existing one.
+    const pub: PublicProvider = {
+      id: 'p1', label: 'Proxy', type: 'openai', baseUrl: 'https://ai.example/v1', models: ['m'],
+      api: 'openai-completions', apiKeySet: true, temperature: 0.2,
+    };
+    expect(keepProvider(pub)).toEqual({
+      id: 'p1', label: 'Proxy', type: 'openai', baseUrl: 'https://ai.example/v1', models: ['m'],
+      api: 'openai-completions', temperature: 0.2,
+    });
+  });
+
+  it('keeps an explicit 0 and omits an unset temperature', () => {
+    const base: PublicProvider = { id: 'p1', label: 'P', type: 'openai', baseUrl: 'u', models: [], apiKeySet: false };
+    // 0 is falsy but a real setting — a truthiness check here would silently drop it.
+    expect(keepProvider({ ...base, temperature: 0 })).toHaveProperty('temperature', 0);
+    // Unset must stay unset: an explicit `temperature: undefined` would still serialize the key.
+    expect(keepProvider(base)).not.toHaveProperty('temperature');
+  });
 });
 
 // ── wizard AI step wiring: reuse-provider path → embedded exec + smoke test ─────────────────────────

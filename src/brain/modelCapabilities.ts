@@ -16,11 +16,19 @@ export interface ModelCapabilityView {
 }
 
 /** Mutable, session-local request switches read by the provider hook for every model round-trip. */
-export interface ProviderRequestProfile { fast: boolean }
+export interface ProviderRequestProfile {
+  fast: boolean;
+  /** The provider entry's configured sampling temperature, or absent to send no temperature at all.
+   *  Absent is the default and must stay that way: a model that accepts only its own default (Kimi K3,
+   *  Claude Opus 4.7+) rejects the request outright rather than clamping. */
+  temperature?: number;
+}
 
-/** Pure payload projection used by the Codex request hook (kept exportable for a no-network contract test). */
+/** Pure payload projection used by the provider request hook (kept exportable for a no-network contract
+ *  test). Returns the SAME object when nothing applies, so the caller can skip patching entirely. */
 export function applyProviderRequestProfile(payload: Record<string, unknown>, profile: ProviderRequestProfile): Record<string, unknown> {
-  return profile.fast ? { ...payload, service_tier: 'priority' } : payload;
+  const withTier = profile.fast ? { ...payload, service_tier: 'priority' } : payload;
+  return profile.temperature !== undefined ? { ...withTier, temperature: profile.temperature } : withTier;
 }
 
 type DescriptorPatch = {
@@ -45,13 +53,17 @@ const GEMINI_REASONING = /(?:^|\/)gemini-(?:2\.5|3|3\.1|3\.5)(?:-|$)/i;
 const OTHER_REASONING = /(?:deepseek[-_/]?r1|qwq|reasoning)/i;
 
 /** Catalog keys for endpoints whose name differs from the published one. Ollama Cloud ships as
- *  `ollama-cloud` (a self-hosted Ollama serves the same model families, so it reads the same rows), and
- *  Z.AI is published unhyphenated while relays namespace it `z-ai/…`. */
+ *  `ollama-cloud` (a self-hosted Ollama serves the same model families, so it reads the same rows),
+ *  Z.AI is published unhyphenated while relays namespace it `z-ai/…`, and Moonshot's two endpoints are
+ *  published under names of their own: the generic API as `moonshotai` and the Kimi Code subscription
+ *  (PI's `kimi-coding` provider) as `kimi-for-coding`, which serves its own model ids. */
 const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   ollama: 'ollama-cloud',
   'ollama-local': 'ollama-cloud',
   'z-ai': 'zai',
   zhipuai: 'zai',
+  moonshot: 'moonshotai',
+  'kimi-coding': 'kimi-for-coding',
 };
 
 const catalogName = (key: string): string => CATALOG_ALIAS[key] ?? key;
