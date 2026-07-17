@@ -103,8 +103,91 @@ function goalMeta(goal: GoalView | null, now = Date.now()): { primary: string; s
   };
 }
 
-/** The bottom-bar hint line for the given chat state, rendered from the ACTIVE keymap — hints must
+/** One keyboard-hint segment in an adaptive footer line. `priority` sets the drop order when the
+ *  line must shrink: lowest disappears first (ties break rightmost); the state's primary action
+ *  carries the highest priority and always survives. */
+export interface HintSegment {
+  text: string;
+  priority: number;
+}
+
+/** Join segments with `separator`, dropping whole lowest-priority segments until the line fits
+ *  `width`. A segment's text is never shortened: at least one survives even when wider than the
+ *  budget, leaving the caller's truncation as the defensive path for that case only. Pure. */
+export function fitSegments(segments: readonly HintSegment[], width: number, separator = '   ·   '): string {
+  const kept = segments.filter((s) => visibleWidth(s.text) > 0);
+  const sepWidth = visibleWidth(separator);
+  const total = (): number =>
+    kept.reduce((sum, s) => sum + visibleWidth(s.text), 0) + Math.max(0, kept.length - 1) * sepWidth;
+  while (kept.length > 1 && total() > width) {
+    let drop = 0;
+    for (let i = 1; i < kept.length; i++) {
+      if (kept[i]!.priority <= kept[drop]!.priority) drop = i;
+    }
+    kept.splice(drop, 1);
+  }
+  return kept.map((s) => s.text).join(separator);
+}
+
+/** First candidate whose visible width fits `width`, else the last (most reduced) one. Pure. */
+export function fitVariants(candidates: readonly string[], width: number): string {
+  for (const candidate of candidates) {
+    if (visibleWidth(candidate) <= width) return candidate;
+  }
+  return candidates[candidates.length - 1] ?? '';
+}
+
+/** The bottom-bar hint segments for the given chat state, rendered from the ACTIVE keymap — hints must
  *  stay truthful when the user rebinds a shortcut. Unbound actions drop their segment. Pure. */
+export function bottomHintItems(
+  keymap: Keymap,
+  state: 'child' | 'thinking' | 'idle',
+  hasSubagents = false,
+  interruptArmed = false,
+  hasQueued = false,
+  hasForegroundSubagent = false,
+  hasForegroundCommand = false,
+): HintSegment[] {
+  const k = (action: KeybindAction, label: string): string => {
+    const chord = keymap.chordLabel(action);
+    return chord ? `${chord} ${label}` : '';
+  };
+  const seg = (text: string, priority: number): HintSegment[] => (text ? [{ text, priority }] : []);
+  // One chord backgrounds whatever is in the foreground; name it for whichever is actually waiting (a
+  // delegate takes precedence in the label when both are, but the chord detaches both).
+  const backgroundHint = hasForegroundSubagent
+    ? k('subagent_background', 'background sub-agent')
+    : hasForegroundCommand ? k('subagent_background', 'background command') : '';
+  if (state === 'child') {
+    return [
+      ...seg('⏎ message the sub-agent', 100),
+      ...seg('esc back', 90),
+      ...seg(k('subagent_cycle', 'next session'), 20),
+    ];
+  }
+  if (state === 'thinking') {
+    return [
+      ...seg(hasQueued ? 'esc inject queued' : interruptArmed ? 'esc again to interrupt' : 'esc interrupt', 100),
+      ...seg(backgroundHint, 40),
+      ...seg('/help commands', 50),
+      ...seg(k('reasoning_cycle', 'reasoning'), 20),
+      ...seg(hasSubagents ? k('subagent_cycle', 'subagents') : '', 30),
+    ];
+  }
+  return [
+    ...seg('⏎ send', 100),
+    ...seg('/ slash', 80),
+    ...seg('@ files', 70),
+    ...seg('! shell', 60),
+    ...seg(k('stash', 'stash'), 40),
+    ...seg(k('mode_toggle', 'mode'), 50),
+    ...seg(k('reasoning_cycle', 'reasoning'), 30),
+    ...seg(k('telemetry_toggle', 'telemetry'), 20),
+  ];
+}
+
+/** The bottom-bar hint line for the given chat state — the full, unfitted form of
+ *  {@link bottomHintItems}. The live footer renders through {@link fitSegments} instead. Pure. */
 export function bottomHints(
   keymap: Keymap,
   state: 'child' | 'thinking' | 'idle',
@@ -114,27 +197,27 @@ export function bottomHints(
   hasForegroundSubagent = false,
   hasForegroundCommand = false,
 ): string {
-  const k = (action: KeybindAction, label: string): string => {
-    const chord = keymap.chordLabel(action);
-    return chord ? `${chord} ${label}` : '';
-  };
-  // One chord backgrounds whatever is in the foreground; name it for whichever is actually waiting (a
-  // delegate takes precedence in the label when both are, but the chord detaches both).
-  const backgroundHint = hasForegroundSubagent
-    ? k('subagent_background', 'background sub-agent')
-    : hasForegroundCommand ? k('subagent_background', 'background command') : '';
-  const parts = state === 'child'
-    ? ['⏎ message the sub-agent', 'esc back', k('subagent_cycle', 'next session')]
-    : state === 'thinking'
-      ? [hasQueued ? 'esc inject queued' : interruptArmed ? 'esc again to interrupt' : 'esc interrupt', backgroundHint, '/help commands', k('reasoning_cycle', 'reasoning'), hasSubagents ? k('subagent_cycle', 'subagents') : '']
-      : ['⏎ send', '/ slash', '@ files', '! shell', k('stash', 'stash'), k('mode_toggle', 'mode'), k('reasoning_cycle', 'reasoning'), k('telemetry_toggle', 'telemetry')];
-  return parts.filter(Boolean).join('   ·   ');
+  return bottomHintItems(
+    keymap, state, hasSubagents, interruptArmed, hasQueued, hasForegroundSubagent, hasForegroundCommand,
+  ).map((s) => s.text).join('   ·   ');
 }
 
-/** The start-screen hint line — same keymap-driven contract as bottomHints. Pure. */
-export function startScreenHints(keymap: Keymap): string {
+/** The start-screen hint segments — same keymap-driven contract as {@link bottomHintItems}. Pure. */
+export function startScreenHintItems(keymap: Keymap): HintSegment[] {
   const mode = keymap.chordLabel('mode_toggle');
-  return ['⏎ send', '/ commands', '@ files', '! shell', '↑ history', mode ? `${mode} mode` : ''].filter(Boolean).join(' · ');
+  return [
+    { text: '⏎ send', priority: 100 },
+    { text: '/ commands', priority: 80 },
+    { text: '@ files', priority: 70 },
+    { text: '! shell', priority: 60 },
+    { text: '↑ history', priority: 50 },
+    ...(mode ? [{ text: `${mode} mode`, priority: 40 }] : []),
+  ];
+}
+
+/** The start-screen hint line — the full, unfitted form of {@link startScreenHintItems}. Pure. */
+export function startScreenHints(keymap: Keymap): string {
+  return startScreenHintItems(keymap).map((s) => s.text).join(' · ');
 }
 
 /** The bottom-bar right side ("ctrl+c quit"), empty when quit is unbound. Pure. */
@@ -254,7 +337,7 @@ export function createChatComposition(
   const subPanel = new SubagentPanel();
   const promptMeta = new StatusBar('', '');
   const quitLabel = quitHint(keymap);
-  const bottomBar = new StatusBar(color.faint(`  ${bottomHints(keymap, 'idle')}`), quitLabel ? color.faint(`${quitLabel}  `) : '');
+  const bottomBar = new StatusBar('', quitLabel ? color.faint(`${quitLabel}  `) : '');
 
   const slashItems = commandDefs.map((cmd) => ({
     value: `/${cmd.name}`,
@@ -458,7 +541,7 @@ export function createChatComposition(
     () => Math.max(1, term.rows - TOP_RULE_ROWS),
     () => ({
       modelLine: modelMetaLine(rt.workMode, rt.modelName, rt.thinkingLevelLabels[rt.thinkingLevel] ?? rt.thinkingLevel, undefined, rt.yoloOn, rt.fastOn, goalMeta(rt.goal)) + leaderChip(),
-      hints: color.faint(startScreenHints(keymap)),
+      hints: color.faint(fitSegments(startScreenHintItems(keymap), startScreenBox(term.columns).boxWidth, ' · ')),
       tip: `${color.warning('●')} ${color.bold(color.text('Tip'))} ${color.dim('ask anything — try')} ${color.text('"What is the tech stack of this project?"')}`,
       notice: rt.notice,
       statusLeft: `${color.dim(resources.cwdLabel)}${resources.branchLabel ? color.faint(` · ${resources.branchLabel}`) : ''}`,
@@ -558,6 +641,48 @@ export function createChatComposition(
       if (interruptArmedUntil === armedUntil) { clearInterruptArm(); render('input:interrupt-expired'); }
     });
   };
+
+  // Adaptive footer lines: fitters receive the exact render width from StatusBar, so narrowing the
+  // terminal drops whole segments (by priority) instead of cutting a hint mid-word.
+  const metaLeftLine = (opts: { leader?: boolean; goalSuffix?: boolean; level?: boolean; provider?: boolean; fast?: boolean } = {}): string => {
+    const goal = goalMeta(rt.goal);
+    const trimmedGoal = goal && opts.goalSuffix === false ? { primary: goal.primary, suffix: '' } : goal;
+    const modelArg = opts.provider === false ? rt.modelName.replace(/^[^/]+\//, '') : rt.modelName;
+    return modelMetaLine(
+      rt.workMode,
+      modelArg,
+      opts.level === false ? '' : (rt.thinkingLevelLabels[rt.thinkingLevel] ?? rt.thinkingLevel),
+      activityChip(rt.transcript.activity, currentRunSeconds),
+      rt.yoloOn,
+      opts.fast === false ? false : rt.fastOn,
+      trimmedGoal,
+    ) + (opts.leader === false ? '' : leaderChip());
+  };
+  promptMeta.setLeftFit((w) => fitVariants([
+    metaLeftLine(),
+    metaLeftLine({ leader: false }),
+    metaLeftLine({ leader: false, goalSuffix: false }),
+    metaLeftLine({ leader: false, goalSuffix: false, level: false }),
+    metaLeftLine({ leader: false, goalSuffix: false, level: false, provider: false }),
+    metaLeftLine({ leader: false, goalSuffix: false, level: false, provider: false, fast: false }),
+  ], w));
+  bottomBar.setLeftFit((w) => {
+    const footerState = rt.childView ? 'child' : rt.transcript.thinking ? 'thinking' : 'idle';
+    const items = bottomHintItems(
+      keymap,
+      footerState,
+      currentAgents.length > 0,
+      interruptArmedUntil > Date.now(),
+      rt.queued.length > 0,
+      currentAgents.some((agent) => agent.status === 'running' && agent.background !== true),
+      rt.processes.some((proc) => proc.running && proc.completionMode === 'foreground'),
+    );
+    const suffix = footerState === 'idle' && shellContext.pending
+      ? `   ${color.warning('· ! output → next message')}`
+      : '';
+    const fitted = fitSegments(items, Math.max(0, w - 2 - visibleWidth(suffix)));
+    return color.faint(`  ${fitted}`) + suffix;
+  });
   // `rt.notice` is a single slot ~50 call sites write to, and submitting the next message was its only
   // general clear — so a confirmation like "reasoning effort: max" sat above the composer until the user
   // typed again. Expire it on a timer instead, armed from here because this is where the frame loop can
@@ -630,30 +755,18 @@ export function createChatComposition(
       childViewport = null;
       childViewportSession = '';
     }
-    // Contextual footer: while streaming, Esc interrupts; inside a sub-agent view, input steers the child.
-    const footerState = rt.childView ? 'child' : rt.transcript.thinking ? 'thinking' : 'idle';
+    // Contextual footer (hints + meta) is fitted inside StatusBar at render width — see the
+    // setLeftFit closures above; per-frame this pass only refreshes the state they read.
     currentAgents = stream.subagentStates(); // one transcript scan per frame, shared by rail + fallback
     currentWorkflows = stream.workflowStates();
     const agents = currentAgents;
-    bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now(), rt.queued.length > 0, agents.some((agent) => agent.status === 'running' && agent.background !== true), rt.processes.some((proc) => proc.running && proc.completionMode === 'foreground'))}`)
-      + (footerState === 'idle' && shellContext.pending ? `   ${color.warning('· ! output → next message')}` : ''));
     const projectLine = `${color.dim(resources.cwdLabel)}${resources.branchLabel ? color.faint(` · ${resources.branchLabel}`) : ''}`;
     const line = statusline(rt.lineCfg ? { ...rt.lineCfg, showModel: false } : null, focusedUsage(), rt.modelName);
     const activeGoal = goalMeta(rt.goal);
-    const metaLeft = modelMetaLine(
-      rt.workMode,
-      rt.modelName,
-      rt.thinkingLevelLabels[rt.thinkingLevel] ?? rt.thinkingLevel,
-      activityChip(rt.transcript.activity, currentRunSeconds),
-      rt.yoloOn,
-      rt.fastOn,
-      activeGoal,
-    ) + leaderChip();
     const metaRight = panelVisible() || !line ? projectLine : `${color.faint(line)} ${color.faint('·')} ${projectLine}`;
-    promptMeta.setLeft(metaLeft);
     // Project context yields only when the active-goal progress would otherwise be truncated. It remains
     // visible in the telemetry rail or returns automatically as soon as the terminal is wide enough.
-    promptMeta.setRight(activeGoal && visibleWidth(metaLeft) + visibleWidth(metaRight) + 1 > chatWidth() ? '' : metaRight);
+    promptMeta.setRight(activeGoal && visibleWidth(metaLeftLine()) + visibleWidth(metaRight) + 1 > chatWidth() ? '' : metaRight);
     // Drop the terminal plugin's pinned `bg-processes` card only while the dedicated right rail is
     // actually visible. Narrow terminals cannot fit that rail; retaining the compact card there avoids
     // making background work disappear entirely while still preventing duplicates on wide layouts.

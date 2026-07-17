@@ -536,18 +536,23 @@ export class QueuedMessages implements Component {
   }
 }
 
-/** A bottom status bar: left text and right text justified to the two edges. */
+/** A bottom status bar: left text and right text justified to the two edges. The left side may
+ *  instead be a fitter callback receiving the exact width available at render time, so adaptive
+ *  content (drop-whole-segments hints) is built for the real width and the truncation below stays
+ *  a defensive path rather than the mechanism that shapes the line. */
 export class StatusBar implements Component {
+  private leftFit: ((availableWidth: number) => string) | null = null;
   constructor(private left: string, private right: string) {}
   invalidate(): void { /* re-rendered on the next frame */ }
-  setLeft(left: string): void { this.left = left; }
+  setLeft(left: string): void { this.left = left; this.leftFit = null; }
+  setLeftFit(fit: ((availableWidth: number) => string) | null): void { this.leftFit = fit; }
   setRight(right: string): void { this.right = right; }
   render(width: number): string[] {
-    let left = this.left;
     let right = this.right;
     const maxRight = Math.max(0, Math.floor(width * 0.55));
     if (visibleWidth(right) > maxRight) right = truncateToWidth(right, maxRight, '…');
     const availableLeft = Math.max(0, width - visibleWidth(right) - 1);
+    let left = this.leftFit ? this.leftFit(availableLeft) : this.left;
     if (visibleWidth(left) > availableLeft) left = truncateToWidth(left, availableLeft, '…');
     const gap = Math.max(0, width - visibleWidth(left) - visibleWidth(right));
     return [left + ' '.repeat(gap) + right];
