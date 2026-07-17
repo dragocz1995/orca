@@ -31,6 +31,12 @@ export type BrainEvent =
   /** The model's reasoning/thinking stream (extended-thinking models) — shown as a dim, separate
    *  segment. Surfaced from PI's `thinking_delta`; channels may choose to ignore it. */
   | { type: 'reasoning'; delta: string }
+  /** The model has begun WRITING a tool call — its arguments are streaming, before the call executes.
+   *  Bridges the gap where the transcript would otherwise freeze (text done, tool marker not yet shown);
+   *  the matching `tool` event, which renders the marker, ends it. Purely a live hint: no durable row, and
+   *  a client may ignore it. Authoring is atomic per turn (PI writes every call, then executes), so this
+   *  needs no id — the first `tool` of the turn clears it. */
+  | { type: 'tool_authoring' }
   /** A tool call starting. `icon` is resolved daemon-side from the core map + plugin manifest `icons`
    *  (single source; clients render it, falling back to a generic glyph when absent). */
   | { type: 'tool'; name: string; detail?: string; icon?: string; id?: string; command?: string }
@@ -323,6 +329,10 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
     if (ev?.type === 'text_delta' && ev.delta) return { type: 'text', delta: ev.delta };
     // The model's reasoning stream (extended-thinking models) — a first-class, separately-rendered event.
     if (ev?.type === 'thinking_delta' && ev.delta) return { type: 'reasoning', delta: ev.delta };
+    // The model started composing a tool call — surface the authoring window as a live "working" hint.
+    // Every provider adapter emits `toolcall_start` before the arguments stream; the delta events after it
+    // are the args accumulating and stay dropped (the marker, not the raw JSON, is what renders).
+    if (ev?.type === 'toolcall_start') return { type: 'tool_authoring' };
     return null;
   }
   // Runtime notices so a stalled turn explains itself instead of hanging silently on the spinner.

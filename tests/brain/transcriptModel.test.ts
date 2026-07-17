@@ -256,6 +256,32 @@ describe('TranscriptModel', () => {
     expect(model.subagents()).toEqual([expect.objectContaining({ status: 'done', tools: 7 })]);
   });
 
+  it('flags a turn as composing while a tool call is being written, and clears it when the tool lands', () => {
+    const model = new TranscriptModel([]);
+    const turn = () => { const t = model.turnAt(0); if (t?.role !== 'elowen') throw new Error('expected assistant turn'); return t; };
+
+    model.apply({ type: 'text', delta: 'let me check' });
+    expect(turn().composing).toBeFalsy();
+
+    model.apply({ type: 'tool_authoring' });
+    expect(turn().composing).toBe(true);
+    // A second authoring event within the same turn is a no-op (no visible change).
+    expect(model.apply({ type: 'tool_authoring' })).toBe(false);
+
+    // The tool marker rendering ends the authoring window.
+    model.apply({ type: 'tool', name: 'Read', id: 't1' });
+    expect(turn().composing).toBe(false);
+  });
+
+  it('clears composing when the turn settles even if no tool followed', () => {
+    const model = new TranscriptModel([]);
+    model.apply({ type: 'tool_authoring' });
+    model.apply({ type: 'idle' });
+    const t = model.turnAt(0);
+    expect(t?.role === 'elowen' && t.composing).toBe(false);
+    expect(t?.role === 'elowen' && t.streaming).toBe(false);
+  });
+
   it('protects the cached sub-agent projection from caller mutation', () => {
     const model = new TranscriptModel([{
       role: 'assistant', text: '', segments: [{

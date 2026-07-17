@@ -114,7 +114,11 @@ export function groupToolItems(items: ToolItem[]): ToolGroup[] {
 }
 
 export type YouTurn = { role: 'you'; text: string };
-export type ElowenTurn = { role: 'elowen'; segments: Segment[]; streaming: boolean };
+export type ElowenTurn = { role: 'elowen'; segments: Segment[]; streaming: boolean;
+  /** True while the model is writing a tool call whose marker has not yet rendered — a live-only hint set
+   *  by `tool_authoring` and cleared by the first `tool` of the turn. Never persisted (history turns are
+   *  never streaming). */
+  composing?: boolean };
 /** A context-compaction boundary: everything before it was summarized away, so the surface renders a
  *  subtle "context compacted" divider in its place followed by the kept tail (see `persistCompaction`). */
 export type DividerTurn = { role: 'divider' };

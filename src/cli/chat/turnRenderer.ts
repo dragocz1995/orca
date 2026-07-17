@@ -203,7 +203,11 @@ export class TurnRenderer {
       if (segmentIndex > 0 && rows.length > 0 && rows.at(-1)?.line !== '') addBlank();
       for (const line of this.renderTextWithPlans(segment.text, width)) add(line);
     }
-    if (!hasText && turn.streaming) add(`  ${color.faint('…')}`);
+    // While the model is writing a tool call whose marker hasn't rendered yet, the transcript would
+    // otherwise sit frozen (the text is done, the tool row not started). Surface that it is working — even
+    // when it already printed prose, which is exactly when the bare `…` below would not show.
+    if (turn.streaming && turn.composing) add(`  ${color.faint('⚙ writing tool call…')}`);
+    else if (!hasText && turn.streaming) add(`  ${color.faint('…')}`);
     addBlank();
     return rows;
   }

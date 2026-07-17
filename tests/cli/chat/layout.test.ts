@@ -54,6 +54,32 @@ describe('chat layout components', () => {
 
   beforeAll(() => { initTheme(); });
 
+  describe('tool-call authoring indicator', () => {
+    const render = (turn: Parameters<TurnRenderer['render']>[0]): string =>
+      new TurnRenderer(getMarkdownTheme())
+        .render(turn, 0, 80, { showThoughts: true, thinkingSeconds: 0, expandedThoughts: new Set(), expandedTools: new Set() })
+        .map((row) => row.line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
+
+    it('shows the working line while a tool call is being written, even after prose', () => {
+      const rendered = render({ role: 'elowen', streaming: true, composing: true, segments: [{ kind: 'text', text: 'Let me look.' }] });
+      expect(rendered).toContain('Let me look.');
+      expect(rendered).toContain('writing tool call…');
+    });
+
+    it('drops the working line once the tool marker renders', () => {
+      const rendered = render({ role: 'elowen', streaming: true, composing: false, segments: [
+        { kind: 'text', text: 'Let me look.' },
+        { kind: 'tools', items: [{ name: 'Read', id: 't1' }] },
+      ] });
+      expect(rendered).not.toContain('writing tool call');
+    });
+
+    it('shows nothing extra on a settled turn', () => {
+      const rendered = render({ role: 'elowen', streaming: false, segments: [{ kind: 'text', text: 'done' }] });
+      expect(rendered).not.toContain('writing tool call');
+    });
+  });
+
   describe('sub-agent block Ctrl+B hint', () => {
     const renderSub = (sub: Record<string, unknown>): string => {
       const turn = { role: 'elowen' as const, streaming: true, segments: [

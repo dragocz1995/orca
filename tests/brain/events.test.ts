@@ -65,6 +65,25 @@ describe('compaction status notice (single source of truth, no false success)', 
   });
 });
 
+describe('message_update → assistant stream events', () => {
+  it('surfaces the start of a tool call as a live authoring hint', () => {
+    expect(ev({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_start', contentIndex: 1 } }))
+      .toEqual({ type: 'tool_authoring' });
+  });
+
+  it('keeps dropping the argument deltas that follow it (the marker renders, not the raw JSON)', () => {
+    expect(ev({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', delta: '{"path":' } }))
+      .toBeNull();
+  });
+
+  it('still maps text and thinking deltas as before', () => {
+    expect(ev({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'hi' } }))
+      .toEqual({ type: 'text', delta: 'hi' });
+    expect(ev({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: 'hmm' } }))
+      .toEqual({ type: 'reasoning', delta: 'hmm' });
+  });
+});
+
 describe('tool_execution_update → tool_progress (live Bash streaming)', () => {
   const update = (toolName: string, toolCallId: string, text: string, now?: number) =>
     toBrainEvent({ type: 'tool_execution_update', toolName, toolCallId, partialResult: { content: [{ type: 'text', text }], details: {} } } as unknown as AgentSessionEvent, now);

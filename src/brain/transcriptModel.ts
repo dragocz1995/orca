@@ -145,8 +145,17 @@ export class TranscriptModel implements TranscriptRead {
         this.noticeState = event.done ? undefined : event.message;
         this.publish({ kind: 'none' });
         return true;
+      case 'tool_authoring': {
+        const { turn, index, fresh } = this.ensureAssistant();
+        if (turn.composing) return false; // already flagged this turn — no visible change
+        turn.composing = true;
+        this.thinkingState = true;
+        this.publish(fresh ? { kind: 'append', index } : { kind: 'turn', index });
+        return true;
+      }
       case 'tool': {
         const { turn, index, fresh } = this.ensureAssistant();
+        turn.composing = false; // the marker renders now — the authoring hint has done its job
         const item: ToolItem = {
           name: event.name,
           detail: event.detail,
@@ -263,7 +272,7 @@ export class TranscriptModel implements TranscriptRead {
       case 'idle': {
         const index = this.turns.length - 1;
         const last = index >= 0 ? this.visit(index) : undefined;
-        if (last?.role === 'elowen') this.turns[index] = { ...last, streaming: false };
+        if (last?.role === 'elowen') this.turns[index] = { ...last, streaming: false, composing: false };
         this.thinkingState = false;
         if (!this.compactionActive) this.noticeState = undefined;
         this.publish(last?.role === 'elowen' ? { kind: 'turn', index } : { kind: 'none' });
@@ -378,7 +387,7 @@ export class TranscriptModel implements TranscriptRead {
     const index = this.turns.length - 1;
     const last = index >= 0 ? this.visit(index) : undefined;
     if (last?.role === 'elowen' && last.streaming) {
-      const turn: ElowenTurn = { role: 'elowen', segments: [...last.segments], streaming: true };
+      const turn: ElowenTurn = { role: 'elowen', segments: [...last.segments], streaming: true, composing: last.composing };
       this.turns[index] = turn;
       return { turn, index, fresh: false };
     }
