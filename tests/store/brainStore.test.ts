@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb, type Db } from '../../src/store/db.js';
-import { BrainStore, syntheticRestartResultId } from '../../src/store/brainStore.js';
+import { BrainStore, SESSION_EVENT_KINDS, syntheticRestartResultId } from '../../src/store/brainStore.js';
 
 describe('BrainStore', () => {
   let store: BrainStore;
@@ -244,6 +244,17 @@ describe('BrainStore', () => {
     })).toBe(true);
     store.removeForUser(1);
     expect((db.prepare('SELECT COUNT(*) AS n FROM brain_subagent_runs').get() as { n: number }).n).toBe(0);
+  });
+
+  // The read boundary re-validates the stored kind against a list, and the compiler cannot help: the row
+  // is a `string` from SQLite, so a boundary left behind on an older list stays perfectly well-typed while
+  // silently dropping the new kind on every reload. Every kind must survive the round trip.
+  it('reads back every session-event kind it accepts, so none is written and then dropped', () => {
+    store.createSession({ id: 's1', userId: 1, model: 'm' });
+    for (const kind of SESSION_EVENT_KINDS) store.appendSessionEvent('s1', kind, `detail-${kind}`);
+
+    expect(store.getSessionEvents('s1').map((e) => e.kind)).toEqual([...SESSION_EVENT_KINDS]);
+    expect(store.getSessionEvents('s1').map((e) => e.detail)).toEqual(SESSION_EVENT_KINDS.map((k) => `detail-${k}`));
   });
 
   // Deleting a user must not leave rows holding their conversation content behind, keyed to session ids

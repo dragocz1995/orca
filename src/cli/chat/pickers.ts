@@ -2,6 +2,8 @@ import { chatThemeItems, color, isChatThemeName, setChatTheme, setCustomChatThem
 import { savePrefs } from './prefs.js';
 import { sessionItems, modelItems, parseModelValue, openPicker, openTextInput, openInfoModal } from './picker.js';
 import { resolveModelQuery } from './fuzzy.js';
+import { chdirFailure, gitBranch, prettyCwd, resolveCdTarget } from './projectDir.js';
+import { loadMentionFrecency } from './mentions.js';
 import { isCtrlD, isCtrlL, isCtrlP, isCtrlR, isCtrlU, isTabKey } from './keys.js';
 import { openKeybindsEditor } from './keybindsEditor.js';
 import { API_KEY_PROVIDERS } from '../setup/constants.js';
@@ -16,6 +18,8 @@ export interface Pickers {
   cycleThinkingLevel(): void;
   openModelPicker(): void;
   applyModelArg(arg: string): void;
+  /** `/cd [path]` — move the CLI's working directory, or report it when called with no argument. */
+  changeDirectory(arg?: string): void;
   applyTheme(name: string): boolean;
   openThemePicker(): void;
   openHelpModal(): void;
@@ -32,7 +36,7 @@ export interface Pickers {
  *  effort, themes, and the /sessions /mcp /skills /lsp /tools /status /help modals. */
 export function createPickers(
   rt: ChatState,
-  resources: Pick<ChatApplicationResources, 'client' | 'tui' | 'editor' | 'termSettings' | 'cwdLabel' | 'branchLabel' | 'commandDefs' | 'lifetime'>,
+  resources: Pick<ChatApplicationResources, 'client' | 'tui' | 'editor' | 'termSettings' | 'cwdLabel' | 'branchLabel' | 'commandDefs' | 'lifetime' | 'mentionIndex'>,
   actions: Pick<ChatApplicationActions, 'render' | 'refreshMeta'>,
   stream: StreamCoordinatorPort,
   shell: {
@@ -42,7 +46,9 @@ export function createPickers(
     reloadKeymap(): void;
   },
 ): Pickers {
-  const { client, tui, editor, termSettings, cwdLabel, branchLabel, commandDefs, lifetime } = resources;
+  // cwdLabel/branchLabel are deliberately NOT destructured: `/cd` rewrites them on `resources`, and a
+  // local copy taken once at construction would keep reporting the directory the session started in.
+  const { client, tui, editor, termSettings, commandDefs, lifetime, mentionIndex } = resources;
   const { render, refreshMeta } = actions;
   const runApplication: ChatTaskScope['runApplication'] = (operation, onFulfilled, onRejected) =>
     lifetime.runApplication(operation, onFulfilled, onRejected);
@@ -192,6 +198,41 @@ export function createPickers(
     }, fail);
   };
 
+  // `/cd [path]`: move the CLI's working directory, or report it when called bare.
+  //
+  // `process.chdir` is the whole mechanism, on purpose. The cwd sent on every /brain/start and
+  // /brain/send, `!` shell commands, `@` expansion, /export and prompt-history persistence all read
+  // `process.cwd()` when they run, so one chdir moves all of them and none needs to know about `/cd`.
+  // The daemon needs no change either: it already lets a per-turn client cwd beat the session's own.
+  //
+  // Three things snapshot the directory at boot and cannot follow by themselves — the status chips, the
+  // `@` file index and mention ranking — so they are re-derived here. `process.chdir` reports a missing
+  // directory, a file and a permission failure itself, with the errno worth showing.
+  const changeDirectory = (arg?: string): void => {
+    const target = arg?.trim() ? resolveCdTarget(arg) : null;
+    if (target) {
+      try {
+        process.chdir(target);
+      } catch (e) {
+        rt.notice = color.error(`cannot enter ${target}: ${chdirFailure(e)}`);
+        render();
+        return;
+      }
+      const moved = process.cwd();
+      resources.cwdLabel = prettyCwd(moved);
+      resources.branchLabel = gitBranch(moved);
+      mentionIndex.setCwd(moved);
+      rt.mentionFrecency = loadMentionFrecency(moved);
+      // Tell the agent too: it was handed a working directory when its session spawned and would
+      // otherwise keep describing the old one until something respawned it.
+      // Best-effort: the local move already happened and every later turn reports it regardless. A daemon
+      // that refuses (no live conversation yet, a directory outside a scoped policy) costs only the marker.
+      runApplication(() => client.setWorkDir(moved), () => { /* marker recorded */ }, () => { /* see above */ });
+    }
+    rt.notice = color.dim(`${resources.cwdLabel}${resources.branchLabel ? ` · ${resources.branchLabel}` : ''}`);
+    render();
+  };
+
   // `/model <name>`: fuzzy-fix the argument to a configured model and switch directly; on no confident
   // match, fall back to the picker so the user can choose (never silently jump to a surprising model).
   const applyModelArg = (arg: string): void => {
@@ -290,8 +331,8 @@ export function createPickers(
         kv('tokens', `${formatK(u.totalTokens)} total`);
         kv('cost', `$${u.cost.toFixed(2)}`);
       }
-      kv('cwd', cwdLabel);
-      if (branchLabel) kv('branch', branchLabel);
+      kv('cwd', resources.cwdLabel);
+      if (resources.branchLabel) kv('branch', resources.branchLabel);
       if (g) {
         lines.push('');
         lines.push(color.accent('Goal'));
@@ -580,7 +621,7 @@ export function createPickers(
   };
 
   return {
-    openThinkingPicker, cycleThinkingLevel, openModelPicker, applyModelArg, applyTheme, openThemePicker,
+    openThinkingPicker, cycleThinkingLevel, openModelPicker, applyModelArg, changeDirectory, applyTheme, openThemePicker,
     openHelpModal, openStatusModal, openSessionsModal, openMcpModal, openSkillsModal,
     openLspModal, openToolsModal, openKeybindsModal,
   };

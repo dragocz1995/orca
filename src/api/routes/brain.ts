@@ -308,6 +308,18 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
   });
 
+  // Record that the client moved its working directory (the CLI's /cd). The cwd itself already rides
+  // every turn; this only annotates the conversation so the agent is told, and rejects a directory the
+  // caller's policy would refuse rather than announcing a move that cannot happen.
+  app.post('/brain/cwd', async c => {
+    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as { dir?: unknown; session?: unknown };
+    if (typeof b.dir !== 'string') return c.json({ error: 'dir must be a string' }, 400);
+    try { return c.json(d.brain.noteWorkDir(c.get('user').id, b.dir, typeof b.session === 'string' ? b.session : undefined)); }
+    catch (e) { return c.json({ error: (e as Error).message }, 409); }
+  });
+
   // OpenAI OAuth priority service tier (`service_tier: priority`). Session-scoped and live, like YOLO;
   // unsupported providers are rejected instead of silently pretending Fast is active.
   app.post('/brain/fast', async c => {

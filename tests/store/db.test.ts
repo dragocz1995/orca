@@ -163,7 +163,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     mid.close();
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools).toBe('run_command');
-    expect(db.pragma('user_version', { simple: true })).toBe(4); // every one-shot migration is done
+    expect(db.pragma('user_version', { simple: true })).toBe(5); // every one-shot migration is done
   });
 
   it("rewrites a platform role's tool allow-list, keeping the unrestricted markers intact", () => {
@@ -204,7 +204,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('mcp__chrome_devtools__click,mcp__chrome_devtools__performance_analyze_insight,mcp_ghost_thing,Bash');
-    expect(db.pragma('user_version', { simple: true })).toBe(4);
+    expect(db.pragma('user_version', { simple: true })).toBe(5);
   });
 
   it('prefers the longest matching server, so one name cannot be split by another\'s prefix', () => {
@@ -228,7 +228,7 @@ describe('openDb — snake_case → TitleCase tool rename', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('mcp_chrome_devtools_click');
-    expect(db.pragma('user_version', { simple: true })).toBe(4); // still marked done — there was nothing to do
+    expect(db.pragma('user_version', { simple: true })).toBe(5); // still marked done — there was nothing to do
   });
 
   it('leaves a corrupt permissions blob exactly as found', () => {
@@ -313,7 +313,7 @@ describe('openDb — registry plugin tool rename (v3)', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('Bash,todo_write');
-    expect(db.pragma('user_version', { simple: true })).toBe(4);
+    expect(db.pragma('user_version', { simple: true })).toBe(5);
   });
 
   it('names the image tools verb-first, the way a one-tool plugin is named', () => {
@@ -337,6 +337,62 @@ describe('openDb — registry plugin tool rename (v3)', () => {
     const db = openDb(path);
     expect((db.prepare('SELECT disabled_tools FROM users WHERE id = 1').get() as { disabled_tools: string }).disabled_tools)
       .toBe('GenerateImage,EditImage,Bash');
-    expect(db.pragma('user_version', { simple: true })).toBe(4);
+    expect(db.pragma('user_version', { simple: true })).toBe(5);
+  });
+});
+
+describe('openDb — session-event kinds (v5)', () => {
+  /** A DB as 0.27.6 left it: the real schema, but `brain_session_events` still carrying the CHECK from
+   *  before 'cwd' existed, and user_version parked at 4 so only v5 is armed. Rebuilt by hand because
+   *  that constraint is exactly what the fixture has to reproduce. */
+  function seedPre5(): string {
+    dir = mkdtempSync(join(tmpdir(), 'elowen-db-'));
+    const path = join(dir, 'pre5.db');
+    const db = openDb(path);
+    db.exec('DROP TABLE brain_session_events');
+    db.exec(`CREATE TABLE brain_session_events (
+      session_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('model', 'mode', 'rename', 'reasoning')),
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (session_id, event_id)
+    )`);
+    db.prepare("INSERT INTO brain_session_events (session_id, event_id, kind, detail, created_at) VALUES ('s1', 'e1', 'model', 'gpt-5.6', '2026-07-01 10:00:00')").run();
+    db.pragma('user_version = 4');
+    db.close();
+    return path;
+  }
+
+  const insertCwd = (db: Database.Database): void => {
+    db.prepare("INSERT INTO brain_session_events (session_id, event_id, kind, detail) VALUES ('s1', 'e2', 'cwd', '/srv/api')").run();
+  };
+
+  it('accepts a cwd marker on a database that predates the kind, carrying the old markers across', () => {
+    const path = seedPre5();
+    const db = openDb(path);
+    expect(db.pragma('user_version', { simple: true })).toBe(5);
+
+    expect(() => insertCwd(db)).not.toThrow();
+    expect(db.prepare('SELECT event_id, kind, detail, created_at FROM brain_session_events ORDER BY event_id').all())
+      .toEqual([
+        { event_id: 'e1', kind: 'model', detail: 'gpt-5.6', created_at: '2026-07-01 10:00:00' },
+        expect.objectContaining({ event_id: 'e2', kind: 'cwd', detail: '/srv/api' }),
+      ]);
+  });
+
+  it('still rejects a kind nobody defined, so the rebuilt table is constrained and not merely open', () => {
+    const db = openDb(seedPre5());
+    expect(() => db.prepare("INSERT INTO brain_session_events (session_id, event_id, kind, detail) VALUES ('s1', 'e3', 'banana', 'x')").run())
+      .toThrow(/CHECK/i);
+  });
+
+  it('leaves a database that already carries the kind untouched', () => {
+    const path = seedPre5();
+    openDb(path).close();     // v5 runs here
+    const db = openDb(path);  // ...and must not rebuild the table a second time
+    expect(db.pragma('user_version', { simple: true })).toBe(5);
+    expect(() => insertCwd(db)).not.toThrow();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM brain_session_events').get()).toEqual({ n: 2 });
   });
 });

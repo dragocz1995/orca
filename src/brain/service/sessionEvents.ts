@@ -8,6 +8,7 @@ const NOTICE: Record<SessionEventKind, (detail: string) => string> = {
   mode: (d) => `switched the work mode to ${d}`,
   rename: (d) => `renamed this conversation to "${d}"`,
   reasoning: (d) => `set your reasoning effort to ${d}`,
+  cwd: (d) => `changed the working directory to ${d}`,
 };
 
 /** Record an owner-driven session-state change, in three parts:

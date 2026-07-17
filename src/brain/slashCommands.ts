@@ -55,6 +55,10 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   // native command surface; the web dock has no picker for it yet (would show a dead menu entry).
   { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli'] },
   { name: 'theme', description: 'Switch the terminal colour theme', kind: 'picker', surfaces: ['cli'] },
+  // CLI-local like /theme: `process.chdir` in the TUI's own process. Every request already reports the
+  // client's cwd per turn, so moving the process is the whole mechanism. Meaningless on the other
+  // surfaces — they have no local directory to move.
+  { name: 'cd', description: 'Change the working directory (no argument reports it)', kind: 'action', surfaces: ['cli'] },
   // CLI-local like /theme: reads THIS machine's clipboard (xclip/wl-paste/pngpaste) and parks the
   // image as a pending attachment for the next message — never server-dispatched.
   { name: 'paste', description: 'Attach an image from the system clipboard', kind: 'action', surfaces: ['cli'] },

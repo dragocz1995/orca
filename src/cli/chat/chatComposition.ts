@@ -188,7 +188,9 @@ export function createChatComposition(
 ): ChatComposition {
   const {
     client, tui, term, editor, editorSlot, inputStack, attachmentChips, queuedMessages,
-    promptStash, shellContext, mentionIndex, commandDefs, cwdLabel, branchLabel, lifetime,
+    // cwdLabel/branchLabel are read off `resources` at render time, never destructured: `/cd` rewrites
+    // them mid-session and a copy taken once here would pin the status row to the launch directory.
+    promptStash, shellContext, mentionIndex, commandDefs, lifetime,
   } = resources;
   let renderOwner!: RenderShell;
   let scheduledMessagePresence = rt.transcript.turnCount > 0;
@@ -413,8 +415,8 @@ export function createChatComposition(
   telemetry = new TelemetryPanel(() => ({
     usage: focusedUsage(),
     focusedSubagent: rt.childView?.sessionId ?? null,
-    cwd: cwdLabel,
-    branch: branchLabel,
+    cwd: resources.cwdLabel,
+    branch: resources.branchLabel,
     mcp: rt.mcpList,
     lspEnabled: rt.lspEnabled,
     processes: rt.childView?.processes ?? rt.processes,
@@ -432,7 +434,7 @@ export function createChatComposition(
       hints: color.faint(startScreenHints(keymap)),
       tip: `${color.warning('●')} ${color.bold(color.text('Tip'))} ${color.dim('ask anything — try')} ${color.text('"What is the tech stack of this project?"')}`,
       notice: rt.notice,
-      statusLeft: `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`,
+      statusLeft: `${color.dim(resources.cwdLabel)}${resources.branchLabel ? color.faint(` · ${resources.branchLabel}`) : ''}`,
       version: ELOWEN_CLI_VERSION,
     }),
   );
@@ -578,7 +580,7 @@ export function createChatComposition(
     const agents = currentAgents;
     bottomBar.setLeft(color.faint(`  ${bottomHints(keymap, footerState, agents.length > 0, interruptArmedUntil > Date.now(), rt.queued.length > 0, agents.some((agent) => agent.status === 'running' && agent.background !== true))}`)
       + (footerState === 'idle' && shellContext.pending ? `   ${color.warning('· ! output → next message')}` : ''));
-    const projectLine = `${color.dim(cwdLabel)}${branchLabel ? color.faint(` · ${branchLabel}`) : ''}`;
+    const projectLine = `${color.dim(resources.cwdLabel)}${resources.branchLabel ? color.faint(` · ${resources.branchLabel}`) : ''}`;
     const line = statusline(rt.lineCfg ? { ...rt.lineCfg, showModel: false } : null, focusedUsage(), rt.modelName);
     const activeGoal = goalMeta(rt.goal);
     const metaLeft = modelMetaLine(

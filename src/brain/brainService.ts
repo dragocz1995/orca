@@ -27,6 +27,7 @@ import { GoalLoopService } from './service/goalLoop.js';
 import { LiveSessionSpawner } from './service/spawner.js';
 import { ConversationLifecycle } from './service/lifecycle.js';
 import { recordSessionEvent } from './service/sessionEvents.js';
+import { clientDir } from './service/workDir.js';
 import { terminalizeWorkflow } from './workflowRuns.js';
 import { BrainTurnRunner } from './service/turnRunner.js';
 import type { BoundClientRequest, TurnRequest } from './service/turnRequest.js';
@@ -494,6 +495,33 @@ export class BrainService {
   /** Switch a conversation to another configured model (/model) — see ConversationLifecycle. */
   async switchModel(userId: number, sel: { provider?: string; model?: string }, session?: string): Promise<{ model: string }> {
     return this.lifecycle.switchModel(userId, sel, session);
+  }
+
+  /** Record that the client moved its working directory (the CLI's /cd), as a visible marker plus a
+   *  one-shot notice telling the agent on its next turn.
+   *
+   *  The directory itself needs no plumbing: every turn already reports the client's cwd and it beats the
+   *  session's stored one. What it does NOT do is tell the MODEL — that is composed once, when the session
+   *  spawns, so without this the agent keeps describing the directory it started in until something
+   *  respawns it. The marker closes exactly that gap, the same way a model or reasoning switch does.
+   *
+   *  Policy-checked, not merely recorded: an unreachable directory is the caller's mistake and the agent
+   *  must not be told the work moved somewhere it cannot go. */
+  noteWorkDir(userId: number, dir: string, session?: string): { workDir: string } {
+    const b = session ? this.sessions.get(this.lifecycle.ownedUserSession(userId, session)) : this.lifecycle.activeLive(userId);
+    if (!b) throw new Error('brain not started');
+    const resolved = clientDir(b.policy, dir);
+    if (!resolved) throw new Error('directory is not readable or not allowed');
+    // Assigning is what makes the comparison mean "has it moved since we last said so". `workDir` is
+    // otherwise written once at spawn and only carried across respawns, so without this the guard forever
+    // compares against the launch directory: it would re-announce every /cd to a directory that is not the
+    // launch one, and stay silent on a move BACK to it. It also keeps the per-turn fallback honest — a
+    // goal continuation carries no client cwd and would otherwise resolve where the session started.
+    if (resolved !== b.workDir) {
+      recordSessionEvent(this.d.store, b.sessionId, b, 'cwd', resolved);
+      b.workDir = resolved;
+    }
+    return { workDir: resolved };
   }
 
   /** Set the reasoning effort of the ACTIVE conversation live (the /think command) — PI applies it to

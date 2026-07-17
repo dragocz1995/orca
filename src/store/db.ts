@@ -134,7 +134,37 @@ export function openDb(path: string): Db {
   migrateMcpToolNames(db);
   migrateRegistryToolNames(db);
   repairImageToolNames(db);
+  widenSessionEventKinds(db);
   return db;
+}
+
+/** v5 — let `brain_session_events.kind` also carry 'cwd' (see sessionEvents.ts).
+ *
+ *  A table rebuild, because SQLite cannot alter a CHECK constraint, and `CREATE TABLE IF NOT EXISTS` in
+ *  schema.sql leaves an existing DB on the old one — so without this an inserted 'cwd' marker raises on
+ *  every database that predates it while passing on a fresh one.
+ *
+ *  NUMBERED 5, AND THE NEXT ONE MUST BE 6: version 4 is spent. It shipped in 0.27.6 as the image-tool
+ *  repair, so prod and every install of that release already record `user_version = 4` — a migration
+ *  numbered 4 would be skipped in silence on exactly the databases that need it. */
+function widenSessionEventKinds(db: Db): void {
+  runOnce(db, 5, () => {
+    db.exec(`
+      CREATE TABLE brain_session_events_new (
+        session_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('model', 'mode', 'rename', 'reasoning', 'cwd')),
+        detail TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (session_id, event_id)
+      );
+      INSERT INTO brain_session_events_new (session_id, event_id, kind, detail, created_at)
+        SELECT session_id, event_id, kind, detail, created_at FROM brain_session_events;
+      DROP TABLE brain_session_events;
+      ALTER TABLE brain_session_events_new RENAME TO brain_session_events;
+      CREATE INDEX IF NOT EXISTS idx_brain_session_events_session ON brain_session_events(session_id);
+    `);
+  });
 }
 
 /** Apply `rename` to every tool name this DB stores. Four surfaces, and every one of them matches by

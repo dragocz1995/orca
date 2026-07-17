@@ -300,4 +300,20 @@ describe('file index', () => {
     index.refreshIfStale(Date.now() + 5000);
     expect(index.files()).toEqual(['f2.ts']); // stale → re-listed
   });
+
+  it('re-lists from the new directory after /cd, and does nothing when it has not moved', () => {
+    // The cached entries are paths relative to the OLD directory, while a picked mention is resolved
+    // against the new one — so keeping them would silently expand to a file that is not there.
+    const roots: string[] = [];
+    const index = new FileIndex('/old', (cwd) => { roots.push(cwd); return [`${cwd}/a.ts`]; }, 1000);
+    expect(index.files()).toEqual(['/old/a.ts']);
+
+    index.setCwd('/new');
+    expect(index.files()).toEqual(['/new/a.ts']);
+    expect(roots).toEqual(['/old', '/new']);
+
+    index.setCwd('/new');
+    index.files();
+    expect(roots).toEqual(['/old', '/new']); // same directory → cache kept, no re-list
+  });
 });

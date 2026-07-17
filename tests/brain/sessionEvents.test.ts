@@ -58,6 +58,17 @@ describe('recordSessionEvent', () => {
     expect(live.pendingSessionNotices).toBeUndefined();
   });
 
+  // /cd — the agent is told its working directory once, when its session spawns, so without this marker
+  // it keeps describing the directory it started in no matter where the tools are actually running.
+  it('tells the agent the working directory moved', () => {
+    const published: BrainEvent[] = [];
+    const live = fakeLive(published);
+    recordSessionEvent(fakeStore(), 's1', live, 'cwd', '/srv/api');
+
+    expect(published).toEqual([{ type: 'session-event', id: 'evt-1', kind: 'cwd', detail: '/srv/api', at: '2026-07-16T09:01:00.000Z' }]);
+    expect(live.pendingSessionNotices).toEqual(['changed the working directory to /srv/api']);
+  });
+
   // Renaming from the picker: the marker must still be durable, but there is no stream and no agent to tell.
   it('persists the marker only when the conversation is not live', () => {
     const store = fakeStore();

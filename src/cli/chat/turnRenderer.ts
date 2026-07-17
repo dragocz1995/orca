@@ -5,6 +5,7 @@ import { groupToolItems, failureSignature } from '../../brain/transcript.js';
 import { formatDuration, formatK, padAnsi, terminalInlineText, terminalPlainText } from '../ui/text.js';
 import { framedDiffBlock, toolOutputBlock, UserBlock, workflowCounts } from './components.js';
 import { chatTheme, color, paintRow } from './theme.js';
+import { prettyCwd } from './projectDir.js';
 
 export const TOOL_INDENT = '    ';
 const TOOL_OUTPUT_INDENT = '      ';
@@ -50,7 +51,7 @@ function toolRowSpec(name: string, detail?: string): { glyph: string; title: str
 
 const blockFill = (text: string, width: number): string => paintRow(chatTheme().modalBg, text, width);
 
-/** One-line description of a session-change marker (model/mode/rename/reasoning), rendered as a faint
+/** One-line description of a session-change marker (model/mode/rename/reasoning/cwd), rendered as a faint
  *  centered-ish row in the transcript. The verb varies by kind; the detail is the new value. */
 function sessionEventLabel(kind: string, detail: string): string {
   const value = terminalInlineText(detail);
@@ -59,6 +60,9 @@ function sessionEventLabel(kind: string, detail: string): string {
     case 'mode': return `mode → ${value}`;
     case 'rename': return `renamed → "${value}"`;
     case 'reasoning': return `reasoning → ${value}`;
+    // The daemon stores the resolved absolute path; shorten it the same way the status row does, so the
+    // marker and the chip below it never disagree about where the conversation is.
+    case 'cwd': return `cwd → ${prettyCwd(value)}`;
     default: return value;
   }
 }

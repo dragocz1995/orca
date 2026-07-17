@@ -1146,6 +1146,40 @@ describe('BrainService', () => {
     expect(seen.some((e) => e.type === 'user')).toBe(false);
   });
 
+  it('noteWorkDir marks each real move once, including a move back to where the session started', async () => {
+    // The guard compares against the session's own working directory, and `workDir` is written once at
+    // spawn and otherwise only carried across respawns — so it has to be assigned here or the comparison
+    // means "differs from the launch directory" forever: re-announcing every repeat /cd elsewhere, and
+    // staying silent on the move home.
+    const launch = realpathSync(mkdtempSync(join(tmpdir(), 'elowen-cwd-a-')));
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'elowen-cwd-b-')));
+    const d = fakeDeps();
+    (d as unknown as { policy: () => unknown }).policy = () => ({ allowedProjectIds: 'all', allowedPaths: () => [] });
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1, { cwd: launch });
+    // Markers are suppressed before a conversation has any turns (setup is not history), so give it one.
+    d.store.appendMessage({ id: 'm1', sessionId, parentId: null, role: 'user', content: 'hi' });
+
+    const moves = (): string[] => d.store.getSessionEvents(sessionId).filter((e) => e.kind === 'cwd').map((e) => e.detail);
+
+    svc.noteWorkDir(1, elsewhere);
+    svc.noteWorkDir(1, elsewhere);        // the same directory again — nothing moved, nothing to say
+    expect(moves()).toEqual([elsewhere]);
+
+    svc.noteWorkDir(1, launch);           // back to where it started — a real move, and must be marked
+    expect(moves()).toEqual([elsewhere, launch]);
+  });
+
+  it('noteWorkDir refuses a directory the caller\'s policy does not reach', async () => {
+    const allowed = realpathSync(mkdtempSync(join(tmpdir(), 'elowen-cwd-scoped-')));
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'elowen-cwd-outside-')));
+    const d = fakeDeps();
+    (d as unknown as { policy: () => unknown }).policy = () => ({ allowedProjectIds: new Set([1]), allowedPaths: () => [allowed] });
+    const svc = new BrainService(d as never);
+    await svc.start(1, { cwd: allowed });
+    expect(() => svc.noteWorkDir(1, outside)).toThrow(/not readable or not allowed/);
+  });
+
   it('setThinkingLevel applies live (no respawn) and status reports it', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

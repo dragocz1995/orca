@@ -35,6 +35,18 @@ describe('parseCommand — /compact custom instructions', () => {
   });
 });
 
+describe('parseCommand — /cd', () => {
+  it('captures the path, including one containing spaces', () => {
+    expect(parseCommand('/cd ~/projects/api')).toEqual({ cmd: 'cd', arg: '~/projects/api' });
+    expect(parseCommand('/cd /var/www/my project')).toEqual({ cmd: 'cd', arg: '/var/www/my project' });
+    expect(parseCommand('/cd ../..')).toEqual({ cmd: 'cd', arg: '../..' });
+  });
+
+  it('a bare /cd carries no argument, so it can report instead of moving', () => {
+    expect(parseCommand('/cd')).toEqual({ cmd: 'cd' });
+  });
+});
+
 describe('parseCommand — work-mode commands', () => {
   it('recognizes /workflow alongside /plan and /build', () => {
     expect(parseCommand('/workflow')).toEqual({ cmd: 'workflow' });

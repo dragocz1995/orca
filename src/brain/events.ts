@@ -107,7 +107,7 @@ export type BrainEvent =
    *  model, work mode (build/plan/workflow), renamed the conversation, or changed the reasoning level.
    *  Rendered as a subtle system line interleaved into the transcript by `at`; persisted (replayed on
    *  reconnect) but NEVER part of the model's context. Synthetic — safe to ignore. */
-  | { type: 'session-event'; id: string; kind: 'model' | 'mode' | 'rename' | 'reasoning'; detail: string; at: string }
+  | { type: 'session-event'; id: string; kind: 'model' | 'mode' | 'rename' | 'reasoning' | 'cwd'; detail: string; at: string }
   /** The pending message queue for this session — a FULL snapshot (an empty array clears it). Mapped
    *  from PI's native `queue_update` event: a message a user sends while a turn is already streaming is
    *  STEERED into the running turn (delivered between steps, before the next model call), and PI reports

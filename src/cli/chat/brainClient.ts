@@ -309,6 +309,13 @@ export class BrainClient {
     return (await res.json()) as { thinkingLevel: string };
   }
 
+  /** Tell the conversation the client moved (the /cd command). The cwd already rides every turn — this
+   *  only marks the change so the agent is told about it rather than describing its spawn directory. */
+  async setWorkDir(dir: string): Promise<{ workDir: string }> {
+    const res = await this.post('/brain/cwd', { dir, ...(this.bound ? { session: this.bound } : {}) });
+    return (await res.json()) as { workDir: string };
+  }
+
   /** Toggle (or explicitly set) OpenAI OAuth fast mode for the bound conversation. Availability is
    *  server/model-derived; callers use status.fastAvailable to hide a dead command on other providers. */
   async setFast(on?: boolean): Promise<{ fast: boolean; fastAvailable: boolean }> {

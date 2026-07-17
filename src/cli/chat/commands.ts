@@ -20,7 +20,7 @@ export function resolveThinkingLevel(value: string, levels: string[], labels: Re
 
 /** Local slash-command routing: returns the recognized command (with its argument) or null for a
  *  regular chat message. Pure, so the command surface is unit-testable without a TTY. */
-export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'rename' | 'delete' | 'model' | 'reasoning' | 'fast' | 'theme' | 'editor' | 'keybinds' | 'lsp' | 'tdd' | 'mcp' | 'skills' | 'tools' | 'goal' | 'subgoal' | 'compact' | 'plan' | 'build' | 'workflow' | 'yolo' | 'paste' | 'export' | 'help'; arg?: string } | null {
+export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'status' | 'restart' | 'sessions' | 'resume' | 'rename' | 'delete' | 'model' | 'reasoning' | 'fast' | 'theme' | 'cd' | 'editor' | 'keybinds' | 'lsp' | 'tdd' | 'mcp' | 'skills' | 'tools' | 'goal' | 'subgoal' | 'compact' | 'plan' | 'build' | 'workflow' | 'yolo' | 'paste' | 'export' | 'help'; arg?: string } | null {
   const m = /^\/(\w+)(?:\s+(.+))?$/.exec(text.trim());
   if (!m) return null;
   switch (m[1]) {
@@ -37,6 +37,7 @@ export function parseCommand(text: string): { cmd: 'quit' | 'new' | 'stop' | 'st
     case 'reasoning': return { cmd: 'reasoning', arg: m[2] };
     case 'fast': return { cmd: 'fast', arg: m[2] };
     case 'theme': return { cmd: 'theme', arg: m[2] };
+    case 'cd': return { cmd: 'cd', arg: m[2] };
     case 'editor': return { cmd: 'editor' };
     case 'keybinds': return { cmd: 'keybinds' };
     case 'lsp': return { cmd: 'lsp' };
@@ -366,6 +367,7 @@ export function wireSubmit(
             }, fail);
           return;
         }
+        case 'cd': pickers.changeDirectory(command.arg); return;
         case 'theme': {
           const wanted = command.arg?.trim();
           if (wanted) {

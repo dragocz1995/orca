@@ -132,10 +132,19 @@ export class FileIndex {
   private loadedAt = 0;
 
   constructor(
-    private readonly cwd: string,
+    private cwd: string,
     private readonly list: (cwd: string) => string[] = listProjectFiles,
     private readonly ttlMs = 60_000,
   ) {}
+
+  /** Re-root the index after `/cd`. Dropping the cache is correctness, not freshness: the entries are
+   *  paths relative to the OLD directory, while `expandMentions` resolves what the user picks against
+   *  the new one — so a stale entry would silently expand to nothing. */
+  setCwd(cwd: string): void {
+    if (cwd === this.cwd) return;
+    this.cwd = cwd;
+    this.cached = null;
+  }
 
   files(): string[] {
     if (this.cached == null) {

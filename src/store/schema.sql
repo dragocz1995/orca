@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS brain_cards (
 CREATE TABLE IF NOT EXISTS brain_session_events (
   session_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('model', 'mode', 'rename', 'reasoning')),
+  kind TEXT NOT NULL CHECK (kind IN ('model', 'mode', 'rename', 'reasoning', 'cwd')),
   detail TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (session_id, event_id)

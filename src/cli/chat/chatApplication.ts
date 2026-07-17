@@ -1,5 +1,3 @@
-import { execFileSync } from 'node:child_process';
-import { homedir } from 'node:os';
 import { Container, ProcessTerminal, TUI } from '@earendil-works/pi-tui';
 import type { MarkdownTheme } from '@earendil-works/pi-tui';
 import { getMarkdownTheme, getSelectListTheme, initTheme } from '@earendil-works/pi-coding-agent';
@@ -18,6 +16,7 @@ import { wireSubmit } from './commands.js';
 import { createFlows } from './flows.js';
 import { HydrationNoticeOwner } from './hydrationNoticeOwner.js';
 import { loadInitialTranscript } from './initialTranscriptHydration.js';
+import { gitBranch, prettyCwd } from './projectDir.js';
 import { initKeymap } from './keys.js';
 import { LocalShellBuffer } from './localShell.js';
 import { FileIndex, loadMentionFrecency } from './mentions.js';
@@ -40,25 +39,6 @@ export interface ChatLaunchOptions {
   fresh?: boolean;
   session?: string;
   client?: BrainClient;
-}
-
-function prettyCwd(cwd = process.cwd()): string {
-  const home = homedir();
-  return cwd.startsWith(`${home}/`) ? `~/${cwd.slice(home.length + 1)}` : cwd;
-}
-
-function gitBranch(cwd = process.cwd()): string {
-  try {
-    const branch = execFileSync('git', ['branch', '--show-current'], {
-      cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (branch) return branch;
-    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
-      cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return '';
-  }
 }
 
 /** One chat process graph. The application owns bootstrap, one state/model, one hydrator/coordinator,

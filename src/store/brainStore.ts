@@ -55,8 +55,17 @@ export interface BrainSubagentRun extends BrainSubagentRunState {
  *  purpose: a `workflow` event carries the WHOLE DAG, so the durable row IS the snapshot and the row,
  *  the event and the state attached to the tool item cannot drift apart. Bounded display data only. */
 export type BrainWorkflowRun = WorkflowUpdate;
-/** A visible, display-only marker of an owner-driven session-state change (see brain_session_events). */
-export type SessionEventKind = 'model' | 'mode' | 'rename' | 'reasoning';
+/** A visible, display-only marker of an owner-driven session-state change (see brain_session_events).
+ *
+ *  The ONE list. It is also the read boundary's validator (getSessionEvents) and must stay in step with
+ *  the table's CHECK constraint in schema.sql — a kind the type allows but the boundary rejects writes
+ *  fine and then vanishes on the next reload, which no compiler catches: the boundary narrows a `string`
+ *  from SQLite, so a stale check there stays perfectly well-typed. */
+export const SESSION_EVENT_KINDS = ['model', 'mode', 'rename', 'reasoning', 'cwd'] as const;
+export type SessionEventKind = typeof SESSION_EVENT_KINDS[number];
+/** Narrow a kind read back from SQLite. The stored value is only ever `string` to the type system. */
+const isSessionEventKind = (kind: string): kind is SessionEventKind =>
+  (SESSION_EVENT_KINDS as readonly string[]).includes(kind);
 export interface BrainSessionEvent {
   id: string;
   kind: SessionEventKind;
@@ -823,7 +832,7 @@ export class BrainStore {
     ).all(sessionId) as { event_id: string; kind: string; detail: string; created_at: string }[];
     const out: BrainSessionEvent[] = [];
     for (const row of rows) {
-      if (row.kind !== 'model' && row.kind !== 'mode' && row.kind !== 'rename' && row.kind !== 'reasoning') continue;
+      if (!isSessionEventKind(row.kind)) continue;
       out.push({ id: row.event_id, kind: row.kind, detail: row.detail, at: new Date(`${row.created_at.replace(' ', 'T')}Z`).toISOString() });
     }
     return out;

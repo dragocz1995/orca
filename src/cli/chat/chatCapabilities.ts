@@ -38,8 +38,11 @@ export interface ChatApplicationResources {
   readonly mentionIndex: FileIndex;
   readonly commandDefs: SlashCommandDef[];
   readonly termSettings: Awaited<ReturnType<BrainClient['terminalSettings']>> | null;
-  readonly cwdLabel: string;
-  readonly branchLabel: string;
+  /** Project chips for the status row. Mutable, not readonly: `/cd` moves the process mid-session and
+   *  these must follow it, or the CLI would keep reporting a directory it has left. Re-derived on `/cd`
+   *  rather than per frame — `gitBranch` forks git, and the getter would run on every keystroke. */
+  cwdLabel: string;
+  branchLabel: string;
   readonly lifetime: ChatTaskScope;
 }
 
