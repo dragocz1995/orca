@@ -628,8 +628,10 @@ describe('chat layout components', () => {
     const panel = new TelemetryPanel(() => telemetryState({
       rateLimits: {
         provider: 'openai-codex', planType: 'team', fetchedAt: 123, stale: false,
-        primary: { usedPercent: 25, windowMinutes: 300, resetsAt: 1_900_000_000 },
-        secondary: { usedPercent: 80, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+        windows: [
+          { usedPercent: 25, windowMinutes: 300, resetsAt: 1_900_000_000 },
+          { usedPercent: 80, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+        ],
       },
     }));
     const rendered = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
@@ -695,8 +697,10 @@ describe('chat layout components', () => {
       })),
       rateLimits: {
         provider: 'openai-codex', planType: 'pro', fetchedAt: 123, stale: false,
-        primary: { usedPercent: 25, windowMinutes: 300, resetsAt: 1_900_000_000 },
-        secondary: { usedPercent: 80, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+        windows: [
+          { usedPercent: 25, windowMinutes: 300, resetsAt: 1_900_000_000 },
+          { usedPercent: 80, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+        ],
       },
       mcp: [{ name: 'github', status: 'connected' }],
       lspEnabled: true,

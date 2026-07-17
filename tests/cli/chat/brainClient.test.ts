@@ -238,8 +238,10 @@ describe('BrainClient', () => {
     await c.start();
     const limits = {
       provider: 'openai-codex', planType: 'team', fetchedAt: 123, stale: false,
-      primary: { usedPercent: 25, windowMinutes: 300, resetsAt: 1_900_000_000 },
-      secondary: { usedPercent: 60, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+      windows: [
+        { usedPercent: 25, windowMinutes: 300, resetsAt: 1_900_000_000 },
+        { usedPercent: 60, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+      ],
     };
     f.mockImplementation(async () => j(200, limits) as Response);
     expect(await c.rateLimits()).toEqual(limits);

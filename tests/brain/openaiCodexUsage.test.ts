@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AuthStorage } from '@earendil-works/pi-coding-agent';
-import { OpenAiCodexUsageService } from '../../src/brain/openaiCodexUsage.js';
+import { UsageService, type UsageAuth } from '../../src/brain/providerUsage.js';
+import { codexUsageSource } from '../../src/brain/openaiCodexUsage.js';
+
+const service = (deps: { auth: UsageAuth; fetchImpl?: typeof fetch; now?: () => number; ttlMs?: number; timeoutMs?: number }) =>
+  new UsageService(codexUsageSource, deps.auth, { fetchImpl: deps.fetchImpl, now: deps.now, ttlMs: deps.ttlMs, timeoutMs: deps.timeoutMs });
 
 const oauth = (accountId = 'acct-1', access = 'oauth-secret') => AuthStorage.inMemory({
   'openai-codex': {
@@ -21,8 +25,8 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
   status, headers: { 'content-type': 'application/json' },
 });
 
-describe('OpenAiCodexUsageService', () => {
-  it('refreshes through AuthStorage, sends the official headers, and normalizes windows by duration', async () => {
+describe('codexUsageSource via UsageService', () => {
+  it('refreshes through AuthStorage, sends the official headers, and orders windows shortest-first', async () => {
     const auth = oauth();
     const key = vi.spyOn(auth, 'getApiKey');
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json({
@@ -34,9 +38,9 @@ describe('OpenAiCodexUsageService', () => {
       },
       secret_server_field: 'must-not-escape',
     })) as unknown as typeof fetch;
-    const service = new OpenAiCodexUsageService({ auth, fetchImpl, now: () => 1234 });
+    const svc = service({ auth, fetchImpl, now: () => 1234 });
 
-    const usage = await service.getUsage();
+    const usage = await svc.getUsage();
 
     expect(key).toHaveBeenCalledWith('openai-codex', { includeFallback: false });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -48,8 +52,10 @@ describe('OpenAiCodexUsageService', () => {
     expect(headers.get('chatgpt-account-id')).toBe('acct-1');
     expect(usage).toEqual({
       provider: 'openai-codex', planType: 'team', fetchedAt: 1234, stale: false,
-      primary: { usedPercent: 0, windowMinutes: 300, resetsAt: 1_900_000_000 },
-      secondary: { usedPercent: 100, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+      windows: [
+        { usedPercent: 0, windowMinutes: 300, resetsAt: 1_900_000_000 },
+        { usedPercent: 100, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+      ],
     });
     const safe = JSON.stringify(usage);
     expect(safe).not.toContain('oauth-secret');
@@ -66,9 +72,9 @@ describe('OpenAiCodexUsageService', () => {
       getApiKey: vi.fn(async () => { accountId = 'new-account'; return 'refreshed-secret'; }),
     };
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json(body())) as unknown as typeof fetch;
-    const service = new OpenAiCodexUsageService({ auth, fetchImpl });
+    const svc = service({ auth, fetchImpl });
 
-    await expect(service.getUsage()).resolves.toMatchObject({ stale: false });
+    await expect(svc.getUsage()).resolves.toMatchObject({ stale: false });
     const headers = new Headers(vi.mocked(fetchImpl).mock.calls[0]![1]?.headers);
     expect(headers.get('authorization')).toBe('Bearer refreshed-secret');
     expect(headers.get('chatgpt-account-id')).toBe('new-account');
@@ -81,10 +87,10 @@ describe('OpenAiCodexUsageService', () => {
       if (vi.mocked(fetchImpl).mock.calls.length === 1) return new Promise<Response>((resolve) => { release = resolve; });
       return json(body());
     }) as unknown as typeof fetch;
-    const service = new OpenAiCodexUsageService({ auth: oauth(), fetchImpl, now: () => now });
+    const svc = service({ auth: oauth(), fetchImpl, now: () => now });
 
-    const first = service.getUsage();
-    const joined = service.getUsage();
+    const first = svc.getUsage();
+    const joined = svc.getUsage();
     // getApiKey is awaited before the network call, so let that refresh microtask settle first.
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
     release(json(body()));
@@ -93,22 +99,22 @@ describe('OpenAiCodexUsageService', () => {
       expect.objectContaining({ fetchedAt: 1_000, stale: false }),
     ]);
 
-    await service.getUsage();
+    await svc.getUsage();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     now += 60_001;
-    await service.getUsage();
+    await svc.getUsage();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it('keys cached data by account id', async () => {
     const auth = oauth('account-a');
     const fetchImpl = vi.fn(async () => json(body())) as unknown as typeof fetch;
-    const service = new OpenAiCodexUsageService({ auth, fetchImpl });
-    await service.getUsage();
+    const svc = service({ auth, fetchImpl });
+    await svc.getUsage();
     auth.set('openai-codex', {
       type: 'oauth', access: 'token-b', refresh: 'refresh-b', expires: Date.now() + 3_600_000, accountId: 'account-b',
     });
-    await service.getUsage();
+    await svc.getUsage();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const secondHeaders = new Headers(vi.mocked(fetchImpl).mock.calls[1]![1]?.headers);
     expect(secondHeaders.get('chatgpt-account-id')).toBe('account-b');
@@ -117,18 +123,18 @@ describe('OpenAiCodexUsageService', () => {
   it('returns explicitly stale cached data on transient failure but drops it on auth failure', async () => {
     let now = 10;
     const fetchImpl = vi.fn(async () => json(body())) as unknown as typeof fetch;
-    const service = new OpenAiCodexUsageService({ auth: oauth(), fetchImpl, now: () => now, ttlMs: 60_000 });
-    const fresh = await service.getUsage();
+    const svc = service({ auth: oauth(), fetchImpl, now: () => now, ttlMs: 60_000 });
+    const fresh = await svc.getUsage();
 
     now += 60_001;
     vi.mocked(fetchImpl).mockResolvedValueOnce(new Response('', { status: 503 }));
-    const stale = await service.getUsage();
+    const stale = await svc.getUsage();
     expect(stale).toEqual({ ...fresh, stale: true });
 
     vi.mocked(fetchImpl).mockResolvedValueOnce(new Response('', { status: 401 }));
-    await expect(service.getUsage()).resolves.toBeNull();
+    await expect(svc.getUsage()).resolves.toBeNull();
     vi.mocked(fetchImpl).mockResolvedValueOnce(new Response('', { status: 503 }));
-    await expect(service.getUsage()).resolves.toBeNull();
+    await expect(svc.getUsage()).resolves.toBeNull();
   });
 
   it('accepts a partial window and rejects non-OAuth credentials without making a request', async () => {
@@ -136,15 +142,14 @@ describe('OpenAiCodexUsageService', () => {
       plan_type: 'plus',
       rate_limit: { secondary_window: { used_percent: 12.5, limit_window_seconds: 604_800 } },
     })) as unknown as typeof fetch;
-    const partial = new OpenAiCodexUsageService({ auth: oauth(), fetchImpl: partialFetch });
+    const partial = service({ auth: oauth(), fetchImpl: partialFetch });
     await expect(partial.getUsage()).resolves.toMatchObject({
-      primary: null,
-      secondary: { usedPercent: 12.5, windowMinutes: 10_080, resetsAt: null },
+      windows: [{ usedPercent: 12.5, windowMinutes: 10_080, resetsAt: null }],
     });
 
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     const apiKeyAuth = AuthStorage.inMemory({ 'openai-codex': { type: 'api_key', key: 'not-oauth' } });
-    const unavailable = new OpenAiCodexUsageService({ auth: apiKeyAuth, fetchImpl });
+    const unavailable = service({ auth: apiKeyAuth, fetchImpl });
     await expect(unavailable.getUsage()).resolves.toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -153,7 +158,7 @@ describe('OpenAiCodexUsageService', () => {
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
     })) as unknown as typeof fetch;
-    const service = new OpenAiCodexUsageService({ auth: oauth(), fetchImpl, timeoutMs: 5 });
-    await expect(service.getUsage()).resolves.toBeNull();
+    const svc = service({ auth: oauth(), fetchImpl, timeoutMs: 5 });
+    await expect(svc.getUsage()).resolves.toBeNull();
   });
 });

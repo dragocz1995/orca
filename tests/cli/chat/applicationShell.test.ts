@@ -1118,8 +1118,10 @@ describe('chat application shell ownership', () => {
       h.rt.usage = { tokens: 28_000, contextWindow: 372_000, percent: 8, totalTokens: 28_000, cost: 0.09 };
       h.rt.rateLimits = {
         provider: 'openai-codex', planType: 'pro', fetchedAt: 123, stale: false,
-        primary: { usedPercent: 23, windowMinutes: 300, resetsAt: 1_900_000_000 },
-        secondary: { usedPercent: 14, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+        windows: [
+          { usedPercent: 23, windowMinutes: 300, resetsAt: 1_900_000_000 },
+          { usedPercent: 14, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+        ],
       };
       h.rt.mcpList = [
         { name: 'chrome-devtools', status: 'connected' },

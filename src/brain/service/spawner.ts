@@ -394,7 +394,7 @@ export class LiveSessionSpawner {
       };
     };
     live = {
-      session, sessionId, model: model.id, providerId, thinkingLevel: opts.thinkingLevel,
+      session, sessionId, model: model.id, providerId, provider: model.provider, thinkingLevel: opts.thinkingLevel,
       requestProfile, fastAvailable: capabilities.fast,
       thinkingLabels: Object.fromEntries(capabilities.levels.map((level) => [level, capabilities.labels[level] ?? level])),
       policy: opts.policy, listeners, replay, turnContext,

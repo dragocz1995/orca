@@ -49,6 +49,10 @@ export interface LiveBrain {
   /** The CONFIG provider entry id the model resolved from (selection.provider, else the default first
    *  entry) — lets delegation inherit "same provider + model" without re-deriving config defaults. */
   providerId?: string;
+  /** The pi provider the model belongs to (e.g. 'openai-codex', 'kimi-coding') — distinct from the config
+   *  entry id above. Drives the subscription-usage rail: it selects which provider's usage service (if any)
+   *  the rate-limits route polls for the active conversation. */
+  provider: string;
   thinkingLevel?: string;
   /** Resolved provider capabilities + live request switches used by `/fast` and status surfaces. */
   requestProfile: ProviderRequestProfile;

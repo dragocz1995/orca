@@ -558,7 +558,7 @@ export class BrainService {
 
   /** Chat-client status — of the active conversation, or of the caller's explicit `session` (a bound
    *  CLI) — see BrainStatusService.status. */
-  status(userId: number, session?: string): { running: boolean; sessionId: string | null; title: string; model: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; thinkingLevelLabels: Record<string, string>; fast: boolean; fastAvailable: boolean; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; queued: { id: string; text: string }[]; yolo: boolean } {
+  status(userId: number, session?: string): { running: boolean; sessionId: string | null; title: string; model: string; provider: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; thinkingLevelLabels: Record<string, string>; fast: boolean; fastAvailable: boolean; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; queued: { id: string; text: string }[]; yolo: boolean } {
     return this.statusView.status(userId, session);
   }
 

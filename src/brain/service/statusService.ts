@@ -143,7 +143,7 @@ export class BrainStatusService {
 
   /** Chat-client status — of the active conversation, or of the caller's explicit `session` (a bound
    *  CLI), so a client bound elsewhere never renders another conversation's model/title/pending ask. */
-  status(userId: number, session?: string): { running: boolean; sessionId: string | null; title: string; model: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; thinkingLevelLabels: Record<string, string>; fast: boolean; fastAvailable: boolean; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; queued: { id: string; text: string }[]; yolo: boolean } {
+  status(userId: number, session?: string): { running: boolean; sessionId: string | null; title: string; model: string; provider: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; thinkingLevelLabels: Record<string, string>; fast: boolean; fastAvailable: boolean; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; queued: { id: string; text: string }[]; yolo: boolean } {
     const explicit = session ? this.d.lifecycle.ownedUserSession(userId, session) : undefined;
     const b = explicit ? this.d.sessions.get(explicit) : this.d.lifecycle.activeLive(userId);
     const sess = b?.session as { thinkingLevel?: string; supportsThinking?: () => boolean; getAvailableThinkingLevels?: () => string[] } | undefined;
@@ -153,7 +153,7 @@ export class BrainStatusService {
     const activeId = explicit ?? b?.sessionId ?? this.d.lifecycle.activeSessionId(userId);
     const title = (activeId && this.d.store.getSession(activeId)?.title) || '';
     return {
-      running: !!b, sessionId: b?.sessionId ?? null, title, model: b?.model ?? '',
+      running: !!b, sessionId: b?.sessionId ?? null, title, model: b?.model ?? '', provider: b?.provider ?? '',
       usage: b ? withDescendantUsage(usageOf(b.session), this.d.store.descendantUsage(b.sessionId)) : null,
       thinkingLevel: (sess?.thinkingLevel as string) ?? b?.thinkingLevel ?? '',
       thinkingLevels: supports ? (sess?.getAvailableThinkingLevels?.() ?? []) : [],

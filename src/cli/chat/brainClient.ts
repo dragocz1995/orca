@@ -42,8 +42,8 @@ export interface BrainRateLimitWindow { usedPercent: number; windowMinutes: numb
 export interface BrainRateLimits {
   provider: string;
   planType: string | null;
-  primary: BrainRateLimitWindow | null;
-  secondary: BrainRateLimitWindow | null;
+  /** Subscription limit windows, ordered shortest-first (e.g. 5h then weekly). */
+  windows: BrainRateLimitWindow[];
   fetchedAt: number;
   stale: boolean;
 }

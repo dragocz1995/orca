@@ -269,12 +269,11 @@ export class TelemetryPanel implements Component {
   /** Two deliberately one-line subscription meters: enough to spot the 5h/weekly pressure and reset
    *  without turning the telemetry rail into a dashboard. Missing windows disappear independently. */
   private rateLimitRows(limits: BrainRateLimits | null, width: number): string[] {
-    if (!limits) return [];
+    if (!limits || limits.windows.length === 0) return [];
     const meta = [limits.planType, limits.stale ? 'stale' : ''].filter(Boolean).map((value) => inlineText(String(value))).join(' · ');
     const rows = [`  ${color.bold(color.text('Limits'))}${meta ? ` ${color.faint(meta)}` : ''}`];
-    if (limits.primary) rows.push(this.rateLimitWindowRow(limits.primary, width));
-    if (limits.secondary) rows.push(this.rateLimitWindowRow(limits.secondary, width));
-    return rows.length > 1 ? rows : [];
+    for (const window of limits.windows) rows.push(this.rateLimitWindowRow(window, width));
+    return rows;
   }
 
   private goalRows(goal: GoalView | null, width: number): string[] {

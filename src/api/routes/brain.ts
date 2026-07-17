@@ -9,7 +9,9 @@ import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
 import type { BrainEvent } from '../../brain/events.js';
 import { commandsWithPlugins, findCommand, type SlashSurface } from '../../brain/slashCommands.js';
 import { logger } from '../../shared/logger.js';
-import { OpenAiCodexUsageService } from '../../brain/openaiCodexUsage.js';
+import { UsageService } from '../../brain/providerUsage.js';
+import { codexUsageSource } from '../../brain/openaiCodexUsage.js';
+import { kimiUsageSource } from '../../brain/kimiUsage.js';
 import { brainEventReplayCursor, withoutBrainEventReplayCursor } from '../../brain/session/liveEventReplay.js';
 import { SerializedEventBuffer } from '../../brain/session/serializedEventBuffer.js';
 import type { ElowenApp, RouteContext } from '../context.js';
@@ -27,7 +29,13 @@ function compactInstruction(v: unknown): string | undefined {
  *  caller's own conversation (`brain-<userId>`). Degrades gracefully when the brain is not wired. */
 export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   const { d } = ctx;
-  const codexUsage = d.brainAuth ? new OpenAiCodexUsageService({ auth: d.brainAuth }) : null;
+  // One usage poller per provider that publishes a subscription rate-limit rail, keyed by the pi provider
+  // id the active model reports. Each returns null until its OAuth account is connected, so the route can
+  // look one up unconditionally and simply get null when the active model has no rail.
+  const usageServices: Record<string, UsageService> = d.brainAuth ? {
+    [codexUsageSource.provider]: new UsageService(codexUsageSource, d.brainAuth),
+    [kimiUsageSource.provider]: new UsageService(kimiUsageSource, d.brainAuth),
+  } : {};
   const forbidden = (c: { get: (k: 'tokenScope') => string }) => c.get('tokenScope') === 'agent';
 
   app.get('/brain/status', async c => {
@@ -45,15 +53,17 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
-  /** ChatGPT OAuth subscription windows for the caller's active/bound OpenAI session. Kept separate
-   *  from the hot status poll: the CLI can refresh these slow-changing limits independently. */
+  /** OAuth subscription limit windows for the caller's active/bound session, selected by the active
+   *  model's provider (OpenAI Codex, Kimi, …). Kept separate from the hot status poll: the CLI can refresh
+   *  these slow-changing limits independently. Returns null when the active model has no usage rail. */
   app.get('/brain/rate-limits', async c => {
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    if (!d.brain || !codexUsage) return c.json(null);
+    if (!d.brain) return c.json(null);
     try {
       const status = d.brain.status(c.get('user').id, c.req.query('session'));
-      if (!status.fastAvailable) return c.json(null);
-      return c.json(await codexUsage.getUsage());
+      const service = usageServices[status.provider];
+      if (!service) return c.json(null);
+      return c.json(await service.getUsage());
     } catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
