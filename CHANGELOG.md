@@ -5,6 +5,28 @@ All notable changes to Elowen are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.27.5] - 2026-07-17
+
+### Changed
+- **The plugins you install from the registry now name their tools in TitleCase too**, finishing what
+  0.27.4 started in the box: `todo_write` → `TodoWrite`, `web_search` → `WebSearch`,
+  `generate_image` → `ImageGenerate`, and so on. Saved tool permissions, deny-lists and role allow-lists
+  are migrated on first start, as they were for the built-ins.
+  - mem0's tools are namespaced rather than renamed to `Memory*`: `add_memory` → `Mem0Add`,
+    `search_memory` → `Mem0Search`. `MemorySearch` already belongs to Elowen's own memory, which mem0
+    replaces rather than extends, and one name answering for two backends is how a call reaches the wrong
+    store.
+  - **Update the plugin to match.** The rename lands in the plugin's own release (todo 0.5.0, web 0.2.0,
+    mem0 0.2.0, image-gen 0.2.0, image-edit 0.2.0), so between updating Elowen and updating the plugin your
+    saved rule names the new tool while the installed plugin still offers the old one — and a rule that
+    matches nothing is not enforced. Settings → Plugins shows what has an update.
+
+### Fixed
+- **The todo checklist works in Plan mode again**, along with mem0's recall. Plan mode now asks a tool to
+  declare that it is safe rather than guessing from its name (0.27.4), and the registry plugins had not
+  been taught to declare it — so the agent could no longer write its checklist while planning, which is
+  exactly when it wants to.
+
 ## [0.27.4] - 2026-07-17
 
 ### Added
