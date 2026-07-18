@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, Plus, Pencil, Trash2, KeyRound, Link2, Unlink, ExternalLink, Check, ListChecks, SlidersHorizontal, Gauge, Eye, EyeOff } from 'lucide-react';
+import { BrainCircuit, Plus, Pencil, Trash2, KeyRound, Link2, Unlink, ExternalLink, Check, ListChecks, SlidersHorizontal, Gauge, EyeOff } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -407,7 +407,7 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
             label={t.brain.addAccount}
             triggerClassName="flex h-6 w-6 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-accent"
             trigger={<Plus size={15} aria-hidden />}
-            items={restorableOauth.map(({ type }) => ({ label: t.brain.types[type], icon: Eye, onSelect: () => showOauth(type) }))}
+            items={restorableOauth.map(({ type, icon }) => ({ label: t.brain.types[type], iconNode: <ModelIcon name={icon} size={15} />, onSelect: () => showOauth(type) }))}
           />
         ) : undefined}
       >

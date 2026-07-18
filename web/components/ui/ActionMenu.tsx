@@ -9,6 +9,8 @@ import { MenuSurface } from './MenuSurface';
 export interface ActionMenuItem {
   label: string;
   icon?: LucideIcon;
+  /** A pre-rendered icon (e.g. a brand <ModelIcon/>) shown instead of `icon` when the glyph isn't a Lucide one. */
+  iconNode?: ReactNode;
   tone?: 'default' | 'danger';
   onSelect: () => void;
 }
@@ -136,7 +138,7 @@ export function ActionMenu({ items, label, trigger, triggerClassName, align = 'r
                 className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm transition-colors ${danger ? 'text-danger hover:bg-danger hover:text-bg' : 'text-text hover:bg-elevated'}`}
                 style={{ transitionDuration: 'var(--motion-fast)' }}
               >
-                {Icon ? <Icon size={15} aria-hidden /> : null}
+                {it.iconNode ?? (Icon ? <Icon size={15} aria-hidden /> : null)}
                 {it.label}
               </button>
             );
