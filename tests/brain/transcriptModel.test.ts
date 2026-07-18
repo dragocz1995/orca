@@ -260,6 +260,37 @@ describe('TranscriptModel', () => {
     expect(model.subagents()).toEqual([expect.objectContaining({ status: 'done', tools: 7 })]);
   });
 
+  it('settles a streaming assistant tail when a user turn displaces it, so its sub-agent marker still repaints', () => {
+    // Regression for #61: a foreground delegate flips to `done` while its assistant turn is still the
+    // streaming tail, then a steered mid-turn user message is appended over it. If the tail keeps
+    // `streaming: true`, the viewport can never repaint it (its dirty delta is deferred to the tail-only
+    // path) and the marker stays stuck at `●` even though the model already holds `done`.
+    const model = new TranscriptModel();
+    model.apply({ type: 'user', text: 'delegate a review' });
+    model.apply({ type: 'text', delta: 'delegating…' });
+    model.apply({ type: 'tool', id: 'del-1', name: 'Delegate', detail: 'review' });
+    model.apply({
+      type: 'subagent', id: 'del-1', sessionId: 'child', status: 'running', task: 'review',
+      detail: 'Read a.ts', tools: 1, tokens: 10, seconds: 1, model: 'fable',
+    });
+    model.apply({
+      type: 'subagent', id: 'del-1', sessionId: 'child', status: 'done', task: 'review',
+      tools: 5, tokens: 500, seconds: 9, model: 'fable',
+    });
+    // Precondition: the marker turn is the streaming tail at the moment the child finishes.
+    expect(model.turnAt(1)).toMatchObject({ role: 'elowen', streaming: true });
+    expect(toolItem(model, 1, 'del-1').sub).toMatchObject({ status: 'done' });
+
+    const beforeAppend = model.revision;
+    model.apply({ type: 'user', text: 'steered mid-turn' });
+
+    // The displaced turn is settled (repaintable) and still carries the `done` marker…
+    expect(model.turnAt(1)).toMatchObject({ role: 'elowen', streaming: false });
+    expect(toolItem(model, 1, 'del-1').sub).toMatchObject({ status: 'done' });
+    // …and the append marks that turn dirty, so the viewport is told to reprint it, not just the suffix.
+    expect(model.changesSince(beforeAppend)).toMatchObject({ kind: 'patch', from: 2, indices: [1] });
+  });
+
   it('flags a turn as composing while a tool call is being written, and clears it when the tool lands', () => {
     const model = new TranscriptModel([]);
     const turn = () => { const t = model.turnAt(0); if (t?.role !== 'elowen') throw new Error('expected assistant turn'); return t; };

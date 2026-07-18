@@ -121,6 +121,7 @@ export class TranscriptModel implements TranscriptRead {
 
   /** Append a terminal-local result which has no daemon BrainEvent representation. */
   appendLocalTurn(turn: ElowenTurn): void {
+    this.settleStreamingTail();
     const index = this.turns.length;
     this.turns.push(turn);
     this.indexTurn(index, turn, true);
@@ -253,6 +254,7 @@ export class TranscriptModel implements TranscriptRead {
         // Skip the durable twin already seeded from history; only a genuinely new turn changes anything.
         if (event.durableId && this.userIds.has(event.durableId)) return false;
         if (event.durableId) this.userIds.add(event.durableId);
+        this.settleStreamingTail(); // this row displaces any streaming assistant tail — settle it first
         const index = this.turns.length;
         this.turns.push({ role: 'you', text: event.text });
         this.lastAssistant = '';
@@ -264,6 +266,10 @@ export class TranscriptModel implements TranscriptRead {
         // Skip the durable twin already seeded from history; only a genuinely new marker changes anything.
         if (event.id && this.eventIds.has(event.id)) return false;
         if (event.id) this.eventIds.add(event.id);
+        // A fresh marker that opens a new `event` turn displaces a streaming assistant tail; settle it so
+        // its final render (e.g. a sub-agent's `done` marker) is not stranded. A no-op when the tail is
+        // already an `event` run being extended in place below.
+        this.settleStreamingTail();
         const item = { id: event.id, kind: event.kind, detail: event.detail };
         const index = this.turns.length - 1;
         const last = index >= 0 ? this.visit(index) : undefined;
@@ -403,6 +409,22 @@ export class TranscriptModel implements TranscriptRead {
     this.turns.push(turn);
     this.lastAssistant = '';
     return { turn, index: this.turns.length - 1, fresh: true };
+  }
+
+  /** Settle a still-`streaming` assistant tail before a different turn is appended over it. Once it stops
+   *  being the tail, the viewport can no longer repaint it: `reconcileTurn` defers dirty streaming-elowen
+   *  turns to the volatile-tail path, which only ever invalidates the last row — so a marker that changed
+   *  after the last paint (a foreground sub-agent flipping to `done`, a `· running…` label going quiet)
+   *  would stay frozen until a full reset. Clearing the flag lets that one final repaint through; the turn
+   *  can never gain more content anyway, since `ensureAssistant` opens a fresh one. Mirrors `case 'idle'`. */
+  private settleStreamingTail(): void {
+    const index = this.turns.length - 1;
+    if (index < 0) return;
+    const tail = this.turns[index]!;
+    if (tail.role === 'elowen' && tail.streaming) {
+      this.turns[index] = { ...tail, streaming: false, composing: false };
+      this.publish({ kind: 'turn', index });
+    }
   }
 
   private patchToolEvent(id: string | undefined, patch: (item: ToolItem) => ToolItem): boolean {

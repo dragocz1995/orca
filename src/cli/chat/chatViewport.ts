@@ -575,7 +575,11 @@ export class ChatViewport implements Component {
     const retain = entry.rows != null;
     entry.turn = nextTurn;
     this.frameReconciledTurns++;
-    if (entry.height != null && !(nextTurn.role === 'elowen' && nextTurn.streaming)) {
+    // Defer only the ACTIVE tail's re-render to the volatile-tail path (it repaints the last row every
+    // frame). A streaming turn that is no longer the tail can never be reached that way, so its dirty
+    // deltas must render here — otherwise a marker settled after the last paint stays frozen (#61).
+    const isTail = index === this.layout.length - 1;
+    if (entry.height != null && !(isTail && nextTurn.role === 'elowen' && nextTurn.streaming)) {
       this.renderAndRecord(index, retain);
     }
   }
