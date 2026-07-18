@@ -545,6 +545,42 @@ describe('brain routes', () => {
     }
   });
 
+  it('GET /brain/rate-limits/all returns every connected account keyed by provider, ignoring the active model', async () => {
+    const brainAuth = AuthStorage.inMemory({
+      'openai-codex': { type: 'oauth', access: 'tok', refresh: 'r', expires: Date.now() + 3_600_000, accountId: 'acct-1' },
+    });
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({
+      plan_type: 'pro',
+      rate_limit: {
+        primary_window: { used_percent: 30, limit_window_seconds: 18_000, reset_at: 1_900_000_000 },
+        secondary_window: { used_percent: 70, limit_window_seconds: 604_800, reset_at: 1_900_500_000 },
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const { app, amyTok, agentTok } = setup({ brainAuth });
+      // Agent-scoped tokens are refused, like the single-provider route.
+      expect((await app.request('/brain/rate-limits/all', auth(agentTok))).status).toBe(403);
+
+      const res = await app.request('/brain/rate-limits/all', auth(amyTok));
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, { provider: string; windows: unknown[] }>;
+      // Only the connected account (Codex) appears; Kimi has no credential and is omitted.
+      expect(Object.keys(body)).toEqual(['openai-codex']);
+      expect(body['openai-codex']!.provider).toBe('openai-codex');
+      expect(body['openai-codex']!.windows).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('GET /brain/rate-limits/all is an empty map when no auth storage is configured', async () => {
+    const { app, amyTok } = setup();
+    const res = await app.request('/brain/rate-limits/all', auth(amyTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({});
+  });
+
   it('GET /brain/queue lists the caller\'s pending queue; DELETE removes one (unknown id → removed:false)', async () => {
     const { app, amyTok, brain } = setup();
     await app.request('/brain/start', post(amyTok, {}));

@@ -15,7 +15,8 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { LoadingState } from '../../components/ui/states';
 import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
-import { useConfig, useBrainOauthStatus } from '../../lib/queries';
+import { useConfig, useBrainOauthStatus, useBrainRateLimitsAll } from '../../lib/queries';
+import { OAuthUsageRail } from './OAuthUsageRail';
 import { useUpdateConfig } from '../../lib/mutations';
 import { useAutoSaveStatus, type SaveStatus } from '../../lib/useAutoSaveStatus';
 import { useSaveBrainProviders, useBrainOauthDisconnect } from '../../lib/mutations';
@@ -247,6 +248,7 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
 export function BrainSection({ onSaveState }: { onSaveState?: (section: string, status: SaveStatus, retry?: () => void) => void }) {
   const { data: config } = useConfig();
   const oauth = useBrainOauthStatus();
+  const rateLimits = useBrainRateLimitsAll();
   const save = useSaveBrainProviders();
   const disconnect = useBrainOauthDisconnect();
   const { toast } = useToast();
@@ -387,6 +389,7 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
       <SettingsGroup title={t.brain.accounts} density="compact">
         {OAUTH_TYPES.map(({ type, icon }) => {
           const connected = oauth.data?.[type] ?? false;
+          const usage = connected ? rateLimits.data?.[OAUTH_ENTRY_ID[type]] : undefined;
           return (
             <SettingsRow
               key={type}
@@ -405,7 +408,9 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
               ) : (
                 <Button variant="accent" icon={Link2} onClick={() => startConnect(type)}>{t.brain.connect}</Button>
               )}
-            />
+            >
+              {usage ? <OAuthUsageRail usage={usage} /> : null}
+            </SettingsRow>
           );
         })}
       </SettingsGroup>

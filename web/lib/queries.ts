@@ -33,6 +33,7 @@ export const QUERY_KEYS = {
   memoryCategories: ['memory-categories'] as const,
   categorizationSettings: ['categorization-settings'] as const,
   brainCommands: ['brain-commands'] as const,
+  brainRateLimits: ['brain-rate-limits'] as const,
 };
 
 /** The published slash-command menu for the web surface — the single source of truth is the daemon's
@@ -319,6 +320,11 @@ export const useBrainModels = () =>
 /** Which brain OAuth accounts are connected (admin, Settings → Brain). */
 export const useBrainOauthStatus = () =>
   useQuery({ queryKey: ['brain-oauth'], queryFn: elowenClient.brainOauthStatus });
+
+/** Subscription usage per connected OAuth account (Settings → Brain). Slow-changing, so it refreshes on
+ *  a minute cadence to match the daemon's own usage-cache TTL rather than polling hot. */
+export const useBrainRateLimitsAll = () =>
+  useQuery({ queryKey: QUERY_KEYS.brainRateLimits, queryFn: elowenClient.brainRateLimitsAll, refetchInterval: 60_000, staleTime: 30_000 });
 
 export const useUserProjects = (userId: number | null, enabled = true) =>
   useQuery({ queryKey: ['user-projects', userId], queryFn: () => elowenClient.userProjects(userId as number), enabled: !!userId && enabled });

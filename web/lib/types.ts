@@ -130,6 +130,10 @@ export interface BrainUsage { tokens: number | null; contextWindow: number; perc
 /** The statusline plugin's display toggles (null = plugin disabled). */
 export interface StatuslineConfig { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean }
 export interface BrainStatus { running: boolean; sessionId: string | null; model: string; usage: BrainUsage | null; statusline: StatuslineConfig | null; pendingAsk?: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards?: BrainCard[]; queued?: { id: string; text: string }[]; yolo?: boolean }
+/** One subscription rate-limit window of a connected OAuth account (mirrors the daemon's providerUsage). */
+interface UsageWindow { usedPercent: number; windowMinutes: number | null; resetsAt: number | null }
+/** A connected OAuth account's usage rail: its windows (ordered shortest-first) plus plan/freshness meta. */
+export interface ProviderUsage { provider: string; planType: string | null; windows: UsageWindow[]; fetchedAt: number; stale: boolean }
 /** A running OAuth connect flow, as polled by the settings UI. */
 export interface OAuthFlowState {
   id: string;

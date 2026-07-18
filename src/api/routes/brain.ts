@@ -9,7 +9,7 @@ import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
 import type { BrainEvent } from '../../brain/events.js';
 import { commandsWithPlugins, findCommand, type SlashSurface } from '../../brain/slashCommands.js';
 import { logger } from '../../shared/logger.js';
-import { UsageService } from '../../brain/providerUsage.js';
+import { UsageService, type ProviderUsage } from '../../brain/providerUsage.js';
 import { codexUsageSource } from '../../brain/openaiCodexUsage.js';
 import { kimiUsageSource } from '../../brain/kimiUsage.js';
 import { brainEventReplayCursor, withoutBrainEventReplayCursor } from '../../brain/session/liveEventReplay.js';
@@ -65,6 +65,19 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
       if (!service) return c.json(null);
       return c.json(await service.getUsage());
     } catch { return c.json({ error: 'unknown session' }, 404); }
+  });
+
+  /** OAuth subscription usage for every connected account, keyed by pi provider id — independent of the
+   *  active model. The settings page renders a per-account usage rail from this; accounts without a usable
+   *  OAuth credential (or no rail) return null and are omitted. */
+  app.get('/brain/rate-limits/all', async c => {
+    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+    const entries = await Promise.all(
+      Object.entries(usageServices).map(async ([provider, service]) => [provider, await service.getUsage()] as const),
+    );
+    const result: Record<string, ProviderUsage> = {};
+    for (const [provider, usage] of entries) if (usage) result[provider] = usage;
+    return c.json(result);
   });
 
   app.post('/brain/start', async c => {
