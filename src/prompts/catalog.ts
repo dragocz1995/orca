@@ -40,6 +40,10 @@ export const EDITABLE_PROMPTS: PromptCatalogEntry[] = [
   { name: 'decision-question', group: 'overseer', vars: ['autonomy', 'question', 'context', 'options'], jsonContract: true },
   { name: 'elowen', group: 'advisor', vars: ['userName', 'personality', 'agentName'], jsonContract: false, appendOnly: true },
   { name: 'elowen-platform', group: 'advisor', vars: ['ownerName', 'agentName'], jsonContract: false, appendOnly: true },
+  // A scheduled/unattended turn (any plugin that fires timer-driven work — the bundled cronjob today)
+  // gets its OWN focused system prompt instead of the coding-agent base: identity, channel-only delivery,
+  // and outcome-reporting rules. Selected by the generic `scheduled` access flag, not any plugin name.
+  { name: 'scheduled', group: 'advisor', vars: ['userName', 'personality', 'agentName'], jsonContract: false, appendOnly: true },
   { name: 'cli/plan-mode', group: 'cli', vars: [], jsonContract: false },
   { name: 'cli/workflow-mode', group: 'cli', vars: [], jsonContract: false },
 ];

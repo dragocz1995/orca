@@ -458,7 +458,12 @@ class CronAdapter {
         origin: job.originSessionId && job.originUserId != null ? { sessionId: job.originSessionId, userId: job.originUserId } : undefined,
         access: {
           projectIds: [], admin: true,
-          prompt: `This is a scheduled ${job.runAt ? 'wake-up' : 'job'} ("${job.name}"). Do the task and summarize the outcome briefly.`,
+          // A timer-driven turn: the host swaps the coding-agent base for the focused `scheduled` system
+          // prompt (unattended, channel-only delivery, report the outcome not the progress). Core stays
+          // agnostic to which plugin fired it — it keys only off this generic flag.
+          scheduled: true,
+          // Just identifies THIS job — the `scheduled` prompt carries how to run and report it.
+          prompt: `This scheduled ${job.runAt ? 'wake-up' : 'job'} is "${job.name}". Do its task now.`,
           // Optional per-job model — the channel session respawns on it (else the server default runs).
           model: job.model?.provider && job.model?.model ? { provider: job.model.provider, model: job.model.model } : undefined,
           // Per-job idle rollover, forwarded ONLY when configured: unset → key omitted, so the host applies

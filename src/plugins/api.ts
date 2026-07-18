@@ -109,6 +109,10 @@ export interface SessionSource {
      *  it against the agent registry into the child's role prompt, tool allow-list and (for a read-only
      *  type) a minted read-only permission boundary — see brain/platforms.ts. */
     agentType?: string;
+    /** This turn is a scheduled/unattended run (a plugin fires timer-driven work — the bundled cronjob
+     *  sets this). The host resolves it to the focused `scheduled` system prompt instead of the coding-agent
+     *  base, keeping core agnostic to which plugin produced it. */
+    scheduled?: boolean;
     /** A bare `read_only` delegation (no/other subagent_type). Selects the host-side read-only MODE — the
      *  READ_ONLY_AGENT_TOOLS preset intersected with the caller's scope, plus a minted read-only permission
      *  boundary — the exact path a read-only agent TYPE takes, so there is one read-only definition. */

@@ -38,6 +38,10 @@ export interface ChannelSendOpts {
    *  (all-project Policy + full plugin toolset) — but it is STILL a shared channel, never owner-chat,
    *  so it never receives Elowen* tools or the owner API token. */
   trusted?: boolean;
+  /** This message is a scheduled/unattended turn (a timer-driven plugin firing into its channel — the
+   *  bundled cronjob today): the session uses the focused `scheduled` system prompt instead of the
+   *  coding-agent base. Set by the orchestrator from the source's generic `access.scheduled` flag. */
+  scheduled?: boolean;
   model?: { provider?: string; model?: string };
   thinkingLevel?: string;
   fast?: boolean;
@@ -304,6 +308,7 @@ export class ChannelSessionService {
           extraAppend: opts.promptAppend,
           channel: true, // a shared platform channel is NEVER owner-chat — no Elowen* tools, no owner token
           trustedChannel: opts.trusted, // admin-role sender → trusted-channel (all projects + full plugin toolset), still no Elowen*
+          scheduled: opts.scheduled, // timer-driven turn → focused `scheduled` system prompt instead of the coding base
           thinkingLevel: opts.thinkingLevel,
           fast: opts.fast,
           // Channels are the shared, owner-anchored Discord surface — the personality chunk always resolves

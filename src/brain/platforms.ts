@@ -184,6 +184,11 @@ export class PlatformOrchestrator {
             policy,
             promptAppend: delegatedAccess?.promptAppend ?? (promptAppend.length ? promptAppend : undefined),
             trusted: delegatedAccess?.admin ?? src.access.admin, // admin role → trusted-channel, never owner-chat
+            // A scheduled/unattended turn (a plugin sets access.scheduled — the bundled cronjob does) uses
+            // the focused `scheduled` system prompt, not the coding-agent base. Core stays agnostic to which
+            // plugin fired it. (An origin-bound wake-up replays into its owner conversation via the bound
+            // send path instead, so it keeps that conversation's own prompt.)
+            scheduled: src.access.scheduled === true,
             model: src.access.model,
             thinkingLevel: src.access.thinkingLevel,
             fast: src.access.fast,

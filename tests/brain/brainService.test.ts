@@ -2308,6 +2308,30 @@ describe('BrainService', () => {
     expect(d.store.getMessages('brain-ch-cron-job-1').map((m) => JSON.parse(m.content).content)).toContain('wake three');
   });
 
+  it('a scheduled channel turn uses the focused scheduled system prompt, not the coding base or channel overlay', async () => {
+    const d = fakeDeps();
+    const reg = new PluginRegistry();
+    const ctx = reg.contextFor('cron', {}, { info() {}, warn() {}, error() {} });
+    let handler: ((src: unknown, text: string) => Promise<string | undefined>) | null = null;
+    ctx.registerPlatform({ name: 'cron', connect: async () => {}, listen: (h) => { handler = h as never; }, send: async () => {} });
+    (d as unknown as { plugins: unknown }).plugins = new PluginRegistryProvider(async () => reg);
+    (d as unknown as { platformOwner: () => number }).platformOwner = () => 1;
+    const svc = new BrainService(d as never);
+    await svc.startPlatforms();
+    d.prompts.render.mockClear(); // ignore any renders from earlier setup
+
+    // A plain (non-origin) scheduled turn spawns a channel session — the generic `access.scheduled` flag
+    // (set by the timer-driven plugin) must route it to the focused `scheduled` prompt.
+    await handler!({ platform: 'cron', userId: 'cron', roleIds: [], channelId: 'job-sched',
+      access: { admin: true, projectIds: [], scheduled: true } }, 'run the scheduled task');
+
+    expect(d.prompts.render).toHaveBeenCalledWith('scheduled',
+      { userName: 'Filip', personality: personalityText(''), agentName: 'Elowen' }, 1);
+    const rendered = d.prompts.render.mock.calls.map((c) => c[0]);
+    expect(rendered).not.toContain('elowen'); // no coding-agent base for a scheduled turn
+    expect(rendered).not.toContain('elowen-platform'); // no multi-user channel overlay either
+  });
+
   it('channelSend hands onEvent a settled idle (model + usage) so a proactive cron footer always has data', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

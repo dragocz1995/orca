@@ -139,6 +139,10 @@ export interface SpawnOpts {
    *  (all-project Policy + full plugin toolset) instead of `foreign-channel`, but STILL without Elowen*
    *  tools or the owner API token. Only meaningful when `channel` is true. */
   trustedChannel?: boolean;
+  /** A scheduled/unattended turn (a timer-driven plugin firing into its channel). Uses the focused
+   *  `scheduled` system prompt (identity + channel-only delivery + outcome reporting) instead of the
+   *  coding-agent `elowen` base + platform overlay — a timer-driven report is not an interactive session. */
+  scheduled?: boolean;
   /** Reasoning effort for extended-thinking models (empty/undefined = the model default). */
   thinkingLevel?: string;
   /** Initial Fast state for platform sessions; ignored when the resolved model cannot use it. */
