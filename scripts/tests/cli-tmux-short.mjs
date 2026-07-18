@@ -242,8 +242,21 @@ try {
   const reopenedHealthy = saveActive('06-reopened-send-healthy', { expectScrollbar: true });
   assert.match(reopenedHealthy.plain, /E2E REOPEN HEALTHY/, 'reopened editor must send and render a new response');
 
-  await waitFor('post-idle metadata settled', () => liveFrames().some((frame) => frame.pid === reopenedHealthy.frame.pid
-    && frame.reasons?.includes('metadata:rate-limits') && frame.at >= reopenedHealthy.frame.at));
+  // A settled turn refreshes the rail, but that fetch is throttled to the daemon's 60s usage-cache TTL
+  // (shouldRefreshRateLimits) — a second turn inside that window re-uses the cache and emits no
+  // metadata:rate-limits frame. So wait for the reopen turn's OWN renders to drain (the frame stream
+  // going quiet), rather than for a rail frame the throttle legitimately suppresses, and assert the
+  // throttle really did suppress a re-fetch after this turn.
+  let drained = -1;
+  await waitFor('post-idle frames drained', () => {
+    const n = liveFrames().length;
+    const quiet = n === drained;
+    drained = n;
+    return quiet;
+  });
+  assert.ok(!liveFrames().some((frame) => frame.at >= reopenedHealthy.frame.at
+    && frame.reasons?.includes('metadata:rate-limits')),
+    'a turn settling within the 60s throttle window must not re-fetch rate-limits');
   const idleFrames = liveFrames().length;
   await sleep(850);
   assert.equal(liveFrames().length, idleFrames, 'hidden-panel idle CLI must render zero frames for >=750ms');

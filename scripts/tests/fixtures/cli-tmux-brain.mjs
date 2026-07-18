@@ -418,8 +418,10 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/brain/rate-limits') {
     json(res, 200, {
       provider: 'openai-codex', planType: 'pro', fetchedAt: 1_900_000_000_000, stale: false,
-      primary: { usedPercent: 23, windowMinutes: 300, resetsAt: 1_900_000_000 },
-      secondary: { usedPercent: 14, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+      windows: [
+        { usedPercent: 23, windowMinutes: 300, resetsAt: 1_900_000_000 },
+        { usedPercent: 14, windowMinutes: 10_080, resetsAt: 1_900_500_000 },
+      ],
     });
     return;
   }

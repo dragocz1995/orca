@@ -186,7 +186,7 @@ function scrollbarThumb(plain, frame) {
 }
 
 function panelMeterRows(plain) {
-  return paneLines(plain).filter((line) => /[█░]{4,}/u.test(line));
+  return paneLines(plain).filter((line) => /\[[▰ ]{4,}\]/u.test(line));
 }
 
 // The two bottom rows are the footer: the model/reasoning/activity meta line (status) and the keybind
@@ -546,28 +546,35 @@ try {
   saveCapture('08b-subagent-return-parent');
 
   // Drag the actual panel edge until InputRouter's 36-column minimum. Context and both OAuth windows
-  // must use the same █/░ vocabulary, fit the rail, and never resurrect the old ▰/▱ design.
+  // must use the same framed `[▰ ]` meter vocabulary, fit the rail, and never resurrect the retired
+  // block █/░ or unframed ▱ meter designs.
   const dividerBefore = 120 - 46; // InputRouter's panelLeftEdge for the production default width.
   const narrowEdgeX = 120 - 36 + 1;
   sendRaw(`\x1b[<0;${dividerBefore};6M`);
   sendRaw(`\x1b[<32;${narrowEdgeX};6M`);
   sendRaw(`\x1b[<0;${narrowEdgeX};6m`);
+  // At the 36-column panel the Context bar spans 32 cells, i.e. the framed `[…]` meter is 32 chars wide.
   await waitFor('36-column telemetry resize', () => panelMeterRows(capture())
-    .some((row) => (row.match(/[█░]{4,}/u)?.[0].length ?? 0) === 32)
+    .some((row) => (row.match(/\[[▰ ]+\]/u)?.[0].length ?? 0) === 32)
     && capture().includes('Limits pro'));
   const narrowPanelCapture = saveCapture('08c-telemetry-36-columns');
-  assert.doesNotMatch(narrowPanelCapture, /[▰▱]/u, 'all telemetry meters must use only █/░ glyphs');
   const meterRows = panelMeterRows(narrowPanelCapture);
   assert.ok(meterRows.length >= 3, 'narrow panel must retain Context, 5h, and weekly meter rails');
-  assert.ok(meterRows.every((row) => /^[^█░]*[█░]+[^█░]*$/u.test(row)),
-    'each narrow telemetry meter must be one aligned contiguous █/░ run');
-  assert.match(narrowPanelCapture, /5h[\s█░]+23%/u, '5h OAuth meter must fit at 36 columns');
-  assert.match(narrowPanelCapture, /weekly[\s█░]+14%/u, 'weekly OAuth meter must fit at 36 columns');
+  assert.ok(meterRows.every((row) => !/[░▱]/u.test(row)),
+    'telemetry meters must use only the framed ▰ vocabulary, never the retired █/░/▱ track designs');
+  assert.ok(meterRows.every((row) => {
+    const framed = row.match(/\[[▰ ]{4,}\]/gu) ?? [];
+    return framed.length === 1 && /^\[▰* *\]$/u.test(framed[0]);
+  }), 'each narrow telemetry meter must be one framed [▰ … ] run with lit segments packed at the start');
+  assert.match(narrowPanelCapture, /5h[\s▰\[\]]+23%/u, '5h OAuth meter must fit at 36 columns');
+  assert.match(narrowPanelCapture, /weekly[\s▰\[\]]+14%/u, 'weekly OAuth meter must fit at 36 columns');
 
   // The clipped Todo summary is a quiet terminal-style mouse target. It stays faint (no red/underline)
   // while one click expands through the same shell hit-testing used in production.
   const todoLines = panelCapture.endsWith('\n') ? panelCapture.slice(0, -1).split('\n') : panelCapture.split('\n');
-  const moreRow = todoLines.findIndex((line) => /\+\d+ more(?! lines)/.test(line)) + 1;
+  // The Todo card's clipped summary is the `… +N more` row; anchor on the ellipsis so it is never
+  // confused with the rail's `▾ +N more · click` sub-agent pager, which now sits above it.
+  const moreRow = todoLines.findIndex((line) => /… \+\d+ more(?! lines)/.test(line)) + 1;
   assert.ok(moreRow > 0, 'clipped Todos must expose a +N more row');
   const moreAnsiLine = captureAnsi().split('\n')[moreRow - 1] ?? '';
   assert.doesNotMatch(moreAnsiLine, /\x1b\[4m/, 'the +N more affordance must match quiet terminal styling');
