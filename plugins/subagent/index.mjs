@@ -240,6 +240,16 @@ export function register(ctx) {
     },
   }));
 
+  // The typed sub-agent catalog (built-in explore/plan + user `.md` types), read once at register time so
+  // the tool description can list them. The host resolves the chosen name into the child's role prompt,
+  // toolset and permission boundary — the plugin only forwards it.
+  const agentTypes = ctx.subagentTypes?.() ?? [];
+  const agentTypeLine = agentTypes.length
+    ? ' You may run the sub-agent as a named TYPE via subagent_type — each carries its own role prompt and toolset. Available types: '
+      + agentTypes.map((t) => `"${t.name}" (${t.description})`).join('; ')
+      + '. A read-only type (e.g. explore/plan) gets read-only tools plus read-only shell no matter what you hold. Omit subagent_type for a generic sub-agent that inherits your own tools.'
+    : '';
+
   ctx.registerTool(defineTool({
     name: 'Delegate', label: 'Delegate to sub-agent',
     description: [
@@ -248,7 +258,8 @@ export function register(ctx) {
       'By default the call BLOCKS and returns the sub-agent\'s final result. Set background=true for an independent side-quest: it returns a job id immediately and the result is delivered to you in a NEW turn — do other work meanwhile, then end your turn. You are woken when it lands, so never poll DelegateStatus in a loop.',
       'To launch several independent sub-agents, put multiple delegate calls in ONE response so they run concurrently; do not serialize them. Once you have delegated a search, do not also run it yourself.',
       'Use read_only=true when the sub-agent only needs to look (explore, search, report) — it then gets read-only tools and cannot write, run commands or delegate further. Use `tools` to hand it an exact toolset. Either way you can only ever narrow what you already hold.',
-      'The sub-agent inherits your model; pass `model` only when the user explicitly asked for a different one. Its final message comes back to you, not to the user — relay what matters. There is no way to continue a finished sub-agent: a follow-up is a NEW delegation, carrying whatever context it needs.',
+      'The sub-agent inherits your model; pass `model` only when the user explicitly asked for a different one. Its final message comes back to you, not to the user — relay what matters. There is no way to continue a finished sub-agent: a follow-up is a NEW delegation, carrying whatever context it needs.'
+      + agentTypeLine,
     ].join(' '),
     parameters: Type.Object({
       task: Type.String({ description: 'The complete, self-contained instruction for the sub-agent — it does not see this conversation. Include all context, constraints and the output format you want back.' }),
@@ -271,9 +282,22 @@ export function register(ctx) {
       tools: Type.Optional(Type.Array(Type.String(), {
         description: 'Give the sub-agent EXACTLY these tools and nothing else. Names must match your own toolset. Combined with read_only, the two intersect. You can only narrow your own access, never widen it.',
       })),
+      subagent_type: Type.Optional(Type.String({
+        description: 'Run the sub-agent as a named TYPE (see the list in this tool\'s description) — it supplies the role prompt and toolset. Omit for a generic sub-agent. An explicit read_only/tools here still narrows further on top of the type.',
+      })),
     }),
     execute: async (id, p) => {
       if (!run) return ok('Error: delegation is not wired up on this server.');
+      // Validate the requested type against the live catalog (a miss is a self-correctable error listing
+      // the valid names). The host does the actual role/tool/boundary resolution from this name.
+      let agentType;
+      if (p.subagent_type) {
+        const types = ctx.subagentTypes?.() ?? [];
+        if (!types.some((t) => t.name === p.subagent_type)) {
+          return ok(`Error: unknown subagent_type "${p.subagent_type}". Available: ${types.map((t) => t.name).join(', ') || '(none)'}.`);
+        }
+        agentType = p.subagent_type;
+      }
       // Default: the child runs on the SAME model as the delegating conversation. An explicit `model`
       // must match a configured one — on a miss the error lists what IS available so the agent can
       // self-correct (or relay the list to the user).
@@ -308,7 +332,11 @@ export function register(ctx) {
         // into a fresh session mid-flight (rolloverDue with an Infinity threshold never fires). This
         // object stays in-memory on the host; NEVER serialize it over JSON, where Infinity becomes null.
         sessionIdleMs: Infinity,
-        prompt: 'You are a focused sub-agent. Complete the task and report the result concisely — no preamble.',
+        // A typed sub-agent gets its role prompt from the host (resolved from `agentType`); only an
+        // untyped delegation uses the generic one-liner here.
+        ...(agentType
+          ? { agentType }
+          : { prompt: 'You are a focused sub-agent. Complete the task and report the result concisely — no preamble.' }),
         // Optional parent-supplied background, added to the child's system-prompt prefix (cache-friendly).
         ...(delegateContextChunk(p.context) ? { context: delegateContextChunk(p.context) } : {}),
       };

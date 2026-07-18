@@ -222,6 +222,7 @@ export class BrainService {
     this.platforms = new PlatformOrchestrator({
       plugins: () => this.resolvePlugins(),
       platformOwner: d.platformOwner,
+      agents: d.agents,
       policyForProjects: d.policyForProjects,
       // A linked platform sender runs fully through their Elowen account: reuse the SAME per-user policy
       // resolver the owner web chat uses, plus their own tool deny-list.

@@ -45,6 +45,13 @@ export interface PermissionSettings {
 /** Tool names whose permission is decided in the `bash` pattern space, against `args.command`. */
 export const BASH_PERMISSION_TOOLS: ReadonlySet<string> = new Set(['Bash']);
 
+/** The read-only shell allow-list: commands that only ever inspect, never mutate. It is the single
+ *  source of truth for "safe to run without asking" — consumed both by the built-in defaults below and by
+ *  the read-only agent boundary (see brain/agents/readOnlyBoundary.ts), so the two can never drift. */
+export const READ_ONLY_BASH_ALLOW: readonly string[] = [
+  'git status*', 'git diff*', 'git log*', 'ls', 'ls *', 'pwd', 'cat *', 'grep *', 'which *',
+];
+
 /** Built-in defaults, conservative but usable: everything not otherwise named is allowed (read-only
  *  tools stay frictionless), file edits ask, and shell commands ask except for a small read-only
  *  allow-list. User rules are appended AFTER these, so any of them can be overridden per user. */
@@ -53,15 +60,7 @@ const DEFAULT_PERMISSION_RULES: readonly PermissionRule[] = [
   { scope: 'tools', pattern: 'Write', action: 'ask' },
   { scope: 'tools', pattern: 'Edit', action: 'ask' },
   { scope: 'bash', pattern: '*', action: 'ask' },
-  { scope: 'bash', pattern: 'git status*', action: 'allow' },
-  { scope: 'bash', pattern: 'git diff*', action: 'allow' },
-  { scope: 'bash', pattern: 'git log*', action: 'allow' },
-  { scope: 'bash', pattern: 'ls', action: 'allow' },
-  { scope: 'bash', pattern: 'ls *', action: 'allow' },
-  { scope: 'bash', pattern: 'pwd', action: 'allow' },
-  { scope: 'bash', pattern: 'cat *', action: 'allow' },
-  { scope: 'bash', pattern: 'grep *', action: 'allow' },
-  { scope: 'bash', pattern: 'which *', action: 'allow' },
+  ...READ_ONLY_BASH_ALLOW.map((pattern) => ({ scope: 'bash' as const, pattern, action: 'allow' as const })),
 ];
 
 const ACTIONS: readonly PermissionAction[] = ['allow', 'ask', 'deny'];

@@ -77,6 +77,7 @@
     "shiki": "^4.3.1",
     "typebox": "^1.1.38",
     "web-push": "^3.6.7",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {

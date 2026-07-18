@@ -10,12 +10,18 @@ import {
   withDelegatedDeniedTools,
   type DelegatedExecutionScope,
 } from './delegatedScope.js';
+import { resolveAgentTools, type AgentDef } from './agents/agentRegistry.js';
+import { renderAgentPrompt } from './agents/agentPrompt.js';
+import { buildReadOnlyBoundary } from './agents/readOnlyBoundary.js';
 
 export interface PlatformOrchestratorDeps {
   /** The daemon-wide plugin registry resolver (undefined when plugins aren't wired). */
   plugins: () => Promise<PluginRegistry | undefined>;
   /** The Elowen user that anchors platform channel sessions (the admin). */
   platformOwner?: () => number | undefined;
+  /** The typed sub-agent registry, resolved when a delegate call names a `subagent_type` — turns the type
+   *  into the child's role prompt, tool allow-list and (for a read-only type) a minted read-only boundary. */
+  agents?: () => Map<string, AgentDef>;
   /** Build a Policy from an explicit project-id set (platform role mappings resolve through this). */
   policyForProjects?: (projectIds: number[]) => Policy;
   /** A LINKED platform sender runs fully through their Elowen account: this resolves that account's own
@@ -78,8 +84,16 @@ export class PlatformOrchestrator {
             if (parentOwner === undefined) throw new Error('invalid parent session');
             sessionOwner = parentOwner;
           }
+          // A typed sub-agent (subagent_type on the delegate call): the plugin forwards only the type name
+          // in `access.agentType`; the host resolves it into the child's role prompt (here) plus its tool
+          // allow-list and permission boundary (in the subagent branch below). Unknown/absent type → the
+          // generic path (src.access.prompt), so back-compat holds.
+          const agentDef = src.platform === 'subagent' && src.access.agentType
+            ? this.d.agents?.().get(src.access.agentType)
+            : undefined;
+          const rolePrompt = agentDef ? renderAgentPrompt(agentDef.body) : src.access.prompt;
           const promptAppend = [
-            ...(src.access.prompt ? [src.access.prompt] : []),
+            ...(rolePrompt ? [rolePrompt] : []),
             // Parent-supplied background for a delegated child — a stable prefix block (cache-friendly),
             // bounded by the delegated-scope normalizer like every other prompt append.
             ...(src.access.context ? [src.access.context] : []),
@@ -101,6 +115,15 @@ export class PlatformOrchestrator {
             // is internal but still validated like persisted JSON: a malformed scope must not fall back to
             // the owner's ambient policy. `owner` is independently authenticated, never inferred from an
             // admin role (a foreign Discord admin is not the instance operator).
+            // Preset tool allow-list from the agent type — but ONLY when the delegate call did not already
+            // narrow (an explicit read_only/tools on the call sets access.toolPolicy and wins). A read-only
+            // type also gets a minted read-only permission boundary so its Bash is gated to look-only
+            // commands even though the child runs unattended (see readOnlyBoundary.ts).
+            const presetAllow = agentDef && src.access.toolPolicy === undefined ? resolveAgentTools(agentDef) : undefined;
+            const effectiveToolPolicy = presetAllow ? { allow: [...presetAllow] } : src.access.toolPolicy;
+            const boundary = agentDef?.toolsSpec === 'read-only'
+              ? buildReadOnlyBoundary(src.access.permissionBoundary ?? null)
+              : src.access.permissionBoundary;
             const rawScope = normalizeDelegatedExecutionScope({
               admin: src.access.admin === true,
               projectIds: src.access.projectIds,
@@ -108,8 +131,8 @@ export class PlatformOrchestrator {
               // The subagent plugin copies this from ctx.currentAccess(). It is deliberately required by
               // the scope normalizer: accepting a missing field would make an old/corrupt child inherit
               // the durable row owner's current (and potentially wider) permission settings.
-              permissionBoundary: src.access.permissionBoundary,
-              ...(src.access.toolPolicy !== undefined ? { toolPolicy: src.access.toolPolicy } : {}),
+              permissionBoundary: boundary,
+              ...(effectiveToolPolicy !== undefined ? { toolPolicy: effectiveToolPolicy } : {}),
               ...(promptAppend.length ? { promptAppend } : {}),
             });
             if (!rawScope) throw new Error('invalid delegated access');

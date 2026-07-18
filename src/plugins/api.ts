@@ -105,6 +105,10 @@ export interface SessionSource {
     permissionBoundary?: NoninteractivePermissionBoundary | null;
     /** Delegated channel session's durable parent conversation. Host validates owner + existence. */
     parentSessionId?: string;
+    /** Chosen built-in/custom sub-agent type (a `subagent_type` on the delegate call). The host resolves
+     *  it against the agent registry into the child's role prompt, tool allow-list and (for a read-only
+     *  type) a minted read-only permission boundary — see brain/platforms.ts. */
+    agentType?: string;
     /** Idle cutoff (ms) for THIS surface's channel session — forwarded to ChannelSessionService.send as
      *  `idleRolloverMs`. Set by cron (shorter than the default 30 min) so a frequent job whose gap between
      *  ticks exceeds the prompt-cache window starts a fresh session instead of re-sending a growing context
@@ -332,6 +336,10 @@ export interface PluginContext {
   /** Pickable brain models across every configured provider (feeds the Discord /model dropdown).
    *  Empty when nothing is wired. */
   listModels(): Promise<PluginModelOption[]>;
+  /** The available typed sub-agents (built-in explore/plan + user `.md` types) — name + one-line
+   *  description. SYNCHRONOUS on purpose: the subagent plugin composes its Delegate tool description from
+   *  this at register time. Empty when nothing is wired (e.g. direct-contextFor unit tests). */
+  subagentTypes(): { name: string; description: string }[];
   /** Resolve a configured brain provider's credentials (baseUrl + apiKey) by id — lets a plugin reuse
    *  the operator's central provider key (voice STT/TTS, image gen) instead of its own secret field.
    *  Null when the id is unknown. Reads live config, so a key change applies on the next call.

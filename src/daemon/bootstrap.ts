@@ -74,6 +74,7 @@ import { EmbeddingQueue } from '../embeddings/embedQueue.js';
 import { MemoryService } from '../brain/memoryService.js';
 import { toEmbeddingConfig } from '../store/configStore.js';
 import { brainConfigFromElowen } from '../brain/config.js';
+import { loadAgentRegistry, agentCatalog, type AgentDef } from '../brain/agents/agentRegistry.js';
 import { registerKimiOAuth } from '../brain/providers.js';
 import { listBrainModels } from '../brain/models.js';
 import { setToolOutputCaps, setToolOutputPolicy } from '../brain/messageView.js';
@@ -375,6 +376,15 @@ export function buildApp(opts: BuildOpts) {
   const userPluginDir = join(dirname(opts.dbPath), 'plugins');
   const pluginDirs = [join(dirname(fileURLToPath(import.meta.url)), '..', 'plugins'), userPluginDir];
   const pluginDataRoot = join(dirname(opts.dbPath), 'plugins-data');
+  // Typed sub-agents: built-in explore/plan ship in dist/prompts/agents (same `../` resolution as the
+  // bundled plugins dir); user `.md` types live next to the DB in <config>/agents. Loaded lazily and
+  // rebuilt on every plugin reload (invalidated in the pluginProvider factory below) so a new user agent
+  // file applies after a reload, exactly like a skill.
+  const agentsBuiltinDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'prompts', 'agents');
+  const agentsUserDir = opts.dbPath === ':memory:' ? undefined : join(dirname(opts.dbPath), 'agents');
+  let agentRegistry: Map<string, AgentDef> | null = null;
+  const getAgentRegistry = (): Map<string, AgentDef> =>
+    (agentRegistry ??= loadAgentRegistry({ builtinDir: agentsBuiltinDir, userDir: agentsUserDir, logger: log }));
   // The brain's credential store: OAuth tokens (Anthropic/Copilot/OpenAI accounts) persist here and
   // pi refreshes them in place. Lives next to the brain's cwd, never inside a repo checkout.
   const brainDir = (() => { const p = join(dirname(opts.dbPath), 'brain'); mkdirSync(p, { recursive: true }); return p; })();
@@ -453,8 +463,14 @@ export function buildApp(opts: BuildOpts) {
   const pluginProvider = new PluginRegistryProvider(() => {
     const enabled = config.get().plugins.enabled;
     const pluginConfig = Object.fromEntries(enabled.map((n) => [n, config.pluginConfig(n)]));
+    // A plugin reload also refreshes the typed sub-agents: drop the memo so a newly added user `.md`
+    // agent is picked up on the same toggle/restart that reloads plugins (mirrors skills).
+    agentRegistry = null;
     return loadPlugins({
       dirs: pluginDirs, enabled, config: pluginConfig, dataRoot: pluginDataRoot,
+      // The typed sub-agent catalog, read synchronously by the subagent plugin at register time to compose
+      // its Delegate tool description.
+      subagentTypes: () => agentCatalog(getAgentRegistry()),
       // ONE answer to "what time is it for this operator", read from the single place they configure it
       // (Settings → Plugins → runtime-context → Timezone) and shared with every plugin that reasons about
       // wall-clock time. Without it, cron would silently schedule in whatever zone the SERVER happens to
@@ -542,6 +558,8 @@ export function buildApp(opts: BuildOpts) {
           allowedPaths: () => ids.map((id) => projects.get(id)?.path).filter((p): p is string => !!p),
         }),
         platformOwner: () => users.list().find((u) => u.is_admin)?.id,
+        // The typed sub-agent registry, resolved host-side when a delegate call names a subagent_type.
+        agents: () => getAgentRegistry(),
         // Private long-term memory: the owner-chat memory tools + per-turn retrieval injection + the
         // post-turn curator. All owner-gated inside BrainService (channels/workers never reach them).
         memoryStore, memoryService, inference: memoryModelInference,

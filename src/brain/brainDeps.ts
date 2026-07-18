@@ -4,6 +4,7 @@ import type { HookAuditBuffer } from '../shared/hookAudit.js';
 import type { Policy } from '../plugins/policy.js';
 import type { BrainStore } from '../store/brainStore.js';
 import type { BrainRuntimeConfig } from './providers.js';
+import type { AgentDef } from './agents/agentRegistry.js';
 import type { MemoryCategorizer } from './memoryCategorizer.js';
 import type { MemoryCategoryStore } from '../store/memoryCategoryStore.js';
 import type { MemoryStore } from '../store/memoryStore.js';
@@ -83,6 +84,9 @@ export interface BrainDeps {
   policyForProjects?: (projectIds: number[]) => Policy;
   /** The Elowen user that anchors platform channel sessions (their token drives the tools) — the admin. */
   platformOwner?: () => number | undefined;
+  /** The typed sub-agent registry, resolved host-side when a delegate call names a `subagent_type`.
+   *  Returns the SAME rebuildable instance the plugin catalog reads, so both see a reload's fresh set. */
+  agents?: () => Map<string, AgentDef>;
   /** The user's PRIVATE long-term memory store. Threaded so the owner-chat memory tools can read/write
    *  it and the curator can persist post-turn facts. Absent (with memoryService) → memory disabled. */
   memoryStore?: MemoryStore;
