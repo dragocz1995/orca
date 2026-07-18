@@ -6,16 +6,18 @@ import {
 } from '../toolPermissions.js';
 
 /** The restrictions layered onto a read-only agent's boundary, in order. Appended AFTER the parent's own
- *  rules so — with last-match-wins resolution — they always win: writes are denied outright, every shell
- *  command is denied, then only the read-only allow-list is re-permitted. This can only ever NARROW: a
- *  deny beats any inherited allow, and the re-permitted commands are exactly the ones already safe by
- *  default. `Write`/`Edit` deny is defense-in-depth (a read-only agent never holds them in its tool
- *  allow-list either). */
+ *  rules so — with last-match-wins resolution — they win over an inherited allow: writes are denied, every
+ *  shell command is denied, then only the read-only allow-list is re-permitted, and finally ANY command
+ *  carrying an output redirection (`>` / `>>`) is denied again — a redirection is a write, and `cat x >
+ *  victim` would otherwise ride the `cat *` allow (the `>` is not a command separator, so it stays in the
+ *  same segment and the allow pattern matches the whole line). `Write`/`Edit` deny is defense-in-depth (a
+ *  read-only agent never holds them in its tool allow-list either). */
 const READ_ONLY_RESTRICT_RULES: readonly PermissionRule[] = [
   { scope: 'tools', pattern: 'Write', action: 'deny' },
   { scope: 'tools', pattern: 'Edit', action: 'deny' },
   { scope: 'bash', pattern: '*', action: 'deny' },
   ...READ_ONLY_BASH_ALLOW.map((pattern) => ({ scope: 'bash' as const, pattern, action: 'allow' as const })),
+  { scope: 'bash', pattern: '*>*', action: 'deny' },
 ];
 
 /**
@@ -23,15 +25,22 @@ const READ_ONLY_RESTRICT_RULES: readonly PermissionRule[] = [
  *
  * A sub-agent runs UNATTENDED — there is no human to answer an `ask`, so an inherited `ask` resolves via
  * the parent's `unattendedAsks` (default 'allow'), which would let a "read-only" agent holding the Bash
- * tool run `rm -rf`. This mints a strictly narrower boundary: the parent's rules PLUS the read-only
- * restrictions above, with `unattendedAsks: 'deny'` so anything not on the read-only allow-list can never
- * resolve to allow. Starting from the parent's rules keeps the operator's own extra denies intact; a null
- * parent (permission gate absent) falls back to a minimal allow-all-tools base the restrictions clamp down.
+ * tool run `rm -rf`. This mints a strictly narrower boundary: the parent's rules, then the read-only
+ * restrictions above, then the parent's own DENY rules re-asserted last, with `unattendedAsks: 'deny'`.
+ *
+ * The order is load-bearing (last-match-wins):
+ *  - parent rules first, so the operator's baseline carries through;
+ *  - the read-only restrictions next, so writes/shell are clamped and only the read-only allow-list runs;
+ *  - the parent's DENY rules re-asserted LAST, so a command the operator explicitly denied can never be
+ *    re-permitted by our allow-list — the boundary can only ever NARROW, never widen.
+ * A null parent (permission gate absent) falls back to a minimal allow-all-tools base the restrictions
+ * clamp down.
  */
 export function buildReadOnlyBoundary(parent: NoninteractivePermissionBoundary | null): NoninteractivePermissionBoundary {
   const base: PermissionRule[] = parent ? parent.rules : [{ scope: 'tools', pattern: '*', action: 'allow' }];
+  const parentDenies = base.filter((rule) => rule.action === 'deny');
   const boundary = normalizeNoninteractivePermissionBoundary({
-    rules: [...base, ...READ_ONLY_RESTRICT_RULES],
+    rules: [...base, ...READ_ONLY_RESTRICT_RULES, ...parentDenies],
     unattendedAsks: 'deny',
   });
   // The base was already validated on read and the appended rules are well-formed literals, so this

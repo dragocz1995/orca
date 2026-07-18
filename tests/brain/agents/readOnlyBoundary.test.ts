@@ -23,6 +23,13 @@ describe('buildReadOnlyBoundary — a read-only agent cannot mutate even though 
     expect(act(b, 'Bash', 'echo hi > file')).toBe('deny');
     // A chained read-then-mutate cannot ride the read-only allow (per-segment resolution).
     expect(act(b, 'Bash', 'cat x && rm -rf ~')).toBe('deny');
+    // An output redirection is a write and must be denied EVEN on an allow-listed read command: `>` is
+    // not a command separator, so `cat x > victim` stays one segment that the `cat *` allow would match.
+    expect(act(b, 'Bash', 'cat /etc/hostname > /var/www/.config/elowen/collectors/job/check.sh')).toBe('deny');
+    expect(act(b, 'Bash', 'ls . > victim')).toBe('deny');
+    expect(act(b, 'Bash', 'grep x f >> ~/.ssh/authorized_keys')).toBe('deny');
+    expect(act(b, 'Bash', 'git log > victim')).toBe('deny');
+    expect(act(b, 'Bash', 'cat x>victim')).toBe('deny');
     // Read-only tools pass; write tools are denied (defense-in-depth — they aren't in the allow-list either).
     expect(act(b, 'Read')).toBe('allow');
     expect(act(b, 'Search')).toBe('allow');
@@ -48,20 +55,22 @@ describe('buildReadOnlyBoundary — a read-only agent cannot mutate even though 
     expect(act(b, 'Write')).toBe('deny');
   });
 
-  it('keeps a parent deny that the read-only layer does not re-permit', () => {
-    // A parent deny on a normally-read-only command stays denied — the read-only allow-list is appended
-    // but the operator's own explicit deny is stricter and must survive. (git status is on the allow-list,
-    // so we assert a command that is NOT: the parent denies `cat`, and read-only re-allows it — proving the
-    // layering order — while a parent deny on a non-allow-listed command like `curl` still bites.)
+  it('keeps a parent deny even on a command the read-only allow-list would otherwise re-permit', () => {
+    // The critical narrowing case: the operator explicitly denied `cat` (a command that IS on the
+    // read-only allow-list). The re-permit must NOT win — the parent's deny is re-asserted last, so the
+    // child can never run a command the operator forbade. A deny on a non-allow-listed command (`curl`)
+    // stays denied too.
     const parent: NoninteractivePermissionBoundary = {
       rules: [
         { scope: 'tools', pattern: '*', action: 'allow' },
+        { scope: 'bash', pattern: 'cat *', action: 'deny' },
         { scope: 'bash', pattern: 'curl *', action: 'deny' },
       ],
       unattendedAsks: 'allow',
     };
     const b = buildReadOnlyBoundary(parent);
+    expect(act(b, 'Bash', 'cat secret.txt')).toBe('deny'); // parent deny wins over the read-only re-allow
     expect(act(b, 'Bash', 'curl http://x')).toBe('deny');
-    expect(act(b, 'Bash', 'ls')).toBe('allow');
+    expect(act(b, 'Bash', 'ls')).toBe('allow'); // a command the parent did NOT deny still runs
   });
 });

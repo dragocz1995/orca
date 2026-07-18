@@ -5,10 +5,11 @@ import { chatTheme, color, paintRow } from './theme.js';
 import { padAnsi } from '../ui/text.js';
 import type { StatuslineConfig } from './brainClient.js';
 
-/** The statusline plugin's four display toggles (keys mirror plugins/statusline/elowen-plugin.json's
- *  configSchema). Kept here as the CLI-side labels; the values live server-side in the plugin config. */
+/** The statusline toggles editable from the CLI (keys mirror plugins/statusline/elowen-plugin.json's
+ *  configSchema). `showModel` is deliberately absent: the CLI status bar forces it off (the model name
+ *  already sits in the meta line above the composer — chatComposition.ts hard-codes showModel:false), so a
+ *  toggle here would be inert. It stays a web-dock-only setting, editable in the plugin's config UI. */
 const STATUSLINE_FIELDS: readonly { key: keyof StatuslineConfig; label: string; hint: string }[] = [
-  { key: 'showModel', label: 'Model', hint: 'the active model name' },
   { key: 'showContext', label: 'Context usage', hint: 'how full the context window is (percent + tokens)' },
   { key: 'showTokens', label: 'Total tokens', hint: "the conversation's cumulative token count" },
   { key: 'showCost', label: 'Cost', hint: "the conversation's cost (subscriptions report $0)" },
@@ -20,8 +21,9 @@ export interface StatuslineEditorOpts {
   current: StatuslineConfig | null;
   /** Restore focus + close the overlay on esc. */
   onClose(): void;
-  /** Persist the new values (server-side plugin config) and refresh the live status bar. */
-  save(values: StatuslineConfig): void;
+  /** Persist the new values (server-side plugin config) and refresh the live status bar. `onError` is
+   *  invoked when the save fails, so the editor can roll back the optimistic toggle. */
+  save(values: StatuslineConfig, onError: () => void): void;
 }
 
 /** The interactive /statusline editor: a checkbox list of what the bottom status bar shows. Space/Enter
@@ -48,9 +50,11 @@ export class StatuslineEditor implements Component, Focusable {
 
   private toggle(): void {
     const key = STATUSLINE_FIELDS[this.selectedIndex]!.key;
+    const previous = this.values;
     this.values = { ...this.values, [key]: !this.values[key] };
-    // Persist + live-apply optimistically; the server reply refreshes the authoritative bar state.
-    this.opts.save({ ...this.values });
+    // Persist + live-apply optimistically; the server reply refreshes the authoritative bar. On a save
+    // failure, roll back so the checkbox never shows a state that was not persisted.
+    this.opts.save({ ...this.values }, () => { this.values = previous; this.opts.tui.requestRender(); });
     this.opts.tui.requestRender();
   }
 
@@ -94,7 +98,7 @@ export function openStatuslineEditor(o: {
   tui: TUI;
   editor: Editor;
   current: StatuslineConfig | null;
-  save(values: StatuslineConfig): void;
+  save(values: StatuslineConfig, onError: () => void): void;
 }): void {
   const restore = (): void => { o.tui.setFocus(o.editor); o.tui.requestRender(); };
   let handle: ReturnType<TUI['showOverlay']> | null = null;

@@ -8,6 +8,7 @@ import { OAUTH_BUILTIN } from '../../brain/providers.js';
 import { oauthBuiltinCatalog } from '../../brain/models.js';
 import { loadAgentRegistry, parseAgentFile } from '../../brain/agents/agentRegistry.js';
 import { promptsPath } from '../../prompts/index.js';
+import { stringify as stringifyYaml } from 'yaml';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Context } from 'hono';
 import type { ElowenApp, RouteContext } from '../context.js';
@@ -580,14 +581,19 @@ export function registerPluginRoutes(app: ElowenApp, ctx: RouteContext): void {
   const userAgentsDir = (): string | null => (d.pluginDataRoot ? join(dirname(d.pluginDataRoot), 'agents') : null);
   const builtinAgentsDir = (): string => promptsPath('agents');
   const isBuiltinAgent = (name: string): boolean => existsSync(join(builtinAgentsDir(), `${name}.md`));
-  // Serialize the tools spec back to frontmatter: a preset keyword verbatim, or a YAML flow list.
-  const agentToolsYaml = (tools: unknown): string => {
-    if (Array.isArray(tools)) return `[${tools.map((t) => String(t).trim()).filter(Boolean).join(', ')}]`;
+  // Normalize the tools spec: a preset keyword, or an explicit tool-name list.
+  const agentToolsValue = (tools: unknown): string | string[] => {
+    if (Array.isArray(tools)) return tools.map((t) => String(t).trim()).filter(Boolean);
     const v = typeof tools === 'string' ? tools.trim() : '';
     return v || 'inherit';
   };
-  const buildAgentBody = (name: string, description: string, tools: unknown, body: string): string =>
-    `---\nname: ${name}\ndescription: ${description.replaceAll('\n', ' ')}\ntools: ${agentToolsYaml(tools)}\n---\n\n${body.trim()}\n`;
+  // Serialize the frontmatter via the YAML library, NOT string interpolation — a description containing a
+  // colon-space or a leading '#' (both common) would otherwise produce invalid YAML that parseAgentFile
+  // rejects, blocking a legitimate save with a misleading error.
+  const buildAgentBody = (name: string, description: string, tools: unknown, body: string): string => {
+    const frontmatter = stringifyYaml({ name, description: description.replaceAll('\n', ' '), tools: agentToolsValue(tools) }).trimEnd();
+    return `---\n${frontmatter}\n---\n\n${body.trim()}\n`;
+  };
 
   app.get('/plugins/agents/list', (c) => {
     if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);

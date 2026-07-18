@@ -12,41 +12,50 @@ const fakeTui = (): TUI => ({ requestRender: vi.fn() } as unknown as TUI);
 
 const make = (
   current: StatuslineConfig | null,
-  save: (v: StatuslineConfig) => void,
+  save: (v: StatuslineConfig, onError: () => void) => void,
   onClose: () => void,
 ): StatuslineEditor => new StatuslineEditor({ tui: fakeTui(), current, onClose, save });
 
 describe('StatuslineEditor', () => {
-  it('renders a checkbox per field reflecting the current config', () => {
-    const rendered = make({ showModel: true, showContext: false }, vi.fn(), vi.fn()).render(80).join('\n');
+  it('renders a checkbox per CLI-editable field (context/tokens/cost, no Model)', () => {
+    const rendered = make({ showContext: true, showTokens: false }, vi.fn(), vi.fn()).render(80).join('\n');
     expect(rendered).toContain('Statusline');
-    expect(rendered).toContain('Model');
+    expect(rendered).toContain('Context usage');
     expect(rendered).toContain('Cost');
-    expect(rendered).toContain('[x]'); // showModel is on
+    expect(rendered).not.toContain('Model'); // showModel is web-dock-only — inert in the CLI bar
+    expect(rendered).toContain('[x]'); // showContext is on
     expect(rendered).toContain('[ ]'); // the rest are off
   });
 
   it('space toggles the highlighted field and saves the flipped values', () => {
     const save = vi.fn();
-    make({ showModel: false }, save, vi.fn()).handleInput(SPACE); // first row = showModel
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ showModel: true }));
+    make({ showContext: false }, save, vi.fn()).handleInput(SPACE); // first row = showContext
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ showContext: true }), expect.any(Function));
   });
 
   it('enter toggles a lower row after moving down', () => {
     const save = vi.fn();
     const ed = make({}, save, vi.fn());
-    ed.handleInput(DOWN); // → showContext
+    ed.handleInput(DOWN); // → showTokens
     ed.handleInput(ENTER);
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ showContext: true }));
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ showTokens: true }), expect.any(Function));
   });
 
   it('toggling the same row twice returns to the original value', () => {
     const save = vi.fn();
-    const ed = make({ showModel: false }, save, vi.fn());
+    const ed = make({ showContext: false }, save, vi.fn());
     ed.handleInput(SPACE);
     ed.handleInput(SPACE);
-    expect(save).toHaveBeenNthCalledWith(1, expect.objectContaining({ showModel: true }));
-    expect(save).toHaveBeenNthCalledWith(2, expect.objectContaining({ showModel: false }));
+    expect(save.mock.calls[0]![0]).toMatchObject({ showContext: true });
+    expect(save.mock.calls[1]![0]).toMatchObject({ showContext: false });
+  });
+
+  it('rolls back the optimistic toggle when the save reports an error', () => {
+    // save invokes its onError callback (a failed PATCH) — the checkbox must revert to unchecked.
+    const save = vi.fn((_values: StatuslineConfig, onError: () => void) => onError());
+    const ed = make({ showContext: false }, save, vi.fn());
+    ed.handleInput(SPACE);
+    expect(ed.render(80).join('\n')).not.toContain('[x]'); // rolled back — nothing is checked
   });
 
   it('esc closes without saving', () => {

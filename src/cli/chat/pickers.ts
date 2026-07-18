@@ -629,11 +629,11 @@ export function createPickers(
     openStatuslineEditor({
       tui, editor,
       current: rt.lineCfg,
-      save: (values) => {
+      save: (values, onError) => {
         runApplication(async () => {
           await client.setStatuslineConfig(values);
           await refreshMeta();
-        }, () => { render(); }, fail);
+        }, () => { render(); }, (e) => { onError(); fail(e); });
       },
     });
   };
