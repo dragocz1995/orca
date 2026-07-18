@@ -1376,7 +1376,6 @@ export const en = {
     usageWeekly: 'weekly',
     usageWindow: 'window',
     usageResets: 'Resets {time}',
-    usageStale: 'may be out of date',
     providers: 'Providers',
     addProvider: 'Add provider',
     editProvider: 'Edit provider',

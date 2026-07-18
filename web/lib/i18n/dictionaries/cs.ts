@@ -1376,7 +1376,6 @@ export const cs = {
     usageWeekly: 'týdně',
     usageWindow: 'okno',
     usageResets: 'Obnoví se {time}',
-    usageStale: 'nemusí být aktuální',
     providers: 'Poskytovatelé',
     addProvider: 'Přidat poskytovatele',
     editProvider: 'Upravit poskytovatele',

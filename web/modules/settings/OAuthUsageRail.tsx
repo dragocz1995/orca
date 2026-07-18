@@ -52,7 +52,6 @@ export function OAuthUsageRail({ usage }: { usage: ProviderUsage }) {
           </div>
         );
       })}
-      {usage.stale ? <span className="text-[10px] text-text-subtle">{t.brain.usageStale}</span> : null}
     </div>
   );
 }
