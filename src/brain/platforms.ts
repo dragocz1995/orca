@@ -128,6 +128,12 @@ export class PlatformOrchestrator {
             // A parent deny-list (disabled tools) rides on top untouched.
             const callAllow = src.access.toolPolicy?.allow;
             const narrowed = preset && callAllow ? preset.filter((t) => callAllow.includes(t)) : preset ?? callAllow;
+            // A disjoint intersection (the caller's allow-list shares no tool with the preset) leaves the
+            // child with nothing to do. Fail with an actionable error — as the pre-unification plugin did —
+            // instead of silently spawning a mute child whose empty allow-list can never run a tool.
+            if (preset && callAllow && narrowed && narrowed.length === 0) {
+              throw new Error('delegated tool scope is empty: the read-only tools are all outside the caller’s own allow-list');
+            }
             const effectiveToolPolicy = narrowed
               ? { ...(src.access.toolPolicy?.deny ? { deny: src.access.toolPolicy.deny } : {}), allow: [...narrowed] }
               : src.access.toolPolicy;
