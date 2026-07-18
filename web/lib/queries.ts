@@ -321,10 +321,18 @@ export const useBrainModels = () =>
 export const useBrainOauthStatus = () =>
   useQuery({ queryKey: ['brain-oauth'], queryFn: elowenClient.brainOauthStatus });
 
-/** Subscription usage per connected OAuth account (Settings → Brain). Slow-changing, so it refreshes on
- *  a minute cadence to match the daemon's own usage-cache TTL rather than polling hot. */
+/** Subscription usage per connected OAuth account (Settings → Brain). The daemon caches upstream for ~60s,
+ *  so polling more often is cheap (served from that cache) but keeps the bars live without a manual reload:
+ *  refresh every 20s, on window focus, and on remount. */
 export const useBrainRateLimitsAll = () =>
-  useQuery({ queryKey: QUERY_KEYS.brainRateLimits, queryFn: elowenClient.brainRateLimitsAll, refetchInterval: 60_000, staleTime: 30_000 });
+  useQuery({
+    queryKey: QUERY_KEYS.brainRateLimits,
+    queryFn: elowenClient.brainRateLimitsAll,
+    refetchInterval: 20_000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    staleTime: 0,
+  });
 
 export const useUserProjects = (userId: number | null, enabled = true) =>
   useQuery({ queryKey: ['user-projects', userId], queryFn: () => elowenClient.userProjects(userId as number), enabled: !!userId && enabled });
