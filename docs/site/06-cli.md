@@ -28,7 +28,7 @@ elowen status                # daemon and Web UI health
 
 ## Chat
 
-The terminal chat streams assistant text, tool calls, diffs, approvals, todos, and sub-agent state. Its telemetry rail shows the current conversation's model, context, project, branch, language-server state, and usage. For a connected ChatGPT account it also shows the subscription windows returned by that account; a cached reading is marked when it is no longer fresh. This is live state from the daemon, not a terminal-only copy.
+The terminal chat streams assistant text, tool calls, diffs, approvals, todos, and sub-agent state. Diffs and Markdown code fences are syntax-highlighted — token colors are composited over the add/delete/context rows using the edited file's language — so a small edit inside a long changed line stays visible. Its telemetry rail shows the current conversation's model, context, project, branch, language-server state, and usage. For any connected OAuth subscription account — ChatGPT, Claude, or Kimi — it also surfaces that provider's subscription usage windows (a 5-hour window plus weekly ones, whatever windows the provider reports), keyed to the active model's provider; a cached reading is marked when it is no longer fresh. This is live state from the daemon, not a terminal-only copy.
 
 - Use **`@`** to attach a file through the picker. Text is attached as context; supported images remain image attachments.
 - Use **`@clipboard`** to attach supported clipboard content.
@@ -38,6 +38,7 @@ The terminal chat streams assistant text, tool calls, diffs, approvals, todos, a
 - Use **`/tools`** to inspect the currently available plugin tools, their owner, description, and input schema. It is an inspector, not a plugin-management screen.
 - Use **`/fast`** with a ChatGPT/OpenAI OAuth model to toggle priority processing for this conversation when that model supports it.
 - Use **`/model`**, **`/theme`**, and **`/keybinds`** for the corresponding pickers and preferences.
+- Use **`/statusline`** for a checkbox overlay (like `/keybinds`) that picks which segments the status bar shows — context usage, total tokens, and cost. It edits the shared statusline config, so the choice also applies to the web chat dock.
 
 While Elowen is working, the CLI shows live activity and elapsed time. A tool call that takes longer to compose shows a temporary writing indicator. **`Ctrl+B`** moves a running foreground sub-agent or `Bash` command into the background without cancelling it; its result returns to the conversation when it completes.
 

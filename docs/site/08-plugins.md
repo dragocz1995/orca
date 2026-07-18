@@ -75,6 +75,14 @@ Platform plugins adapt inbound messages into the same brain-turn pipeline used b
 
 The cron plugin runs scheduled and one-shot prompts through that same pipeline. The sub-agent plugin delegates a bounded task while preserving the caller's effective scope. These are extensions of the core agent lifecycle, not parallel chat engines.
 
+### Typed sub-agents
+
+Each `.md` file under the built-in `prompts/agents` directory or the instance's config `agents` directory defines one sub-agent type: frontmatter (name, description, tools) plus a body that becomes the child's system prompt. A user file overrides a built-in of the same name. Elowen ships built-in **explore** and **plan** types, both read-only. The delegating call selects a type; omitting it keeps the previous generic behavior.
+
+A type's `tools` spec is either a preset — `read-only`, `all`, or `inherit` — or a custom allow-list. A read-only agent is minted a strictly-narrower permission boundary: writes are denied, the shell is gated to a read-only allow-list, and unattended asks are forced to deny. So it can inspect via shell but never mutate, even when running unattended.
+
+The sub-agent plugin's detail card in **Settings → Plugins** lists the built-in and user agents and lets an admin create, edit, and delete their own (built-ins are read-only). Each write is validated with the real agent parser before it lands and hot-reloads, so the catalog refreshes live.
+
 ## Reload behavior
 
 Changing plugin enablement or configuration reloads the registry so future turns use the current contributions. Existing live work is not rewritten retroactively. Keep plugin work inside the plugin directory; shared transport, policy, and runtime behavior belongs in `src/`.

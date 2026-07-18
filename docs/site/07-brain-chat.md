@@ -37,7 +37,9 @@ Elowen supports configured OpenAI-compatible and Anthropic providers, plus OAuth
 
 Select a model for the current conversation where your surface provides a picker. Reasoning options are shown only when the chosen model exposes them. ChatGPT OAuth models can additionally use priority processing through `/fast` in the CLI when the selected model supports it. The daemon preserves provider credentials and returns only safe configuration metadata to the Web UI.
 
-Use the provider connection flow in **Settings → Elowen AI**. It can test a configured provider before you rely on it for normal chat or automation.
+Connected **ChatGPT**, **Claude**, and **Kimi** accounts expose their subscription usage limits, which Elowen polls and maps into shared 5-hour and weekly windows. In **Settings → Elowen AI**, each connected OAuth account row carries a slim per-account subscription usage bar. It is reported independently of the active model and colored by pressure: accent normally, warning at about 70%, then danger at about 90%.
+
+Use the provider connection flow in **Settings → Elowen AI**. It can test a configured provider before you rely on it for normal chat or automation. In the same connected-accounts list, an unused, disconnected OAuth account type can be hidden and later restored from a **+** menu. This is a display filter only — credentials and provider entries are untouched, and a type that is actually connected is never hidden.
 
 ## Context is assembled per turn
 
