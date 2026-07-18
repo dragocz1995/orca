@@ -6,6 +6,7 @@ import { chdirFailure, gitBranch, prettyCwd, resolveCdTarget } from './projectDi
 import { loadMentionFrecency } from './mentions.js';
 import { isCtrlD, isCtrlL, isCtrlP, isCtrlR, isCtrlU, isTabKey } from './keys.js';
 import { openKeybindsEditor } from './keybindsEditor.js';
+import { openStatuslineEditor } from './statuslineEditor.js';
 import { API_KEY_PROVIDERS } from '../setup/constants.js';
 import { formatK } from '../ui/text.js';
 import { WORK_MODE_LABEL, type BrainProviderView } from './brainClient.js';
@@ -30,6 +31,7 @@ export interface Pickers {
   openLspModal(): void;
   openToolsModal(): void;
   openKeybindsModal(): void;
+  openStatuslineModal(): void;
 }
 
 /** Everything the picker/modal surface of the chat offers: model + provider management, reasoning
@@ -620,9 +622,25 @@ export function createPickers(
     openKeybindsEditor({ tui, editor, reload: shell.reloadKeymap });
   };
 
+  // /statusline: tick what the bottom status bar shows. The toggles are the statusline plugin's own
+  // config (shared with the web dock), so each change PATCHes it server-side and refreshMeta pulls the
+  // fresh BrainStatus.statusline back into the live bar.
+  const openStatuslineModal = (): void => {
+    openStatuslineEditor({
+      tui, editor,
+      current: rt.lineCfg,
+      save: (values) => {
+        runApplication(async () => {
+          await client.setStatuslineConfig(values);
+          await refreshMeta();
+        }, () => { render(); }, fail);
+      },
+    });
+  };
+
   return {
     openThinkingPicker, cycleThinkingLevel, openModelPicker, applyModelArg, changeDirectory, applyTheme, openThemePicker,
     openHelpModal, openStatusModal, openSessionsModal, openMcpModal, openSkillsModal,
-    openLspModal, openToolsModal, openKeybindsModal,
+    openLspModal, openToolsModal, openKeybindsModal, openStatuslineModal,
   };
 }

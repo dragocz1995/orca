@@ -55,6 +55,9 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   // native command surface; the web dock has no picker for it yet (would show a dead menu entry).
   { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli'] },
   { name: 'theme', description: 'Switch the terminal colour theme', kind: 'picker', surfaces: ['cli'] },
+  // CLI-only: ticks what the bottom status bar shows. The toggles are the statusline plugin's shared
+  // config (also editable in the web dock), so the picker PATCHes it server-side and refreshes the bar.
+  { name: 'statusline', description: 'Choose what the bottom status bar shows', kind: 'picker', surfaces: ['cli'] },
   // CLI-local like /theme: `process.chdir` in the TUI's own process. Every request already reports the
   // client's cwd per turn, so moving the process is the whole mechanism. Meaningless on the other
   // surfaces — they have no local directory to move.

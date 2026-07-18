@@ -27,7 +27,7 @@ export interface BrainClientOpts {
 }
 
 /** Statusline display toggles (the statusline plugin's config; null when the plugin is disabled). */
-interface StatuslineConfig { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean }
+export interface StatuslineConfig { showModel?: boolean; showContext?: boolean; showTokens?: boolean; showCost?: boolean }
 export interface BrainUsageView { tokens: number | null; contextWindow: number; percent: number | null; totalTokens: number; cost: number }
 export type BrainWorkMode = 'build' | 'plan' | 'workflow';
 /** Single source of truth for the chat work-mode label (status chip / modal) and the toggle notice.
@@ -385,6 +385,17 @@ export class BrainClient {
     if (res.status === 401) throw new Unauthorized();
     if (res.status === 403) throw new Error('only an admin can change TDD mode');
     if (!res.ok) throw new Error(`elowen ${res.status} on /config`);
+  }
+
+  /** Save the statusline display toggles (admin-only; the `/statusline` modal). Applies live via the
+   *  brain's plugin hot-reload, so the bar updates on the next status refresh. */
+  async setStatuslineConfig(values: StatuslineConfig): Promise<void> {
+    const res = await this.f(`${this.o.base}/plugins/statusline/config`, {
+      method: 'PATCH', headers: this.headers(true), body: JSON.stringify({ values }),
+    });
+    if (res.status === 401) throw new Unauthorized();
+    if (res.status === 403) throw new Error('only an admin can change the statusline');
+    if (!res.ok) throw new Error(`elowen ${res.status} on /plugins/statusline/config`);
   }
 
   async commands(): Promise<SlashCommandDef[]> {

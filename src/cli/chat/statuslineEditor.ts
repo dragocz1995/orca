@@ -1,0 +1,108 @@
+import { visibleWidth } from '@earendil-works/pi-tui';
+import type { Component, Editor, Focusable, TUI } from '@earendil-works/pi-tui';
+import { isDownKey, isEnterKey, isEscapeKey, isKeyRelease, isUpKey } from './keys.js';
+import { chatTheme, color, paintRow } from './theme.js';
+import { padAnsi } from '../ui/text.js';
+import type { StatuslineConfig } from './brainClient.js';
+
+/** The statusline plugin's four display toggles (keys mirror plugins/statusline/elowen-plugin.json's
+ *  configSchema). Kept here as the CLI-side labels; the values live server-side in the plugin config. */
+const STATUSLINE_FIELDS: readonly { key: keyof StatuslineConfig; label: string; hint: string }[] = [
+  { key: 'showModel', label: 'Model', hint: 'the active model name' },
+  { key: 'showContext', label: 'Context usage', hint: 'how full the context window is (percent + tokens)' },
+  { key: 'showTokens', label: 'Total tokens', hint: "the conversation's cumulative token count" },
+  { key: 'showCost', label: 'Cost', hint: "the conversation's cost (subscriptions report $0)" },
+];
+
+export interface StatuslineEditorOpts {
+  tui: TUI;
+  /** The current display toggles (from the live BrainStatus.statusline), or null when the plugin is off. */
+  current: StatuslineConfig | null;
+  /** Restore focus + close the overlay on esc. */
+  onClose(): void;
+  /** Persist the new values (server-side plugin config) and refresh the live status bar. */
+  save(values: StatuslineConfig): void;
+}
+
+/** The interactive /statusline editor: a checkbox list of what the bottom status bar shows. Space/Enter
+ *  toggles the highlighted item; each change persists to the statusline plugin's config and live-applies
+ *  to the bar. Mirrors the /keybinds editor's chrome and restore contract. */
+export class StatuslineEditor implements Component, Focusable {
+  private _focused = false;
+  private selectedIndex = 0;
+  private values: StatuslineConfig;
+
+  constructor(private readonly opts: StatuslineEditorOpts) {
+    this.values = { ...(opts.current ?? {}) };
+  }
+
+  get focused(): boolean { return this._focused; }
+  set focused(value: boolean) { this._focused = value; }
+  invalidate(): void { /* stateless render from current fields */ }
+
+  private move(delta: number): void {
+    const n = STATUSLINE_FIELDS.length;
+    this.selectedIndex = (this.selectedIndex + delta + n) % n;
+    this.opts.tui.requestRender();
+  }
+
+  private toggle(): void {
+    const key = STATUSLINE_FIELDS[this.selectedIndex]!.key;
+    this.values = { ...this.values, [key]: !this.values[key] };
+    // Persist + live-apply optimistically; the server reply refreshes the authoritative bar state.
+    this.opts.save({ ...this.values });
+    this.opts.tui.requestRender();
+  }
+
+  handleInput(data: string): void {
+    if (isKeyRelease(data)) return;
+    if (isEscapeKey(data)) { this.opts.onClose(); return; }
+    if (isUpKey(data)) { this.move(-1); return; }
+    if (isDownKey(data)) { this.move(1); return; }
+    if (isEnterKey(data) || data === ' ') { this.toggle(); return; }
+  }
+
+  render(width: number): string[] {
+    const bodyWidth = Math.max(1, width - 4);
+    const pad = Math.max(...STATUSLINE_FIELDS.map((f) => f.label.length)) + 2;
+    const line = (s: string): string => paintRow(chatTheme().modalBg, s, width);
+    const out: string[] = [];
+    out.push(line(`  ${color.bold(color.text('Statusline'))}${color.faint(`${' '.repeat(Math.max(1, bodyWidth - 14))}esc`)}`));
+    out.push(line(''));
+
+    STATUSLINE_FIELDS.forEach((f, i) => {
+      const on = this.values[f.key] === true;
+      const box = on ? '[x]' : '[ ]';
+      if (i === this.selectedIndex) {
+        const plain = `${box} ${f.label.padEnd(pad)}${f.hint}`;
+        out.push(paintRow(chatTheme().modalBg, `  ${color.selected(padAnsi(plain, bodyWidth))}  `, width));
+      } else {
+        const boxText = on ? color.accent(box) : color.faint(box);
+        out.push(line(`  ${boxText} ${color.text(f.label.padEnd(pad))}${color.faint(f.hint)}`));
+      }
+    });
+
+    out.push(line(''));
+    out.push(line(`  ${color.faint('space toggle · ↑↓ move · esc close')}`));
+    return out;
+  }
+}
+
+/** Show the interactive statusline editor as a centered, focus-capturing overlay (same chrome + restore
+ *  contract as the pickers). `save` persists each toggle to the plugin config and refreshes the bar. */
+export function openStatuslineEditor(o: {
+  tui: TUI;
+  editor: Editor;
+  current: StatuslineConfig | null;
+  save(values: StatuslineConfig): void;
+}): void {
+  const restore = (): void => { o.tui.setFocus(o.editor); o.tui.requestRender(); };
+  let handle: ReturnType<TUI['showOverlay']> | null = null;
+  const close = (): void => { handle?.hide(); handle = null; restore(); };
+  const editor = new StatuslineEditor({ tui: o.tui, current: o.current, onClose: close, save: o.save });
+  const longest = Math.max(...STATUSLINE_FIELDS.map((f) => f.hint.length + f.label.length + 6), visibleWidth('space toggle · ↑↓ move · esc close'));
+  const width = Math.max(52, Math.min(longest + 20, Math.floor(o.tui.terminal.columns * 0.9)));
+  handle = o.tui.showOverlay(editor, { anchor: 'center', width, maxHeight: 14, margin: 2 });
+  handle.focus();
+  o.tui.requestRender();
+}
