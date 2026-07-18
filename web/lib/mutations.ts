@@ -342,6 +342,21 @@ export function useDeletePluginSkill() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-skills'] }),
   });
 }
+/** Create (or overwrite) a user sub-agent of the subagent plugin. Applies live via plugin hot-reload. */
+export function useSavePluginSubagent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; def: { description: string; tools: 'read-only' | 'all' | 'inherit' | string[]; body: string } }) => elowenClient.savePluginSubagent(v.name, v.def),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-subagents'] }),
+  });
+}
+export function useDeletePluginSubagent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => elowenClient.deletePluginSubagent(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-subagents'] }),
+  });
+}
 export function useSavePluginConfig() {
   const qc = useQueryClient();
   return useMutation({

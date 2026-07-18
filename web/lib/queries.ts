@@ -304,6 +304,10 @@ export const useCronJobs = (enabled = true) =>
 export const usePluginSkills = () =>
   useQuery({ queryKey: ['plugin-skills'], queryFn: elowenClient.pluginSkills });
 
+/** The subagent plugin's typed sub-agents — built-in + user (admin, the subagent plugin detail). */
+export const usePluginSubagents = () =>
+  useQuery({ queryKey: ['plugin-subagents'], queryFn: elowenClient.pluginSubagents });
+
 /** Text channels + active threads of the configured Discord guild (the cron destination picker).
  *  The daemon caches upstream for 60 s; match that so the pills don't refetch per keystroke. */
 export const useDiscordChannels = () =>

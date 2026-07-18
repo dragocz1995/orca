@@ -1,8 +1,9 @@
 'use client';
 import { useState, type ReactNode } from 'react';
-import { Plus, Trash2, ChevronDown, ChevronRight, Clock, Users, SlidersHorizontal, Link2, GraduationCap, Info, Wrench, MessagesSquare, Mic, Image as ImageIcon, type LucideIcon } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight, Clock, Users, SlidersHorizontal, Link2, GraduationCap, GitFork, Info, Wrench, MessagesSquare, Mic, Image as ImageIcon, type LucideIcon } from 'lucide-react';
 import { CronJobsEditor } from './CronJobsEditor';
 import { SkillsEditor } from './SkillsEditor';
+import { SubagentsEditor } from './SubagentsEditor';
 import { WhatsAppPairSection } from './WhatsAppPairSection';
 import { MonacoEditor } from '../projects/editor/monacoLoader';
 import { defineEditorThemes } from '../projects/editor/oledTheme';
@@ -587,6 +588,13 @@ export function PluginConfigEditor({ detail, fieldLabel, fieldHint, fieldOptions
       {mode === 'behavior' && detail.name === 'skills' ? (
         <SettingsGroup className="plugin-card" icon={GraduationCap} title={t.skills.title} description={t.skills.sectionHint}>
           <div className="settings-group__panel"><SkillsEditor /></div>
+        </SettingsGroup>
+      ) : null}
+
+      {/* The subagent plugin's typed sub-agents are .md files too — built-in explore/plan plus the user's own. */}
+      {mode === 'behavior' && detail.name === 'subagent' ? (
+        <SettingsGroup className="plugin-card" icon={GitFork} title={t.subagents.title} description={t.subagents.sectionHint}>
+          <div className="settings-group__panel"><SubagentsEditor /></div>
         </SettingsGroup>
       ) : null}
     </div>

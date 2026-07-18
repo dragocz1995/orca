@@ -442,6 +442,11 @@ export interface WhatsAppPairing { qrImage: string | null; code: string | null; 
  *  `disableModelInvocation` mirrors PI's `disable-model-invocation` frontmatter flag — when set the
  *  skill is hidden from progressive disclosure and reachable only via `/skill:name`. */
 export interface PluginSkill { name: string; description: string; source: 'bundled' | 'user'; disableModelInvocation: boolean; content?: string }
+/** One typed sub-agent of the subagent plugin (GET /plugins/agents/list). Built-in explore/plan ship
+ *  with the install and are read-only; user agents are one `.md` each and can be edited or deleted.
+ *  `tools` is the frontmatter spec: a preset keyword (`read-only`/`all`/`inherit`) or an explicit tool
+ *  allow-list. `body` (the system prompt) is present only for user agents, so the editor can prefill. */
+export interface PluginSubagent { name: string; description: string; tools: 'read-only' | 'all' | 'inherit' | string[]; source: 'builtin' | 'user'; canDelete: boolean; body?: string }
 // Login no longer surfaces a token to the browser — the proxy sets it as an httpOnly cookie and
 // returns only a success flag.
 export type AuthResult = { ok: true };

@@ -6,6 +6,8 @@ import { MarketplaceError } from '../../plugins/marketplace.js';
 import { isValidSchedule } from '../../shared/cronSchedule.js';
 import { OAUTH_BUILTIN } from '../../brain/providers.js';
 import { oauthBuiltinCatalog } from '../../brain/models.js';
+import { loadAgentRegistry, parseAgentFile } from '../../brain/agents/agentRegistry.js';
+import { promptsPath } from '../../prompts/index.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Context } from 'hono';
 import type { ElowenApp, RouteContext } from '../context.js';
@@ -564,6 +566,77 @@ export function registerPluginRoutes(app: ElowenApp, ctx: RouteContext): void {
     const userDir = userSkillsDir();
     const file = userDir ? join(userDir, `${name}.md`) : null;
     if (!file || !existsSync(file)) return c.json({ error: 'unknown skill' }, 404);
+    unlinkSync(file);
+    await d.brain?.reloadPlugins();
+    return c.json({ ok: true });
+  });
+
+  // ── Sub-agents (subagent plugin): typed sub-agents are one `.md` each (frontmatter name/description/
+  // tools + a body prompt). Built-in explore/plan ship in dist/prompts/agents and are read-only; user
+  // agents live next to the DB in <config>/agents and can be created/edited/deleted here. A write or
+  // delete hot-reloads the plugins, so the sub-agent catalog refreshes for new conversations. ──
+  const AGENT_NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/; // mirrors NAME_RE in src/brain/agents/agentRegistry.ts
+  // User agents sit beside plugins-data under the config dir (both hang off dirname(dbPath) — see bootstrap).
+  const userAgentsDir = (): string | null => (d.pluginDataRoot ? join(dirname(d.pluginDataRoot), 'agents') : null);
+  const builtinAgentsDir = (): string => promptsPath('agents');
+  const isBuiltinAgent = (name: string): boolean => existsSync(join(builtinAgentsDir(), `${name}.md`));
+  // Serialize the tools spec back to frontmatter: a preset keyword verbatim, or a YAML flow list.
+  const agentToolsYaml = (tools: unknown): string => {
+    if (Array.isArray(tools)) return `[${tools.map((t) => String(t).trim()).filter(Boolean).join(', ')}]`;
+    const v = typeof tools === 'string' ? tools.trim() : '';
+    return v || 'inherit';
+  };
+  const buildAgentBody = (name: string, description: string, tools: unknown, body: string): string =>
+    `---\nname: ${name}\ndescription: ${description.replaceAll('\n', ' ')}\ntools: ${agentToolsYaml(tools)}\n---\n\n${body.trim()}\n`;
+
+  app.get('/plugins/agents/list', (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const reg = loadAgentRegistry({ builtinDir: builtinAgentsDir(), userDir: userAgentsDir() ?? undefined });
+    // A user file body is returned so the editor can prefill; built-in bodies are read-only, so they are
+    // left off the payload (and kept smaller).
+    const out = [...reg.values()].map((a) => ({
+      name: a.name,
+      description: a.description,
+      tools: a.toolsSpec,
+      source: a.source,
+      canDelete: a.source === 'user',
+      ...(a.source === 'user' ? { body: a.body } : {}),
+    }));
+    return c.json(out);
+  });
+
+  // Create or overwrite a user sub-agent. A name shadowing a built-in is refused (built-ins are
+  // read-only); the composed file is validated with the real registry parser before it is written, so an
+  // invalid tools spec / frontmatter never lands on disk.
+  app.put('/plugins/agents/:name', async (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const name = c.req.param('name');
+    if (!AGENT_NAME_RE.test(name)) return c.json({ error: 'name must be kebab-case (a-z, 0-9, dashes), max 64 chars' }, 400);
+    if (isBuiltinAgent(name)) return c.json({ error: `a built-in agent named "${name}" already exists and is read-only` }, 400);
+    const userDir = userAgentsDir();
+    if (!userDir) return c.json({ error: 'agents dir unavailable' }, 503);
+    const b = (await c.req.json().catch(() => null)) as { description?: unknown; tools?: unknown; body?: unknown } | null;
+    const description = typeof b?.description === 'string' ? b.description.trim() : '';
+    const body = typeof b?.body === 'string' ? b.body : '';
+    if (description === '' || body.trim() === '') return c.json({ error: 'description and body must be non-empty' }, 400);
+    const composed = buildAgentBody(name, description, b?.tools, body);
+    if (!parseAgentFile(composed, 'user', join(userDir, `${name}.md`))) {
+      return c.json({ error: 'invalid agent definition — check the tools value (read-only / all / inherit or a tool list) and the body' }, 400);
+    }
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, `${name}.md`), composed, 'utf-8');
+    await d.brain?.reloadPlugins();
+    return c.json({ ok: true }, 201);
+  });
+
+  app.delete('/plugins/agents/:name', async (c) => {
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+    const name = c.req.param('name');
+    if (!AGENT_NAME_RE.test(name)) return c.json({ error: 'invalid agent name' }, 400);
+    if (isBuiltinAgent(name)) return c.json({ error: 'built-in agents cannot be deleted' }, 400);
+    const userDir = userAgentsDir();
+    const file = userDir ? join(userDir, `${name}.md`) : null;
+    if (!file || !existsSync(file)) return c.json({ error: 'unknown agent' }, 404);
     unlinkSync(file);
     await d.brain?.reloadPlugins();
     return c.json({ ok: true });
