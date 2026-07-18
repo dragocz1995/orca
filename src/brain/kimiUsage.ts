@@ -29,11 +29,15 @@ function resetSeconds(value: unknown): number | null {
 
 /** One Kimi limit bucket (`{ limit, used, remaining, resetTime }`, numbers as strings) → unified window.
  *  The rail shows how much has been CONSUMED, so `usedPercent = used / limit` (matching the OpenAI rail),
- *  not the remaining percentage the vendor UI happens to draw. */
+ *  not the remaining percentage the vendor UI happens to draw. Kimi omits `used` on an untouched window
+ *  (e.g. the 5h one at 0 %), sending only `remaining`, so derive it from `limit - remaining` in that case
+ *  — otherwise the whole window would vanish instead of rendering an empty bar. */
 function windowFrom(detail: Record<string, unknown> | null, minutes: number | null): UsageWindow | null {
   const limit = finite(detail?.limit);
-  const used = finite(detail?.used);
-  if (limit === null || limit <= 0 || used === null) return null;
+  if (limit === null || limit <= 0) return null;
+  const remaining = finite(detail?.remaining);
+  const used = finite(detail?.used) ?? (remaining !== null ? limit - remaining : null);
+  if (used === null) return null;
   return {
     usedPercent: Math.max(0, Math.min(100, (used / limit) * 100)),
     windowMinutes: minutes,

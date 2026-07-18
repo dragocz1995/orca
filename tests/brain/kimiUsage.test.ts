@@ -80,6 +80,19 @@ describe('kimiUsageSource via UsageService', () => {
     });
   });
 
+  it('derives used from remaining when Kimi omits `used` (the 5h window at 0 %)', async () => {
+    const auth = oauth();
+    // Kimi's live 5h bucket carries only { limit, remaining, resetTime } — no `used` — when untouched.
+    const fetchImpl = vi.fn(async () => json({
+      usage: { limit: '100', used: '34', remaining: '66', resetTime: '2026-07-23T16:57:02.493970Z' },
+      limits: [{ window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' }, detail: { limit: '100', remaining: '100', resetTime: '2026-07-18T13:57:02.493970Z' } }],
+    })) as unknown as typeof fetch;
+    const usage = await service({ auth, fetchImpl, now: () => 9 }).getUsage();
+    // The 5h window must still appear, at 0 % (100 limit − 100 remaining), not vanish.
+    expect(usage?.windows[0]).toEqual({ usedPercent: 0, windowMinutes: 300, resetsAt: Math.floor(Date.parse('2026-07-18T13:57:02.493970Z') / 1_000) });
+    expect(usage?.windows[1]?.windowMinutes).toBe(10_080);
+  });
+
   it('caches by device id across refreshes and marks a transient failure stale', async () => {
     let now = 100;
     const fetchImpl = vi.fn(async () => json(body())) as unknown as typeof fetch;
