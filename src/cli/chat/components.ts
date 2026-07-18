@@ -199,6 +199,8 @@ export class SubagentPanel implements Component {
   private collapsed = false;
   private maxRows = Number.POSITIVE_INFINITY;
   private scrollOffset = 0;
+  /** Row index (0-based within this panel's output) of the clickable pager row, or -1 when none. */
+  private pagerRowIndex = -1;
   /** Row index (0-based within this panel's output) → the sub-agent session that row opens. */
   private rowTargets = new Map<number, string>();
   /** The sub-agent the user is currently switched into, or null while the parent is focused. */
@@ -215,28 +217,40 @@ export class SubagentPanel implements Component {
   }
   desiredRows(): number { return this.entries.length === 0 ? 0 : this.collapsed ? 1 : this.entries.length + 1; }
   targetAt(index: number): string | null { return this.rowTargets.get(index) ?? null; }
-  canScroll(): boolean { return !this.collapsed && this.viewportRows() > 0 && this.entries.length > this.viewportRows(); }
+  canScroll(): boolean { return this.overflowing(); }
   scroll(delta: number): boolean {
     if (!this.canScroll()) return false;
     const previous = this.scrollOffset;
     this.scrollOffset = Math.max(0, Math.min(this.maxScrollOffset(), this.scrollOffset - Math.trunc(delta)));
     return this.scrollOffset !== previous;
   }
+  /** Advance one page, wrapping to the top past the end. Backs the clickable pager row and mirrors what a
+   *  wheel scroll does, but in page-sized steps so a click always reveals a fresh set. */
+  page(): boolean {
+    if (!this.pagerVisible()) return false;
+    const max = this.maxScrollOffset();
+    this.scrollOffset = this.scrollOffset >= max ? 0 : Math.min(max, this.scrollOffset + this.dataCapacity());
+    return true;
+  }
   /** The header (row 0) toggles the agent list open/closed, mirroring the Todos card. */
   isHeaderRow(index: number): boolean { return index === 0 && this.entries.length > 0 && this.maxRows > 0; }
+  /** The pager row (last row when the list overflows its budget) advances to the next page on click. */
+  isPagerRow(index: number): boolean { return this.pagerRowIndex >= 0 && index === this.pagerRowIndex; }
   toggleCollapsed(): void { this.collapsed = !this.collapsed; this.clampScroll(); }
   render(width = 80): string[] {
     this.rowTargets = new Map();
+    this.pagerRowIndex = -1;
     if (this.entries.length === 0 || this.maxRows <= 0) return [];
-    const capacity = this.viewportRows();
+    const capacity = this.dataCapacity();
     this.clampScroll();
+    const shownEnd = Math.min(this.entries.length, this.scrollOffset + capacity);
     const range = this.canScroll()
-      ? `${this.scrollOffset + 1}–${Math.min(this.entries.length, this.scrollOffset + capacity)}/${this.entries.length} ↕`
+      ? `${this.scrollOffset + 1}–${shownEnd}/${this.entries.length} ↕`
       : `${this.entries.length}`;
     const header = sectionHeaderContent(this.collapsed ? '▸' : '▾', 'Sub-agents', `${range} · click`);
     const lines: string[] = [sectionHeaderRow(header, Math.max(1, width))];
     if (this.collapsed) return lines;
-    const shownEntries = this.entries.slice(this.scrollOffset, this.scrollOffset + capacity);
+    const shownEntries = this.entries.slice(this.scrollOffset, shownEnd);
     for (const e of shownEntries) {
       // Built plain first, then coloured — geometry is measured on the plain strings (identical, since
       // visibleWidth strips ANSI) and the selected row MUST receive text with no escapes of its own: SGR
@@ -261,13 +275,28 @@ export class SubagentPanel implements Component {
       const icon = e.status === 'running' ? color.warning('●') : e.status === 'done' ? color.success('✓') : color.error('✗');
       lines.push(`    ${icon} ${DIM(taskPlain)} ${FAINTC('click')}${' '.repeat(gap)}${FAINTC(metaPlain)}`);
     }
+    // A clickable pager row makes the hidden overflow discoverable (the wheel alone was invisible). It
+    // pages forward and wraps, so more than one full page is reachable with clicks alone.
+    if (this.pagerVisible()) {
+      const remaining = this.entries.length - shownEnd;
+      const label = remaining > 0 ? `▾ +${remaining} more · click` : '▴ back to top · click';
+      this.pagerRowIndex = lines.length;
+      lines.push(`    ${FAINTC(label)}`);
+    }
     return lines;
   }
 
   private viewportRows(): number {
     return Number.isFinite(this.maxRows) ? Math.max(0, this.maxRows - 1) : this.entries.length;
   }
-  private maxScrollOffset(): number { return Math.max(0, this.entries.length - this.viewportRows()); }
+  /** True when the list has more entries than fit below the header. */
+  private overflowing(): boolean { return !this.collapsed && this.viewportRows() > 0 && this.entries.length > this.viewportRows(); }
+  /** The pager row costs a row, so it only appears once at least two data rows still fit beside it. Below
+   *  that (a heavily compacted rail) the list falls back to wheel-scroll without the arrow. */
+  private pagerVisible(): boolean { return this.overflowing() && this.viewportRows() >= 3; }
+  /** Data rows shown per page: the full viewport, minus the pager row when one is drawn. */
+  private dataCapacity(): number { return this.pagerVisible() ? this.viewportRows() - 1 : this.viewportRows(); }
+  private maxScrollOffset(): number { return Math.max(0, this.entries.length - this.dataCapacity()); }
   private clampScroll(): void { this.scrollOffset = Math.min(this.scrollOffset, this.maxScrollOffset()); }
 }
 

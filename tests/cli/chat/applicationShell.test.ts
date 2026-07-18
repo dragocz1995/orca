@@ -792,7 +792,7 @@ describe('chat application shell ownership', () => {
     let listener!: (data: string) => { consume: boolean } | undefined;
     const tui = { addInputListener: vi.fn((next) => { listener = next; return vi.fn(); }) } as unknown as TUI;
     const subPanel = new SubagentPanel();
-    subPanel.setMaxRows(4); // header + a 3-row viewport
+    subPanel.setMaxRows(4); // header + a 3-row viewport (2 data rows + the pager once it overflows)
     subPanel.set(Array.from({ length: 8 }, (_, index) => ({
       sessionId: `child-${index}`, task: `task ${index}`, status: 'running' as const, tools: 0, seconds: index + 1,
     })));
@@ -816,20 +816,20 @@ describe('chat application shell ownership', () => {
     router.attach();
 
     const header = (): string => subPanel.render(120)[0]!.replace(/\x1b\[[0-9;]*m/g, '');
-    expect(header()).toContain('1–3/8');
+    expect(header()).toContain('1–2/8'); // one data row yields to the pager once the list overflows
 
     // panelsTop = TOP_RULE_ROWS + transcript(5) + 1 = 7; a wheel over the first agent row (screen row 8)
     // scrolls the fallback, never the transcript beneath it.
     const agentRowY = TOP_RULE_ROWS + 5 + 1 + 1;
     expect(listener(`\x1b[<65;10;${agentRowY}M`)).toEqual({ consume: true });
-    expect(header()).toContain('4–6/8');
+    expect(header()).toContain('4–5/8');
     expect(viewport.scroll).not.toHaveBeenCalled();
     expect(render).toHaveBeenCalledWith('scroll:subagents');
 
     // A wheel above the panel (over the transcript) leaves the panel untouched and scrolls history.
     render.mockClear();
     expect(listener('\x1b[<65;10;2M')).toEqual({ consume: true });
-    expect(header()).toContain('4–6/8'); // unchanged
+    expect(header()).toContain('4–5/8'); // unchanged
     expect(viewport.scroll).toHaveBeenCalledWith(-3);
 
     // With only two agents the fallback can't scroll, so the wheel falls through to the transcript.
@@ -1228,13 +1228,14 @@ describe('chat application shell ownership', () => {
     const first = telemetry.component.render(46).map(terminalPlainText);
     expect(first.join('\n')).toContain('Sub-agents');
     expect(first.join('\n')).toContain('agent-0');
-    expect(first.join('\n')).toContain('1–4/8');
+    expect(first.join('\n')).toContain('1–3/8');
+    expect(first.join('\n')).toContain('+5 more');
 
     expect(h.tui.emit('\x1b[<65;110;10M')?.consume).toBe(true); // wheel down inside the rail
     await vi.runOnlyPendingTimersAsync();
     renderMountedRoot(h);
     const scrolled = telemetry.component.render(46).map(terminalPlainText);
-    expect(scrolled.join('\n')).toContain('4–7/8');
+    expect(scrolled.join('\n')).toContain('4–6/8');
     expect(scrolled.join('\n')).toContain('agent-3');
     expect(scrolled.join('\n')).not.toContain('agent-0');
 

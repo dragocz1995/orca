@@ -155,6 +155,10 @@ export class InputRouter {
         context.render('input:subagents-toggle');
         return { consume: true };
       }
+      if (context.telemetry.isSubagentPagerRow(localRow)) {
+        if (context.telemetry.pageSubagents()) context.render('input:subagents-page');
+        return { consume: true };
+      }
       const subagent = context.telemetry.subagentAt(localRow);
       if (subagent) { void stream.openSubagent(subagent); return { consume: true }; }
       if (context.telemetry.isProcessHeaderRow(localRow)) {
@@ -194,6 +198,10 @@ export class InputRouter {
       if (subRelative >= 0 && context.subPanel.isHeaderRow(subRelative)) {
         context.subPanel.toggleCollapsed();
         context.render('input:subagents-toggle');
+        return { consume: true };
+      }
+      if (subRelative >= 0 && context.subPanel.isPagerRow(subRelative)) {
+        if (context.subPanel.page()) context.render('input:subagents-page');
         return { consume: true };
       }
       const target = subRelative >= 0 ? context.subPanel.targetAt(subRelative) : null;

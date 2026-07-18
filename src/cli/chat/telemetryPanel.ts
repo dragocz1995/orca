@@ -102,6 +102,10 @@ export class TelemetryPanel implements Component {
   subagentAt(row: number): string | null {
     return this.subagentTop >= 0 ? this.subagentPanel.targetAt(row - this.subagentTop) : null;
   }
+  isSubagentPagerRow(row: number): boolean {
+    return this.subagentTop >= 0 && this.subagentPanel.isPagerRow(row - this.subagentTop);
+  }
+  pageSubagents(): boolean { return this.subagentPanel.page(); }
   canScrollSubagents(): boolean { return this.subagentPanel.canScroll(); }
   scrollSubagents(delta: number): boolean { return this.subagentPanel.scroll(delta); }
   isWorkflowHeaderRow(row: number): boolean {

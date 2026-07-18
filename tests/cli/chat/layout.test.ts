@@ -679,14 +679,15 @@ describe('chat layout components', () => {
     const first = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
     const firstTaskRow = first.findIndex((line) => line.includes('agent-0'));
     expect(first.join('\n')).toContain('Sub-agents');
-    expect(first.join('\n')).toContain('1–4/8');
+    expect(first.join('\n')).toContain('1–3/8'); // header + 3 rows + pager fills the 5-row budget
+    expect(first.join('\n')).toContain('+5 more');
     expect(panel.subagentAt(firstTaskRow)).toBe('child-0');
     expect(panel.canScrollSubagents()).toBe(true);
 
     expect(panel.scrollSubagents(-3)).toBe(true);
     const scrolled = panel.render(46).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
     const fourthTaskRow = scrolled.findIndex((line) => line.includes('agent-3'));
-    expect(scrolled.join('\n')).toContain('4–7/8');
+    expect(scrolled.join('\n')).toContain('4–6/8');
     expect(scrolled.join('\n')).not.toContain('agent-0');
     expect(panel.subagentAt(fourthTaskRow)).toBe('child-3');
   });

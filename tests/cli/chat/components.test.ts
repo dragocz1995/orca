@@ -37,6 +37,56 @@ describe('chat components', () => {
     expect(rendered).not.toContain('\x1b]52;');
   });
 
+  it('SubagentPanel pages the overflow behind a clickable arrow and wraps back to the top', () => {
+    const entries = Array.from({ length: 8 }, (_, i) => ({
+      sessionId: `s${i}`, task: `agent-${i}`, detail: 'work', status: 'running' as const, tools: 1, seconds: 1,
+    }));
+    const panel = new SubagentPanel();
+    panel.set(entries);
+    panel.setMaxRows(5); // header + 4 rows of budget → 3 data rows once the pager claims one
+
+    const page1 = panel.render(72);
+    // header + 3 data rows + pager = 5 rows, the full budget.
+    expect(page1).toHaveLength(5);
+    expect(page1[0]).toContain('1–3/8');
+    expect(page1.slice(1, 4).join('\n')).toContain('agent-0');
+    expect(page1.slice(1, 4).join('\n')).toContain('agent-2');
+    expect(page1.slice(1, 4).join('\n')).not.toContain('agent-3');
+    expect(page1.at(-1)).toContain('+5 more');
+    expect(panel.isPagerRow(4)).toBe(true);
+    expect(panel.isPagerRow(1)).toBe(false);
+
+    // Clicking the pager advances one page.
+    expect(panel.page()).toBe(true);
+    const page2 = panel.render(72);
+    expect(page2[0]).toContain('4–6/8');
+    expect(page2.slice(1, 4).join('\n')).toContain('agent-3');
+    expect(page2.at(-1)).toContain('+2 more');
+
+    // The last page shows a back-to-top affordance…
+    expect(panel.page()).toBe(true);
+    const page3 = panel.render(72);
+    expect(page3[0]).toContain('6–8/8');
+    expect(page3.at(-1)).toContain('back to top');
+
+    // …and clicking it once more wraps to the first page.
+    expect(panel.page()).toBe(true);
+    expect(panel.render(72)[0]).toContain('1–3/8');
+  });
+
+  it('SubagentPanel draws no pager when every agent fits the budget', () => {
+    const panel = new SubagentPanel();
+    panel.set(Array.from({ length: 4 }, (_, i) => ({
+      sessionId: `s${i}`, task: `agent-${i}`, detail: 'work', status: 'running' as const, tools: 1, seconds: 1,
+    })));
+    panel.setMaxRows(5); // header + 4 rows → exactly fits, no overflow
+    const lines = panel.render(72);
+    expect(lines).toHaveLength(5);
+    expect(lines[0]).toContain('4'); // plain count, no range
+    expect(lines.join('\n')).not.toContain('more');
+    expect(panel.page()).toBe(false);
+  });
+
   it('QueuedMessages renders nothing while empty, then a QUEUED pill line per pending item + a hint', () => {
     const q = new QueuedMessages();
     expect(q.render(40)).toEqual([]); // empty → zero rows at rest

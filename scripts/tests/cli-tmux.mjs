@@ -500,14 +500,16 @@ try {
   const panelCapture = saveCapture('08-panels-after-stream');
   assert.match(panelCapture, /Sub-agent click agent-[0-7] verify the CLI panels/u,
     'delegated work must remain visible as a transcript drill-in row');
-  assert.match(panelCapture, /Sub-agents\s+1–4\/8/u,
+  assert.match(panelCapture, /Sub-agents\s+1–3\/8/u,
     'running delegated work must use the dedicated right-rail window');
+  assert.match(panelCapture, /\+5 more/u,
+    'the overflow beyond the first page must surface a clickable pager row');
   assert.equal((panelCapture.match(/Sub-agents/gu) ?? []).length, 1,
     'wide layouts must not duplicate running agents below Todos');
 
   // Wheel input inside the right rail belongs to its running-agent window, never the transcript.
   sendRaw('\x1b[<65;110;10M');
-  await waitFor('right-rail sub-agent scroll', () => capture().includes('4–7/8'));
+  await waitFor('right-rail sub-agent scroll', () => capture().includes('4–6/8'));
   const agentScrollCapture = saveCapture('08d-subagents-scrolled');
   assert.match(agentScrollCapture, /agent-3/u, 'scrolled rail must reveal the fourth running agent');
   assert.doesNotMatch(agentScrollCapture, /agent-0 verify/u, 'scrolled rail must move past the first agent');
