@@ -5,7 +5,13 @@ All notable changes to Elowen are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.27.71] - 2026-07-19
+
 ### Added
+- **A native web chat.** The `/chat` page and the docked chat now share one session-bound controller — the same brain `elowen chat` talks to — so switching between the dock, the full page and the CLI never drops your draft or a running answer. The transcript renders inline with lighter diffs and collapsible tool output.
+- **A real `elowen chat` terminal inside the web (admins only).** From the dock's terminal picker an administrator can open the current conversation as a genuine CLI TUI, attached to the same brain session both ways. It launches over a per-terminal token that never leaves the daemon; detach, explicit stop and pop-out are all wired.
+- **A visible model picker.** The active model is shown and switchable from the chat header and the dock, applied live to the bound conversation without losing history.
+- **Cross-platform conversation resume (`/context`).** Discord, WhatsApp, Telegram and the web can re-bind a channel to any of your existing conversations through a paginated picker and continue with full history.
 - **Elowen can search its own manual.** The bundled `ElowenDocs` tool finds the relevant shipped user-guide sections before the agent guesses about a setting or feature. It uses semantic search when memory embeddings are configured and a clearly labelled keyword search otherwise; it is deliberately separate from `CodebaseSearch`, which searches your projects.
 - **`/cd [path]` changes the CLI working directory.** With no argument it shows the current directory; with a path it updates the local CLI context used by later prompts, `!` commands, attachments, exports, and history without widening daemon project access.
 - **Old brain conversations can be cleaned up automatically.** Administrators can opt in to hourly cleanup of stale user conversations. It leaves active/running conversations, channel and task sessions, delegated children, and conversations with running children alone.
@@ -13,11 +19,16 @@ All notable changes to Elowen are documented here. The format loosely follows
 - **Proxied and custom models can show an estimated cost.** Elowen consults the bundled models.dev catalog when a provider does not report cost; provider-reported usage remains authoritative.
 
 ### Changed
+- **The chat's Send button becomes a Stop button while a turn is running.** The separate "working" spinner is gone — the button itself signals the live state and stops the streaming answer on click.
+- **One global personality.** Per-platform personality profiles collapse into a single global body, so Elowen reads the same way across the CLI, web and every chat platform.
+- **A single source of truth for Discord slash commands.** The registered command list is derived directly from the daemon's command registry instead of a hand-maintained copy.
 - **The CLI gives clearer live-work feedback.** It shows an activity indicator while a tool call streams and only shows the writing-tool-call hint after the call has genuinely spent time being composed.
 - **OAuth providers disappear from the model picker once disconnected.** A saved provider entry no longer leaves a dead selectable account behind.
 - **The focused sub-agent view includes its own context and cost.** A parent turn's failure no longer consumes the child delivery budget.
 
 ### Fixed
+- **Fresh installs work again.** The `@earendil-works/pi-*` packages are now pinned to an exact version (`0.80.10`) instead of a caret range, so a fresh `npm install` no longer pulls a newer, incompatible PI release that crashed on start.
+- **Duplicate Discord slash commands are gone.** A stuck global-command clear left `/status`, `/compact`, `/context` and friends registered twice; registration now self-heals.
 - **A message arriving during compaction is rendered once.** It no longer appears twice when the compacted turn settles.
 - **The CLI's transient notices expire instead of lingering above the composer.**
 - **ElowenDocs results render as a compact tool marker in plugin presentations, rather than showing the full search result inline.**
