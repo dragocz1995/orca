@@ -205,11 +205,12 @@ Hosted TUI zachová běžné CLI schopnosti včetně lokálního shell escape. P
 
 **Vazba do kanálu — hlavní risk.** Platformní kanály se váží deterministicky na `channelSessionId = brain-ch-<channel>`; browsable konverzace jsou ale osobní `brain-<uid>-*` a archivované kanálové `brain-ch-*-arch-*`. Navázání je **inverze idle-rolloveru**: archivovat to, co teď na `brain-ch-<channel>` sedí (přes `reassignSession` → `archivedChannelSessionId`, ať se nic neztratí), pak `reassignSession(zvolená, channelSessionId(channel))`. Další turn kanálu pokračuje ve zvolené session. Aplikuje se server-side přes `POST /brain/command { name:'context', session:<id> }`.
 
-**Open questions** (rozhodnout ve fázi 0):
+**Rozhodnutí:**
 
-1. *Move vs fork.* Re-key osobní `brain-<uid>-*` do `brain-ch-<channel>` konverzaci **odebere** z uživatelova webového/CLI seznamu a změní její vlastnický/viditelnostní model (osobní → sdílená kanálová). Alternativa: konverzaci **forknout/zkopírovat** místo přesunu, nebo zavést indirection `channel → session pointer` místo deterministického id. Návrh: začít přesunem (reuse existující reassign mašinerie), forka zvážit, pokud se ukáže ztráta z osobního seznamu jako problém.
-2. *Privacy (invariant 6).* Navázání osobní konverzace do sdíleného kanálu zpřístupní její historii všem v kanálu. Návrh: `/context` operator-gated jako `/model`, nabízet jen konverzace volající identity a při navázání explicitně upozornit.
-3. *Uniqueness.* Session id se může vázat jen na jeden kanál; navázat tutéž session do dvou kanálů současně není povolené — druhý pokus dostane jasnou chybu.
+1. *Move, ne fork.* Vazba **přesune** konverzaci re-keyem (reuse existující `reassignSession` mašinerie), nezakládá kopii ani pointer-indirection — žádný kód navíc. Konverzace tím zmizí z uživatelova osobního web/CLI seznamu a stane se sdílenou kanálovou session; to je přijatelný a zamýšlený důsledek.
+2. *Chránit default session.* Přesouvat jen pojmenované/fresh konverzace `brain-<uid>-<ts>`, **nikdy** bare default `brain-<uid>` — jeho re-key by uživatele připravil o výchozí id do dalšího fresh startu. Default se v pickeru nenabídne.
+3. *Privacy (invariant 6).* Navázání osobní konverzace do sdíleného kanálu zpřístupní její historii všem v kanálu → `/context` je operator-gated jako `/model`, nabízí jen konverzace volající identity a při navázání explicitně upozorní.
+4. *Uniqueness.* Session id se váže jen na jeden kanál; navázat tutéž session do dvou kanálů současně nelze — druhý pokus dostane jasnou chybu.
 
 **Stránkovaný komponent — sdílený s `/model`.** Discord `/model` dnes dělá `.slice(0, 25)` a tiše zahodí zbytek katalogu (reálný bug při > 25 modelech). Vytáhnout sdílený helper `buildPagedSelect(items, page, pageSize, prefix)`: jeden StringSelect (≤ 25 řádků) + druhá action row `◀ Předchozí` / `Další ▶` s indikátorem strany; `custom_id` nese prefix + stranu + stabilní cursor; překreslení přes interaction response type 7. Použít pro `pick_model` i `pick_context`. WhatsApp/Telegram dostanou stejný stránkovaný kontrakt ve své nativní prezentaci.
 
@@ -259,7 +260,7 @@ Stabilní fullscreen host, Escape/focus management, `inert`, scroll lock, obnova
 
 ### Fáze 7 — Cross-platform `/context` a stránkované pickery
 
-Nezávislá na web `/chat` + terminálu, může běžet paralelně. Přidat `/context` do `SLASH_COMMANDS` (surfaces bez CLI). Rozšířit `GET /brain/sessions` o stránkování a přidat server-side `context` command handler, který naváže kanál na zvolenou session (archiv + `reassignSession`) s guardy z open questions. Vytáhnout `buildPagedSelect` a přepojit na něj `/model` (odstranit `.slice(0, 25)` truncaci). Doplnit WhatsApp/Telegram rendering.
+Nezávislá na web `/chat` + terminálu, může běžet paralelně. Přidat `/context` do `SLASH_COMMANDS` (surfaces bez CLI). Rozšířit `GET /brain/sessions` o stránkování a přidat server-side `context` command handler, který naváže kanál na zvolenou session (archiv + `reassignSession`, move) s guardy z rozhodnutí výše. Vytáhnout `buildPagedSelect` a přepojit na něj `/model` (odstranit `.slice(0, 25)` truncaci). Doplnit WhatsApp/Telegram rendering.
 
 **Hotovo, když:** `/context` naváže kanál do zvolené konverzace a pokračuje s plnou historií; `/model` stránkuje celý katalog bez ořezu; nic z toho není v CLI.
 
@@ -289,7 +290,8 @@ Nezávislá na web `/chat` + terminálu, může běžet paralelně. Přidat `/co
 - `SLASH_COMMANDS`: `/context` je na discord/whatsapp/telegram/web, **není** v CLI; `commandsFor('cli', …)` ho nevrací.
 - `GET /brain/sessions?limit&offset`: stránkuje, identity-scoped, cizí konverzace se nenabídnou.
 - Vazba: `context` command zarchivuje stávající kanálovou session a naváže zvolenou; kanál pak pokračuje s její historií.
-- Guardy: non-operator `403`/odmítnutí; cizí (ne-vlastníkova) session se nenabídne ani nenaváže; navázat tutéž session do dvou kanálů selže.
+- Guardy: non-operator `403`/odmítnutí; cizí (ne-vlastníkova) session se nenabídne ani nenaváže; bare default `brain-<uid>` se nenabídne; navázat tutéž session do dvou kanálů selže.
+- Move: po navázání zvolená konverzace zmizí z osobního `GET /brain/sessions` a objeví se jako kanálová (žádná kopie nezůstane).
 - `buildPagedSelect`: > 25 položek se rozstránkuje, Předchozí/Další překreslí správnou stranu, `/model` už nic neořízne a vybere správný model přes stranice.
 
 ### Reálná cesta
