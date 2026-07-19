@@ -25,12 +25,16 @@ import { elowenClient } from '../../lib/elowenClient';
 import type { BrainProvider, BrainProviderType, OAuthFlowState, BrainLimits } from '../../lib/types';
 import { SettingsGroup, SettingsRow, SettingsState } from './SettingsSurface';
 
-const OAUTH_TYPES: { type: BrainProviderType; icon: string }[] = [
-  { type: 'oauth-anthropic', icon: 'claude' },
-  { type: 'oauth-openai-codex', icon: 'gpt' },
-  { type: 'oauth-github-copilot', icon: 'copilot' },
-  { type: 'oauth-kimi', icon: 'kimi' },
-];
+// UI-only icon slug per OAuth type. The daemon exposes the SUPPORTED type set (the keys of
+// /brain/oauth/status), never icons — so the enumeration is derived from that runtime data (a newly
+// added daemon provider is not silently dropped), while the icon stays a client-side map. Unknown or
+// newly-added types fall back to ModelIcon's generic glyph via their raw type string.
+const OAUTH_ICON: Record<string, string> = {
+  'oauth-anthropic': 'claude',
+  'oauth-openai-codex': 'gpt',
+  'oauth-github-copilot': 'copilot',
+  'oauth-kimi': 'kimi',
+};
 const API_TYPES: BrainProviderType[] = ['openai', 'anthropic'];
 
 // `temperature` is a string because the field is free text: '' means "send none", which is a distinct,
@@ -323,11 +327,20 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
   // never uses stops offering "Connect". It never touches credentials, so only disconnected accounts can
   // be hidden — a hidden type that is somehow connected still shows, to never bury a working account.
   const hiddenOauth = config.brain?.hiddenOauth ?? [];
-  const isConnected = (type: BrainProviderType) => oauth.data?.[type] ?? false;
-  const setHiddenOauth = (next: string[]) => { void updateConfig.mutateAsync({ brain: { hiddenOauth: next } }); };
-  const hideOauth = (type: BrainProviderType) => setHiddenOauth([...hiddenOauth.filter((t) => t !== type), type]);
-  const showOauth = (type: BrainProviderType) => setHiddenOauth(hiddenOauth.filter((t) => t !== type));
-  const restorableOauth = OAUTH_TYPES.filter(({ type }) => hiddenOauth.includes(type) && !isConnected(type));
+  // The supported OAuth account types come straight from the daemon (keys of the status map), so a
+  // provider added there shows up here without a frontend change.
+  const oauthTypes = Object.keys(oauth.data ?? {});
+  const typeLabel = (type: string): string => t.brain.types[type as keyof typeof t.brain.types] ?? type;
+  const isConnected = (type: string) => oauth.data?.[type] ?? false;
+  const setHiddenOauth = (next: string[]) => {
+    void (async () => {
+      try { await updateConfig.mutateAsync({ brain: { hiddenOauth: next } }); }
+      catch { toast(t.brain.saveError, 'error'); }
+    })();
+  };
+  const hideOauth = (type: string) => setHiddenOauth([...hiddenOauth.filter((t) => t !== type), type]);
+  const showOauth = (type: string) => setHiddenOauth(hiddenOauth.filter((t) => t !== type));
+  const restorableOauth = oauthTypes.filter((type) => hiddenOauth.includes(type) && !isConnected(type));
 
   // A connected account's model selection lives on its explicit provider entry (id = the builtin
   // provider name, so `elowen:<id>/<model>` execs stay stable whether the entry is synthetic or saved).
@@ -407,17 +420,18 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
             label={t.brain.addAccount}
             triggerClassName="flex h-6 w-6 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-accent"
             trigger={<Plus size={15} aria-hidden />}
-            items={restorableOauth.map(({ type, icon }) => ({ label: t.brain.types[type], iconNode: <ModelIcon name={icon} size={15} />, onSelect: () => showOauth(type) }))}
+            items={restorableOauth.map((type) => ({ label: typeLabel(type), iconNode: <ModelIcon name={OAUTH_ICON[type] ?? type} size={15} />, onSelect: () => showOauth(type) }))}
           />
         ) : undefined}
       >
-        {OAUTH_TYPES.filter(({ type }) => !hiddenOauth.includes(type) || isConnected(type)).map(({ type, icon }) => {
+        {oauthTypes.filter((type) => !hiddenOauth.includes(type) || isConnected(type)).map((type) => {
           const connected = isConnected(type);
+          const icon = OAUTH_ICON[type] ?? type;
           const usage = connected ? rateLimits.data?.[OAUTH_ENTRY_ID[type]] : undefined;
           return (
             <SettingsRow
               key={type}
-              label={t.brain.types[type]}
+              label={typeLabel(type)}
               status={(
                 <span className="flex items-center gap-2">
                   <ModelIcon name={icon} size={15} />
@@ -426,13 +440,13 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
               )}
               actions={connected ? (
                 <>
-                  <Button variant="ghost" icon={ListChecks} aria-label={`${t.brain.pickModels}: ${t.brain.types[type]}`} onClick={() => setModelsFor(type)}>{t.brain.pickModels}</Button>
-                  <Button variant="ghost" icon={Unlink} aria-label={`${t.brain.disconnect}: ${t.brain.types[type]}`} onClick={() => setDisconnectTarget(type)} />
+                  <Button variant="ghost" icon={ListChecks} aria-label={`${t.brain.pickModels}: ${typeLabel(type)}`} onClick={() => setModelsFor(type as BrainProviderType)}>{t.brain.pickModels}</Button>
+                  <Button variant="ghost" icon={Unlink} aria-label={`${t.brain.disconnect}: ${typeLabel(type)}`} onClick={() => setDisconnectTarget(type as BrainProviderType)} />
                 </>
               ) : (
                 <>
                   <Button variant="accent" icon={Link2} onClick={() => startConnect(type)}>{t.brain.connect}</Button>
-                  <Button variant="ghost" icon={EyeOff} aria-label={`${t.brain.hideAccount}: ${t.brain.types[type]}`} onClick={() => hideOauth(type)} />
+                  <Button variant="ghost" icon={EyeOff} aria-label={`${t.brain.hideAccount}: ${typeLabel(type)}`} onClick={() => hideOauth(type)} />
                 </>
               )}
             >

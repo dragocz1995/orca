@@ -19,6 +19,7 @@ import { execProvider, execModel, type ProviderId } from '../../lib/modelProvide
 import { formatTokens } from '../../lib/format';
 import { useBrainModels, useConfig, useMe, useSystem, useSystemSkills } from '../../lib/queries';
 import { useAutoSaveStatus, type SaveStatus } from '../../lib/useAutoSaveStatus';
+import { combineSaveFeedback, type SaveFeedback } from '../../lib/saveFeedback';
 import { useUpdateConfig, useCleanupAll, useSystemUpdate, useSystemRestart, useInstallSkills } from '../../lib/mutations';
 import { ElowenApiError } from '../../lib/elowenClient';
 import { allModels, isPresetExec, removeModel, upsertModel } from '../../lib/execPresets';
@@ -72,15 +73,6 @@ function ModelInput({ value, onChange, placeholder }: { value: string; onChange:
 
 const CATEGORY_VALUES = SETTINGS_CATEGORY_VALUES;
 type Category = SettingsCategory;
-type SaveFeedback = { status: SaveStatus; retry?: () => void };
-
-function combineSaveFeedback(...items: SaveFeedback[]): SaveFeedback {
-  const error = items.find((item) => item.status === 'error');
-  if (error) return error;
-  if (items.some((item) => item.status === 'saving')) return { status: 'saving' };
-  if (items.some((item) => item.status === 'saved')) return { status: 'saved' };
-  return { status: 'idle' };
-}
 
 /** Keep a settings document alive after its first visit without eagerly mounting every category's
  *  data hooks. React Activity retains form/search state and pauses effects while a panel is hidden. */

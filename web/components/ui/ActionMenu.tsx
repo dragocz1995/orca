@@ -6,14 +6,17 @@ import { useTranslation } from '../../lib/i18n';
 import { uiZoom } from '../../lib/uiZoom';
 import { MenuSurface } from './MenuSurface';
 
-export interface ActionMenuItem {
+/** An item carries EITHER a Lucide `icon` component OR a pre-rendered `iconNode` (e.g. a brand
+ *  <ModelIcon/> for glyphs that aren't Lucide), never both — the two are mutually exclusive so the
+ *  render can't silently prefer one over the other. */
+export type ActionMenuItem = {
   label: string;
-  icon?: LucideIcon;
-  /** A pre-rendered icon (e.g. a brand <ModelIcon/>) shown instead of `icon` when the glyph isn't a Lucide one. */
-  iconNode?: ReactNode;
   tone?: 'default' | 'danger';
   onSelect: () => void;
-}
+} & (
+  | { icon?: LucideIcon; iconNode?: never }
+  | { icon?: never; iconNode?: ReactNode }
+);
 
 /**
  * Global hover/click action menu. Opens on hover (and click for touch), and stays

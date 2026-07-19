@@ -7,7 +7,9 @@ import { en } from '../../../lib/i18n/dictionaries/en';
 const saveProviders = vi.fn();
 const disconnect = vi.fn();
 const CONFIG = { brain: { providers: [], agentName: 'Elowen', maxSteps: 20 } };
-const OAUTH = { 'oauth-anthropic': true, 'oauth-openai-codex': false, 'oauth-github-copilot': false };
+// The daemon's /brain/oauth/status returns the full supported type set (OAUTH_BUILTIN); the rendered
+// account rows are derived from these keys, so the mock mirrors the endpoint faithfully.
+const OAUTH = { 'oauth-anthropic': true, 'oauth-openai-codex': false, 'oauth-github-copilot': false, 'oauth-kimi': false };
 
 vi.mock('../../../lib/queries', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),

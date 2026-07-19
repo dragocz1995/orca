@@ -24,6 +24,7 @@ import { useToast } from '../../components/ui/Toast';
 import { useTranslation } from '../../lib/i18n';
 import { usePersistentState } from '../../lib/usePersistentState';
 import { useAutoSaveStatus, type SaveStatus } from '../../lib/useAutoSaveStatus';
+import { combineSaveFeedback, type SaveFeedback } from '../../lib/saveFeedback';
 import { useUiScale, MIN_SCALE, MAX_SCALE, DEFAULT_SCALE } from '../../lib/useUiScale';
 import { isPushSupported, enablePush, disablePush } from '../../lib/pushClient';
 import { ChoiceField } from '../../components/ui/ChoiceField';
@@ -38,15 +39,6 @@ import { AccountMemorySection } from './AccountMemorySection';
 import { AccountDeckHero } from './AccountDeckHero';
 
 type AccountSection = 'profile' | 'security' | 'notifications' | 'personality' | 'cli' | 'terminal' | 'memory';
-type SaveFeedback = { status: SaveStatus; retry?: () => void };
-
-function combineSaveFeedback(...items: SaveFeedback[]): SaveFeedback {
-  const error = items.find((item) => item.status === 'error');
-  if (error) return error;
-  if (items.some((item) => item.status === 'saving')) return { status: 'saving' };
-  if (items.some((item) => item.status === 'saved')) return { status: 'saved' };
-  return { status: 'idle' };
-}
 
 /** Mount a section only after its first visit, then let React Activity retain its local form state.
  *  This avoids eagerly starting every section's queries while making sidebar switches lossless. */
