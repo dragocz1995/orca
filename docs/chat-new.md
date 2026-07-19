@@ -328,4 +328,41 @@ Funkce je hotová, když platí všech pět invariantů a navíc:
 - Ukončené ani osiřelé chat terminály a jejich tokeny nezůstanou běžet.
 - `/context` funguje na Discordu/WhatsApp/Telegramu/webu (ne v CLI), naváže kanál do zvolené konverzace a pokračuje s plnou historií; nabízí jen konverzace volající identity (invariant 6).
 - Discord pickery (`/context` i `/model`) stránkují nad 25 položek bez ořezu a jsou konzistentní napříč platformami.
+- Osobnost je jedny pokyny (Monaco) + styl komunikace, bez per-platform a bez profilů; jedno chování na všech platformách.
 - Focused root/web testy, lint, typecheck, web build a tmux smoke projdou.
+
+## Osobnost (account → Osobnost) — zjednodušení
+
+Nezávislý workstream (nesouvisí s `/chat` ani terminálem). Dnešní sekce dělí personu per platformu (**Web chat** / **Discord**) a nabízí několik pojmenovaných profilů s aktivací — zbytečně složité, hlavně kvůli pluginům. Cíl: **jedno chování na všech platformách**, editované jako prostý globální soubor pokynů (obdoba globálního CLAUDE.md).
+
+### Rozhodnutí
+
+- Zrušit per-platform split i pojmenované profily. Místo N profilů + aktivace **jeden globální personality body** na uživatele — volné pokyny/chování.
+- Editace přes **náš Monaco editor** (markdown), prostý single edit s autosave. Pryč: „Nový profil", Duplikovat, Aktivovat, Enabled toggle a pole name/description/tone/style.
+- **Zachovat styl komunikace** (pills Profesionální / Přátelský / Stručný / Podrobný) — jede z `advisorStyle` / `personalityText`, beze změny.
+- Odstranit label **„Prostředí"** (`personality.platformLabel`) i celý Segmented přepínač Web/Discord.
+
+### Backend
+
+- Sjednotit úložiště: `personality_profiles` (per-user, per-platform, N řádků) + `personality_active_profiles` → **jeden per-user personality body**. Nejjednodušší je uložit ho do user-settings vedle `advisorStyle` (jeden PATCH, sdílený autosave), nebo redukovat personality tabulku na jeden řádek na uživatele.
+- `activePersonality(userId, platform)` → `activePersonality(userId)`: ignoruje platformu, vrací tentýž body pro web/cli/discord i cron. Zjednodušit call site `spawner.ts:154` a platform selektor v `liveBrain.ts`.
+- `personalityText(advisorStyle)` a placeholder `{{personality}}` beze změny; personality body se dál připojuje jako dnešní `persoAppend` chunk, nově pro všechny platformy stejně.
+- Respawn na změnu už existuje (`brainService.refreshPersonality`) — zůstává; přestane být keyovaný na platformu.
+
+### Migrace
+
+Existující profily sloučit do nového globálního bodu: vzít prompt **aktivního web profilu**, fallback aktivní discord, jinak prázdno. Ostatní profily archivovat (ne tvrdě mazat, kdyby si uživatel chtěl něco vytáhnout). Neslučovat web+discord dohromady — jednoduchý, deterministický výběr bez řešení konfliktů.
+
+### Frontend (`web/modules/account/PersonalitySection.tsx`)
+
+- Smazat platform `Segmented`, tlačítko „Nový profil", seznam profilů a celý `PersonalityModal` (name/description/tone/style/enabled/duplicate/activate/delete).
+- Nechat style pills; přidat **jeden inline Monaco (markdown) editor** pro personality body, autosaved stejným `useAutoSaveStatus` vzorem jako `advisorStyle`. (Modal jen kdyby se sekce jinak zúžila; inline je pro jediný body jednodušší.)
+- i18n cs+en: odebrat `platformLabel`, `platformWeb`, `platformDiscord`, `newProfile` a klíče profil-modalu; přidat `bodyLabel`, `bodyPlaceholder`, `bodyHint` („globální pokyny pro Elowen, platí všude"); upravit `personality.intro`, ať už nemluví o profilech per platformě.
+
+### Fáze a testy
+
+Samostatná fáze. **Hotovo, když:** sekce nemá platform picker ani „Nový profil", jeden Monaco body se autosavuje a projeví se na všech platformách, style pills fungují dál.
+
+- Backend: `activePersonality(userId)` vrací tentýž body pro web/cli/discord; migrace vezme aktivní web profil; uložení bodu respawne session.
+- Frontend: v sekci není platform `Segmented` ani „Nový profil"; editor uloží body (autosave: idle→saving→saved); změna stylu i bodu se propíše do `cli-settings`.
+- Regrese: per-channel `display` presentation (plugin) zůstává nedotčená — není to persona a neslučuje se s ní.
