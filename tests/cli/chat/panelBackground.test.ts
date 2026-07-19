@@ -18,6 +18,9 @@ function backgroundsOf(row: string): (string | null)[] {
         const code = params[p];
         if (code === '0' || code === '49') current = null;
         else if (code === '48') { current = params.slice(p, p + 5).join(';'); p += 4; }
+        // Skip a truecolor/256-index FOREGROUND's own params so a colour component that happens to be `0`
+        // or `49` (e.g. `38;2;182;49;21`) is never misread as an SGR reset/default-background code.
+        else if (code === '38') { p += params[p + 1] === '5' ? 2 : 4; }
       }
       i = sgr.lastIndex;
       continue;
