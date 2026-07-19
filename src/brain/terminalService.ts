@@ -29,15 +29,30 @@ export interface BrainTerminalDeps {
 export class BrainTerminalService {
   constructor(private d: BrainTerminalDeps) {}
 
+  /** In-flight launches keyed by terminal name: a concurrent open() of the same terminal coalesces onto the
+   *  running one, and the janitor sweep skips any terminal still between its binding upsert and spawn. */
+  private inFlight = new Map<string, Promise<{ terminal: string; created: boolean }>>();
+
   /** Open (or re-attach to) the admin's terminal for one of their continuable conversations. Idempotent:
    *  a live binding returns `{ created: false }` without minting a new token or spawning a second tmux. */
   async open(userId: number, brainSessionId: string): Promise<{ terminal: string; created: boolean }> {
+    // Coalesce concurrent opens of the SAME terminal (an admin double-clicking "Open terminal"): the second
+    // caller awaits the first launch instead of interleaving across the tmux.list()/spawnArgv awaits and
+    // revoking the first call's still-minting token.
+    const terminalName = brainTerminalName(userId, brainSessionId);
+    const inFlight = this.inFlight.get(terminalName);
+    if (inFlight) return inFlight;
+    const launch = this.openInner(userId, brainSessionId, terminalName).finally(() => this.inFlight.delete(terminalName));
+    this.inFlight.set(terminalName, launch);
+    return launch;
+  }
+
+  private async openInner(userId: number, brainSessionId: string, terminalName: string): Promise<{ terminal: string; created: boolean }> {
     // Ownership + continuability: a real stored conversation this admin owns that the CLI can resume via
     // /brain/start (never a channel/task shell). Same rule as ConversationLifecycle.ownedUserSession.
     const row = this.d.store.getSession(brainSessionId);
     if (!row || row.user_id !== userId || isNonUserSession(brainSessionId)) throw new Error('unknown session');
 
-    const terminalName = brainTerminalName(userId, brainSessionId);
     const existing = this.d.store.getBrainTerminalBySession(userId, brainSessionId);
     if (existing) {
       const live = await this.d.tmux.list();
@@ -100,6 +115,7 @@ export class BrainTerminalService {
     const bound = new Set<string>();
     for (const row of this.d.store.listBrainTerminals()) {
       bound.add(row.terminal_name);
+      if (this.inFlight.has(row.terminal_name)) continue; // an open() is mid-launch — never reap it as dead
       const dead = !live.has(row.terminal_name);
       const conversationGone = !this.d.store.getSession(row.brain_session_id);
       if (dead || conversationGone) {

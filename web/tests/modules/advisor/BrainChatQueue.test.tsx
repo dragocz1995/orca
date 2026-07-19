@@ -58,7 +58,7 @@ describe('BrainChat pending queue', () => {
     renderChat();
     const textarea = await screen.findByRole('textbox');
     await waitFor(() => expect(textarea).toHaveValue('draft from home'));
-    expect(document.activeElement).toBe(textarea);
+    await waitFor(() => expect(document.activeElement).toBe(textarea)); // focus lands on the next animation frame
   });
 
   it('leaves read-only history, reconnects the personal stream, and preserves a draft on focus-only requests', async () => {

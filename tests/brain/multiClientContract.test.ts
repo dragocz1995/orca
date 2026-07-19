@@ -16,9 +16,9 @@ import type { BrainEvent } from '../../src/brain/events.js';
 //
 // The load-bearing invariant these tests encode: while ANOTHER client stream is still attached, a
 // stopSession from one client MUST NOT abort the shared turn (the other client keeps streaming), and it
-// must not cancel the goal/parked-ask that the remaining watcher still owns. Today `stopSession`'s inner
-// `cleanUp` aborts UNCONDITIONALLY before checking `attachedCount === 0`, which violates the invariant —
-// so the two "fails-today" cases below are red until the abort is gated on the last-watcher branch.
+// must not cancel the goal/parked-ask that the remaining watcher still owns. `stopSession`'s inner
+// `cleanUp` gates the abort/dispose on the last-watcher branch (`attachedCount === 0`), so a non-last
+// stop leaves the shared turn — and the remaining watcher's goal/parked-ask — untouched.
 
 let sharedRuntime: ModelRuntime;
 beforeAll(async () => { sharedRuntime = await inMemoryModelRuntime(); });
@@ -100,7 +100,7 @@ type ElicitationInternals = {
 };
 
 describe('BrainService — multi-client abort/detach contract (Fáze 0, Invariant 2)', () => {
-  it('CLI closes while the web still watches → the shared turn is NOT aborted (fails today)', async () => {
+  it('CLI closes while the web still watches → the shared turn is NOT aborted', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
@@ -127,7 +127,7 @@ describe('BrainService — multi-client abort/detach contract (Fáze 0, Invarian
     expect(webEvents.some((e) => (e as { type: string }).type === 'idle')).toBe(true);
   });
 
-  it('the last watcher leaving via stop → aborts and disposes, history stays resumable (passes today)', async () => {
+  it('the last watcher leaving via stop → aborts and disposes, history stays resumable', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
@@ -144,7 +144,7 @@ describe('BrainService — multi-client abort/detach contract (Fáze 0, Invarian
     expect(d.store.getSession('brain-1')).toBeDefined();
   });
 
-  it('explicit Stop from any client aborts for ALL watchers without tearing down transports (passes today)', async () => {
+  it('explicit Stop from any client aborts for ALL watchers without tearing down transports', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
@@ -169,7 +169,7 @@ describe('BrainService — multi-client abort/detach contract (Fáze 0, Invarian
     expect(webEvents.some((e) => (e as { type: string }).type === 'idle')).toBe(true);
   });
 
-  it('a clean transport-drop of another client neither aborts nor disposes (passes today)', async () => {
+  it('a clean transport-drop of another client neither aborts nor disposes', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
@@ -187,7 +187,7 @@ describe('BrainService — multi-client abort/detach contract (Fáze 0, Invarian
     expect(attached(svc, 'brain-1')).toBe(1); // dropped by one, but still > 0
   });
 
-  it('the last client dropping only its SSE (no stop POST) leaves the turn running for reconnect (passes today)', async () => {
+  it('the last client dropping only its SSE (no stop POST) leaves the turn running for reconnect', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
@@ -206,7 +206,7 @@ describe('BrainService — multi-client abort/detach contract (Fáze 0, Invarian
     expect(attached(svc, 'brain-1')).toBe(0); // detached, but the live session survives
   });
 
-  it('the web Stop button is the same abort-all path as the CLI Esc (passes today)', async () => {
+  it('the web Stop button is the same abort-all path as the CLI Esc', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     await svc.start(1);
@@ -228,7 +228,7 @@ describe('BrainService — multi-client abort/detach contract (Fáze 0, Invarian
     expect(cliEvents.some((e) => (e as { type: string }).type === 'idle')).toBe(true);
   });
 
-  it('a non-last stopSession does NOT cancel the goal or parked ask the remaining watcher still owns (fails today)', async () => {
+  it('a non-last stopSession does NOT cancel the goal or parked ask the remaining watcher still owns', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
     const started = await svc.start(1, { clientId: 'cli-a', clientGeneration: 1 });

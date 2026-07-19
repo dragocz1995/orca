@@ -640,7 +640,7 @@ export class WhatsAppAdapter {
         await this.sendMenu(chatJid, 'context', this.msg.pickContext, options);
         return true;
       }
-      case 'thinking': {
+      case 'reasoning': {
         if (!admin()) { await this.sendText(chatJid, this.msg.modelForbidden); return true; }
         const { models, active } = await this.modelForChat(chatJid);
         if (!models.length) { await this.sendText(chatJid, this.msg.noModels); return true; }

@@ -169,7 +169,7 @@ export interface PlatformControlApi {
     items: { id: string; title: string; model: string; updated_at: string }[]; total: number; hasMore: boolean;
   } | null;
   /** Bind (MOVE) one of the sender's OWN conversations into this channel slot so the next channel turn
-   *  continues in it. Resolves with the bound conversation's title (for the privacy warning), or rejects on
+   *  continues in it. Resolves with the bound conversation's title (so the adapter can confirm which conversation was bound), or rejects on
    *  a guard failure (foreign/unknown/non-bindable session) or an unlinked sender. The caller is
    *  responsible for its own operator gate. */
   bindContext(ref: ChannelRef, senderPlatformId: string, sessionId: string): Promise<{ title: string }>;

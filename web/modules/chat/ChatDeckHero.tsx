@@ -2,9 +2,7 @@
 import { MessagesSquare } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { useBrainChat } from '../advisor/BrainChatProvider';
-
-/** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
-const fmtK = (n: number): string => (n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
+import { formatTokens } from '../../lib/format';
 
 /** The Elowen-style identity hero for /chat: the section icon + title, then a row of live stats about the
  *  user's conversations (count, active model, context fill, total tokens, cost) read straight off the one
@@ -22,7 +20,7 @@ export function ChatDeckHero() {
     { label: t.chat.heroConversations, value: String(count) },
     ...(model ? [{ label: t.chat.heroModel, value: model, mono: true }] : []),
     ...(usage && usage.percent != null ? [{ label: t.brainChat.context, value: `${Math.round(usage.percent)}%` }] : []),
-    ...(usage ? [{ label: t.chat.heroTokens, value: `Σ ${fmtK(usage.totalTokens)}` }] : []),
+    ...(usage ? [{ label: t.chat.heroTokens, value: `Σ ${formatTokens(usage.totalTokens)}` }] : []),
     ...(usage ? [{ label: t.chat.heroCost, value: `$${usage.cost.toFixed(2)}` }] : []),
   ];
 

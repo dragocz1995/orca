@@ -13,9 +13,7 @@ import { AgentsTable } from './AgentsTable';
 import { ChatHistoryRail } from './ChatHistoryRail';
 import { ModelPicker } from './ModelPicker';
 import { useBrainChat } from './BrainChatProvider';
-
-/** Compact token count: 999 → '999', 34 567 → '35k', 1 234 567 → '1.2M'. */
-const fmtK = (n: number): string => (n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
+import { formatTokens } from '../../lib/format';
 
 /** Sanitized-markdown block for one assistant text segment (marked + DOMPurify, no bubble). */
 function TextSegment({ text, className = '' }: { text: string; className?: string }) {
@@ -217,7 +215,7 @@ export function BrainChatSurface({ variant = 'compact', onOpenHistory }: { varia
   const c = useBrainChat();
   const {
     turns, busy, ready, notice, ask, cards, agentsOpen, setAgentsOpen, queued, readOnly, activeSessionId,
-    usage, lineCfg, input, setInput, attachments, addFiles, removeAttachment, submit, switchSession,
+    usage, lineCfg, currentModel, input, setInput, attachments, addFiles, removeAttachment, submit, switchSession,
     openReadOnly, exitReadOnly, onQueueRemove, onAnswer, slash, sessions, focusNonce,
     ensureAttached, abort,
   } = c;
@@ -252,7 +250,7 @@ export function BrainChatSurface({ variant = 'compact', onOpenHistory }: { varia
     } else {
       el.scrollTo({ top: el.scrollHeight });
     }
-  }, [turns]);
+  }, [turns, variant]);
 
   // The controller asks the composer to focus (a compose-bridge request / a seeded draft) by bumping the
   // focus nonce — the surface owns the DOM ref, so it does the actual focus. Guard against a plain (re)mount
@@ -398,11 +396,11 @@ export function BrainChatSurface({ variant = 'compact', onOpenHistory }: { varia
       {/* Statusline (the statusline plugin's toggles decide what shows; hidden when disabled). */}
       {lineCfg && (lineCfg.showModel || lineCfg.showContext || lineCfg.showTokens || lineCfg.showCost) ? (
         <div className={`flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1 font-mono text-text-muted ${variant === 'full' ? 'chat-gutter text-[0.6875rem]' : 'px-3 text-tiny'}`}>
-          {lineCfg.showModel && active?.model ? <span>{active.model}</span> : null}
+          {lineCfg.showModel && (currentModel || active?.model) ? <span>{currentModel || active?.model}</span> : null}
           {lineCfg.showContext && usage && usage.percent != null ? (
-            <span>{t.brainChat.context} {Math.round(usage.percent)}% ({fmtK(usage.tokens ?? 0)}/{fmtK(usage.contextWindow)})</span>
+            <span>{t.brainChat.context} {Math.round(usage.percent)}% ({formatTokens(usage.tokens ?? 0)}/{formatTokens(usage.contextWindow)})</span>
           ) : null}
-          {lineCfg.showTokens && usage ? <span>Σ {fmtK(usage.totalTokens)} tok</span> : null}
+          {lineCfg.showTokens && usage ? <span>Σ {formatTokens(usage.totalTokens)} tok</span> : null}
           {lineCfg.showCost && usage ? <span>${usage.cost.toFixed(2)}</span> : null}
         </div>
       ) : null}

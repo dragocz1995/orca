@@ -27,7 +27,7 @@ export function toJid(recipient) {
 }
 
 /** Whether any of the sender's identifiers maps to a policy flagged `admin: true` — the operator.
- *  Gates the shared per-chat pickers (/model, /thinking) and the group tools. */
+ *  Gates the shared per-chat pickers (/model, /reasoning) and the group tools. */
 export function senderIsAdmin(ids, policies) {
   const list = Array.isArray(policies) ? policies : [];
   return list.some((p) => p.roleId && p.admin === true && ids.some((id) => sameId(p.roleId, id)));

@@ -7,6 +7,7 @@ import { useBrainSessions, useBrainCommands } from '../../lib/queries';
 import { elowenClient, BASE } from '../../lib/elowenClient';
 import type { AskAnswer, AskQuestion, BrainCard, BrainModelOption, BrainUsage, SlashCommandDef, StatuslineConfig } from '../../lib/types';
 import { fromHistory, reduce, upsertCard, type ChatTurn, type TranscriptEvent } from '../../lib/transcript';
+import { formatTokens } from '../../lib/format';
 import { getBrainClientId, buildBinding, type BrainBinding } from '../../lib/brainSession';
 import {
   BRAIN_COMPOSE_EVENT,
@@ -19,7 +20,7 @@ import {
 
 /** A staged attachment: images travel as base64 to the model's vision input; text files get their
  *  content inlined into the message (fenced), which works with any model. */
-export interface Attachment { name: string; kind: 'image' | 'text'; mimeType: string; data: string; preview?: string }
+interface Attachment { name: string; kind: 'image' | 'text'; mimeType: string; data: string; preview?: string }
 
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -449,8 +450,7 @@ function useBrainChatController(): BrainChatValue {
       if (cmd.name === 'new') { await switchSession({ fresh: true }); return; }
       if (cmd.name === 'status') {
         const s = await elowenClient.brainStatus(boundSessionRef.current); const u = s.usage;
-        const fmtK = (n: number): string => (n < 1000 ? String(n) : n < 1_000_000 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
-        const parts = [s.model && `model: ${s.model}`, u?.percent != null && `context ${Math.round(u.percent)}%`, u && `Σ ${fmtK(u.totalTokens)} tok`, u && `$${u.cost.toFixed(2)}`].filter(Boolean) as string[];
+        const parts = [s.model && `model: ${s.model}`, u?.percent != null && `context ${Math.round(u.percent)}%`, u && `Σ ${formatTokens(u.totalTokens)} tok`, u && `$${u.cost.toFixed(2)}`].filter(Boolean) as string[];
         toast(parts.join('  ·  ') || t.brainChat.noSession, 'ok'); return;
       }
       if (cmd.name === 'help') { toast(commands.map((c) => `/${c.name}`).join('  '), 'ok'); return; }
@@ -476,7 +476,7 @@ function useBrainChatController(): BrainChatValue {
     // draft (dashboard/launcher) seeds the input + focuses.
     const pending = consumePendingBrainSession();
     const pendingText = consumePendingBrainComposer();
-    if (pendingText !== null) { setInput(pendingText); bumpFocus(); }
+    if (pendingText !== null) { setInput(pendingText); requestAnimationFrame(bumpFocus); }
     const boot = pending ? openRequest(pending) : connect();
     void boot.catch(() => setReady(true)); // surface the input even if the brain is unwired
     return true;

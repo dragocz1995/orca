@@ -55,8 +55,8 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   // dedicated endpoint is POST /brain/context. Absent from the CLI: there is no shared channel to re-key.
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', surfaces: ['discord', 'whatsapp', 'telegram', 'web'] },
   { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', surfaces: ['cli', 'discord', 'whatsapp', 'telegram', 'web'] },
-  // CLI-only: the reasoning-effort picker is wired in the TUI. Discord tunes reasoning through its own
-  // native command surface; the web dock has no picker for it yet (would show a dead menu entry).
+  // The reasoning-effort picker is wired in the CLI TUI and as a native /reasoning command on Discord,
+  // WhatsApp and Telegram; only the web dock has no picker for it yet (would show a dead menu entry).
   { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli', 'discord', 'whatsapp', 'telegram'] },
   { name: 'theme', description: 'Switch the terminal colour theme', kind: 'picker', surfaces: ['cli'] },
   // CLI-only: ticks what the bottom status bar shows. The toggles are the statusline plugin's shared

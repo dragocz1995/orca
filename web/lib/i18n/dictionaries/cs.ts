@@ -1592,7 +1592,7 @@ export const cs = {
     readOnly: 'Historie jen ke čtení (Discord kanál nebo task relace)',
     readOnlyExit: 'Zpět do chatu',
     untitled: 'Bez názvu',
-    empty: 'Zeptejte se Orcy na cokoliv — úkoly, mise, vaše repozitáře.',
+    empty: 'Zeptejte se Elowen na cokoliv — úkoly, mise, vaše repozitáře.',
     placeholder: 'Napište zprávu… (Enter odešle)',
     send: 'Odeslat',
     stop: 'Zastavit',

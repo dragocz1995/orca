@@ -63,6 +63,17 @@ describe('BrainTerminalService', () => {
     expect(tmux.argvSpawnFor(first.terminal)!.env.ELOWEN_TOKEN).toBe(firstToken); // same live token
   });
 
+  it('coalesces concurrent opens of the same terminal (no revoked-token race)', async () => {
+    const { svc, users, tmux, admin, session, terminalTokens } = setup();
+    const id = session(freshUserSessionId(admin.id));
+    const [a, b] = await Promise.all([svc.open(admin.id, id), svc.open(admin.id, id)]); // e.g. a double-click
+    expect(a).toEqual(b); // both callers get the one coalesced launch
+    expect(terminalTokens()).toBe(1); // exactly one token minted, none orphaned/revoked
+    expect((await tmux.list()).filter((s) => s === a.terminal)).toHaveLength(1); // one live tmux
+    const token = tmux.argvSpawnFor(a.terminal)!.env.ELOWEN_TOKEN;
+    expect(users.userForToken(token)?.id).toBe(admin.id); // the live tmux's token is NOT revoked
+  });
+
   it('keeps exactly one binding per (admin, conversation)', async () => {
     const { svc, store, admin, session } = setup();
     const id = session(freshUserSessionId(admin.id));

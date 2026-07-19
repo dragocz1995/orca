@@ -60,7 +60,7 @@ describe('whatsapp reasoning command capabilities', () => {
     ];
     const { adapter, chats, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' } });
 
-    expect(await adapter.handleCommand(CHAT, CHAT, '/thinking')).toBe(true);
+    expect(await adapter.handleCommand(CHAT, CHAT, '/reasoning')).toBe(true);
     expect(sent[0]).toContain('1. *default* — model default');
     expect(sent[0]).toContain('2. *low*');
     expect(sent[0]).toContain('3. *ultra*');
@@ -71,7 +71,7 @@ describe('whatsapp reasoning command capabilities', () => {
     expect(sent.at(-1)).toContain('Reasoning effort set to *ultra*');
 
     chats[CHAT] = { model: { provider: 'anthropic', model: 'claude-opus-4-8' } };
-    await adapter.handleCommand(CHAT, CHAT, '/thinking');
+    await adapter.handleCommand(CHAT, CHAT, '/reasoning');
     expect(sent.at(-1)).toContain('4. *max*');
     expect(sent.at(-1)).not.toContain('*ultra*');
   });
@@ -83,7 +83,7 @@ describe('whatsapp reasoning command capabilities', () => {
       ['cs', 'nepodporuje nastavitelnou úroveň uvažování'],
     ] as const) {
       const { adapter, sent } = await makeAdapter(models, { model: { provider: 'plain', model: 'chat-only' } }, language);
-      await adapter.handleCommand(CHAT, CHAT, '/thinking');
+      await adapter.handleCommand(CHAT, CHAT, '/reasoning');
       expect(sent.at(-1)).toContain(expected);
       expect(adapter.pendingMenus.has(CHAT)).toBe(false);
     }
@@ -95,7 +95,7 @@ describe('whatsapp reasoning command capabilities', () => {
       { provider: 'openai', providerLabel: 'OAuth', model: 'actual-default', default: true, reasoningLevels: ['low'] },
     ];
     const { adapter, chats, sent } = await makeAdapter(models, {}, 'cs');
-    await adapter.handleCommand(CHAT, CHAT, '/thinking');
+    await adapter.handleCommand(CHAT, CHAT, '/reasoning');
     expect(sent.at(-1)).toContain('*low*');
     expect(sent.at(-1)).toContain('*výchozí*');
 
@@ -113,7 +113,7 @@ describe('whatsapp reasoning command capabilities', () => {
     const { adapter, chats, sent } = await makeAdapter(models, {
       model: { provider: 'openai', model: 'gpt-5.4' }, thinkingLevel: 'low',
     });
-    await adapter.handleCommand(CHAT, CHAT, '/thinking');
+    await adapter.handleCommand(CHAT, CHAT, '/reasoning');
     models[0] = { provider: 'openai', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4' };
 
     expect(await adapter.handleTextReply(CHAT, CHAT, '3', {})).toBe(true);
