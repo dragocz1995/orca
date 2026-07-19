@@ -11,6 +11,7 @@ Vše ostatní se jim podřizuje. Testy i akceptace na ně odkazují, nepřepisuj
 3. **Model-switch drží klienty spolu.** Změna modelu se aplikuje na bound session a atomicky převede všechny připojené klienty na novou generaci — bez ztráty historie a bez druhého turnu.
 4. **Terminál je admin-only, per-owner.** Elowen CLI vidí, spustí a ovládá pouze admin, který relaci vytvořil. Non-admin i cizí admin dostanou `403` na UI i API. Obecný admin bypass se na roli `chat` nevztahuje.
 5. **Token se nikdy neukáže.** Per-terminal token má práva svého admina, je oddělený od login/advisor/agent tokenů, nevrací se klientu, neobjeví se v logu ani názvu tmux relace a revokuje se s relací.
+6. **`/context` neúnikne data.** Platformní `/context` nabídne jen konverzace vázané na volající identitu; navázání konverzace do sdíleného kanálu je vědomá, operator-gated akce s upozorněním, protože zpřístupní historii všem v daném kanálu/threadu.
 
 ## Rozhodnutí
 
@@ -20,6 +21,8 @@ Vše ostatní se jim podřizuje. Testy i akceptace na ně odkazují, nepřepisuj
 - Elowen CLI otevře **aktuální** webovou konverzaci, ne novou; opakované otevření je idempotentní.
 - Terminálový výběr má pro adminy samostatnou sekci **Elowen CLI** nad **CLI agenty**.
 - Webový tmux i Elowen CLI zůstávají admin-only; funkce nesmí rozšířit terminálový přístup běžným uživatelům.
+- `/context` je nový cross-platform picker (Discord/WhatsApp/Telegram/web, **ne CLI** — tam je `/resume`): stránkovaný seznam konverzací, výběrem naváže kanál do zvolené brain session a pokračuje s plnou historií.
+- Discord StringSelect zvládne max 25 položek → stránkování. Stejný stránkovaný komponent použije i `/model` (dnes tiše ořízne katalog na 25) — konzistentně na všech platformách.
 
 ## Rozsah
 
@@ -84,6 +87,27 @@ CLI agenti
 - Po startu API vrátí tmux session a dock ji otevře jako běžný `session` pane přes `StreamTerminal`.
 - Opakované kliknutí pro stejnou brain session připojí existující relaci, nespustí duplikát.
 - Zavření panelu jen odpojí web; **Stop** nebo ukončení TUI relaci skutečně ukončí (invariant 2). Pop-out přes `/terminal/[name]`.
+
+### `/context` — pokračování konverzace ze všech platforem
+
+Uživatel na Discordu/WhatsApp/Telegramu/webu spustí `/context` a dostane stránkovaný výběr svých konverzací. Výběrem naváže aktuální kanál do zvolené brain session — další zpráva v kanálu pokračuje s celým kontextem té konverzace (typicky rozdělané práce z webu nebo CLI). CLI tuto akci nedostane; tam slouží `/resume` / `/sessions`.
+
+Discord (StringSelect ≤ 25 řádků, druhá řada tlačítek pro stránkování):
+
+```text
+📂 Pokračovat v konverzaci                       strana 2/5
+┌──────────────────────────────────────────────────────┐
+│ ▾  Refaktor billing modulu        · před 2 h          │
+│    Kolin: import kódů čárovým…    · včera             │
+│    Elowen chat plán               · před 3 dny        │
+│    …                                                  │
+└──────────────────────────────────────────────────────┘
+        [ ◀ Předchozí ]              [ Další ▶ ]
+```
+
+- Seznam je scoped na volající identitu (invariant 6); operator-gated stejně jako `/model`.
+- Výběr = vědomé navázání: kanál se přepne na zvolenou session a bot upozorní, že historie je nadále viditelná všem v kanálu.
+- WhatsApp/Telegram renderují stejný stránkovaný kontrakt svým nativním způsobem (list/interactive komponenty, nebo číslovaný seznam s klíčovým slovem pro další stranu); sdílená data, per-surface chrome.
 
 ## Design
 
@@ -173,6 +197,22 @@ Hosted TUI zachová běžné CLI schopnosti včetně lokálního shell escape. P
 - Na `/chat` launcher neotevře duplicitní dock; adminovo tlačítko Terminál otevře dock rovnou v terminálovém režimu.
 - Chromeless výjimka v `ShellBody` zůstane jen pro `/terminal/*`; chat fullscreen řeší stabilní portálový host, ne nová route.
 
+### G. Cross-platform `/context` a stránkované pickery
+
+**Jediný zdroj pravdy.** `/context` přidat **jen** do `SLASH_COMMANDS` v `src/brain/slashCommands.ts` jako `kind: 'picker'`, `surfaces: ['discord','whatsapp','telegram','web']`. CLI ho nedostane (drží `/resume`, `/sessions`). Nikdy neduplikovat command per surface.
+
+**Data.** Picker čte stránkovaný, identity-scoped seznam konverzací. Dnešní `GET /brain/sessions` vrací `listSessions(userId)` bez stránkování — rozšířit o `?limit&offset` (nebo cursor). Surface drží číslo strany v `custom_id` komponenty, ne na serveru.
+
+**Vazba do kanálu — hlavní risk.** Platformní kanály se váží deterministicky na `channelSessionId = brain-ch-<channel>`; browsable konverzace jsou ale osobní `brain-<uid>-*` a archivované kanálové `brain-ch-*-arch-*`. Navázání je **inverze idle-rolloveru**: archivovat to, co teď na `brain-ch-<channel>` sedí (přes `reassignSession` → `archivedChannelSessionId`, ať se nic neztratí), pak `reassignSession(zvolená, channelSessionId(channel))`. Další turn kanálu pokračuje ve zvolené session. Aplikuje se server-side přes `POST /brain/command { name:'context', session:<id> }`.
+
+**Open questions** (rozhodnout ve fázi 0):
+
+1. *Move vs fork.* Re-key osobní `brain-<uid>-*` do `brain-ch-<channel>` konverzaci **odebere** z uživatelova webového/CLI seznamu a změní její vlastnický/viditelnostní model (osobní → sdílená kanálová). Alternativa: konverzaci **forknout/zkopírovat** místo přesunu, nebo zavést indirection `channel → session pointer` místo deterministického id. Návrh: začít přesunem (reuse existující reassign mašinerie), forka zvážit, pokud se ukáže ztráta z osobního seznamu jako problém.
+2. *Privacy (invariant 6).* Navázání osobní konverzace do sdíleného kanálu zpřístupní její historii všem v kanálu. Návrh: `/context` operator-gated jako `/model`, nabízet jen konverzace volající identity a při navázání explicitně upozornit.
+3. *Uniqueness.* Session id se může vázat jen na jeden kanál; navázat tutéž session do dvou kanálů současně není povolené — druhý pokus dostane jasnou chybu.
+
+**Stránkovaný komponent — sdílený s `/model`.** Discord `/model` dnes dělá `.slice(0, 25)` a tiše zahodí zbytek katalogu (reálný bug při > 25 modelech). Vytáhnout sdílený helper `buildPagedSelect(items, page, pageSize, prefix)`: jeden StringSelect (≤ 25 řádků) + druhá action row `◀ Předchozí` / `Další ▶` s indikátorem strany; `custom_id` nese prefix + stranu + stabilní cursor; překreslení přes interaction response type 7. Použít pro `pick_model` i `pick_context`. WhatsApp/Telegram dostanou stejný stránkovaný kontrakt ve své nativní prezentaci.
+
 ## Implementace
 
 ### Fáze 0 — Bezpečnostní a víceklientský kontrakt
@@ -217,6 +257,12 @@ Stabilní fullscreen host, Escape/focus management, `inert`, scroll lock, obnova
 
 **Hotovo, když:** fullscreen nezpůsobí reconnect, ztrátu draftu, remount ani druhý turn (invariant 1).
 
+### Fáze 7 — Cross-platform `/context` a stránkované pickery
+
+Nezávislá na web `/chat` + terminálu, může běžet paralelně. Přidat `/context` do `SLASH_COMMANDS` (surfaces bez CLI). Rozšířit `GET /brain/sessions` o stránkování a přidat server-side `context` command handler, který naváže kanál na zvolenou session (archiv + `reassignSession`) s guardy z open questions. Vytáhnout `buildPagedSelect` a přepojit na něj `/model` (odstranit `.slice(0, 25)` truncaci). Doplnit WhatsApp/Telegram rendering.
+
+**Hotovo, když:** `/context` naváže kanál do zvolené konverzace a pokračuje s plnou historií; `/model` stránkuje celý katalog bez ořezu; nic z toho není v CLI.
+
 ## Testy
 
 ### Backend
@@ -237,6 +283,14 @@ Stabilní fullscreen host, Escape/focus management, `inert`, scroll lock, obnova
 - Jeden controller: dock, `/chat` a fullscreen nevytvoří duplicitní SSE připojení.
 - Admin terminal picker: Elowen sekce nad CLI agenty, start přidá pane, opakovaný start neduplikuje, stop a pop-out fungují.
 - Non-admin terminal picker: Elowen sekce ani startovací akce nejsou v DOM.
+
+### Platformy (`/context`, pickery)
+
+- `SLASH_COMMANDS`: `/context` je na discord/whatsapp/telegram/web, **není** v CLI; `commandsFor('cli', …)` ho nevrací.
+- `GET /brain/sessions?limit&offset`: stránkuje, identity-scoped, cizí konverzace se nenabídnou.
+- Vazba: `context` command zarchivuje stávající kanálovou session a naváže zvolenou; kanál pak pokračuje s její historií.
+- Guardy: non-operator `403`/odmítnutí; cizí (ne-vlastníkova) session se nenabídne ani nenaváže; navázat tutéž session do dvou kanálů selže.
+- `buildPagedSelect`: > 25 položek se rozstránkuje, Předchozí/Další překreslí správnou stranu, `/model` už nic neořízne a vybere správný model přes stranice.
 
 ### Reálná cesta
 
@@ -270,4 +324,6 @@ Funkce je hotová, když platí všech pět invariantů a navíc:
 - Elowen CLI otevře aktuální webovou konverzaci (ne novou) a opakované otevření je idempotentní.
 - Web a TUI pokračují ve stejné session oběma směry.
 - Ukončené ani osiřelé chat terminály a jejich tokeny nezůstanou běžet.
+- `/context` funguje na Discordu/WhatsApp/Telegramu/webu (ne v CLI), naváže kanál do zvolené konverzace a pokračuje s plnou historií; nabízí jen konverzace volající identity (invariant 6).
+- Discord pickery (`/context` i `/model`) stránkují nad 25 položek bez ořezu a jsou konzistentní napříč platformami.
 - Focused root/web testy, lint, typecheck, web build a tmux smoke projdou.
