@@ -200,20 +200,18 @@ own assistant voice, and none of it leaks between accounts.
 
 **Communication style** is the always-on layer, set in **Account → Personality** as a
 single pick: **Professional** (default), **Friendly**, **Concise** or **Detailed**.
-It rewrites the assistant's register everywhere your brain runs — web chat and
-`elowen chat` alike — and applies on top of any active persona profile.
+It rewrites the assistant's register everywhere your brain runs.
 
-**Persona profiles** go further. You can author named profiles per surface — **Web**
-and **Discord** — each with a tone, a style, and a full instruction prompt written in
-a Markdown editor. Enable one as the **active** profile for that surface and it's
-pinned into the system prompt at spawn. Duplicate, edit, disable or delete them from
-the same pane; runtime knobs (models, thinking level) stay in the Elowen AI section, so
-personality and mechanics never tangle.
+**Personality** goes further: one Markdown text field, edited inline in
+**Account → Personality**, where you write free-form instructions for how Elowen
+should behave — tone, priorities, things to avoid, anything you'd tell a new
+collaborator. It's empty by default and autosaves as you type.
 
-Discord is the exception worth calling out: it's a **shared, owner-anchored channel**,
-not a per-user session. The bot wears **one persona** there — the channel **owner's**
-active `discord` profile — so everyone talking to Elowen on Discord meets the same,
-deliberately-configured face.
+There's no per-platform split and no named or activatable profiles — a single
+personality body applies identically everywhere your brain runs: web chat,
+`elowen chat`, Discord, WhatsApp, and scheduled cron turns. Runtime knobs (models,
+thinking level) stay in the Elowen AI section, so personality and mechanics never
+tangle.
 
 ## Memory
 

@@ -72,7 +72,7 @@ project access filters its event set.
 | `GET`, `PATCH` | `/auth/me` | Read or update the current profile |
 | `POST` | `/auth/me/password`, `/auth/me/avatar` | Change password or upload avatar |
 | `GET`, `PUT`, `DELETE` | `/auth/me/prompts/:name` | Read, save, or remove personal prompts |
-| `GET`, `PATCH` | `/auth/me/cli-settings` | CLI preferences |
+| `GET`, `PATCH` | `/auth/me/cli-settings` | CLI preferences, communication style (`advisorStyle`), and the global personality body (`personalityBody`) |
 | `GET`, `PATCH` | `/auth/me/terminal-settings` | Terminal preferences |
 | `GET`, `PATCH` | `/auth/me/permissions` | Current-user permissions |
 | `GET`, `POST` | `/users` | List or create users (admin surface) |
@@ -169,20 +169,26 @@ general-purpose public API.
 | `POST` | `/brain/providers/probe`, `/brain/test` | Provider discovery and test call |
 | `GET` | `/brain/images/:file`, `/brain/stream` | Stored image and SSE chat stream |
 
-### Plugins, memory, personality, and integrations
+### Plugins, memory, and integrations
 
 | Family | Route prefix | Purpose |
 | --- | --- | --- |
 | Plugins | `/plugins` | Discovery, install/update, configuration, runtime contributions, plugin data, logs, hooks, cron, skills, Discord, WhatsApp, and MCP server controls |
 | Memory | `/memory` | Entries, categories, events, merge/trash/purge, retrieval, categorization, and embedding configuration/test |
-| Personality | `/personality/profiles` | CRUD and activation of personality profiles |
 | Activity | `/activity`, `/notes` | Event history and project/mission notes |
 | Integrations | `/integrations/cli-status`, `/integrations/github-status` | Local integration readiness |
 | OAuth models | `/brain/oauth` | Status, catalog, interactive flow, and disconnect for supported providers |
 
 For exact method/path pairs in these broader families, see the matching route
-modules: `plugins.ts`, `memory.ts`, `personality.ts`, `activity.ts`, and
-`integrations.ts` in `src/api/routes/`.
+modules: `plugins.ts`, `memory.ts`, `activity.ts`, and `integrations.ts` in
+`src/api/routes/`.
+
+There is no separate personality route family: Elowen now stores a single
+global personality body per user (free-form instructions appended to the
+system prompt on every platform) as the `personalityBody` field on
+`/auth/me/cli-settings`, alongside `advisorStyle`. The old per-platform,
+multi-profile personality system (`/personality/profiles`, `personality_profiles`
+and `personality_active_profiles` tables) has been removed.
 
 ## Error responses
 
