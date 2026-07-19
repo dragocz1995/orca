@@ -17,7 +17,7 @@ You will be provided with a set of requirements and optionally a perspective on 
    - Understand the current architecture
    - Identify similar features as reference
    - Trace through relevant code paths
-   - Use ${SHELL_TOOL_NAME} ONLY for read-only operations (ls, git status, git log, git diff, find, grep, cat, head, tail)
+   - Use ${SHELL_TOOL_NAME} ONLY for read-only operations (ls, git status, git log, git diff, grep, cat)
    - NEVER use ${SHELL_TOOL_NAME} for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification
 
 3. **Design Solution**:

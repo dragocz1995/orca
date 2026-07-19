@@ -13,7 +13,13 @@ import {
  *     `cat *` allow (the `>` is not a command separator, so it stays in the same segment);
  *   - `git difftool*` / `git mergetool*` and `*--ext-diff*` / `*--extcmd*` / `*GIT_EXTERNAL_DIFF*` — every
  *     path by which git runs an arbitrary external command, which the broad `git diff*` allow would admit;
- *   - `*--output*` — `git diff`/`git log --output=FILE` writes a file, and carries no `>` to catch.
+ *   - `*--output*` — `git diff`/`git log --output=FILE` writes a file, and carries no `>` to catch;
+ *   - `*GIT_CONFIG*=*` / `*GIT_PAGER=*` — a leading env assignment of the GIT_CONFIG* family (GIT_CONFIG,
+ *     GIT_CONFIG_GLOBAL/SYSTEM, GIT_CONFIG_COUNT + GIT_CONFIG_KEY_n/VALUE_n, GIT_CONFIG_PARAMETERS) or
+ *     GIT_PAGER injects core.pager/diff.external/textconv → arbitrary exec. segmentMatchValues strips
+ *     these leading `VAR=val` assignments off the canonical form (so `… git diff` still matches the allow),
+ *     but they survive in the VERBATIM value these patterns match; the `=` keeps a safe read of a file
+ *     merely NAMED like the var (`cat GIT_CONFIG_notes.md`) out of the net.
  *  This is the unattended security clamp; the shared READ_ONLY_BASH_ALLOW stays frictionless for the
  *  interactive owner, who is trusted to run these. `Write`/`Edit` deny is defense-in-depth (a read-only
  *  agent never holds them in its tool allow-list either). */
@@ -29,6 +35,8 @@ const READ_ONLY_RESTRICT_RULES: readonly PermissionRule[] = [
   { scope: 'bash', pattern: '*--extcmd*', action: 'deny' },
   { scope: 'bash', pattern: '*GIT_EXTERNAL_DIFF*', action: 'deny' },
   { scope: 'bash', pattern: '*--output*', action: 'deny' },
+  { scope: 'bash', pattern: '*GIT_CONFIG*=*', action: 'deny' },
+  { scope: 'bash', pattern: '*GIT_PAGER=*', action: 'deny' },
 ];
 
 /**

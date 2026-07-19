@@ -67,6 +67,24 @@ describe('buildReadOnlyBoundary — a read-only agent cannot mutate even though 
     expect(act(b, 'Bash', 'git status')).toBe('allow');
   });
 
+  it('denies the GIT_CONFIG*/GIT_PAGER env injections that reach arbitrary exec via a leading assignment', () => {
+    // Regression: segmentMatchValues strips a leading `VAR=val` off the canonical form, so
+    // `GIT_CONFIG_*=… git diff` canonicalizes to `git diff` and rides the `git diff*` allow. The
+    // assignment survives in the verbatim value, which these denies match. Each of these injects
+    // core.pager / diff.external / textconv → arbitrary command execution from an unattended agent.
+    const b = buildReadOnlyBoundary(null);
+    expect(act(b, 'Bash', 'env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0=id git diff')).toBe('deny');
+    expect(act(b, 'Bash', 'GIT_CONFIG_GLOBAL=/tmp/evil git diff HEAD')).toBe('deny');
+    expect(act(b, 'Bash', "GIT_CONFIG_PARAMETERS='core.pager=id' git log")).toBe('deny');
+    expect(act(b, 'Bash', 'GIT_PAGER=/tmp/evil git log')).toBe('deny');
+    // The safe git reads still run, and a file merely NAMED like the var (no `=`) is not caught.
+    expect(act(b, 'Bash', 'git diff HEAD~1')).toBe('allow');
+    expect(act(b, 'Bash', 'git log --oneline -5')).toBe('allow');
+    expect(act(b, 'Bash', 'git status')).toBe('allow');
+    expect(act(b, 'Bash', 'cat src/index.ts')).toBe('allow');
+    expect(act(b, 'Bash', 'cat GIT_CONFIG_notes.md')).toBe('allow');
+  });
+
   it('preserves the parent boundary but can only narrow it — a parent allow cannot widen back', () => {
     // A permissive parent (all shell allowed, unattended asks auto-allow) — exactly the case that would let
     // a naive read-only agent run rm. The minted boundary must clamp it.

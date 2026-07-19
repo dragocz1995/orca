@@ -219,6 +219,20 @@ describe('splitBashSegments — shell-aware simple-command split', () => {
     expect(splitBashSegments('echo $(rm -rf ~').ambiguous).toBe(true);
     expect(splitBashSegments('cat x && rm -rf ~').ambiguous).toBe(false);
   });
+
+  it('does not special-case a heredoc — its body lines split into their own segments (fail-closed)', () => {
+    // The lexer has no heredoc grammar: the newline is a plain separator, so `<<EOF`, the body and the
+    // terminator each become their own simple-command segment. A body line therefore cannot ride the
+    // `cat *` allow of the opening command — it is gated on its own, the conservative outcome.
+    expect(splitBashSegments('cat <<EOF\nrm -rf ~\nEOF').segments).toEqual(['cat <<EOF', 'rm -rf ~', 'EOF']);
+  });
+
+  it('treats a backslash-escaped separator as a real separator (no escape grammar → over-splits, fail-closed)', () => {
+    // Outside quotes the lexer does not honour `\` escaping, so `echo a\;b` splits at the `;` instead of
+    // keeping `a\;b` as one argument. The trailing `b` becomes its own segment — over-splitting is safe
+    // (more segments = more restrictive), never a bypass.
+    expect(splitBashSegments('echo a\\;b').segments).toEqual(['echo a\\', 'b']);
+  });
 });
 
 describe('resolveToolPermission — bash chaining bypass is closed (most-restrictive across segments)', () => {
