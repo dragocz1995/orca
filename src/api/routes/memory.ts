@@ -1,4 +1,4 @@
-import { parseBody } from '../validation.js';
+import { parseBody, queryInt } from '../validation.js';
 import { hashBody } from '../../store/memoryStore.js';
 import { toEmbeddingConfig } from '../../store/configStore.js';
 import { isEmbeddingConfigured } from '../../embeddings/embeddingService.js';
@@ -243,8 +243,8 @@ export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
       status: c.req.query('status'),
       kind: c.req.query('kind'),
       categoryId: cat === undefined ? undefined : (cat === '' || cat === 'null' ? null : Number(cat)),
-      limit: limit ? Number(limit) : undefined,
-      offset: c.req.query('offset') ? Number(c.req.query('offset')) : undefined,
+      limit: queryInt(limit, { min: 1, max: 500, fallback: undefined }),
+      offset: queryInt(c.req.query('offset'), { min: 0, fallback: undefined }),
     }));
   });
 

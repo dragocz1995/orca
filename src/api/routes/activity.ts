@@ -1,4 +1,4 @@
-import { parseBody } from '../validation.js';
+import { parseBody, queryInt } from '../validation.js';
 import { createNoteSchema } from '../schemas/activity.js';
 import type { ElowenApp, RouteContext } from '../context.js';
 
@@ -8,7 +8,7 @@ export function registerActivityRoutes(app: ElowenApp, ctx: RouteContext): void 
   const { d, accessibleProjects, canAccessProject } = ctx;
   app.get('/activity', (c) => {
     if (!d.events) return c.json([]);
-    const limit = Number(c.req.query('limit')) || undefined;
+    const limit = queryInt(c.req.query('limit'), { min: 1, max: 500, fallback: undefined });
     const type = c.req.query('type') || undefined;
     // `target` scopes the feed to one task (its decisions + review verdicts), read oldest-first — the
     // detail pane's autopilot conversation. Project-scoping below still applies (fail closed for tenants).

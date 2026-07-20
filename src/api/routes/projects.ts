@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { listProjectFiles, listDirs, readProjectFile, writeProjectFile, readProjectBytes, createProjectFile, createProjectDir, deleteProjectEntry, renameProjectEntry, copyProjectEntry, projectFileAtHead, projectFileDiff, projectCommitDiff, projectCommitFiles, projectCommitFileDiff, projectCommitLog, projectChangedFiles, projectWorkingDiff, isProjectImage } from '../../integrations/projectFiles.js';
-import { parseBody } from '../validation.js';
+import { parseBody, queryInt } from '../validation.js';
 import { createProjectSchema, updateProjectSchema, writeFileSchema, pathBodySchema, fromToSchema } from '../schemas/projects.js';
 import type { ElowenApp, RouteContext } from '../context.js';
 
@@ -194,7 +194,7 @@ export function registerProjectRoutes(app: ElowenApp, ctx: RouteContext): void {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     const p = projectOf(c); if (!p) return c.json({ error: 'project not found' }, 404);
     if (!canAccessProject(c, p.id)) return c.json({ error: 'forbidden' }, 403);
-    const limit = Number(c.req.query('limit')) || 30;
+    const limit = queryInt(c.req.query('limit'), { min: 1, max: 500, fallback: 30 });
     return c.json({ commits: await projectCommitLog(p.path, limit) });
   });
   app.get('/projects/:id/changed', async (c) => {

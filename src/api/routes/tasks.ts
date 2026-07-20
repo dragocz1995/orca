@@ -7,7 +7,7 @@ import { decompose, parsePhases, modelsBlock, parallelismBlock, VALID_TYPES as V
 import { resolvePrEnabled } from '../../overseer/prMode.js';
 import { RelayClient } from '../../inference/client.js';
 import { shortId } from '../../shared/id.js';
-import { parseBody } from '../validation.js';
+import { parseBody, queryInt } from '../validation.js';
 import { createTaskSchema, patchTaskSchema, planSchema, insertPhasesSchema, askSchema } from '../schemas/tasks.js';
 import type { ElowenApp, RouteContext } from '../context.js';
 import type { TokenUsage, CostSource } from '../../integrations/usage/types.js';
@@ -136,8 +136,7 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
       const pid = Number(pidRaw);
       if (Number.isFinite(pid)) projectIds = projectIds ? projectIds.filter((p) => p === pid) : [pid];
     }
-    const daysRaw = Number(c.req.query('days'));
-    const days = Number.isFinite(daysRaw) ? Math.min(90, Math.max(1, Math.floor(daysRaw))) : 7;
+    const days = queryInt(c.req.query('days'), { min: 1, max: 90, fallback: 7 });
     const tasks = d.taskUsage?.aggregateByDay(projectIds, days) ?? [];
     const userId = c.get('user')?.id;
     const brain = !projectScoped && userId != null ? d.brainStore?.usageByDay(userId, days) ?? [] : [];
