@@ -8,7 +8,7 @@ import type { ElowenApp, RouteContext } from '../context.js';
  *  read-only git surface (diff, head, commits, changed files). Paths are validated to stay inside the
  *  project root (projectFiles.safe); writes are gated to the project's assigned users. */
 export function registerProjectRoutes(app: ElowenApp, ctx: RouteContext): void {
-  const { d, canAccessProject } = ctx;
+  const { d, canAccessProject, notAdmin } = ctx;
   app.get('/projects', (c) => {
     const all = d.projects ? d.projects.list() : [];
     if (!d.userProjects || !d.users) return c.json(all);
@@ -21,7 +21,7 @@ export function registerProjectRoutes(app: ElowenApp, ctx: RouteContext): void {
   // Admin-only — it lists directory names outside any project root, so it sits behind the same gate as
   // project registration. Read-only and directory-only: never returns file contents.
   app.get('/fs/dirs', (c) => {
-    if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     const q = c.req.query('path');
     try { return c.json(listDirs(q && q.trim() ? q : homedir())); }
     catch { return c.json({ error: 'cannot read directory' }, 400); }
@@ -29,7 +29,7 @@ export function registerProjectRoutes(app: ElowenApp, ctx: RouteContext): void {
   app.post('/projects', async (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
     // Only the admin may register projects (when multi-user auth is on).
-    if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     const { slug, path, notes } = await parseBody(c, createProjectSchema);
     try { return c.json(d.projects.create({ slug, path, notes }), 201); }
     catch { return c.json({ error: 'slug taken' }, 409); }
@@ -37,7 +37,7 @@ export function registerProjectRoutes(app: ElowenApp, ctx: RouteContext): void {
   // Edit a project's path / Pilot notes (slug stays immutable). Admin-only, like registration.
   app.patch('/projects/:id', async (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
-    if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     const id = Number(c.req.param('id'));
     const cur = d.projects.get(id);
     if (!cur) return c.json({ error: 'project not found' }, 404);
@@ -61,7 +61,7 @@ export function registerProjectRoutes(app: ElowenApp, ctx: RouteContext): void {
   // can't be removed (it's where the daemon itself lives).
   app.delete('/projects/:id', (c) => {
     if (!d.projects) return c.json({ error: 'projects unavailable' }, 400);
-    if (d.userProjects && d.users) { const u = c.get('user'); if (!u || !d.userProjects.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdmin(c)) return c.json({ error: 'forbidden' }, 403);
     const id = Number(c.req.param('id'));
     if (id === d.project.id) return c.json({ error: 'cannot remove the home project' }, 400);
     if (!d.projects.get(id)) return c.json({ error: 'project not found' }, 404);

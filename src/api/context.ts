@@ -47,8 +47,13 @@ export interface RouteContext {
   agentProjects(): Set<number>;
   /** True when the caller may see/operate the given project (admin/open mode always pass). */
   canAccessProject(c: AccessCtx, id: number): boolean;
-  /** True when the caller is NOT the admin on a gated daemon (open/single-user mode → false). */
+  /** True when the caller is NOT the admin on a gated daemon (open/single-user mode → false). Strict:
+   *  closed even at 0 users (a project-agnostic daemon route is never open pre-setup). */
   notAdmin(c: UserCtx): boolean;
+  /** Like {@link notAdmin} but OPEN during first-run onboarding (users store present, 0 users) so the
+   *  initial admin can configure the daemon before existing — the gate for the config/plugins/memory
+   *  routes that must be reachable pre-setup. Admin-only once any user exists. */
+  notAdminUnlessSetup(c: UserCtx): boolean;
   /** Set of project ids the caller may see, or null for unrestricted (open mode / admin). */
   accessibleProjects(c: AccessCtx): Set<number> | null;
   /** A mission belongs to its epic's project — gate by that project's access. */
@@ -150,6 +155,15 @@ export function createRouteContext(d: ServerDeps): RouteContext {
     if (!d.userProjects || !d.users) return false;
     const u = c.get('user');
     return !u || !d.userProjects.isAdmin(u.id);
+  };
+
+  // Setup-tolerant admin gate: identical to notAdmin once any user exists, but OPEN during first-run
+  // onboarding (users store present, 0 users) so the config/plugins/memory routes can be configured
+  // before the first admin is created. The ONE place this weaker rule lives.
+  const notAdminUnlessSetup = (c: UserCtx): boolean => {
+    if (!d.users || d.users.count() === 0) return false;
+    const u = c.get('user');
+    return !u || !d.users.isAdmin(u.id);
   };
 
   // The set of project ids the caller may see, or null for unrestricted (open mode / admin).
@@ -299,7 +313,7 @@ export function createRouteContext(d: ServerDeps): RouteContext {
 
   return {
     d, log, planJobs, decisionQueue, tickets, gitLock,
-    agentProjects, canAccessProject, notAdmin, accessibleProjects, missionAccessible,
+    agentProjects, canAccessProject, notAdmin, notAdminUnlessSetup, accessibleProjects, missionAccessible,
     taskForSession, eventDeps, sessionAccessible, execAllowedForUser,
     pathFor, usagePathFor, checkoutPathFor, resolveTarget,
     persistPlan, reapPilotSession, finalizePlanJob, releaseGatedDependents, reviewService, sessionService, askService, guideService, skillService, memoryService,

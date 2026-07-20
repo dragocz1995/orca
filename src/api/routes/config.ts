@@ -45,7 +45,7 @@ function binExists(path: string): boolean { try { accessSync(path, constants.X_O
  *  config read/write (admin-gated write), the System panel (version/update-available) and the live
  *  SSE event stream (per-subscriber tenancy gate). */
 export function registerConfigRoutes(app: ElowenApp, ctx: RouteContext): void {
-  const { d, accessibleProjects, eventDeps, skillService } = ctx;
+  const { d, accessibleProjects, eventDeps, skillService, notAdminUnlessSetup } = ctx;
   // MCP endpoint: the advisor agent connects here to control Elowen with native tools. Each request is
   // handled statelessly with the toolset bound to the caller's token, and every tool delegates to the
   // same `callElowenApi` core as the `elowen api` CLI verb — so a new REST endpoint needs zero edits here.
@@ -77,7 +77,7 @@ export function registerConfigRoutes(app: ElowenApp, ctx: RouteContext): void {
     // Editing the daemon config is admin-only (the Administration surface); reads stay open so the
     // app can populate model pickers etc. During setup (no users yet) it's open so onboarding can
     // save providers/the API key before the first admin exists.
-    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     const patch = await c.req.json() as ConfigPatch;
     const updated = d.config.update(patch);
     // Apply a patched LSP toggle to the live manager too — it otherwise reads the flag only at boot,
@@ -109,7 +109,7 @@ export function registerConfigRoutes(app: ElowenApp, ctx: RouteContext): void {
   // of truth for "chat is runnable"), never gated behind a running mission. Admin-only (mirrors the
   // admin /system/* routes below).
   app.get('/system/readiness', (c) => {
-    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     const cfg = d.config.get();
     const checks: Array<{ id: string; label: string; ok: boolean; detail: string; hint?: string }> = [];
 
@@ -152,18 +152,18 @@ export function registerConfigRoutes(app: ElowenApp, ctx: RouteContext): void {
   // /system/update); the daemon also self-installs on startup, so this is the on-demand re-apply + verify.
   // No mission gate — writing a skill file doesn't disturb running agents (they read it at their next start).
   app.get('/system/skills', (c) => {
-    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     return c.json({ skills: skillService.status() });
   });
   app.post('/system/skills/install', (c) => {
-    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     return c.json({ results: skillService.installAll() });
   });
 
   // Trigger a manual in-place update. Admin-only (mirrors /config) and refused while a mission is live
   // — the update restarts the services, which would kill the running agent sessions.
   app.post('/system/update', (c) => {
-    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     if (d.missions.live().length > 0) return c.json({ error: 'mission_running' }, 409);
     (d.startUpdate ?? defaultStartUpdate)();
     return c.json({ started: true });
@@ -173,7 +173,7 @@ export function registerConfigRoutes(app: ElowenApp, ctx: RouteContext): void {
   // goes out BEFORE the restart fires: restarting elowen-daemon kills this very process, so the detached
   // `systemctl restart --no-block` spawn is deferred a beat and PID 1 owns the actual restart.
   app.post('/system/restart', async (c) => {
-    if (d.users && d.users.count() > 0) { const u = c.get('user'); if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403); }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     const b = await parseBody(c, systemRestartSchema);
     setTimeout(() => (d.startRestart ?? defaultStartRestart)(b.target), 100);
     return c.json({ ok: true });

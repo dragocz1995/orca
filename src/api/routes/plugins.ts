@@ -32,12 +32,9 @@ type McpControl = {
  *  plugin on/off. Enabling updates `config.plugins.enabled` and hot-reloads the brain's registry, so the
  *  change applies to chat sessions immediately — no daemon restart. */
 export function registerPluginRoutes(app: ElowenApp, ctx: RouteContext): void {
-  const { d } = ctx;
-  const notAdmin = (c: { get: (k: 'user') => { id: number } | undefined }): boolean => {
-    if (!d.users || d.users.count() === 0) return false; // open/single-user mode → no gating
-    const u = c.get('user');
-    return !u || !d.users.isAdmin(u.id);
-  };
+  // The plugin config/enable routes must be reachable during first-run onboarding, so they use the
+  // setup-tolerant admin gate (the shared `notAdminUnlessSetup`, previously a private copy of it here).
+  const { d, notAdminUnlessSetup: notAdmin } = ctx;
   const listing = () => {
     const cfg = d.config.get().plugins;
     const enabled = new Set(cfg.enabled);

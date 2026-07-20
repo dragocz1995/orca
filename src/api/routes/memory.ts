@@ -27,7 +27,7 @@ function isUniqueViolation(err: unknown): boolean {
  *  (the store is user_id-scoped and no-ops / 404s on a foreign id). Provider (embedding) settings are
  *  workspace-level and admin-gated. Degrades to 400 when the store isn't wired. */
 export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
-  const { d } = ctx;
+  const { d, notAdminUnlessSetup } = ctx;
   const store = d.memoryStore;
 
   // --- Literal sub-paths registered before `/memory/:id` so they can never be captured as an id. ---
@@ -49,10 +49,7 @@ export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
   // Update the workspace embedding provider/model. Admin-gated (mirrors PUT /config): during setup
   // (no users yet) it's open so onboarding can configure it before the first admin exists.
   app.put('/memory/embedding', async (c) => {
-    if (d.users && d.users.count() > 0) {
-      const u = c.get('user');
-      if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403);
-    }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     const b = await parseBody(c, embeddingUpdateSchema);
     return c.json(d.config.update({ embedding: b }).embedding);
   });
@@ -60,10 +57,7 @@ export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
   // Admin probe: embed a tiny string to verify the configured provider/model actually works. Not
   // configured → 400; an embed failure surfaces as { ok:false, error } (200) so the UI can show it.
   app.post('/memory/embedding/test', async (c) => {
-    if (d.users && d.users.count() > 0) {
-      const u = c.get('user');
-      if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403);
-    }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     if (!d.embeddings) return c.json({ ok: false, error: 'memory unavailable' }, 400);
     const cfg = toEmbeddingConfig(d.config.embeddingConfig());
     if (!isEmbeddingConfigured(cfg)) return c.json({ ok: false, error: 'embeddings not configured' }, 400);
@@ -204,10 +198,7 @@ export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
   // Update the workspace categorization provider/model. Admin-gated (mirrors PUT /memory/embedding):
   // during setup (no users yet) it's open so onboarding can configure it before the first admin exists.
   app.put('/memory/categorization', async (c) => {
-    if (d.users && d.users.count() > 0) {
-      const u = c.get('user');
-      if (!u || !d.users.isAdmin(u.id)) return c.json({ error: 'forbidden' }, 403);
-    }
+    if (notAdminUnlessSetup(c)) return c.json({ error: 'forbidden' }, 403);
     const b = await parseBody(c, categorizationUpdateSchema);
     return c.json(d.config.update({ categorization: b }).categorization);
   });
