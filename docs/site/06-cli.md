@@ -3,6 +3,7 @@ title: CLI
 slug: cli
 order: 6
 eyebrow: Terminal agent
+group: Surfaces
 ---
 
 # CLI

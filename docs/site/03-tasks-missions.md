@@ -3,6 +3,7 @@ title: Tasks & Missions
 slug: tasks-missions
 order: 3
 eyebrow: Core concepts
+group: Core concepts
 ---
 
 # Tasks & Missions

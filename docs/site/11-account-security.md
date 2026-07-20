@@ -3,6 +3,7 @@ title: Account & Security
 slug: account-security
 order: 11
 eyebrow: Guide
+group: Reference
 ---
 
 # Account & Security

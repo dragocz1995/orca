@@ -3,6 +3,7 @@ title: Install
 slug: install
 order: 2
 eyebrow: Getting started
+group: Start here
 ---
 
 # Install

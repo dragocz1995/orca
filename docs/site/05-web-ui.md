@@ -3,6 +3,7 @@ title: Web UI
 slug: web-ui
 order: 5
 eyebrow: Control surfaces
+group: Surfaces
 ---
 
 # Web UI

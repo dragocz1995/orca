@@ -3,6 +3,7 @@ title: Projects & Workflow
 slug: projects-workflow
 order: 9
 eyebrow: Guide
+group: Extending
 ---
 
 # Projects & Workflow

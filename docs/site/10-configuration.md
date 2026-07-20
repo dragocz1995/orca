@@ -3,6 +3,7 @@ title: Configuration
 slug: configuration
 order: 10
 eyebrow: Reference
+group: Reference
 ---
 
 # Configuration

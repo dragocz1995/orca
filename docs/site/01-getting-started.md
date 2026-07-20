@@ -3,6 +3,7 @@ title: Getting Started
 slug: getting-started
 order: 1
 eyebrow: Start here
+group: Start here
 ---
 
 # Getting Started

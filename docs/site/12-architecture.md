@@ -3,6 +3,7 @@ title: Architecture
 slug: architecture
 order: 12
 eyebrow: Reference
+group: Reference
 ---
 
 # Architecture

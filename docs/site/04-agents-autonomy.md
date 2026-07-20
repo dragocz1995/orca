@@ -3,6 +3,7 @@ title: Agents & Autonomy
 slug: agents-autonomy
 order: 4
 eyebrow: Core concepts
+group: Core concepts
 ---
 
 # Agents & Autonomy

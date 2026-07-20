@@ -3,6 +3,7 @@ title: Plugins
 slug: plugins
 order: 8
 eyebrow: Extend Elowen
+group: Extending
 ---
 
 # Plugins

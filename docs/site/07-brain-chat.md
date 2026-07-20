@@ -3,6 +3,7 @@ title: Brain & Chat
 slug: brain-chat
 order: 7
 eyebrow: The agent
+group: Surfaces
 ---
 
 # Brain & Chat
