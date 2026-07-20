@@ -207,6 +207,8 @@ function fakeBrain() {
     },
     history: (_id: number) => [{ role: 'user', text: 'hi' }, { role: 'assistant', text: 'yo' }],
     messagesOf: () => [],
+    messagesPage: (_id: number, session: string | undefined, opts: { limit: number; before?: number }) =>
+      ({ items: [{ role: 'user', text: `page ${session ?? 'active'} l${opts.limit} b${opts.before ?? '-'}` }], hasMore: true, nextBefore: 7 }),
     preflightSubagentSend: () => { if (subagentPreflightError) throw subagentPreflightError; },
     sendToSubagent: async (id: number, session: string, text: string) => { subagentSends.push({ id, session, text }); },
     searchMessages: (id: number, q: string) =>
@@ -352,6 +354,13 @@ describe('brain routes', () => {
     const res = await app.request('/brain/messages', auth(amyTok));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([{ role: 'user', text: 'hi' }, { role: 'assistant', text: 'yo' }]);
+  });
+
+  it('messages paginates into the lazy-load envelope when ?limit is given (before rides through)', async () => {
+    const { app, amyTok } = setup();
+    const res = await app.request('/brain/messages?limit=2&before=4', auth(amyTok));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ items: [{ role: 'user', text: 'page active l2 b4' }], hasMore: true, nextBefore: 7 });
   });
 
   it('preflights a delegated continuation so a legacy child is rejected instead of silently detached', async () => {

@@ -80,11 +80,15 @@ export function groupToolItems(items: ToolItem[]): ToolGroup[] {
   return groups;
 }
 
-type YouTurn = { role: 'you'; text: string };
-type ElowenTurn = { role: 'elowen'; segments: Segment[]; streaming: boolean };
+/** `id` is the source store row's UUID — present on every turn built from stored history (`fromHistory`),
+ *  absent on turns synthesized live by `reduce` (a streaming reply, a steered user message). It is a
+ *  STABLE React key (so a lazy-load prepend never remounts the live tail) and the identity `prependHistory`
+ *  dedupes on — never a text fingerprint. */
+type YouTurn = { role: 'you'; text: string; id?: string };
+type ElowenTurn = { role: 'elowen'; segments: Segment[]; streaming: boolean; id?: string };
 /** A context-compaction boundary: everything before it was summarized away server-side, so the dock
  *  renders a subtle "context compacted" divider in its place, followed by the kept tail. */
-type DividerTurn = { role: 'divider' };
+type DividerTurn = { role: 'divider'; id?: string };
 export type ChatTurn = YouTurn | ElowenTurn | DividerTurn;
 
 /** The whole view model the dock renders. `notice` is a transient runtime line (retry/compaction). */
@@ -98,9 +102,9 @@ export function fromHistory(msgs: BrainMessage[]): ChatView {
   const turns: ChatTurn[] = [];
   for (const m of msgs) {
     // A compaction boundary → a divider turn (the pre-compaction history was summarized away).
-    if (m.role === 'compaction') { turns.push({ role: 'divider' }); continue; }
+    if (m.role === 'compaction') { turns.push({ role: 'divider', id: m.id }); continue; }
     if (m.role === 'user') {
-      if (m.text.trim()) turns.push({ role: 'you', text: m.text });
+      if (m.text.trim()) turns.push({ role: 'you', text: m.text, id: m.id });
       continue;
     }
     const segments: Segment[] = [];
@@ -114,9 +118,21 @@ export function fromHistory(msgs: BrainMessage[]): ChatView {
         else segments.push({ kind: 'tools', items: [item] });
       }
     }
-    if (segments.length > 0) turns.push({ role: 'elowen', segments, streaming: false });
+    if (segments.length > 0) turns.push({ role: 'elowen', segments, streaming: false, id: m.id });
   }
   return { turns, thinking: false };
+}
+
+/** Prepend an older page of stored history (chat lazy-load, scroll-up) in front of the current view. Turns
+ *  already present are dropped by `id` so a re-fetched or overlapping page can't double a turn; the live
+ *  streaming tail is never touched (older turns only ever go in front). Returns the same view unchanged when
+ *  the page adds nothing, so a no-op fetch doesn't churn React state. */
+export function prependHistory(view: ChatView, older: BrainMessage[]): ChatView {
+  const known = new Set<string>();
+  for (const turn of view.turns) if (turn.id) known.add(turn.id);
+  const prepend = fromHistory(older).turns.filter((turn) => !turn.id || !known.has(turn.id));
+  if (prepend.length === 0) return view;
+  return { ...view, turns: [...prepend, ...view.turns] };
 }
 
 /** Append the user's turn (finalized) — called optimistically when they hit send. */

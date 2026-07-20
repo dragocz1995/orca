@@ -1577,6 +1577,7 @@ export const cs = {
     modeNav: 'Režim panelu',
     modeChat: 'Chat',
     modeTerminal: 'Terminál',
+    loadingOlder: 'Načítání starších zpráv',
     attach: 'Přiložit soubor',
     attachRemove: 'Odebrat přílohu',
     attachTooBig: 'Soubor je příliš velký nebo binární',

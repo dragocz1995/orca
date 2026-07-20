@@ -6,7 +6,7 @@ import { useToast } from '../../components/ui/Toast';
 import { useBrainSessions, useBrainCommands } from '../../lib/queries';
 import { elowenClient, BASE } from '../../lib/elowenClient';
 import type { AskAnswer, AskQuestion, BrainCard, BrainModelOption, BrainUsage, SlashCommandDef, StatuslineConfig } from '../../lib/types';
-import { fromHistory, reduce, upsertCard, type ChatTurn, type TranscriptEvent } from '../../lib/transcript';
+import { fromHistory, prependHistory, reduce, upsertCard, type ChatTurn, type TranscriptEvent } from '../../lib/transcript';
 import { formatTokens } from '../../lib/format';
 import { getBrainClientId, buildBinding, type BrainBinding } from '../../lib/brainSession';
 import {
@@ -88,6 +88,11 @@ export interface BrainChatValue {
   abort: () => void;
   /** Lazy first-connect: idempotently boots the stream (brainStart → history → status → EventSource). */
   ensureAttached: () => void;
+  /** Lazy-load older history: fetches the next backwards page and prepends it. No-op (resolves immediately)
+   *  when nothing older remains or a fetch is already in flight. The surface calls it on scroll-up. */
+  loadOlder: () => Promise<void>;
+  /** Whether an older page of stored history remains to lazy-load (drives the scroll-up sentinel). */
+  hasMoreHistory: boolean;
   /** Bumped when the composer should take focus (compose bridge / seeded draft); the surface watches it. */
   focusNonce: number;
   /** The lazily-fetched model catalog (null until first load) — shared by the header ModelPicker and the
@@ -133,6 +138,17 @@ function useBrainChatController(): BrainChatValue {
   const { data: commands = [] } = useBrainCommands();
 
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  // Lazy-load history state: `hasMoreHistory` is reactive (drives the scroll-up sentinel); the cursor and
+  // the in-flight guard are refs — they change across async fetches and must not each trigger a re-render.
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const historyCursorRef = useRef<number | null>(null);
+  const loadingOlderRef = useRef(false);
+  // Bumped by EVERY transcript reset/refetch (loadHistory, idle-rollover, read-only). A loadOlder captures
+  // it and discards its result if it changed while the fetch was in flight — the connect `generation` guard
+  // alone is not enough, because compaction/model-switch/rollover refetch WITHOUT bumping the generation
+  // (they keep the one SSE stream), which would otherwise let a stale older page tear a hole in the reset
+  // transcript or double the rolled-over turns.
+  const historyEpochRef = useRef(0);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
@@ -173,10 +189,39 @@ function useBrainChatController(): BrainChatValue {
   const binding = (): BrainBinding => buildBinding(boundSessionRef.current, boundGenRef.current, clientId());
   const bumpFocus = (): void => setFocusNonce((n) => n + 1);
 
+  // The newest page bootstraps the transcript; older pages lazy-load on scroll-up. A full refetch (compaction
+  // / model-switch markers) re-runs this, which correctly RESETS the lazy-load window to the tail — the
+  // stored transcript changed, so any older cursor is stale.
+  const HISTORY_PAGE = 50;
   const loadHistory = async (generation: number): Promise<void> => {
-    const msgs = await elowenClient.brainMessages(boundSessionRef.current);
-    if (generation !== genRef.current) return; // a newer switch superseded this load — don't clobber turns
-    setTurns(fromHistory(msgs).turns);
+    const epoch = ++historyEpochRef.current; // this reset invalidates any older page still in flight
+    const page = await elowenClient.brainMessagesPage(boundSessionRef.current, { limit: HISTORY_PAGE });
+    if (generation !== genRef.current || epoch !== historyEpochRef.current) return; // superseded — don't clobber
+    setTurns(fromHistory(page.items).turns);
+    historyCursorRef.current = page.nextBefore;
+    setHasMoreHistory(page.hasMore);
+  };
+
+  // Fetch the next older page and prepend it. Guarded against concurrent runs (a fast scroll fires scroll
+  // events in bursts), a stale generation (session switch), AND a stale epoch (a compaction/rollover refetch
+  // reset the transcript mid-fetch — those keep the generation, so the epoch is what discards this page
+  // instead of tearing a hole in the reset transcript). `prependHistory` dedupes by id and leaves the live
+  // streaming tail untouched, so a prepend mid-turn is safe.
+  const loadOlder = async (): Promise<void> => {
+    if (loadingOlderRef.current || historyCursorRef.current === null) return;
+    loadingOlderRef.current = true;
+    const generation = genRef.current;
+    const epoch = historyEpochRef.current;
+    const before = historyCursorRef.current;
+    try {
+      const page = await elowenClient.brainMessagesPage(boundSessionRef.current, { limit: HISTORY_PAGE, before });
+      if (generation !== genRef.current || epoch !== historyEpochRef.current) return; // switch/reset superseded this
+      setTurns((cur) => prependHistory({ turns: cur, thinking: false }, page.items).turns);
+      historyCursorRef.current = page.nextBefore;
+      setHasMoreHistory(page.hasMore);
+    } finally {
+      loadingOlderRef.current = false;
+    }
   };
 
   // Boot (resume) the brain, load history, open the stream — bound to the conversation start() resolves.
@@ -245,6 +290,12 @@ function useBrainChatController(): BrainChatValue {
       boundSessionRef.current = ev.sessionId; // rebind (generation preserved)
       setActiveSessionId(ev.sessionId); // the conversation rolled over — the panel's local/foreign split moves with it
       setCards([]); // display cards belonged to the previous conversation
+      // The rollover empties the transcript and rebuilds the fresh conversation purely from the stream, so
+      // close the lazy-load window (+ bump the epoch to discard any older page in flight). Otherwise a stale
+      // cursor would page the NEW session's own just-shown turns and double them.
+      historyCursorRef.current = null;
+      setHasMoreHistory(false);
+      historyEpochRef.current++;
       setTurns((cur) => fold(cur, { type: 'session', sessionId: ev.sessionId }));
       setNotice(t.brainChat.freshConversation);
       void qc.invalidateQueries({ queryKey: ['brain-sessions'] });
@@ -383,6 +434,11 @@ function useBrainChatController(): BrainChatValue {
     nextGeneration();
     setAsk(null); setCards([]); setBusy(false); setNotice('');
     setReadOnly(sessionId);
+    // Read-only previews (a channel / task worker) load their full stored history in one shot — no scroll-up
+    // lazy-load — so close the window: null cursor + no "more" (+ bump the epoch to discard an in-flight page).
+    historyCursorRef.current = null;
+    setHasMoreHistory(false);
+    historyEpochRef.current++;
     const msgs = await elowenClient.brainMessages(sessionId);
     setTurns(fromHistory(msgs).turns);
     setReady(true);
@@ -540,7 +596,7 @@ function useBrainChatController(): BrainChatValue {
   return {
     turns, busy, ready, notice, ask, cards, agentsOpen, setAgentsOpen, queued, readOnly, activeSessionId,
     usage, lineCfg, input, setInput, attachments, addFiles, removeAttachment, submit, switchSession,
-    openReadOnly, exitReadOnly, deleteSession, onQueueRemove, onAnswer, abort, ensureAttached, focusNonce,
+    openReadOnly, exitReadOnly, deleteSession, onQueueRemove, onAnswer, abort, ensureAttached, loadOlder, hasMoreHistory, focusNonce,
     models, currentModel, setModel: (m) => void runModel(m), loadModels: () => void loadModels(), modelsLoading, modelsError,
     slash: { items: slashItems, open: slashItems.length > 0, modelOptsOpen: modelSlashOpen, clearModelOpts: () => setModelSlashOpen(false) },
     sessions,

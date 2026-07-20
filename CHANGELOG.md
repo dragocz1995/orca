@@ -5,6 +5,9 @@ All notable changes to Elowen are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Changed
+- **The chat now loads long conversations lazily.** Opening a conversation fetches only the most recent messages and loads older ones as you scroll up, so a long history opens fast and stays responsive. Your reading position is preserved when older messages load, and scrolling up no longer jumps you back to the newest message while a reply is streaming.
+
 ## [0.27.71] - 2026-07-19
 
 ### Added

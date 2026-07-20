@@ -1,4 +1,4 @@
-import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, ElowenConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, CliSettings, TerminalSettings, PermissionSettings, PluginInfo, PluginDetail, PluginContributions, PluginLogs, PluginHookExecutions, Marketplace, CronJob, DiscordChannelOption, WhatsAppPairing, PluginSkill, PluginSubagent, BrainModelOption, BrainSessionInfo, ManagedSession, BrainSearchHit, BrainMessage, BrainStatus, ProviderUsage, ProcessInfo, SlashCommandDef, AskAnswer, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, DayUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SystemReadiness, SkillsInfo, SkillInstallResult, Memory, MemoryEvent, MemoryCreate, MemoryPatch, MemoryFilters, EmbeddingSettings, EmbeddingSettingsPatch, RetrievalResult, UserToolPill, UserStats, MemoryCategory, MemoryCategoryCreate, MemoryCategoryPatch, CategorizationSettings, CategorizationSettingsPatch } from './types';
+import type { Task, Mission, CreateTaskInput, UpdateTaskInput, PlanInput, PlanSubmitResult, PlanJob, InsertPhasesInput, InsertPhasesResult, EngageInput, ElowenConfig, ConfigPatch, MissionDetail, User, UserPatch, ProfilePatch, CliSettings, TerminalSettings, PermissionSettings, PluginInfo, PluginDetail, PluginContributions, PluginLogs, PluginHookExecutions, Marketplace, CronJob, DiscordChannelOption, WhatsAppPairing, PluginSkill, PluginSubagent, BrainModelOption, BrainSessionInfo, ManagedSession, BrainSearchHit, BrainMessage, BrainMessagePage, BrainStatus, ProviderUsage, ProcessInfo, SlashCommandDef, AskAnswer, OAuthFlowState, AuthResult, ActivityEvent, PendingAsk, Project, ProjectGit, CommitLogEntry, CommitFileChange, Note, CliDetectionResult, GithubAuthStatus, TokenUsage, ModelUsage, DayUsage, ResetUsageResult, FileNode, DirListing, SessionInfo, SystemInfo, SystemReadiness, SkillsInfo, SkillInstallResult, Memory, MemoryEvent, MemoryCreate, MemoryPatch, MemoryFilters, EmbeddingSettings, EmbeddingSettingsPatch, RetrievalResult, UserToolPill, UserStats, MemoryCategory, MemoryCategoryCreate, MemoryCategoryPatch, CategorizationSettings, CategorizationSettingsPatch } from './types';
 import { clearToken } from './token';
 import type { BrainBinding } from './brainSession';
 
@@ -268,6 +268,15 @@ export const elowenClient = {
   brainDeleteManagedSession: (id: string) => req<{ deleted: number }>(`/brain/managed-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   brainDeleteAllManagedSessions: () => req<{ deleted: number }>('/brain/managed-sessions', { method: 'DELETE' }),
   brainMessages: (session?: string) => req<BrainMessage[]>(`/brain/messages${session ? `?session=${encodeURIComponent(session)}` : ''}`),
+  /** One backwards page of chat history for the lazy-load: the newest `limit` turns, then older ones as
+   *  `before` (a previous page's `nextBefore`) walks back. The session defaults to the caller's active
+   *  conversation. */
+  brainMessagesPage: (session: string | undefined, opts: { limit: number; before?: number }) => {
+    const q = new URLSearchParams({ limit: String(opts.limit) });
+    if (session) q.set('session', session);
+    if (opts.before !== undefined) q.set('before', String(opts.before));
+    return req<BrainMessagePage>(`/brain/messages?${q.toString()}`);
+  },
   /** Background processes (terminal `Bash(background:true)`) — the panel next to the todos. */
   brainProcesses: () => req<ProcessInfo[]>('/brain/processes'),
   brainProcessOutput: (id: string) => req<{ output: string }>(`/brain/processes/${encodeURIComponent(id)}/output`),

@@ -604,6 +604,39 @@ describe('BrainService', () => {
     expect(svc.status(1).model).toBe('ollama/kimi-k2.7-code');
   });
 
+  it('messagesPage walks the history backwards in disjoint windows (lazy-load) and guards foreign sessions', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const { sessionId } = await svc.start(1);
+    // Seed six display turns: u1 a1 u2 a2 u3 a3.
+    for (let n = 1; n <= 3; n++) {
+      d.store.appendMessage({ id: `u${n}`, sessionId, parentId: null, role: 'user', content: { role: 'user', content: [{ type: 'text', text: `q${n}` }] } });
+      d.store.appendMessage({ id: `a${n}`, sessionId, parentId: null, role: 'assistant', content: { role: 'assistant', content: [{ type: 'text', text: `a${n}` }] } });
+    }
+    expect(svc.history(1)).toHaveLength(6);
+
+    // First page: the newest two turns, with a cursor back into the middle.
+    const p1 = svc.messagesPage(1, undefined, { limit: 2 });
+    expect(p1.items.map((m) => m.text)).toEqual(['q3', 'a3']);
+    expect(p1.hasMore).toBe(true);
+    expect(p1.nextBefore).toBe(4);
+
+    // Second page: the strictly older, non-overlapping window.
+    const p2 = svc.messagesPage(1, undefined, { limit: 2, before: p1.nextBefore! });
+    expect(p2.items.map((m) => m.text)).toEqual(['q2', 'a2']);
+    expect(p2.nextBefore).toBe(2);
+
+    // Oldest page: reaches the start, so no cursor and no more.
+    const p3 = svc.messagesPage(1, undefined, { limit: 2, before: p2.nextBefore! });
+    expect(p3.items.map((m) => m.text)).toEqual(['q1', 'a1']);
+    expect(p3.hasMore).toBe(false);
+    expect(p3.nextBefore).toBeNull();
+
+    // A foreign/unknown explicit session is rejected exactly like messagesOf.
+    d.store.createSession({ id: 'brain-2', userId: 2, model: 'm' });
+    expect(() => svc.messagesPage(1, 'brain-2', { limit: 2 })).toThrow('unknown session');
+  });
+
   it('mid-turn: a queued steer appears in history only when PI actually delivers it', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);

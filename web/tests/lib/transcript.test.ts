@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyView, fromHistory, groupToolItems, reduce } from '../../lib/transcript';
+import { emptyView, fromHistory, groupToolItems, prependHistory, reduce } from '../../lib/transcript';
 import type { ToolItem } from '../../lib/transcript';
 
 describe('web groupToolItems: collapse consecutive same-tool pills', () => {
@@ -50,6 +50,50 @@ describe('web transcript fromHistory: compaction divider', () => {
     expect(view.turns[0]).toEqual({ role: 'divider' });
     expect(view.turns[1]).toEqual({ role: 'you', text: 'recent q' });
     expect(view.turns[2]).toMatchObject({ role: 'elowen', streaming: false });
+  });
+
+  it('stamps each turn with its source row id (the stable React key + prepend dedupe identity)', () => {
+    const view = fromHistory([
+      { id: 'm1', role: 'user', text: 'q' },
+      { id: 'm2', role: 'assistant', text: 'a' },
+    ]);
+    expect(view.turns[0]).toMatchObject({ role: 'you', id: 'm1' });
+    expect(view.turns[1]).toMatchObject({ role: 'elowen', id: 'm2' });
+  });
+});
+
+describe('web transcript prependHistory: lazy-load scroll-up', () => {
+  it('prepends an older page in front and leaves the live streaming tail untouched', () => {
+    // A live view: one settled history turn plus a still-streaming reply (no id).
+    let view = fromHistory([{ id: 'm3', role: 'user', text: 'newest q' }]);
+    view = reduce(view, { type: 'text', delta: 'streaming…' });
+    const streamingTail = view.turns[view.turns.length - 1];
+
+    const older = prependHistory(view, [
+      { id: 'm1', role: 'user', text: 'old q' },
+      { id: 'm2', role: 'assistant', text: 'old a' },
+    ]);
+    expect(older.turns.map((tn) => tn.id)).toEqual(['m1', 'm2', 'm3', undefined]);
+    // Same object identity for the tail → React never remounts the streaming turn on a prepend.
+    expect(older.turns[older.turns.length - 1]).toBe(streamingTail);
+  });
+
+  it('drops turns already present (by id) so an overlapping/re-fetched page never doubles a turn', () => {
+    const view = fromHistory([
+      { id: 'm2', role: 'user', text: 'q2' },
+      { id: 'm3', role: 'assistant', text: 'a3' },
+    ]);
+    const merged = prependHistory(view, [
+      { id: 'm1', role: 'user', text: 'q1' },
+      { id: 'm2', role: 'user', text: 'q2' }, // overlaps the current head — must not double
+    ]);
+    expect(merged.turns.map((tn) => tn.id)).toEqual(['m1', 'm2', 'm3']);
+  });
+
+  it('returns the same view unchanged when the page adds nothing new (no state churn)', () => {
+    const view = fromHistory([{ id: 'm1', role: 'user', text: 'q' }]);
+    expect(prependHistory(view, [{ id: 'm1', role: 'user', text: 'q' }])).toBe(view);
+    expect(prependHistory(view, [])).toBe(view);
   });
 });
 

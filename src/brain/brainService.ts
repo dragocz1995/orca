@@ -32,7 +32,7 @@ import { terminalizeWorkflow } from './workflowRuns.js';
 import { BrainTurnRunner } from './service/turnRunner.js';
 import type { BoundClientRequest, TurnRequest } from './service/turnRequest.js';
 import { BrainStatusService } from './service/statusService.js';
-import type { SessionListItem, SessionPage, SessionPageOpts } from './service/statusService.js';
+import type { SessionListItem, SessionPage, SessionPageOpts, MessagePage, MessagePageOpts } from './service/statusService.js';
 import { exportBrainSession } from './session/exportSession.js';
 import type { ExportFormat, SessionExport } from './session/exportSession.js';
 import type { BrainDeps } from './brainDeps.js';
@@ -1159,6 +1159,12 @@ export class BrainService {
   /** ANY of the owner's stored sessions, shaped for display — see BrainStatusService.messagesOf. */
   messagesOf(userId: number, sessionId: string): BrainMessageView[] {
     return this.statusView.messagesOf(userId, sessionId);
+  }
+
+  /** A backwards-paged window over a conversation's history (chat lazy-load) — see
+   *  BrainStatusService.messagesPage. */
+  messagesPage(userId: number, sessionId: string | undefined, opts: MessagePageOpts): MessagePage {
+    return this.statusView.messagesPage(userId, sessionId, opts);
   }
 
   /** Export one of the caller's OWN conversations (owner-scoped exactly like messagesOf) as a

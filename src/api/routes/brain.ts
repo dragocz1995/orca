@@ -40,6 +40,22 @@ function sessionPageOpts(rawLimit?: string, rawOffset?: string): { limit?: numbe
   return opts;
 }
 
+/** Opt-in backwards pagination for the message history (the chat's lazy-load): undefined when `?limit` is
+ *  absent so the caller keeps the historical full bare-array response (the CLI + read-only view rely on
+ *  that). `limit` is clamped to a sane window; `before` is the exclusive upper-bound cursor a previous page
+ *  returned as `nextBefore` (absent → the newest turns). */
+function messagePageOpts(rawLimit?: string, rawBefore?: string): { limit: number; before?: number } | undefined {
+  if (rawLimit === undefined) return undefined;
+  const limit = Number(rawLimit);
+  if (!Number.isFinite(limit) || limit <= 0) return undefined; // garbage limit → the historical bare array
+  const opts: { limit: number; before?: number } = { limit: Math.min(Math.floor(limit), 200) };
+  if (rawBefore !== undefined) {
+    const before = Number(rawBefore);
+    if (Number.isFinite(before) && before >= 0) opts.before = Math.floor(before);
+  }
+  return opts;
+}
+
 /** Per-user embedded brain (the new advisor engine): status / start / send / live event stream.
  *  Full-scope callers only — a spawned agent must not drive a human's brain. Each route acts on the
  *  caller's own conversation (`brain-<userId>`). Degrades gracefully when the brain is not wired. */
@@ -237,7 +253,9 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     if (!d.brain) return c.json([]);
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
     const session = c.req.query('session');
+    const page = messagePageOpts(c.req.query('limit'), c.req.query('before'));
     try {
+      if (page) return c.json(d.brain.messagesPage(c.get('user').id, session, page));
       return c.json(session ? d.brain.messagesOf(c.get('user').id, session) : d.brain.history(c.get('user').id));
     } catch { return c.json({ error: 'unknown session' }, 404); }
   });

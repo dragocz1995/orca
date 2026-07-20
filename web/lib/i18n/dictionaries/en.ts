@@ -1577,6 +1577,7 @@ export const en = {
     modeNav: 'Dock mode',
     modeChat: 'Chat',
     modeTerminal: 'Terminal',
+    loadingOlder: 'Loading older messages',
     attach: 'Attach a file',
     attachRemove: 'Remove attachment',
     attachTooBig: 'File is too large or binary',

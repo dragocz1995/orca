@@ -23,7 +23,9 @@ class FakeES {
 const server = setupServer(
   http.post('*/api/brain/start', () => HttpResponse.json({ sessionId: 'brain-1' }, { status: 201 })),
   http.post('*/api/brain/send', () => HttpResponse.json({ ok: true }, { status: 202 })),
-  http.get('*/api/brain/messages', () => HttpResponse.json([])),
+  http.get('*/api/brain/messages', ({ request }) => new URL(request.url).searchParams.has('limit')
+    ? HttpResponse.json({ items: [], hasMore: false, nextBefore: null })
+    : HttpResponse.json([])),
   http.get('*/api/brain/status', () => HttpResponse.json({ running: true, sessionId: 'brain-1', model: 'm', usage: null, statusline: null, cards: [], queued: [] })),
   http.get('*/api/brain/processes', () => HttpResponse.json([])),
   http.get('*/api/brain/sessions', () => HttpResponse.json([

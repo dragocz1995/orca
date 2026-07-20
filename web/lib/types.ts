@@ -108,7 +108,11 @@ type BrainSegment =
       sessionId: string; status: 'running' | 'done' | 'error'; task: string; detail?: string;
       tools: number; tokens?: number; seconds: number; model?: string;
     } };
-export interface BrainMessage { role: string; text: string; segments?: BrainSegment[] }
+export interface BrainMessage { id?: string; role: string; text: string; segments?: BrainSegment[] }
+
+/** One backwards page of chat history (lazy-load). `nextBefore` is the cursor for the next older page —
+ *  null once the oldest turn has been loaded, which is also when `hasMore` is false. */
+export interface BrainMessagePage { items: BrainMessage[]; hasMore: boolean; nextBefore: number | null }
 
 /** AskUserQuestion wire shapes (mirror src/brain/events.ts). The `ask` SSE event carries `id` +
  *  `questions`; the client POSTs `answers` back to /brain/answer. */

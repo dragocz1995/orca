@@ -38,6 +38,26 @@ function paginate<T>(all: T[], opts?: SessionPageOpts): SessionPage<T> {
   return { items, total: all.length, hasMore: offset + items.length < all.length };
 }
 
+/** A backwards window over a conversation's history: the newest `limit` display turns, then older ones as
+ *  the reader scrolls up. `before` is the exclusive upper bound — an index into the FULL shaped view array
+ *  (what a previous page returned as `nextBefore`). Windowing over the SHAPED views, not raw store rows, is
+ *  deliberate: shaping lifts each toolResult onto its assistant toolCall and interleaves compaction / event
+ *  markers by time, so a raw-row cut could orphan a diff or a marker. Shaping is cheap; correctness wins. */
+export interface MessagePageOpts { limit: number; before?: number }
+
+/** One page of display history plus the cursor for the next (older) page. `nextBefore` is null once the
+ *  oldest turn is loaded, which is also exactly when `hasMore` is false. */
+export interface MessagePage { items: BrainMessageView[]; hasMore: boolean; nextBefore: number | null }
+
+/** Take the `limit` views ending just before `before` (default: the tail = newest). `start` is clamped so
+ *  an out-of-range `before` still yields a valid window, and `nextBefore` points at this window's start so
+ *  the next fetch continues seamlessly older. */
+function windowViews(all: BrainMessageView[], opts: MessagePageOpts): MessagePage {
+  const end = opts.before === undefined ? all.length : Math.max(0, Math.min(opts.before, all.length));
+  const start = Math.max(0, end - opts.limit);
+  return { items: all.slice(start, end), hasMore: start > 0, nextBefore: start > 0 ? start : null };
+}
+
 interface StatusServiceDeps {
   store: BrainStore;
   /** The shared live-session state (owned by the BrainService facade). */
@@ -265,6 +285,19 @@ export class BrainStatusService {
     const row = this.d.store.getSession(sessionId);
     if (!row || row.user_id !== userId) throw new Error('unknown session');
     return this.shapedHistory(sessionId);
+  }
+
+  /** A backwards-paged window over a conversation's history for the chat's lazy-load: the newest `limit`
+   *  turns on first fetch, then older ones as `before` walks back. Defaults to the caller's active
+   *  conversation; an explicit `sessionId` is ownership-checked exactly like {@link messagesOf}. Shapes the
+   *  full history then windows it (see {@link windowViews}) so folding/marker interleaving stays intact. */
+  messagesPage(userId: number, sessionId: string | undefined, opts: MessagePageOpts): MessagePage {
+    if (sessionId !== undefined) {
+      const row = this.d.store.getSession(sessionId);
+      if (!row || row.user_id !== userId) throw new Error('unknown session');
+    }
+    const id = sessionId ?? this.d.lifecycle.activeSessionId(userId);
+    return windowViews(this.shapedHistory(id), opts);
   }
 
   /** Atomic, idempotent first frame for an opt-in fixed-session SSE stream. Reads the clean durable

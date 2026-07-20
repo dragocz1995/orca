@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { Send, Square, Plus, ChevronDown, Wrench, Paperclip, X, FileText, Users, ChevronRight, PanelLeft, Maximize2, Minimize2 } from 'lucide-react';
+import { Send, Square, Plus, ChevronDown, Wrench, Paperclip, X, FileText, Users, ChevronRight, PanelLeft, Maximize2, Minimize2, Loader2 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { useMobile } from '../../lib/useMobile';
 import { useToast } from '../../components/ui/Toast';
@@ -167,7 +167,7 @@ function ContextDivider({ full }: { full?: boolean }) {
  *  they sit in one turn or across a turn boundary; only a speaker change opens a real block break. The
  *  compact dock keeps the tight look: a small accent bubble for the user, bubble-free markdown for the
  *  assistant. */
-function Message({ turn, full, showRole }: { turn: ChatTurn; full?: boolean; showRole?: boolean }) {
+function Message({ turn, full, showRole, tk }: { turn: ChatTurn; full?: boolean; showRole?: boolean; tk?: string }) {
   const { t } = useTranslation();
   if (turn.role === 'divider') return <ContextDivider full={full} />;
 
@@ -182,7 +182,7 @@ function Message({ turn, full, showRole }: { turn: ChatTurn; full?: boolean; sho
 
   if (full) {
     return (
-      <div className={`grid grid-cols-[16px_1fr] gap-x-3 ${showRole ? 'mt-6 first:mt-0' : ''}`}>
+      <div data-tk={tk} className={`grid grid-cols-[16px_1fr] gap-x-3 ${showRole ? 'mt-6 first:mt-0' : ''}`}>
         {showRole ? (
           <span aria-hidden className={`mt-1.5 h-2 w-2 rounded-full ${you ? 'bg-accent ring-4 ring-accent/15' : 'bg-text-muted'}`} />
         ) : <span aria-hidden />}
@@ -196,12 +196,12 @@ function Message({ turn, full, showRole }: { turn: ChatTurn; full?: boolean; sho
 
   if (you) {
     return (
-      <div className="ml-8 self-end whitespace-pre-wrap rounded-lg rounded-br-sm border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-text">
+      <div data-tk={tk} className="ml-8 self-end whitespace-pre-wrap rounded-lg rounded-br-sm border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-text">
         {turn.role === 'you' ? turn.text : null}
       </div>
     );
   }
-  return <div className="mr-4 flex flex-col gap-1.5 self-start">{body}</div>;
+  return <div data-tk={tk} className="mr-4 flex flex-col gap-1.5 self-start">{body}</div>;
 }
 
 /** The presentational brain chat surface, driven entirely by the shared controller (BrainChatProvider)
@@ -218,7 +218,7 @@ export function BrainChatSurface({ variant = 'compact', onOpenHistory }: { varia
     turns, busy, ready, notice, ask, cards, agentsOpen, setAgentsOpen, queued, readOnly, activeSessionId,
     usage, lineCfg, currentModel, input, setInput, attachments, addFiles, removeAttachment, submit, switchSession,
     openReadOnly, exitReadOnly, onQueueRemove, onAnswer, slash, sessions, focusNonce,
-    ensureAttached, abort,
+    ensureAttached, abort, loadOlder, hasMoreHistory,
   } = c;
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -230,10 +230,52 @@ export function BrainChatSurface({ variant = 'compact', onOpenHistory }: { varia
   const fileRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Lazy-load (scroll-up) state. `loadingOlder` drives the top spinner; `atBottomRef` tracks whether the
+  // reader is pinned to the newest turn (so a streaming delta doesn't yank them down while they read up).
+  // The prepend anchor rides on a real turn ELEMENT: at scroll-trigger we grab the topmost turn node and its
+  // offsetTop; after older turns land above it, we shift scrollTop by exactly how far that node moved. Node
+  // offsetTop is immune to below-viewport growth (cards / ask / agents / process panel) and to a stream
+  // delta landing during the fetch, both of which broke a scrollHeight-delta anchor.
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const atBottomRef = useRef(true);
+  const prevTurnsRef = useRef<ChatTurn[]>([]);
+  const anchorNodeRef = useRef<HTMLElement | null>(null);
+  const anchorTopRef = useRef(0);
+
+  // The element that actually scrolls the transcript: in the full page it is the shell <main> (the page
+  // itself scrolls), except in fullscreen where the fixed overlay's own messages div is the scroll box; the
+  // compact dock always scrolls its own box. Every scroll read/write below goes through this one resolver.
+  const getScroller = useCallback((): HTMLElement | null => {
+    const el = scrollRef.current;
+    if (!el) return null;
+    if (variant === 'full') return fullscreen ? el : el.closest('main');
+    return el;
+  }, [variant, fullscreen]);
+
+  // Grab the current topmost turn node as the prepend anchor, then fetch the next older page (the layout
+  // effect restores its position once the page lands). Guarded so a burst of scroll events fires at most one
+  // load at a time. Capturing the NODE (not a scroll scalar) is what survives the async fetch gap.
+  const triggerOlder = useCallback((): void => {
+    if (loadingOlder || !hasMoreHistory) return;
+    const node = scrollRef.current?.querySelector<HTMLElement>('[data-tk]') ?? null;
+    anchorNodeRef.current = node;
+    anchorTopRef.current = node?.offsetTop ?? 0;
+    setLoadingOlder(true);
+    // A transient page-fetch failure leaves the cursor/hasMore untouched (next scroll-up retries) — swallow
+    // it so it isn't an unhandled rejection, and always clear the spinner.
+    void loadOlder().catch(() => { /* best-effort — retried on the next scroll-up */ }).finally(() => setLoadingOlder(false));
+  }, [loadingOlder, hasMoreHistory, loadOlder]);
+  // The scroll listener reads the trigger through a ref so it binds ONCE per scroller (not every render,
+  // which the churny `loadOlder` identity would otherwise force).
+  const triggerOlderRef = useRef(triggerOlder);
+  triggerOlderRef.current = triggerOlder;
 
   const active = sessions.data?.find((s) => s.active);
   // Delegated sub-agents across the transcript — the source for the workflow table + its "N agents" link.
   const subagents = useMemo(() => collectSubagents(turns), [turns]);
+  // Index of the first live (id-less) turn — the boundary between stored history and the live streaming tail
+  // used to key the tail stably across a lazy-load prepend (see the transcript map below).
+  const firstLiveTurn = turns.findIndex((turn) => !turn.id);
 
   const slashItems = slash.items;
   const slashOpen = slash.open;
@@ -244,20 +286,44 @@ export function BrainChatSurface({ variant = 'compact', onOpenHistory }: { varia
   // enough (and avoids re-firing on the controller's per-render identity churn).
   useEffect(() => { ensureAttached(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Autoscroll to the newest turn. The compact dock scrolls its own box; the full page normally has no
-  // inner scroll box — the whole page (the shell's <main>) scrolls, so drive that instead. In fullscreen
-  // the fixed overlay is its own scroll box (the messages div, scrollRef), so scroll THAT element. This is
-  // a target-selection change only — the same node stays mounted, so nothing reconnects or remounts.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    if (variant === 'full') {
-      const scroller = fullscreen ? el : el.closest('main');
-      scroller?.scrollTo({ top: scroller.scrollHeight });
-    } else {
-      el.scrollTo({ top: el.scrollHeight });
+  // Position the transcript after each turns change. A lazy-load PREPEND (older turns inserted in front —
+  // detected by the previous head object reappearing below index 0) holds the viewport on the same content
+  // by shifting scrollTop by exactly how far the anchored turn node moved down; every other change sticks to
+  // the newest turn, but ONLY when the reader is already near the bottom — so scrolling up to read history
+  // isn't yanked back down by an incoming streaming delta. Layout effect: the scroll write lands before
+  // paint (no flicker).
+  useLayoutEffect(() => {
+    const s = getScroller();
+    if (!s) { prevTurnsRef.current = turns; return; }
+    const prev = prevTurnsRef.current;
+    const oldHead = prev[0];
+    const isPrepend = !!oldHead && turns.length > prev.length && turns.indexOf(oldHead) > 0;
+    const anchor = anchorNodeRef.current;
+    if (isPrepend) {
+      // Only the prepend consumes the anchor — a stream delta landing in the fetch gap must NOT clear it,
+      // or the real prepend that follows would jump.
+      if (anchor) s.scrollTop += anchor.offsetTop - anchorTopRef.current;
+      anchorNodeRef.current = null;
+    } else if (atBottomRef.current) {
+      s.scrollTo({ top: s.scrollHeight });
     }
-  }, [turns, variant, fullscreen]);
+    prevTurnsRef.current = turns;
+  }, [turns, variant, fullscreen, getScroller]);
+
+  // Watch the live scroll position: track "near the bottom" (the stick-to-newest gate above) and load the
+  // next older page when the reader nears the top. Bound imperatively because the scroller is sometimes the
+  // shell <main>, not a node this component renders; rebinds only when the resolver changes
+  // (variant/fullscreen) — the trigger is read through a ref so a per-render identity can't churn the bind.
+  useEffect(() => {
+    const s = getScroller();
+    if (!s) return;
+    const onScroll = (): void => {
+      atBottomRef.current = s.scrollHeight - s.scrollTop - s.clientHeight < 80;
+      if (s.scrollTop < 120) triggerOlderRef.current();
+    };
+    s.addEventListener('scroll', onScroll, { passive: true });
+    return () => s.removeEventListener('scroll', onScroll);
+  }, [getScroller]);
 
   // The controller asks the composer to focus (a compose-bridge request / a seeded draft) by bumping the
   // focus nonce — the surface owns the DOM ref, so it does the actual focus. Guard against a plain (re)mount
@@ -392,7 +458,28 @@ export function BrainChatSurface({ variant = 'compact', onOpenHistory }: { varia
             <p className="m-auto max-w-[220px] text-center text-xs text-text-muted">{t.brainChat.empty}</p>
           )
         ) : null}
-        {turns.map((turn, i) => <Message key={i} turn={turn} full={variant === 'full'} showRole={i === 0 || turns[i - 1].role !== turn.role} />)}
+        {/* Scroll-up lazy-load sentinel. A fixed-height slot kept whenever older history remains so mounting
+            the spinner doesn't shift the transcript; the spinner shows only while a page is loading. */}
+        {hasMoreHistory ? (
+          <div className="flex h-8 shrink-0 items-center justify-center" aria-hidden={!loadingOlder}>
+            {loadingOlder ? <Loader2 size={16} className="animate-spin text-text-muted" aria-label={t.brainChat.loadingOlder} /> : null}
+          </div>
+        ) : null}
+        {/* Stable keys: history turns key by their store id, so a prepend never re-keys the existing turns;
+            the live streaming tail (no id) keys by its offset within the live suffix, which is invariant
+            under a prepend (older turns only ever go in front) — so a prepend mid-turn never remounts it. */}
+        {turns.map((turn, i) => {
+          const key = turn.id ?? `live:${i - firstLiveTurn}`;
+          return (
+            <Message
+              key={key}
+              tk={key}
+              turn={turn}
+              full={variant === 'full'}
+              showRole={i === 0 || turns[i - 1].role !== turn.role}
+            />
+          );
+        })}
         {/* Out-of-band extras (cards, processes, agents, questions). In the full page they get their own
             spacing group under the flush transcript; in the dock `contents` keeps them in the parent's
             gap flow exactly as before. `empty:hidden` drops the group when everything in it is null. */}
