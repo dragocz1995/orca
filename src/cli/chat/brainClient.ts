@@ -339,13 +339,12 @@ export class BrainClient {
     return (await res.json()) as { yolo: boolean };
   }
 
-  /** The pickable models across every configured brain provider (drives the /model picker). `free`
-   *  marks OpenRouter's zero-cost catalog variants, listed in the picker's FREE section. */
-  async models(): Promise<{ provider: string; providerLabel: string; model: string; free?: boolean }[]> {
+  /** The pickable models across every configured brain provider (drives the /model picker). */
+  async models(): Promise<{ provider: string; providerLabel: string; model: string }[]> {
     const res = await this.f(`${this.o.base}/brain/models`, { headers: this.headers() });
     if (res.status === 401) throw new Unauthorized();
     if (!res.ok) throw new Error(`elowen brain ${res.status} on /brain/models`);
-    return (await res.json()) as { provider: string; providerLabel: string; model: string; free?: boolean }[];
+    return (await res.json()) as { provider: string; providerLabel: string; model: string }[];
   }
 
   /** Configured brain providers from the public daemon config — feeds the /model → ctrl+p manager. */

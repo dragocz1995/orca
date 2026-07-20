@@ -250,25 +250,14 @@ export function createPickers(
   const openModelPicker = (): void => {
     runApplication(() => client.models(), (models) => {
       if (models.length === 0) { rt.notice = color.dim('no models configured — ctrl+p in /model adds a provider'); render(); return; }
-      const paid = models.filter((m) => !m.free);
-      const free = models.filter((m) => m.free);
-      const items = [
-        ...modelItems(paid, rt.modelName),
-        // OpenRouter's zero-cost catalog folds in at the bottom under a FREE header row.
-        ...(free.length ? [{ value: '__free', label: color.faint('─ FREE · OpenRouter ─'), description: `${free.length} zero-cost models` }] : []),
-        ...free.map((m) => ({ value: `${m.provider} ${m.model}`, label: `☆ ${m.model.replace(/:free$/, '')}`, description: `${m.providerLabel} · free` })),
-      ];
       openPicker({
-        tui, editor, title: 'Switch model', items,
+        tui, editor, title: 'Switch model', items: modelItems(models, rt.modelName),
         footer: 'enter switch · type to search · ctrl+p providers · esc close',
         onInput: (data, _selected, close) => {
           if (isCtrlP(data)) { close(); openProviderModal(); return true; }
           return false;
         },
-        onPick: (value) => {
-          if (value === '__free') { openModelPicker(); return; }
-          applyModel(parseModelValue(value));
-        },
+        onPick: (value) => { applyModel(parseModelValue(value)); },
       });
     }, (e) => { rt.notice = color.error(`error: ${e.message}`); render(); });
   };

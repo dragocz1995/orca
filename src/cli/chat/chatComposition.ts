@@ -889,8 +889,8 @@ export function createChatComposition(
   const modelArgSuggestions = (query: string): SuggestionItem[] =>
     scoreModels(modelArgModels ?? [], query).slice(0, 12).map(({ option }) => ({
       value: `/model ${option.model}`,
-      label: `${option.model === rt.modelName ? '▸ ' : ''}${option.model.replace(/:free$/, '')}`,
-      description: option.free ? `${option.providerLabel} · free` : option.providerLabel,
+      label: `${option.model === rt.modelName ? '▸ ' : ''}${option.model}`,
+      description: option.providerLabel,
     }));
   const updateModelArg = (query: string): void => {
     if (!(slashOverlay instanceof ArgOverlay)) {

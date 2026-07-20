@@ -49,6 +49,9 @@ for (const provider of PROVIDERS) {
     continue;
   }
   for (const [id, model] of Object.entries(models).sort(([a], [b]) => a.localeCompare(b))) {
+    // Elowen does not surface OpenRouter's zero-cost `:free` variants, so their capability rows are dead
+    // data — skip them here so a refresh never re-adds them.
+    if (id.endsWith(':free')) continue;
     // Cost is per MILLION tokens in models.dev, the same unit pi-ai's descriptor rates use, so it is
     // emitted verbatim. Recorded even when zero (a flat-rate subscription like kimi-for-coding) so a
     // direct catalog hit resolves an explicit $0 rather than falling through to an estimate.

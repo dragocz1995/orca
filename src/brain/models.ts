@@ -14,7 +14,6 @@ export interface BrainModelOption {
   source: 'api-key' | 'oauth' | 'relay';
   contextWindow: number;
   contextWindowSet: boolean;
-  free?: boolean;
   /** PI-canonical reasoning ids plus provider-facing display labels (e.g. xhigh → ultra). */
   reasoningLevels?: string[];
   reasoningLabels?: Record<string, string>;
@@ -101,19 +100,15 @@ export async function listBrainModels(cfg: BrainRuntimeConfig, fetchImpl: typeof
     // manual list AND a manually-listed openai provider (so a hand-picked model still gets its reported
     // window). The manual list wins on which models appear; the fetch only enriches with context windows.
     let entries: FetchedModel[] = p.models.map((id) => ({ id }));
-    let freeEntries: FetchedModel[] = [];
     if (p.type === 'openai') {
       const fetched = await fetchOpenAiModelEntries(p, fetchImpl);
-      if (entries.length === 0) entries = fetched;
+      // Auto-discovered catalog (no manual model list): drop OpenRouter's zero-cost `:free` variants —
+      // Elowen does not surface free models. A hand-listed model is the operator's explicit choice and is
+      // left untouched (the fetch there only enriches context windows).
+      if (entries.length === 0) entries = fetched.filter((e) => !e.id.endsWith(':free'));
       else {
         const ctxById = new Map(fetched.map((f) => [f.id, f.contextWindow]));
         entries = entries.map((e) => ({ id: e.id, contextWindow: ctxById.get(e.id) }));
-      }
-      // OpenRouter's catalog carries zero-cost variants (ids ending ':free') — surface them as a FREE
-      // section in the pickers even when the operator hand-picked the paid model list.
-      if ((p.baseUrl ?? '').includes('openrouter.ai')) {
-        const listed = new Set(entries.map((e) => e.id));
-        freeEntries = fetched.filter((f) => f.id.endsWith(':free') && !listed.has(f.id));
       }
     } else if (p.type in OAUTH_BUILTIN) {
       const builtin = registryProviderName(p);
@@ -123,7 +118,7 @@ export async function listBrainModels(cfg: BrainRuntimeConfig, fetchImpl: typeof
       // the complete account catalog so adding a default never makes every other OAuth model vanish.
       entries = [...entries, ...catalog];
     }
-    const toOption = (e: FetchedModel, free?: boolean): BrainModelOption => {
+    const toOption = (e: FetchedModel): BrainModelOption => {
       const pinned = cfg.contextWindows?.[`${p.id}/${e.id}`];
       // Effective context window precedence: operator override → provider-reported → default placeholder.
       const effective = pinned && pinned > 0 ? pinned : (e.contextWindow ?? DEFAULT_CONTEXT_WINDOW);
@@ -136,7 +131,6 @@ export async function listBrainModels(cfg: BrainRuntimeConfig, fetchImpl: typeof
         source: p.origin ?? 'api-key' as const,
         contextWindow: effective,
         contextWindowSet: !!(pinned && pinned > 0),
-        ...(free ? { free } : {}),
         ...(capabilities.reasoning ? {
           reasoningLevels: capabilities.levels,
           reasoningLabels: Object.fromEntries(capabilities.levels.map((level) => [level, capabilities.labels[level] ?? level])),
@@ -146,7 +140,6 @@ export async function listBrainModels(cfg: BrainRuntimeConfig, fetchImpl: typeof
       };
     };
     out.push(...entries.map((e) => toOption(e)));
-    out.push(...freeEntries.map((e) => toOption(e, true)));
   }
   return out;
 }

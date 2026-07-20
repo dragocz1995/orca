@@ -21,24 +21,20 @@ export function fuzzyScore(query: string, name: string, description = ''): numbe
   return 20;
 }
 
-export interface ModelOption { provider: string; providerLabel: string; model: string; free?: boolean }
+export interface ModelOption { provider: string; providerLabel: string; model: string }
 
 /** The smallest score we auto-apply for `/model <name>`. Substring or better ("opus" → claude-opus)
  *  switches directly; a weaker subsequence-only guess falls through so the caller can open the picker
  *  instead of silently jumping to a surprising model. */
 const AUTO_APPLY_MIN_SCORE = 60;
 
-/** Score every model against `query` (matching the id with and without a trailing `:free`), best first.
- *  Tie-break: higher score, then paid over free, then original list order (providers[0] is the default). */
+/** Score every model against `query`, best first. Tie-break: higher score, then original list order
+ *  (providers[0] is the default). */
 export function scoreModels(models: ModelOption[], query: string): { option: ModelOption; score: number }[] {
   return models
-    .map((option, index) => ({
-      option,
-      index,
-      score: Math.max(fuzzyScore(query, option.model), fuzzyScore(query, option.model.replace(/:free$/, ''))),
-    }))
+    .map((option, index) => ({ option, index, score: fuzzyScore(query, option.model) }))
     .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || Number(Boolean(a.option.free)) - Number(Boolean(b.option.free)) || a.index - b.index)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
     .map(({ option, score }) => ({ option, score }));
 }
 

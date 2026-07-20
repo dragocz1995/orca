@@ -18,24 +18,19 @@ describe('fuzzyScore', () => {
   });
 });
 
-const M = (provider: string, model: string, free = false): ModelOption => ({ provider, providerLabel: provider, model, free });
+const M = (provider: string, model: string): ModelOption => ({ provider, providerLabel: provider, model });
 
 describe('resolveModelQuery', () => {
   const models: ModelOption[] = [
     M('anthropic', 'claude-opus-4-8'),
     M('openai', 'gpt-5.5-turbo'),
-    M('openrouter', 'gpt-5.5-turbo:free', true),
   ];
 
-  it('fuzzy-fixes a partial name to the best paid model', () => {
+  it('fuzzy-fixes a partial name to the best model', () => {
     expect(resolveModelQuery(models, 'gpt-5.5')).toEqual({ provider: 'openai', model: 'gpt-5.5-turbo' });
   });
   it('matches a substring anywhere in the id', () => {
     expect(resolveModelQuery(models, 'opus')).toEqual({ provider: 'anthropic', model: 'claude-opus-4-8' });
-  });
-  it('prefers a paid model over an equally-scored free one', () => {
-    // "gpt-5.5-turbo" is an exact match on the paid model and (ignoring :free) on the free one; paid wins.
-    expect(resolveModelQuery(models, 'gpt-5.5-turbo')).toEqual({ provider: 'openai', model: 'gpt-5.5-turbo' });
   });
   it('returns null for a query too weak to auto-apply (opens the picker instead)', () => {
     expect(resolveModelQuery(models, 'zzz')).toBeNull();
