@@ -8,6 +8,7 @@ import { ensureLang, langForPath } from './codeHighlight.js';
 import { chatTheme, color, paintRow } from './theme.js';
 import { prettyCwd } from './projectDir.js';
 import { activeKeymap } from './keys.js';
+import { composeLabel, type ComposeLocale } from './composeLabels.js';
 
 export const TOOL_INDENT = '    ';
 const TOOL_OUTPUT_INDENT = '      ';
@@ -37,6 +38,8 @@ export interface TurnRenderOptions {
   composingMarkerReady: boolean;
   /** Monotonic frame counter driving the composing spinner; the renderer stays pure by taking it as input. */
   spinnerFrame: number;
+  /** Locale for the localized composing-tool action label. Defaults to English when omitted. */
+  locale?: ComposeLocale;
   expandedThoughts: ReadonlySet<string>;
   expandedTools: ReadonlySet<string>;
 }
@@ -227,8 +230,14 @@ export class TurnRenderer {
     // falls back to a neutral label.
     if (turn.streaming && turn.composing && options.composingMarkerReady) {
       const spin = SPINNER[((options.spinnerFrame % SPINNER.length) + SPINNER.length) % SPINNER.length]!;
-      const label = turn.composingTool ? toolRowSpec(turn.composingTool).title : 'working';
-      add(`${TOOL_INDENT}${color.warning(spin)} ${color.dim(truncateToWidth(label, Math.max(12, width - 10), '…'))}`);
+      // A long-duration tool upgrades the generic hint to a localized action label with its salient
+      // argument; every other tool keeps today's exact output (the tool title, or a neutral 'working').
+      const label = composeLabel(turn.composingTool, turn.composingDetail, options.locale ?? 'en')
+        ?? (turn.composingTool ? toolRowSpec(turn.composingTool).title : 'working');
+      // A slow, low-amplitude pulse (muted ↔ fainter, one step per ~2 frames) reads the label as LIVE
+      // without touching the spinner. It rides the tail turn's existing ~4fps repaint, so it costs nothing.
+      const pulse = Math.floor(options.spinnerFrame / 2) % 2 === 0 ? color.dim : color.faint;
+      add(`${TOOL_INDENT}${color.warning(spin)} ${pulse(truncateToWidth(label, Math.max(12, width - 10), '…'))}`);
     } else if (!hasText && turn.streaming) add(`  ${color.faint('…')}`);
     addBlank();
     return rows;

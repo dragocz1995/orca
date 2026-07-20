@@ -36,6 +36,7 @@ import { OverlayController } from './overlayController.js';
 import { RenderShell } from './renderShell.js';
 import { goalElapsedSeconds } from './goalState.js';
 import type { GoalView } from './brainClient.js';
+import { LONG_COMPOSE_TOOLS } from './composeLabels.js';
 
 export interface ShellInputDeps {
   cycleThinkingLevel(): void;
@@ -234,8 +235,14 @@ export const INTERRUPT_CONFIRM_MS = 1_800;
 export const NOTICE_TTL_MS = 4_000;
 
 /** How long the model must author a tool call with nothing new reaching the chat before the
- *  "writing tool call" hint appears. Short authoring windows stay silent; only a genuine stall surfaces. */
-const COMPOSE_MARKER_MS = 10_000;
+ *  "writing tool call" hint appears. Two thresholds: a long-duration tool (Write, Bash, Delegate… — see
+ *  LONG_COMPOSE_TOOLS) surfaces its localized action label SOONER, since it is worth naming even briefly;
+ *  every other tool waits the longer window so a quick call still stays silent. Both are overridable via
+ *  `ELOWEN_COMPOSE_MARKER_MS` (a single non-negative int applied to BOTH) to speed up the tmux E2E; an
+ *  unset/invalid value keeps these defaults. */
+const composeMarkerOverride = Number.parseInt(process.env.ELOWEN_COMPOSE_MARKER_MS ?? '', 10);
+const COMPOSE_MARKER_MS = Number.isFinite(composeMarkerOverride) && composeMarkerOverride >= 0 ? composeMarkerOverride : 10_000;
+const LONG_TOOL_COMPOSE_MARKER_MS = Number.isFinite(composeMarkerOverride) && composeMarkerOverride >= 0 ? composeMarkerOverride : 3_000;
 
 /** Pure half of the notice-expiry contract (mirrors `interruptPress`: the shell owns the timer, this
  *  makes the boundary testable). Decides what the frame loop does with the notice slot it just saw:
@@ -741,7 +748,12 @@ export function createChatComposition(
     if (rt.transcript.composing || rt.childView?.transcript.composing) {
       if (!composeStart) composeStart = Date.now();
     } else composeStart = 0;
-    const composingMarkerReady = composeStart > 0 && Date.now() - composeStart >= COMPOSE_MARKER_MS;
+    // A long-duration tool (either lane) earns the shorter threshold, so its localized label appears while
+    // the wait is still meaningful; everything else keeps the long stall-only window.
+    const composingTool = rt.transcript.composingToolName ?? rt.childView?.transcript.composingToolName;
+    const composeThreshold = composingTool && LONG_COMPOSE_TOOLS.has(composingTool)
+      ? LONG_TOOL_COMPOSE_MARKER_MS : COMPOSE_MARKER_MS;
+    const composingMarkerReady = composeStart > 0 && Date.now() - composeStart >= composeThreshold;
     // ~4 fps, matching the thinking timer's re-render cadence noted above — one spinner step per frame.
     const spinnerFrame = Math.floor(Date.now() / 250);
     parentViewport.setState({
@@ -754,6 +766,7 @@ export function createChatComposition(
       composingMarkerReady,
       spinnerFrame,
       showThoughts: rt.showThoughts,
+      locale: rt.locale,
     });
     if (rt.childView) {
       if (!childViewport || childViewportSession !== rt.childView.sessionId) {
@@ -772,6 +785,7 @@ export function createChatComposition(
         composingMarkerReady,
         spinnerFrame,
         showThoughts: rt.showThoughts,
+        locale: rt.locale,
       });
     } else if (childViewport) {
       // Parent and child keep independent scroll/expand registries. Closing a child discards only its

@@ -23,7 +23,7 @@ import { LocalShellBuffer } from './localShell.js';
 import { FileIndex, loadMentionFrecency } from './mentions.js';
 import { ChatEditor } from './picker.js';
 import { createPickers } from './pickers.js';
-import { loadPrefs } from './prefs.js';
+import { loadPrefs, resolveLocale } from './prefs.js';
 import { loadPromptHistory, PromptStash } from './promptHistory.js';
 import { SnapshotHydrator } from './snapshotHydrator.js';
 import { StreamCoordinator } from './streamCoordinator.js';
@@ -152,6 +152,7 @@ export class ChatApplication {
     const prefs = loadPrefs();
     if (prefs.theme && isChatThemeName(prefs.theme)) setChatTheme(prefs.theme);
     const keymap = initKeymap(prefs.keybinds);
+    const locale = resolveLocale(prefs);
     let showThoughts = prefs.showThoughts !== false;
     const client = this.client;
     await client.start({ provider: options.model, session: options.session, fresh: options.fresh });
@@ -207,6 +208,7 @@ export class ChatApplication {
       queued: boot?.queued ?? [],
       processes,
       showThoughts,
+      locale,
       mentionFrecency: loadMentionFrecency(process.cwd()),
     });
     const resources: ChatApplicationResources = {

@@ -104,6 +104,13 @@ export class TranscriptModel implements TranscriptRead {
     const last = this.turns.at(-1);
     return last?.role === 'elowen' && !!last.streaming && !!last.composing;
   }
+  /** The name of the tool currently being authored on the streaming tail, or undefined. Lets the frame
+   *  loop pick the composing-hint threshold by tool class (long tools surface sooner) without reaching
+   *  into the turn array. */
+  get composingToolName(): string | undefined {
+    const last = this.turns.at(-1);
+    return last?.role === 'elowen' && !!last.streaming && !!last.composing ? last.composingTool : undefined;
+  }
   get activity(): 'agent' | 'compaction' | null {
     return this.compactionActive ? 'compaction' : this.thinkingState ? 'agent' : null;
   }
@@ -154,9 +161,12 @@ export class TranscriptModel implements TranscriptRead {
         return true;
       case 'tool_authoring': {
         const { turn, index, fresh } = this.ensureAssistant();
-        if (turn.composing) return false; // already flagged this turn — no visible change
+        // No visible change only when already composing AND neither the tool nor its streamed detail moved.
+        // A new detail (the growing argument of a long tool) must repaint so the localized label updates.
+        if (turn.composing && turn.composingTool === event.name && turn.composingDetail === event.detail) return false;
         turn.composing = true;
         turn.composingTool = event.name;
+        turn.composingDetail = event.detail;
         this.thinkingState = true;
         this.publish(fresh ? { kind: 'append', index } : { kind: 'turn', index });
         return true;
@@ -165,6 +175,7 @@ export class TranscriptModel implements TranscriptRead {
         const { turn, index, fresh } = this.ensureAssistant();
         turn.composing = false; // the marker renders now — the authoring hint has done its job
         turn.composingTool = undefined;
+        turn.composingDetail = undefined;
         const item: ToolItem = {
           name: event.name,
           detail: event.detail,
@@ -288,7 +299,7 @@ export class TranscriptModel implements TranscriptRead {
       case 'idle': {
         const index = this.turns.length - 1;
         const last = index >= 0 ? this.visit(index) : undefined;
-        if (last?.role === 'elowen') this.turns[index] = { ...last, streaming: false, composing: false };
+        if (last?.role === 'elowen') this.turns[index] = { ...last, streaming: false, composing: false, composingTool: undefined, composingDetail: undefined };
         this.thinkingState = false;
         if (!this.compactionActive) this.noticeState = undefined;
         this.publish(last?.role === 'elowen' ? { kind: 'turn', index } : { kind: 'none' });
@@ -403,7 +414,10 @@ export class TranscriptModel implements TranscriptRead {
     const index = this.turns.length - 1;
     const last = index >= 0 ? this.visit(index) : undefined;
     if (last?.role === 'elowen' && last.streaming) {
-      const turn: ElowenTurn = { role: 'elowen', segments: [...last.segments], streaming: true, composing: last.composing };
+      // Preserve the authoring window across the reconstruction: the composing flag, the tool name and its
+      // streamed detail must survive so the `tool_authoring` change-detection (return false when nothing
+      // moved) compares against the real current state, not a wiped one.
+      const turn: ElowenTurn = { role: 'elowen', segments: [...last.segments], streaming: true, composing: last.composing, composingTool: last.composingTool, composingDetail: last.composingDetail };
       this.turns[index] = turn;
       return { turn, index, fresh: false };
     }
@@ -424,7 +438,7 @@ export class TranscriptModel implements TranscriptRead {
     if (index < 0) return;
     const tail = this.turns[index]!;
     if (tail.role === 'elowen' && tail.streaming) {
-      this.turns[index] = { ...tail, streaming: false, composing: false };
+      this.turns[index] = { ...tail, streaming: false, composing: false, composingTool: undefined, composingDetail: undefined };
       this.publish({ kind: 'turn', index });
     }
   }

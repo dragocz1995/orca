@@ -310,6 +310,41 @@ describe('TranscriptModel', () => {
     expect(turn().composingTool).toBeUndefined();
   });
 
+  it('updates the composing detail as the tool argument streams, and no-ops only when nothing changed', () => {
+    const model = new TranscriptModel([]);
+    const turn = () => { const t = model.turnAt(0); if (t?.role !== 'elowen') throw new Error('expected assistant turn'); return t; };
+
+    expect(model.apply({ type: 'tool_authoring', name: 'Write' })).toBe(true);
+    expect(turn().composingDetail).toBeUndefined();
+    // The streamed detail arrives → a visible change, so apply() reports it.
+    expect(model.apply({ type: 'tool_authoring', name: 'Write', detail: 'readme.md' })).toBe(true);
+    expect(turn().composingTool).toBe('Write');
+    expect(turn().composingDetail).toBe('readme.md');
+    // Same name AND same detail → nothing to repaint.
+    expect(model.apply({ type: 'tool_authoring', name: 'Write', detail: 'readme.md' })).toBe(false);
+    // A grown detail is a change again.
+    expect(model.apply({ type: 'tool_authoring', name: 'Write', detail: 'docs/readme.md' })).toBe(true);
+    expect(turn().composingDetail).toBe('docs/readme.md');
+  });
+
+  it('clears the composing detail when the tool marker lands and when the turn settles', () => {
+    const model = new TranscriptModel([]);
+    const turn = () => { const t = model.turnAt(0); if (t?.role !== 'elowen') throw new Error('expected assistant turn'); return t; };
+    model.apply({ type: 'tool_authoring', name: 'Write', detail: 'readme.md' });
+    expect(turn().composingDetail).toBe('readme.md');
+    model.apply({ type: 'tool', name: 'Write', id: 't1' });
+    expect(turn().composingDetail).toBeUndefined();
+    expect(model.composingToolName).toBeUndefined();
+
+    // A fresh authoring window that never reaches a marker is cleared on idle too.
+    model.apply({ type: 'tool_authoring', name: 'Bash', detail: 'npm test' });
+    expect(model.composingToolName).toBe('Bash');
+    model.apply({ type: 'idle' });
+    const t = model.turnAt(0);
+    expect(t?.role === 'elowen' && t.composingDetail).toBeUndefined();
+    expect(model.composingToolName).toBeUndefined();
+  });
+
   it('clears composing when the turn settles even if no tool followed', () => {
     const model = new TranscriptModel([]);
     model.apply({ type: 'tool_authoring' });

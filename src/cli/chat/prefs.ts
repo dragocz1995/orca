@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { dataDir } from '../paths.js';
+import type { ComposeLocale } from './composeLabels.js';
 
 /** Local (per-machine) chat-TUI preferences. The terminal theme is a property of THIS terminal — dark
  *  themes on a light terminal differ per machine — so it persists beside the token cache instead of in
@@ -12,6 +13,9 @@ export interface CliPrefs {
   /** Custom keybinds: action id → chord spec (see DEFAULT_KEYBINDS in keys.ts for the grammar).
    *  Edited by hand; /keybinds lists the effective map and flags invalid entries. */
   keybinds?: Record<string, string>;
+  /** Language for localized CLI action labels (the composing-tool hint). When unset the locale is
+   *  auto-detected from the `LC_ALL`/`LC_MESSAGES`/`LANG` environment (see {@link resolveLocale}). */
+  language?: ComposeLocale;
 }
 
 /** Where the prefs live. Hand-editing this file's `keybinds` map still works alongside the interactive
@@ -25,6 +29,14 @@ export function loadPrefs(env: NodeJS.ProcessEnv = process.env): CliPrefs {
     const parsed = JSON.parse(readFileSync(prefsFilePath(env), 'utf-8')) as unknown;
     return parsed && typeof parsed === 'object' ? (parsed as CliPrefs) : {};
   } catch { return {}; }
+}
+
+/** The effective CLI locale: the explicit `language` pref when set, else auto-detected from the POSIX
+ *  locale environment (`LC_ALL` → `LC_MESSAGES` → `LANG`, a `cs*` value meaning Czech), else English. */
+export function resolveLocale(prefs: CliPrefs, env: NodeJS.ProcessEnv = process.env): ComposeLocale {
+  if (prefs.language === 'cs' || prefs.language === 'en') return prefs.language;
+  const raw = env.LC_ALL || env.LC_MESSAGES || env.LANG || '';
+  return /^cs\b|^cs[_.@-]/i.test(raw) ? 'cs' : 'en';
 }
 
 /** Merge `patch` into the stored prefs. Best-effort — a read-only config dir must not break the TUI. */

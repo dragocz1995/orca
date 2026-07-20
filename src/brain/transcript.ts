@@ -126,7 +126,11 @@ export type ElowenTurn = { role: 'elowen'; segments: Segment[]; streaming: boole
   composing?: boolean;
   /** The name of the tool currently being authored, known from the `toolcall_start` block before its
    *  arguments finish streaming — lets the composing hint show the real tool. Cleared alongside `composing`. */
-  composingTool?: string };
+  composingTool?: string;
+  /** The salient argument of the tool being authored (file path, command, query…), as it streams in — lets
+   *  a long-duration tool's composing hint show a localized action label with its target. Cleared alongside
+   *  `composing`. */
+  composingDetail?: string };
 /** A context-compaction boundary: everything before it was summarized away, so the surface renders a
  *  subtle "context compacted" divider in its place followed by the kept tail (see `persistCompaction`). */
 export type DividerTurn = { role: 'divider' };

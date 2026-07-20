@@ -77,9 +77,41 @@ describe('message_update → assistant stream events', () => {
       .toEqual({ type: 'tool_authoring' });
   });
 
-  it('keeps dropping the argument deltas that follow it (the marker renders, not the raw JSON)', () => {
+  it('drops an argument delta with no resolvable partial block (nothing to derive a detail from)', () => {
     expect(ev({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', delta: '{"path":' } }))
       .toBeNull();
+  });
+
+  it('upgrades an argument delta to a tool_authoring carrying the streamed detail, change-only and throttled', () => {
+    const delta = (path: string, now: number) => toBrainEvent({
+      type: 'message_update',
+      assistantMessageEvent: {
+        type: 'toolcall_delta', contentIndex: 0,
+        partial: { content: [{ type: 'toolCall', id: 'w1', name: 'Write', arguments: { path } }] },
+      },
+    } as unknown as AgentSessionEvent, now);
+    // First derivable detail emits with the tool name.
+    expect(delta('readme.md', 1_000)).toEqual({ type: 'tool_authoring', name: 'Write', detail: 'readme.md' });
+    // Same detail → no visible change, dropped (and does not refresh the throttle clock).
+    expect(delta('readme.md', 1_050)).toBeNull();
+    // Changed detail but within 250ms of the last EMIT → throttled.
+    expect(delta('readme.md2', 1_100)).toBeNull();
+    // Changed detail past the window (measured from the last emit) → emits the new detail.
+    expect(delta('docs/readme.md', 1_300)).toEqual({ type: 'tool_authoring', name: 'Write', detail: 'docs/readme.md' });
+  });
+
+  it('releases the authoring slot when the tool starts executing, so a reused id emits immediately', () => {
+    const delta = (path: string, now: number) => toBrainEvent({
+      type: 'message_update',
+      assistantMessageEvent: {
+        type: 'toolcall_delta', contentIndex: 0,
+        partial: { content: [{ type: 'toolCall', id: 'w2', name: 'Write', arguments: { path } }] },
+      },
+    } as unknown as AgentSessionEvent, now);
+    expect(delta('a.ts', 3_000)).toEqual({ type: 'tool_authoring', name: 'Write', detail: 'a.ts' });
+    toBrainEvent({ type: 'tool_execution_start', toolName: 'Write', toolCallId: 'w2', args: { path: 'a.ts' } } as unknown as AgentSessionEvent, 3_010);
+    // Same instant as the start: the authoring slot is cleared, so the same detail is a fresh change again.
+    expect(delta('a.ts', 3_010)).toEqual({ type: 'tool_authoring', name: 'Write', detail: 'a.ts' });
   });
 
   it('still maps text and thinking deltas as before', () => {

@@ -3,6 +3,7 @@ import type { ProcessInfo } from '../../brain/processRegistry.js';
 import type { TranscriptModel } from '../../brain/transcriptModel.js';
 import type { BrainRateLimits, BrainStatus, BrainWorkMode, GoalView, McpServerView } from './brainClient.js';
 import type { FrecencyMap, PendingImage } from './mentions.js';
+import type { ComposeLocale } from './composeLabels.js';
 
 export interface ChatStateSeed {
   transcript: TranscriptModel;
@@ -25,6 +26,8 @@ export interface ChatStateSeed {
   goal?: GoalView | null;
   showThoughts?: boolean;
   mentionFrecency?: FrecencyMap;
+  /** Locale for localized action labels (the composing-tool hint). Defaults to English. */
+  locale?: ComposeLocale;
 }
 
 /** One writable UI state for a chat application. Services mutate this instance; the transcript view is
@@ -66,6 +69,8 @@ export class ChatState {
   private goalCommandRevision = 0;
   listed: { id: string; title: string }[] = [];
   showThoughts: boolean;
+  /** Locale for localized CLI action labels — resolved once at startup, read by the render frame loop. */
+  readonly locale: ComposeLocale;
   pendingImages: PendingImage[] = [];
   mentionFrecency: FrecencyMap;
 
@@ -89,6 +94,7 @@ export class ChatState {
     this.processes = seed.processes ?? [];
     this.currentGoal = seed.goal ?? null;
     this.showThoughts = seed.showThoughts ?? true;
+    this.locale = seed.locale ?? 'en';
     this.mentionFrecency = seed.mentionFrecency ?? {};
   }
 

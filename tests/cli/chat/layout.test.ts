@@ -61,11 +61,38 @@ describe('chat layout components', () => {
         .render(turn, 0, 80, { showThoughts: true, thinkingSeconds: 0, composingMarkerReady, spinnerFrame: 0, expandedThoughts: new Set(), expandedTools: new Set() })
         .map((row) => row.line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
 
-    it('shows a spinner and the real tool name once the authoring window has stalled, even after prose', () => {
+    it('shows a spinner and the real tool action once the authoring window has stalled, even after prose', () => {
       const rendered = render({ role: 'elowen', streaming: true, composing: true, composingTool: 'Write', segments: [{ kind: 'text', text: 'Let me look.' }] });
       expect(rendered).toContain('Let me look.');
       expect(rendered).toMatch(SPIN);
-      expect(rendered).toContain('Write'); // the tool being authored, not a generic placeholder
+      // Write is a long-duration tool → its localized (en default) action label, not a generic placeholder.
+      expect(rendered).toContain('Writing file');
+    });
+
+    const renderLocale = (turn: Parameters<TurnRenderer['render']>[0], locale: 'en' | 'cs'): string =>
+      new TurnRenderer(getMarkdownTheme())
+        .render(turn, 0, 80, { showThoughts: true, thinkingSeconds: 0, composingMarkerReady: true, spinnerFrame: 0, locale, expandedThoughts: new Set(), expandedTools: new Set() })
+        .map((row) => row.line.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
+
+    it('shows a localized action label with the salient argument for a long tool (spinner kept)', () => {
+      const turn = { role: 'elowen' as const, streaming: true, composing: true, composingTool: 'Write', composingDetail: 'readme.md', segments: [{ kind: 'text' as const, text: 'Let me look.' }] };
+      const en = renderLocale(turn, 'en');
+      expect(en).toMatch(SPIN);
+      expect(en).toContain('Writing file readme.md');
+      const cs = renderLocale(turn, 'cs');
+      expect(cs).toMatch(SPIN);
+      expect(cs).toContain('Píšu soubor readme.md');
+    });
+
+    it('falls back to today\'s exact output for a quick tool NOT on the allow-list, in any locale', () => {
+      const turn = { role: 'elowen' as const, streaming: true, composing: true, composingTool: 'Read', composingDetail: 'a.ts', segments: [{ kind: 'text' as const, text: 'Let me look.' }] };
+      for (const locale of ['en', 'cs'] as const) {
+        const rendered = renderLocale(turn, locale);
+        expect(rendered).toMatch(SPIN);
+        expect(rendered).toContain('Read'); // the generic toolRowSpec title, not a localized phrase
+        expect(rendered).not.toContain('Píšu');
+        expect(rendered).not.toContain('Writing file');
+      }
     });
 
     it('falls back to a neutral label when the tool name is not yet known', () => {

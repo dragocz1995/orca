@@ -7,6 +7,7 @@ import { DynamicHeightIndex } from './heightIndex.js';
 import { padAnsi, terminalInlineText, terminalPlainText } from '../ui/text.js';
 import { TurnRenderer } from './turnRenderer.js';
 import type { TranscriptRow } from './turnRenderer.js';
+import type { ComposeLocale } from './composeLabels.js';
 
 interface TurnLayoutEntry {
   turn: ChatTurn | null;
@@ -44,6 +45,8 @@ export interface ChatViewportState {
   spinnerFrame?: number;
   /** Render the model's Thought rows (default true) — `/reasoning show` toggles it. */
   showThoughts?: boolean;
+  /** Locale for the localized composing-tool action label. Defaults to English. */
+  locale?: ComposeLocale;
 }
 
 export interface ChatViewportMetrics {
@@ -778,6 +781,7 @@ export class ChatViewport implements Component {
       thinkingSeconds: this.state.thinkingSeconds,
       composingMarkerReady: this.state.composingMarkerReady === true,
       spinnerFrame: this.state.spinnerFrame ?? 0,
+      locale: this.state.locale ?? 'en',
       expandedThoughts: this.expandedThoughts,
       expandedTools: this.expandedTools,
     });

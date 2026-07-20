@@ -35,8 +35,10 @@ export type BrainEvent =
    *  Bridges the gap where the transcript would otherwise freeze (text done, tool marker not yet shown);
    *  the matching `tool` event, which renders the marker, ends it. Purely a live hint: no durable row, and
    *  a client may ignore it. Authoring is atomic per turn (PI writes every call, then executes), so this
-   *  needs no id — the first `tool` of the turn clears it. */
-  | { type: 'tool_authoring'; name?: string }
+   *  needs no id — the first `tool` of the turn clears it. `detail` is the call's salient argument as it
+   *  streams in (file path, command, query…), so a long-duration tool can show a localized action label
+   *  instead of the generic hint; absent until the arguments have streamed far enough to derive one. */
+  | { type: 'tool_authoring'; name?: string; detail?: string }
   /** A tool call starting. `icon` is resolved daemon-side from the core map + plugin manifest `icons`
    *  (single source; clients render it, falling back to a generic glyph when absent). */
   | { type: 'tool'; name: string; detail?: string; icon?: string; id?: string; command?: string }
@@ -297,6 +299,16 @@ const PROGRESS_TAIL_CHARS = 2_000;
  *  dropped on the matching `tool_execution_end`, so the map never outgrows the set of live tool calls. */
 const lastProgressAt = new Map<string, number>();
 
+/** At most one `tool_authoring` detail update per authoring tool call per this window — the ceiling on
+ *  how often the streaming argument detail (e.g. a growing file path) re-emits while the model writes a
+ *  call. Mirrors `PROGRESS_THROTTLE_MS` but wider: the detail only needs to settle to a readable label,
+ *  not stream live. */
+const AUTHORING_THROTTLE_MS = 250;
+/** Per-authoring-call last emitted detail + timestamp, for the change-detection + throttle in the
+ *  `toolcall_delta` mapping. Entries are dropped when the tool actually starts/ends executing (its
+ *  authoring window is over), so the map never outgrows the set of in-flight calls. */
+const lastAuthoringAt = new Map<string, { detail: string | undefined; at: number }>();
+
 /** Extract the rolling tail of text from a PI `partialResult` (same `{ content: [{ text }] }` shape as
  *  a final tool result). Concatenates the text parts and keeps only the last `PROGRESS_TAIL_CHARS`. */
 function progressTail(partial: unknown): string {
@@ -318,7 +330,7 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
     // the partial block at `contentIndex` (only its arguments stream in later), so we thread it out.
     assistantMessageEvent?: {
       type?: string; delta?: string; contentIndex?: number;
-      partial?: { content?: { type?: string; name?: string }[] };
+      partial?: { content?: { type?: string; name?: string; id?: string; arguments?: unknown }[] };
     };
     attempt?: number; maxAttempts?: number; errorMessage?: string; success?: boolean;
     // compaction_end carries its outcome: `result` is the CompactionResult on success, undefined on a
@@ -343,6 +355,24 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
       const block = typeof ev.contentIndex === 'number' ? ev.partial?.content?.[ev.contentIndex] : undefined;
       const name = block?.type === 'toolCall' && typeof block.name === 'string' ? block.name : undefined;
       return name ? { type: 'tool_authoring', name } : { type: 'tool_authoring' };
+    }
+    // The call's arguments are streaming in. Read the same partial block the start event carried and
+    // re-derive the salient detail (file path, command, query…) so a long-duration tool can upgrade the
+    // generic authoring hint to a localized action label. Emit only when the derived detail CHANGED for
+    // this call's id, throttled per id — a chatty delta stream would otherwise re-noise the SSE with the
+    // same label. Without a resolvable block (no contentIndex/partial) there is nothing to show, so drop.
+    if (ev?.type === 'toolcall_delta') {
+      const block = typeof ev.contentIndex === 'number' ? ev.partial?.content?.[ev.contentIndex] : undefined;
+      if (block?.type !== 'toolCall') return null;
+      const name = typeof block.name === 'string' ? block.name : undefined;
+      const detail = toolDetail(block.arguments, name);
+      const id = typeof block.id === 'string' ? block.id : undefined;
+      if (!id) return detail ? { type: 'tool_authoring', ...(name ? { name } : {}), detail } : null;
+      const last = lastAuthoringAt.get(id);
+      if (last && last.detail === detail) return null;               // unchanged → nothing new to render
+      if (last && now - last.at < AUTHORING_THROTTLE_MS) return null; // changed but within the window → drop
+      lastAuthoringAt.set(id, { detail, at: now });
+      return { type: 'tool_authoring', ...(name ? { name } : {}), detail };
     }
     return null;
   }
@@ -376,13 +406,14 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
   }
   // Emit the tool name ONCE, when it starts — never the raw streamed output (_update noise).
   if (anyE.type === 'tool_execution_start' && typeof anyE.toolName === 'string') {
+    if (typeof anyE.toolCallId === 'string') lastAuthoringAt.delete(anyE.toolCallId); // authoring is over
     // The start event carries the arguments (the end event does not), so the verbatim shell command is
     // captured HERE and threaded to the output on the matching end event by the transcript reducer.
     return { type: 'tool', name: anyE.toolName, detail: toolDetail(anyE.args, anyE.toolName), command: toolCommand(anyE.args), id: anyE.toolCallId };
   }
   // Edits carry a display diff in their result details — that's the one tool output worth showing.
   if (anyE.type === 'tool_execution_end') {
-    if (typeof anyE.toolCallId === 'string') lastProgressAt.delete(anyE.toolCallId); // release the throttle slot
+    if (typeof anyE.toolCallId === 'string') { lastProgressAt.delete(anyE.toolCallId); lastAuthoringAt.delete(anyE.toolCallId); } // release the throttle slots
     const diff = anyE.result?.details?.diff;
     if (typeof diff === 'string' && diff.trim()) {
       // A hook-annotated edit (details.notes) keeps its note: toolOutputView builds a notes-only view
