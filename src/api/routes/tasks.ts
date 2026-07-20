@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { shapeBrainMessages } from '../../brain/messageView.js';
+import { taskSessionId } from '../../brain/sessionId.js';
 import { readTaskUsage } from '../../integrations/usage/index.js';
 import { projectRangeFileDiff, projectRangeLog, projectCommitFileDiff } from '../../integrations/projectFiles.js';
 import { decompose, parsePhases, modelsBlock, parallelismBlock, VALID_TYPES as VALID_PHASE_TYPES, type Phase } from '../../overseer/planner.js';
@@ -167,7 +168,7 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
     if (!task) return c.json({ error: 'not found' }, 404);
     if (!canAccessProject(c, task.project_id)) return c.json({ error: 'forbidden' }, 403);
     if (!d.brainStore) return c.json([]);
-    const sessionId = `brain-task-${id}`;
+    const sessionId = taskSessionId(id);
     return c.json(shapeBrainMessages(d.brainStore.getMessages(sessionId), d.brainStore.getSubagentRuns(sessionId)));
   });
 

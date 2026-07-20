@@ -14,7 +14,7 @@ import { normalizeCard } from './cards.js';
 import { projectUserTurn } from './persistence.js';
 import { newCostMeter, runWithMeter } from './openrouterMeter.js';
 import { extractText, frameUntrusted, isThinkingOnlyReply, NO_REPLY_NUDGE } from './messageView.js';
-import { channelSessionId, archivedChannelSessionId } from './sessionId.js';
+import { channelSessionId, archivedChannelSessionId, isChannelSession, channelIdOf } from './sessionId.js';
 import { isPromptCommand } from './slashCommands.js';
 import { rolloverDue, SESSION_IDLE_ROLLOVER_MS } from './session/idleRollover.js';
 import { applyToolVisibility } from './session/capabilities.js';
@@ -517,7 +517,7 @@ export class ChannelSessionService {
       // prompt settles and throws, so the delegate plugin records ERROR rather than DONE/empty output.
       if (this.d.registry.isActiveChild(ch.sessionId)) this.d.registry.requestPendingAbort(ch.sessionId);
       for (const child of this.d.registry.childrenOf(ch.sessionId)) {
-        if (child.startsWith('brain-ch-')) await this.abortTree(child.slice('brain-ch-'.length), seen);
+        if (isChannelSession(child)) await this.abortTree(channelIdOf(child), seen);
       }
       this.d.registry.clearChildren(ch.sessionId);
       // Match owner-chat stop semantics: queued steering belongs to the interrupted turn and a parked

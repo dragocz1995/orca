@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from './db.js';
 import { extractText } from '../brain/messageView.js';
+import { CHANNEL_PREFIX, TASK_PREFIX } from '../brain/sessionId.js';
 import {
   normalizeDelegatedExecutionScope,
   sameDelegatedExecutionScope,
@@ -280,7 +281,9 @@ const USAGE_ROWS = `
 // (task then failed/cancelled, never relaunched) has NO task_usage row, so its persisted spend is KEPT
 // here instead of vanishing from every stat. Non-task chat sessions always pass. `substr(id, 12)` strips
 // the `brain-task-` prefix (11 chars) to recover the task id.
-const TASK_SNAPSHOT_EXCLUSION = `NOT (session_id LIKE 'brain-task-%' AND EXISTS (SELECT 1 FROM task_usage tu WHERE tu.task_id = substr(session_id, 12)))`;
+// `substr(id, TASK_PREFIX.length + 1)` recovers the task id (SQLite substr is 1-indexed) — derived from
+// the prefix so a rename can't leave the old magic offset behind.
+const TASK_SNAPSHOT_EXCLUSION = `NOT (session_id LIKE '${TASK_PREFIX}%' AND EXISTS (SELECT 1 FROM task_usage tu WHERE tu.task_id = substr(session_id, ${TASK_PREFIX.length + 1})))`;
 
 /** One per-model bucket of usage rolled up from the assistant rows a compaction DROPS, folded onto the
  *  `compaction` divider so historical spend survives (compaction deletes those rows). Stored as an ARRAY
@@ -429,8 +432,8 @@ export class BrainStore {
       `SELECT s.id FROM brain_sessions s
        WHERE s.user_id = ?
          AND s.parent_session_id IS NULL
-         AND s.id NOT LIKE 'brain-ch-%'
-         AND s.id NOT LIKE 'brain-task-%'
+         AND s.id NOT LIKE '${CHANNEL_PREFIX}%'
+         AND s.id NOT LIKE '${TASK_PREFIX}%'
          AND s.updated_at < datetime('now', '-${d} days')
          AND EXISTS (SELECT 1 FROM brain_messages m WHERE m.session_id = s.id)`
     ).all(userId) as { id: string }[];
@@ -989,7 +992,7 @@ export class BrainStore {
       `SELECT m.session_id, s.title, m.role, m.content, m.created_at
          FROM brain_messages m JOIN brain_sessions s ON s.id = m.session_id
         WHERE s.user_id = ? AND m.role IN ('user', 'assistant') AND m.content LIKE ? ESCAPE '\\'
-          AND m.session_id NOT LIKE 'brain-ch-%' AND m.session_id NOT LIKE 'brain-task-%'
+          AND m.session_id NOT LIKE '${CHANNEL_PREFIX}%' AND m.session_id NOT LIKE '${TASK_PREFIX}%'
         ORDER BY m.created_at DESC, m.rowid DESC
         LIMIT 500`
     ).all(userId, like) as { session_id: string; title: string; role: string; content: string; created_at: string }[];

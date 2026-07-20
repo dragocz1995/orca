@@ -19,7 +19,7 @@ import { PlatformOrchestrator } from './platforms.js';
 import type { BrainMessageView } from './messageView.js';
 import { runCompaction, withDescendantUsage } from './events.js';
 import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult } from './events.js';
-import { isNonUserSession, defaultUserSessionId, channelSessionId, archivedChannelSessionId } from './sessionId.js';
+import { isNonUserSession, isOwnedUserSession, isChannelSession, isSubagentSession, channelIdOf, defaultUserSessionId, channelSessionId, archivedChannelSessionId } from './sessionId.js';
 import { lastAssistantText } from './goal.js';
 import { ClientAttachments } from './service/attachments.js';
 import { PermissionApprovalService } from './service/permissionApproval.js';
@@ -434,8 +434,8 @@ export class BrainService {
     const spared = this.sparedChildSessionIds(b.sessionId);
     const doomed = this.sessions.childrenOf(b.sessionId).filter((child) => !spared.has(child));
     await Promise.all(doomed
-      .filter((child) => child.startsWith('brain-ch-'))
-      .map((child) => this.channelService.abort(child.slice('brain-ch-'.length))));
+      .filter((child) => isChannelSession(child))
+      .map((child) => this.channelService.abort(channelIdOf(child))));
     // Deregister ONLY the doomed children — a spared child MUST stay registered so it keeps counting toward
     // emitSubagent/status/reconcile/hasActiveChildren (channel eviction, /status, running-subagents block).
     for (const child of doomed) this.sessions.setChildRunning(b.sessionId, child, false);
@@ -631,7 +631,7 @@ export class BrainService {
    *  the next start() falls back to the most recent remaining one. */
   deleteSession(userId: number, sessionId: string): void {
     const row = this.d.store.getSession(sessionId);
-    if (!row || row.user_id !== userId || isNonUserSession(sessionId)) throw new Error('unknown session');
+    if (!isOwnedUserSession(row, userId, sessionId)) throw new Error('unknown session');
     // Tear down any chat terminal bound to this conversation FIRST (docs order: terminal, then session).
     // Fire-and-forget — deleteSession is sync and the binding row outlives store.deleteSession (separate
     // table), so the async teardown still resolves the row; the janitor is the backstop if it's unwired.
@@ -648,7 +648,7 @@ export class BrainService {
   renameSession(userId: number, sessionId: string, title: string): { id: string; title: string } {
     const row = this.d.store.getSession(sessionId);
     const clean = title.trim().replace(/\s+/g, ' ').slice(0, 120);
-    if (!row || row.user_id !== userId || isNonUserSession(sessionId)) throw new Error('unknown session');
+    if (!isOwnedUserSession(row, userId, sessionId)) throw new Error('unknown session');
     if (!clean) throw new Error('title cannot be empty');
     const changed = row.title !== clean;
     this.d.store.renameSession(sessionId, clean);
@@ -753,7 +753,7 @@ export class BrainService {
     this.cleanupProcessesForTree(id);
     this.elicitation.cancelForSession(id, 'session deleted');
     this.goals.cancelGoalContinuation(id);
-    if (id.startsWith('brain-ch-')) this.sessions.channelDispose(id.slice('brain-ch-'.length));
+    if (isChannelSession(id)) this.sessions.channelDispose(channelIdOf(id));
     else if (this.sessions.has(id)) this.sessions.dispose(id);
     this.d.store.deleteSession(id);
     return 1;
@@ -863,7 +863,7 @@ export class BrainService {
   } {
     const row = this.d.store.getSession(sessionId);
     if (!row || row.user_id !== userId) throw new Error('unknown session');
-    if (!sessionId.startsWith('brain-ch-subagent-')) throw new Error('not a sub-agent session');
+    if (!isSubagentSession(sessionId)) throw new Error('not a sub-agent session');
     const parentSessionId = row.parent_session_id;
     if (!parentSessionId) throw new Error('invalid parent session');
     const parent = this.d.store.getSession(parentSessionId);
@@ -906,7 +906,7 @@ export class BrainService {
         ?? { allowedProjectIds: new Set(scope.projectIds), allowedPaths: () => [] };
     const deniedTools = this.d.users.get(userId)?.disabled_tools ?? [];
     await this.channelService.send({
-      channelId: sessionId.slice('brain-ch-'.length),
+      channelId: channelIdOf(sessionId),
       ownerUserId: row.user_id,
       // A drill-in continuation is a new child run, not a standalone channel turn. Preserve the durable
       // edge so parent stop/status and eviction guards keep owning it even after the child respawns.

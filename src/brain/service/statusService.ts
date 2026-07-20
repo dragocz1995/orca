@@ -11,7 +11,7 @@ import type { LiveBrain } from '../session/liveBrain.js';
 import { queueDisplayItems } from '../session/queueMirror.js';
 import type { ElicitationRegistry } from '../elicitation.js';
 import type { CardRegistry } from '../cards.js';
-import { isNonUserSession, defaultUserSessionId } from '../sessionId.js';
+import { isNonUserSession, isChannelSession, isTaskSession, channelIdOf, defaultUserSessionId } from '../sessionId.js';
 import { terminalizeWorkflow } from '../workflowRuns.js';
 import type { BrainDeps } from '../brainDeps.js';
 import type { ClientAttachments } from './attachments.js';
@@ -99,7 +99,7 @@ export class BrainStatusService {
    *  check would misread as an orphan and flicker. */
   private workflowRuns(sessionId: string): BrainWorkflowRun[] {
     const live = this.d.sessions.has(sessionId)
-      || (sessionId.startsWith('brain-ch-') && !!this.d.sessions.channelGet(sessionId.slice('brain-ch-'.length)));
+      || (isChannelSession(sessionId) && !!this.d.sessions.channelGet(channelIdOf(sessionId)));
     return this.d.store.getWorkflowRuns(sessionId)
       .map((run) => (live || run.status !== 'running' ? run : terminalizeWorkflow(run)));
   }
@@ -262,11 +262,11 @@ export class BrainStatusService {
     const tokens = this.d.store.tokenTotals(userId);
     const unspoken = this.d.store.unspokenSessionIds(userId);
     return this.d.store.listSessions(userId).filter((s) => !unspoken.has(s.id)).map((s) => {
-      const channel = s.id.startsWith('brain-ch-');
-      const running = channel ? !!this.d.sessions.channelGet(s.id.slice('brain-ch-'.length)) : this.d.sessions.has(s.id);
+      const channel = isChannelSession(s.id);
+      const running = channel ? !!this.d.sessions.channelGet(channelIdOf(s.id)) : this.d.sessions.has(s.id);
       return {
         id: s.id, title: s.title, model: s.model, updated_at: s.updated_at, running, active: s.id === activeId,
-        kind: channel ? 'channel' as const : s.id.startsWith('brain-task-') ? 'task' as const : 'conversation' as const,
+        kind: channel ? 'channel' as const : isTaskSession(s.id) ? 'task' as const : 'conversation' as const,
         tokens: tokens[s.id] ?? 0,
       };
     });
@@ -307,7 +307,7 @@ export class BrainStatusService {
     const row = this.d.store.getSession(sessionId);
     if (!row || row.user_id !== userId) throw new Error('unknown session');
     const live = this.d.sessions.get(sessionId)
-      ?? (sessionId.startsWith('brain-ch-') ? this.d.sessions.channelGet(sessionId.slice('brain-ch-'.length)) : undefined);
+      ?? (isChannelSession(sessionId) ? this.d.sessions.channelGet(channelIdOf(sessionId)) : undefined);
     const replay = live?.replay.transportSnapshot() ?? { cursor: 0, events: [], run: 0, eventCursors: [] };
     const orderedUserRows = new Set(replay.events.flatMap((event) =>
       event.type === 'user' && event.durableId ? [event.durableId] : []));

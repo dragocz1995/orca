@@ -8,7 +8,7 @@ import { DEFAULT_AUTO_COMPACT_PCT } from '../session/liveBrain.js';
 import type { LiveBrain, SpawnOpts } from '../session/liveBrain.js';
 import { rolloverDue } from '../session/idleRollover.js';
 import { decideVisionHop } from '../visionFallback.js';
-import { defaultUserSessionId, freshUserSessionId, isNonUserSession } from '../sessionId.js';
+import { defaultUserSessionId, freshUserSessionId, isNonUserSession, isChannelSession, channelIdOf } from '../sessionId.js';
 import type { BrainDeps } from '../brainDeps.js';
 import type { ClientAttachments } from './attachments.js';
 import type { GoalLoopService } from './goalLoop.js';
@@ -142,7 +142,7 @@ export class ConversationLifecycle {
    *  keyed by session id, channel sessions by channel id). */
   private liveFor(sessionId: string): LiveBrain | undefined {
     return this.d.sessions.get(sessionId)
-      ?? (sessionId.startsWith('brain-ch-') ? this.d.sessions.channelGet(sessionId.slice('brain-ch-'.length)) : undefined);
+      ?? (isChannelSession(sessionId) ? this.d.sessions.channelGet(channelIdOf(sessionId)) : undefined);
   }
 
   /** Start (or resume) a conversation. `session` resumes that stored conversation (ownership checked);

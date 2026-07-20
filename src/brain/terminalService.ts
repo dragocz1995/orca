@@ -1,7 +1,7 @@
 import type { TmuxDriver } from '../tmux/types.js';
 import type { UserStore } from '../store/userStore.js';
 import type { BrainStore, BrainTerminalRow } from '../store/brainStore.js';
-import { brainTerminalName, isNonUserSession } from './sessionId.js';
+import { brainTerminalName, isOwnedUserSession } from './sessionId.js';
 import { logger } from '../shared/logger.js';
 
 const log = logger('brain-terminal');
@@ -49,9 +49,9 @@ export class BrainTerminalService {
 
   private async openInner(userId: number, brainSessionId: string, terminalName: string): Promise<{ terminal: string; created: boolean }> {
     // Ownership + continuability: a real stored conversation this admin owns that the CLI can resume via
-    // /brain/start (never a channel/task shell). Same rule as ConversationLifecycle.ownedUserSession.
+    // /brain/start (never a channel/task shell) — the shared isOwnedUserSession rule.
     const row = this.d.store.getSession(brainSessionId);
-    if (!row || row.user_id !== userId || isNonUserSession(brainSessionId)) throw new Error('unknown session');
+    if (!isOwnedUserSession(row, userId, brainSessionId)) throw new Error('unknown session');
 
     const existing = this.d.store.getBrainTerminalBySession(userId, brainSessionId);
     if (existing) {
