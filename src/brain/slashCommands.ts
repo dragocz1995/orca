@@ -59,6 +59,9 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   // WhatsApp and Telegram; only the web dock has no picker for it yet (would show a dead menu entry).
   { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli', 'discord', 'whatsapp', 'telegram'] },
   { name: 'theme', description: 'Switch the terminal colour theme', kind: 'picker', surfaces: ['cli'] },
+  // CLI-local: opens the keybinds modal in the TUI (parseCommand dispatches it before any server call).
+  // Lives in the catalog so the CLI command menu lists it from the single roster, not a synthetic inject.
+  { name: 'keybinds', description: 'List keyboard shortcuts and where to customize them', kind: 'info', surfaces: ['cli'] },
   // CLI-only: ticks what the bottom status bar shows. The toggles are the statusline plugin's shared
   // config (also editable in the web dock), so the picker PATCHes it server-side and refreshes the bar.
   { name: 'statusline', description: 'Choose what the bottom status bar shows', kind: 'picker', surfaces: ['cli'] },

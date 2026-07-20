@@ -169,13 +169,7 @@ export class ChatApplication {
     const localPick = !!(prefs.theme && isChatThemeName(prefs.theme));
     if (!localPick && termSettings?.theme === 'custom' && termSettings.palette) setCustomChatTheme(termSettings.palette);
     if (typeof termSettings?.showThoughtsCli === 'boolean') showThoughts = termSettings.showThoughtsCli;
-    let commandDefs = serverCommands.length ? serverCommands : commandsFor('cli', true);
-    if (!commandDefs.some((command) => command.name === 'keybinds')) {
-      commandDefs = [...commandDefs, {
-        name: 'keybinds', description: 'List keyboard shortcuts and where to customize them',
-        kind: 'info', surfaces: ['cli'],
-      }];
-    }
+    const commandDefs = serverCommands.length ? serverCommands : commandsFor('cli', true);
 
     const term = new ProcessTerminal();
     const tui = new TUI(term);
