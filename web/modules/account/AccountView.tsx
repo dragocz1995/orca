@@ -255,11 +255,13 @@ export function AccountView() {
   // they have no per-user restriction.
   const restricted = u.allowed_execs.length > 0;
   const pickable = restricted ? u.allowed_execs : (config?.allowedExecs ?? []);
-  const labelOf = (exec: string) => allModels(custom).find((m) => m.exec === exec)?.label ?? exec;
+  const brainLabelByExec = new Map((brainModels.data ?? []).map((m) => [m.exec, m.model]));
+  const labelOf = (exec: string) => allModels(custom).find((m) => m.exec === exec)?.label ?? brainLabelByExec.get(exec) ?? exec;
 
-  // Split the pickable execs into worker engines (set default_exec) vs the embedded Elowen AI brain (set
-  // the cli-settings chat model) — the two defaults live apart, each its own single-select picker.
-  const workerExecs = pickable.filter((e) => execProvider(e) !== 'elowen');
+  // Every pickable exec is a selectable Default worker (writes default_exec) — INCLUDING Elowen AI models
+  // enabled in Settings→Models, which the daemon runs as embedded brain workers. The separate Elowen AI
+  // picker below sets a different thing entirely: the user's brain CHAT model (cli-settings), not a worker.
+  const workerExecs = pickable;
   // Elowen AI chat models: honour a user's personal allow-list even as admin (mirrors the worker rail +
   // the Discord /model fix) — brainModels is already per-user-scoped server-side for non-admins.
   const elowenModels = (brainModels.data ?? []).filter((m) => !restricted || u.allowed_execs.includes(m.exec));
