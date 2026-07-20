@@ -53,6 +53,31 @@ jobs:
       - run: npm test
       - run: npm run test:cli-tmux:built
 
+  brain-e2e:
+    name: Brain E2E (real daemon)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # The real daemon boots RealTmuxDriver and runs startup sweeps that shell out to tmux; install it so
+      # those best-effort calls don't spew errors during boot.
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # Boots the ACTUAL built daemon on a throwaway port + temp DB, points its brain at a scripted
+      # OpenAI-compatible model server, and drives a real chat turn over HTTP+SSE (auth → start → stream →
+      # send → tool call → idle → persisted transcript), plus a teeth check that a provider error surfaces.
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/tests/brain-e2e/chat-turn.mjs
+
   web:
     name: Web (build + test)
     runs-on: ubuntu-latest
