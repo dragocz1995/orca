@@ -46,6 +46,7 @@ Run these from the repository root unless noted.
 | `npm test` | Daemon Vitest suite |
 | `npm run test:watch` | Daemon tests in watch mode |
 | `npm run test:cli-tmux` | Build then run the built CLI/tmux integration check |
+| `npm run test:install` | Pack the npm tarball and smoke-test the first unboxing in Docker |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Strict TypeScript check without emitting output |
 | `npm run deadcode` | Knip unused-code check |

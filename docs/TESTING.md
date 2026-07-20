@@ -75,6 +75,19 @@ npm --prefix web run e2e:smoke  # fast @smoke subset
 CI does not run the browser suite — run it locally after chat-surface, proxy,
 or onboarding changes.
 
+## Install smoke (packed artifact)
+
+`npm run test:install` verifies the artifact a brand-new user actually receives.
+The orchestrator in `scripts/install-smoke/` builds, packs the npm tarball,
+asserts it ships `dist/`, `web-dist/`, `prompts/`, and `plugins/` (a tripwire
+for `files` omissions), then builds a clean `node:22` Docker image that
+installs only the tarball and runs the first-unboxing contract: `elowen
+--version`, `elowen up`, daemon health, the setup-mode API, first-admin
+creation, auth re-engaging, the web UI serving, and `elowen down`. No repo
+source or dev dependencies enter the image, so packaging and first-run bugs the
+source-tree jobs never see fail here. It needs Docker locally and is not part
+of the inner edit-test loop.
+
 ## Static and production checks
 
 Run the smallest relevant set while developing, then use the full checks for a
@@ -102,6 +115,7 @@ The GitHub Actions workflow for `main` runs three independent jobs:
 | Lint | ESLint, Knip, and dependency-cruiser with both dependency trees installed |
 | Daemon | Build, daemon Vitest suite, and built CLI/tmux check |
 | Web | Next.js production build and the web Vitest suite |
+| Install smoke | The packed npm tarball unboxes and boots cleanly in a clean Docker container |
 
 CI uses Node 22. A local change that touches both daemon and web code should
 normally run `npm run check`, `npm test`, `npm run build`, `npm --prefix web
