@@ -45,6 +45,21 @@ function pinoShim(log) {
   return shim;
 }
 
+// ── test seam ──────────────────────────────────────────────────────────────────────────────────────
+// Baileys speaks an encrypted Noise-protocol WebSocket with Signal E2E encryption and QR/multi-device
+// pairing, so it cannot be faked at the wire. To let the E2E suite exercise the adapter's REAL inbound
+// pipeline and outbound send path, `WHATSAPP_E2E_SOCKET_MODULE` may point at a module exporting
+// `createFakeSocket(options)` — an in-process fake connected socket (its own EventEmitter for
+// creds.update/connection.update/messages.upsert plus sendMessage/sendPresenceUpdate/… ). When the var is
+// unset (always, in production) the real `makeWASocket` is used — a strict no-op. Resolved once, cached.
+let socketFactory;
+async function resolveSocketFactory() {
+  if (socketFactory !== undefined) return socketFactory;
+  const modPath = process.env.WHATSAPP_E2E_SOCKET_MODULE;
+  socketFactory = modPath ? (await import(modPath)).createFakeSocket : null;
+  return socketFactory;
+}
+
 function rolePrompt(policy) {
   const parts = [];
   if (policy.name) parts.push(`The user you are talking to has the "${policy.name}" role.`);
@@ -153,7 +168,8 @@ export class WhatsAppAdapter {
    *  persisted auth state, so a reconnect never re-pairs. */
   async startSocket() {
     if (this.stopped) return;
-    const sock = makeWASocket({
+    const factory = (await resolveSocketFactory()) ?? makeWASocket; // test seam; makeWASocket in production
+    const sock = factory({
       auth: this.authState,
       logger: this.plog,
       browser: Browsers.ubuntu('Elowen'),
