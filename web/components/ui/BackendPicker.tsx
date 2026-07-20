@@ -14,7 +14,7 @@ function WorkerGroupIcon({ provider }: { provider: ProviderId }) {
   if (!meta) return null;
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={meta.icon} alt="" width={14} height={14} style={{ objectFit: 'contain' }} className={meta.embedded ? 'logo-adaptive' : undefined} aria-hidden />
+    <img src={meta.icon} alt="" width={14} height={14} style={{ objectFit: 'contain' }} aria-hidden />
   );
 }
 
@@ -62,24 +62,25 @@ export function BackendPicker({ value, onChange, models, relayLabel, allowRelay 
       const prov = execProvider(m.exec);
       return { id: m.exec, label: m.label, group: `w:${prov}`, groupLabel: providerMeta(prov)?.label ?? prov, icon: <ModelIcon name={m.exec} size={14} /> };
     }),
+    // Every Elowen AI model sits under ONE "Elowen AI" group carrying the Elowen mark — the same branding
+    // the Account worker picker uses — so the embedded brain reads as its own engine everywhere, exactly
+    // like Claude Code / Codex. The underlying provider stays visible per row via its source badge.
     ...brainList.map((m) => ({
       id: m.exec,
       label: m.model,
-      group: `b:${m.provider}`,
-      groupLabel: m.providerLabel,
+      group: 'b:elowen',
+      groupLabel: providerMeta('elowen')?.label ?? 'Elowen AI',
       icon: <ModelIcon name={m.model} size={14} />,
-      badges: [{ text: SOURCE_BADGE[m.source], tone: 'muted' as const }],
+      badges: [{ text: m.providerLabel, tone: 'muted' as const }, { text: SOURCE_BADGE[m.source], tone: 'muted' as const }],
     })),
   ];
 
-  // Group icons: engine logos for workers, provider brand logos for Elowen AI providers.
+  // Group icons: engine logos for workers, the Elowen mark for the single Elowen AI group.
   const groupIcons: Record<string, ReactNode> = {};
   for (const prov of new Set(workerModels.map((m) => execProvider(m.exec)))) {
     groupIcons[`w:${prov}`] = <WorkerGroupIcon key={`w:${prov}`} provider={prov} />;
   }
-  for (const [provider, label] of new Map(brainList.map((m) => [m.provider, m.providerLabel])).entries()) {
-    groupIcons[`b:${provider}`] = <ModelIcon key={`b:${provider}`} name={label} size={14} />;
-  }
+  if (brainList.length) groupIcons['b:elowen'] = <WorkerGroupIcon key="b:elowen" provider="elowen" />;
 
   // The relay row's id is '' so `value &&` excludes it — an empty value always shows the relay label.
   const selected = value ? items.find((it) => it.id === value) : undefined;

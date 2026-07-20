@@ -55,7 +55,7 @@ describe('ExecutorPicker', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
     expect(await screen.findByRole('heading', { name: 'Claude Code' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Anthropic' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Elowen AI' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /GPT-5 Codex/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 

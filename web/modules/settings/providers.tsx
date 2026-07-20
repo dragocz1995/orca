@@ -15,7 +15,7 @@ export function ProviderLogo({ meta, alt, size = 36 }: { meta: ProviderMeta; alt
       style={{ width: size, height: size }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={meta.icon} alt={alt ?? meta.label} width={size * 0.62} height={size * 0.62} style={{ objectFit: 'contain' }} className={meta.embedded ? 'logo-adaptive' : undefined} />
+      <img src={meta.icon} alt={alt ?? meta.label} width={size * 0.62} height={size * 0.62} style={{ objectFit: 'contain' }} />
     </span>
   );
 }

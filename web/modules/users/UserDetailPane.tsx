@@ -26,7 +26,7 @@ function ProviderGroupIcon({ provider }: { provider: ProviderId }) {
   if (!meta) return null;
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={meta.icon} alt="" width={13} height={13} style={{ objectFit: 'contain' }} className={meta.embedded ? 'logo-adaptive' : undefined} aria-hidden />
+    <img src={meta.icon} alt="" width={13} height={13} style={{ objectFit: 'contain' }} aria-hidden />
   );
 }
 

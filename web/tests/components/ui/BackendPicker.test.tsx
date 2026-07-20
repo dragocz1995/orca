@@ -59,9 +59,11 @@ describe('BackendPicker', () => {
     expect(workers.querySelector('img')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Claude Sonnet 4.5/ }).querySelector('img')).toBeTruthy();
 
-    // Elowen AI provider group: provider brand logo on the header, OAuth-badged row.
-    const elowen = await screen.findByRole('heading', { name: 'Anthropic' });
+    // One "Elowen AI" group carrying the Elowen mark; the underlying provider + auth source ride the row
+    // as badges instead of splitting the brain models into per-provider groups.
+    const elowen = await screen.findByRole('heading', { name: 'Elowen AI' });
     expect(elowen.querySelector('img')).toBeTruthy();
+    expect(screen.getByText('Anthropic')).toBeTruthy();
     expect(screen.getByText('OAuth')).toBeTruthy();
   });
 
