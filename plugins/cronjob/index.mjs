@@ -5,11 +5,14 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 
-const execFileAsync = promisify(execFile);
+// `exec` runs the command through the PLATFORM default shell (/bin/sh -c on POSIX, cmd.exe /d /s /c on
+// Windows), so a job's check collector works cross-platform — hardcoding /bin/sh broke every cron on
+// Windows, which has no /bin/sh. Jobs are admin-only, so the shell command is trusted (as it always was).
+const execAsync = promisify(exec);
 // Scheduler defaults — user-overridable via configSchema (see register()); these are the values used
 // when a key is unset, and stay the source of truth the existing tests rely on.
 const DEFAULT_TICK_MS = 30_000;
@@ -116,12 +119,12 @@ export function resolveSessionIdleMs(value) {
 
 /** Run a job's optional cheap guard command and classify the outcome, so the scheduler can decide
  *  whether the (expensive) brain turn is even worth running. Admin-authored (jobs are admin-only), run
- *  through `/bin/sh -c` like the brain's own Bash. Returns:
+ *  through the platform default shell like the brain's own Bash. Returns:
  *   - { skip:true }  → nothing to do (empty stdout) or the check errored → DON'T spend an LLM turn.
  *   - { skip:false, output } → fresh data on stdout → run the brain turn and feed it this output. */
 export async function runCheck(command, logger, timeoutMs = DEFAULT_CHECK_TIMEOUT_MS) {
   try {
-    const { stdout } = await execFileAsync('/bin/sh', ['-c', command], {
+    const { stdout } = await execAsync(command, {
       timeout: timeoutMs, maxBuffer: CHECK_MAX_BUFFER, encoding: 'utf-8',
     });
     const output = String(stdout ?? '').trim();
