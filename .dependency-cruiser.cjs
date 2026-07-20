@@ -42,9 +42,10 @@ module.exports = {
       name: 'web-not-to-backend',
       severity: 'error',
       comment: 'The web app (web) talks to the daemon over HTTP — it must never import src/ directly, '
-        + 'except src/shared/ which is the framework-neutral daemon↔web wire contract (types only).',
+        + 'except the ONE types-only file src/shared/wireContract.ts (the daemon↔web wire contract). The '
+        + 'rest of src/shared/ is runtime Node code (logger, apiClient, execs, …) the web must not bundle.',
       from: { path: '^web/' },
-      to: { path: '^src/', pathNot: '^src/shared/' },
+      to: { path: '^src/', pathNot: '^src/shared/wireContract\\.ts$' },
     },
     {
       name: 'no-test-in-prod',

@@ -33,8 +33,6 @@ export const MESSAGES = {
     askAnswered: (s) => `✅ Answered\n${s}`,
     askForSomeoneElse: 'This question is for someone else.',
     askTypeAnswer: '✏️ Type your answer in this chat.',
-    submitLabel: 'Submit',
-    otherLabel: '✏️ Other',
     help: (name) => [
       `${name} on Telegram`,
       'Write to me and I answer.',
@@ -64,8 +62,6 @@ export const MESSAGES = {
     askAnswered: (s) => `✅ Odpovězeno\n${s}`,
     askForSomeoneElse: 'Na tuhle otázku odpovídá někdo jiný.',
     askTypeAnswer: '✏️ Napiš odpověď do tohohle chatu.',
-    submitLabel: 'Odeslat',
-    otherLabel: '✏️ Jiné',
     help: (name) => [
       `${name} na Telegramu`,
       'Napište mi a odpovím.',

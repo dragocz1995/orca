@@ -8,8 +8,10 @@ type StoredTurnRow = { id?: string; role: string; content: string; created_at?: 
 // re-exported here for daemon callers (BrainStore passes its validated rows straight through). See
 // wireContract.ts for why they live outside src/brain.
 import type { ToolOutputView, BrainSubagentView, BrainWorkflowView, BrainSegment, BrainMessageView } from '../shared/wireContract.js';
-export type { ToolOutputView, BrainSubagentView, BrainWorkflowView, BrainMessageView };
-// BrainSegment is imported for the shaping code below; daemon consumers that need it import from wireContract.
+// Only these two have daemon consumers that import them from here; BrainSubagentView/BrainWorkflowView/
+// BrainSegment are used internally by the shaping code below, and anything else that needs them imports
+// straight from wireContract.
+export type { ToolOutputView, BrainMessageView };
 
 const TOOL_DETAIL_MAX = 60;
 

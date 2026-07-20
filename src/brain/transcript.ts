@@ -9,9 +9,11 @@ export type WorkflowState = WorkflowUpdate;
 export type { WorkflowNode } from './events.js';
 
 /** Shared, UI-free transcript data types and durable-history parsing. `TranscriptModel` owns the live
- *  event fold for the CLI; the web dock mirrors the same wire contract in
- *  `web/lib/transcript.ts` (a separate browser bundle can't import daemon NodeNext source — see that
- *  file's note). Pure data: nothing here touches a terminal, React or Discord.
+ *  event fold for the CLI; the web dock hand-mirrors the RUNTIME fold (groupToolItems/failureSignature/
+ *  turnsFromHistory) in `web/lib/transcript.ts`, because a browser bundle can't import daemon NodeNext
+ *  runtime source — see that file's note. The wire TYPES, by contrast, are single-sourced in
+ *  src/shared/wireContract.ts and imported type-only by both sides. Pure data: nothing here touches a
+ *  terminal, React or Discord.
  *
  *  An assistant turn is an ordered list of segments so text and tool calls render in the sequence they
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment — the
