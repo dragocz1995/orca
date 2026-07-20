@@ -23,11 +23,26 @@ describe('descriptorCapabilities — models.dev catalog', () => {
   });
 
   it('marks a model that reasons without a settable effort as reasoning, but offers no levels', () => {
-    // qwen3.5 thinks, yet exposes only an on/off toggle — advertising an effort knob it does not have
-    // would put an unsupported `reasoning_effort` on every request.
-    expect(descriptorCapabilities('elowen-ollama', 'qwen3.5:397b').reasoning).toBe(true);
-    expect(levels('ollama', 'qwen3.5:397b')).toEqual([]);
+    // deepseek-r1 thinks, yet exposes only an on/off toggle — advertising an effort knob it does not
+    // have would put an unsupported `reasoning_effort` on every request.
+    expect(descriptorCapabilities('elowen-openrouter', 'deepseek/deepseek-r1').reasoning).toBe(true);
     expect(levels('openrouter', 'deepseek/deepseek-r1')).toEqual([]);
+  });
+
+  it('offers low/medium/high for Qwen thinking models — their effort IS settable, via thinking_budget', () => {
+    // models.dev says "reasons, effort not settable" for the whole Qwen family because the wire knob is
+    // DashScope's `thinking_budget` (or OpenRouter's `reasoning` object), never `reasoning_effort`.
+    // Elowen maps the selected effort onto that wire at request time, so the picker must offer the
+    // ladder instead of hiding the control ("this model has no reasoning-effort levels").
+    expect(levels('alibaba', 'qwen3.7-max')).toEqual(['low', 'medium', 'high']);
+    expect(levels('alibaba', 'qwen3.6-flash')).toEqual(['low', 'medium', 'high']);
+    expect(levels('ollama', 'qwen3.5:397b')).toEqual(['low', 'medium', 'high']);
+    // An id too new for the catalog still gets the family ladder — a fresh MAX release is usable before
+    // the table is refreshed.
+    expect(levels('alibaba', 'qwen3.8-max-preview')).toEqual(['low', 'medium', 'high']);
+    // The catalog still vetoes the non-reasoning siblings, and pre-3.5 unknowns are not guessed.
+    expect(descriptorCapabilities('elowen-alibaba', 'qwen3-coder-plus').reasoning).toBe(false);
+    expect(descriptorCapabilities('elowen-relay', 'qwen2-unknown-variant').reasoning).toBe(false);
   });
 
   it('lets the catalog veto a name pattern that recognises a non-reasoning sibling', () => {

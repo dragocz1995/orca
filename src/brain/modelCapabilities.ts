@@ -22,13 +22,59 @@ export interface ProviderRequestProfile {
    *  Absent is the default and must stay that way: a model that accepts only its own default (Kimi K3,
    *  Claude Opus 4.7+) rejects the request outright rather than clamping. */
   temperature?: number;
+  /** Rewrite OpenAI's `reasoning_effort` into DashScope's `enable_thinking` + `thinking_budget`, the
+   *  documented reasoning knobs of Alibaba's compatible-mode endpoints for Qwen thinking models. Set by
+   *  the spawner via {@link qwenThinkingWire}; the payload carries the CURRENT effort each round-trip, so
+   *  a live /think change needs no extra plumbing. */
+  qwenThinking?: boolean;
+}
+
+/** Effort → DashScope `thinking_budget` (max reasoning tokens). The figures are pi-ai's own
+ *  effort→budget ladder (`adjustMaxTokensForThinking`), so "medium" buys the same thinking budget on a
+ *  Qwen model as it does on a budget-based Claude. Only the levels the Qwen ladder offers appear here;
+ *  anything else leaves the payload untouched rather than inventing a budget. */
+const QWEN_THINKING_BUDGETS: Readonly<Partial<Record<string, number>>> = { low: 2048, medium: 8192, high: 16384 };
+
+/** Answer allowance assumed when the payload carries no completion cap to lift — pi-ai's own default
+ *  `maxTokens` for these models, so the lifted cap matches what pi would have computed itself. */
+const QWEN_DEFAULT_ANSWER_TOKENS = 8192;
+
+/** Whether requests for this (endpoint, model) must carry Qwen's DashScope thinking params. Alibaba's
+ *  OpenAI compatible-mode (dashscope[-intl].aliyuncs.com, the token-plan endpoints) DOES parse a raw
+ *  `reasoning_effort`, but maps it to undocumented server-side budgets (probed 2026-07 on qwen3.7-max:
+ *  low→8192, medium→32768, high→unbudgeted) that trip the same `cap > thinking_budget` validation — with
+ *  pi-ai's default 8192 cap, native low and medium 400 outright. The documented, deterministic knobs are
+ *  `enable_thinking` + `thinking_budget`, so we rewrite onto those instead of passing the effort through.
+ *  Other transports keep their own dialects: OpenRouter's `reasoning` object already maps effort onto a
+ *  budget for Qwen. */
+export function qwenThinkingWire(baseUrl: string, model: string): boolean {
+  return /aliyuncs\.com|dashscope/i.test(baseUrl) && /(?:^|\/)(?:qwen|qwq)/i.test(model);
 }
 
 /** Pure payload projection used by the provider request hook (kept exportable for a no-network contract
  *  test). Returns the SAME object when nothing applies, so the caller can skip patching entirely. */
 export function applyProviderRequestProfile(payload: Record<string, unknown>, profile: ProviderRequestProfile): Record<string, unknown> {
   const withTier = profile.fast ? { ...payload, service_tier: 'priority' } : payload;
-  return profile.temperature !== undefined ? { ...withTier, temperature: profile.temperature } : withTier;
+  const withTemperature = profile.temperature !== undefined ? { ...withTier, temperature: profile.temperature } : withTier;
+  const budget = profile.qwenThinking && typeof withTemperature.reasoning_effort === 'string'
+    ? QWEN_THINKING_BUDGETS[withTemperature.reasoning_effort]
+    : undefined;
+  // No effort selected → add nothing: the endpoint's own default thinking behavior stays (an explicit
+  // `enable_thinking: false` would 400 on thinking-only models).
+  if (budget === undefined) return withTemperature;
+  const rewritten: Record<string, unknown> = { ...withTemperature, enable_thinking: true, thinking_budget: budget };
+  delete rewritten.reasoning_effort;
+  // DashScope requires the completion cap to be STRICTLY greater than `thinking_budget` (else 400:
+  // "max_completion_tokens must be greater than thinking_budget"), and pi-ai sized the cap for the
+  // answer alone. Mirror pi-ai's own `adjustMaxTokensForThinking`: cap = answer allowance + budget,
+  // lifted on whichever cap field pi-ai put on the wire (`compat.maxTokensField` picks exactly one).
+  const capField = 'max_completion_tokens' in rewritten ? 'max_completion_tokens'
+    : 'max_tokens' in rewritten ? 'max_tokens'
+    : 'max_completion_tokens';
+  const cap = rewritten[capField];
+  const base = typeof cap === 'number' && Number.isFinite(cap) && cap > 0 ? cap : QWEN_DEFAULT_ANSWER_TOKENS;
+  rewritten[capField] = base + budget;
+  return rewritten;
 }
 
 type DescriptorPatch = {
@@ -50,6 +96,9 @@ const NON_REASONING = /(?:^|[-_/])(image|embedding|embed|whisper|tts|dall-e|mode
 const OPENAI_REASONING = /(?:^|\/)(?:gpt-5|o[134](?:-|$))/i;
 const CLAUDE_REASONING = /(?:^|\/)claude-(?:opus|sonnet|haiku)-(?:4|5)(?:[.-]|$)/i;
 const GEMINI_REASONING = /(?:^|\/)gemini-(?:2\.5|3|3\.1|3\.5)(?:-|$)/i;
+// The Qwen generation right after the family name: `qwen3.7-max`, `qwen/qwen3.6-flash`, `qwen3.5:397b`.
+// Deliberately not matching `qwen-plus`-style ids — those carry no generation to reason about.
+const QWEN_GENERATION = /(?:^|\/)qwen-?(\d+(?:\.\d+)?)/i;
 const OTHER_REASONING = /(?:deepseek[-_/]?r1|qwq|reasoning)/i;
 
 /** Catalog keys for endpoints whose name differs from the published one. Ollama Cloud ships as
@@ -279,9 +328,10 @@ function ladderToMap(levels: readonly ModelThinkingLevel[]): ThinkingLevelMap {
  * OAuth catalog additions). Built-in PI descriptors remain authoritative; these rules prevent the old
  * blanket "every model supports every effort" declaration for unknown/image models.
  *
- * The families below (Codex, OpenAI, Claude, Gemini) keep their hand-written rules: they encode decisions
- * the catalog does not model, such as normalizing `minimal` onto the wire's `low`, and the endpoints
- * behind them are the ones we exercise daily. Everything else — GLM, Qwen, MiniMax, Kimi, gpt-oss and the
+ * The families below (Codex, OpenAI, Claude, Gemini, Qwen) keep their hand-written rules: they encode
+ * decisions the catalog does not model, such as normalizing `minimal` onto the wire's `low` or mapping the
+ * effort onto Qwen's `thinking_budget`, and the endpoints behind them are the ones we exercise daily.
+ * Everything else — GLM, MiniMax, Kimi, gpt-oss and the
  * rest — is answered from the models.dev catalog, because which efforts an endpoint accepts is per-endpoint
  * data, not a property of the name: `glm-5.2` takes high/max on Z.AI but high/xhigh through OpenRouter, so
  * a name pattern could only guess, and over-advertising an effort is a request-breaking 400. A model the
@@ -328,6 +378,22 @@ export function descriptorCapabilities(provider: string, model: string): Descrip
   }
 
   if (GEMINI_REASONING.test(model)) {
+    return {
+      reasoning: true,
+      thinkingLevelMap: { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null },
+    };
+  }
+
+  // Qwen's thinking models publish no effort ladder in models.dev — their wire knob is DashScope's
+  // `thinking_budget` (or OpenRouter's `reasoning` object), never `reasoning_effort` — so the catalog can
+  // only say "reasons, effort not settable" (`true`). Elowen DOES make the effort settable: the request
+  // layer maps low/medium/high onto the wire the endpoint honors (see applyProviderRequestProfile), so a
+  // Qwen model the catalog says reasons gets that ladder, and an id too new for the catalog
+  // (qwen3.8-max-preview) is recognised by generation — every 3.5+ release reasons. A catalogued
+  // non-reasoning Qwen (a coder/instruct sibling, `catalog === false`) was already refused above, and an
+  // endpoint that publishes an explicit ladder keeps its own answer.
+  const qwen = QWEN_GENERATION.exec(model);
+  if (qwen && (catalog === true || (catalog === undefined && Number(qwen[1]) >= 3.5))) {
     return {
       reasoning: true,
       thinkingLevelMap: { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null },

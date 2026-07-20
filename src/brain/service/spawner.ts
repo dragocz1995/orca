@@ -24,7 +24,7 @@ import { isErroredContextOverflow, toBrainEvent, usageOf, withDescendantUsage } 
 import type { BrainEvent } from '../events.js';
 import type { BrainDeps } from '../brainDeps.js';
 import { turnWorkDir } from './workDir.js';
-import { modelCapabilities } from '../modelCapabilities.js';
+import { modelCapabilities, qwenThinkingWire } from '../modelCapabilities.js';
 import { LiveEventReplay } from '../session/liveEventReplay.js';
 import { extractText } from '../messageView.js';
 import { abortSessionWork } from '../session/abortSessionWork.js';
@@ -96,6 +96,9 @@ export class LiveSessionSpawner {
     // absent unless the operator set one — see ProviderRequestProfile on why absent must stay the default.
     const requestProfile = {
       fast: capabilities.fast && opts.fast === true,
+      // A Qwen thinking model on a DashScope endpoint takes its effort as `thinking_budget`, not
+      // `reasoning_effort` — the hook rewrites each request's current effort into that wire shape.
+      ...(model.reasoning && qwenThinkingWire(model.baseUrl, model.id) ? { qwenThinking: true } : {}),
       ...(() => {
         const t = cfg.providers.find((p) => p.id === route.providerId)?.temperature;
         return t === undefined ? {} : { temperature: t };

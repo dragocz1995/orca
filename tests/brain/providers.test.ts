@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect } from 'vitest';
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { buildBrainRegistry, resolveBrainModel, resolveBrainModelRoute, openAiApiFor, inMemoryModelRuntime } from '../../src/brain/providers.js';
-import { applyProviderRequestProfile, modelCapabilities } from '../../src/brain/modelCapabilities.js';
+import { applyProviderRequestProfile, modelCapabilities, qwenThinkingWire } from '../../src/brain/modelCapabilities.js';
 import { KIMI_CLI_VERSION } from '../../src/brain/kimiOAuth.js';
 import type { BrainRuntimeConfig } from '../../src/brain/providers.js';
 
@@ -166,6 +166,22 @@ describe('brain providers', () => {
     expect(modelCapabilities(resolveBrainModel(registry, namespaced, { model: 'anthropic/claude-sonnet-5' })).reasoning).toBe(true);
   });
 
+  it('offers the effort ladder for a Qwen MAX model on a DashScope compatible-mode endpoint', () => {
+    // The user-visible regression: Qwen 3.6–3.8 MAX sessions had no low/medium/high control at all —
+    // the catalog marks Qwen "reasons, effort not settable" and the 3.8 preview id was unknown entirely.
+    const dashscope: BrainRuntimeConfig = { providers: [{
+      id: 'alibaba', label: 'Alibaba', type: 'openai',
+      baseUrl: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+      models: ['qwen3.8-max-preview', 'qwen3.7-max'], apiKey: 'k',
+    }] };
+    const registry = buildBrainRegistry(dashscope, runtime);
+    const preview = resolveBrainModel(registry, dashscope, { model: 'qwen3.8-max-preview' });
+    expect(preview.reasoning).toBe(true);
+    expect(modelCapabilities(preview).levels).toEqual(['low', 'medium', 'high']);
+    expect(modelCapabilities(resolveBrainModel(registry, dashscope, { model: 'qwen3.7-max' })).levels)
+      .toEqual(['low', 'medium', 'high']);
+  });
+
   it('marks Fast available only on OpenAI Codex OAuth response models', () => {
     const oauth: BrainRuntimeConfig = {
       providers: [{ id: 'codex', label: 'ChatGPT', type: 'oauth-openai-codex', baseUrl: '', models: ['gpt-5.5'], apiKey: null }],
@@ -203,6 +219,75 @@ describe('brain providers', () => {
     it('composes with Fast rather than replacing it', () => {
       expect(applyProviderRequestProfile(payload, { fast: true, temperature: 1.5 }))
         .toEqual({ ...payload, service_tier: 'priority', temperature: 1.5 });
+    });
+  });
+
+  describe('Qwen thinking projection — DashScope honors thinking_budget, not reasoning_effort', () => {
+    const payload = { model: 'qwen3.7-max', messages: [], reasoning_effort: 'medium' };
+
+    it('rewrites the selected effort into enable_thinking + thinking_budget and lifts the cap above it', () => {
+      // DashScope 400s unless the completion cap is STRICTLY greater than thinking_budget, so the
+      // projection lifts pi-ai's answer-sized cap by the budget (base 8192 + budget).
+      expect(applyProviderRequestProfile({ ...payload, max_completion_tokens: 8192 }, { fast: false, qwenThinking: true }))
+        .toEqual({ model: 'qwen3.7-max', messages: [], enable_thinking: true, thinking_budget: 8192, max_completion_tokens: 16384 });
+    });
+
+    it('high effort — the budget exceeds the default cap, the lifted cap still clears it', () => {
+      // The exact production 400: budget 16384 vs pi's cap 8192. Lifted to 8192 + 16384.
+      const high = applyProviderRequestProfile(
+        { model: 'qwen3.7-max', messages: [], reasoning_effort: 'high', max_completion_tokens: 8192 },
+        { fast: false, qwenThinking: true },
+      );
+      expect(high).toEqual({ model: 'qwen3.7-max', messages: [], enable_thinking: true, thinking_budget: 16384, max_completion_tokens: 24576 });
+      expect(high.max_completion_tokens as number).toBeGreaterThan(high.thinking_budget as number);
+    });
+
+    it('low effort lifts the cap by the small budget', () => {
+      expect(applyProviderRequestProfile(
+        { model: 'qwen3.7-max', messages: [], reasoning_effort: 'low', max_completion_tokens: 8192 },
+        { fast: false, qwenThinking: true },
+      )).toEqual({ model: 'qwen3.7-max', messages: [], enable_thinking: true, thinking_budget: 2048, max_completion_tokens: 10240 });
+    });
+
+    it('lifts whichever cap field pi-ai chose, adding max_completion_tokens only when neither exists', () => {
+      // compat.maxTokensField made it max_tokens → that field is raised, no stray twin appears.
+      expect(applyProviderRequestProfile(
+        { model: 'qwen3.7-max', messages: [], reasoning_effort: 'medium', max_tokens: 4096 },
+        { fast: false, qwenThinking: true },
+      )).toEqual({ model: 'qwen3.7-max', messages: [], enable_thinking: true, thinking_budget: 8192, max_tokens: 12288 });
+      // No cap on the wire at all → default answer allowance + budget.
+      expect(applyProviderRequestProfile(payload, { fast: false, qwenThinking: true }))
+        .toEqual({ model: 'qwen3.7-max', messages: [], enable_thinking: true, thinking_budget: 8192, max_completion_tokens: 16384 });
+    });
+
+    it('adds nothing when no effort is selected — the endpoint default stays', () => {
+      // Identity, not a copy: an explicit `enable_thinking: false` would 400 on thinking-only models.
+      const noEffort = { model: 'qwen3.7-max', messages: [] };
+      expect(applyProviderRequestProfile(noEffort, { fast: false, qwenThinking: true })).toBe(noEffort);
+    });
+
+    it('keeps the OpenAI reasoning_effort shape for profiles without the Qwen flag (regression)', () => {
+      expect(applyProviderRequestProfile(payload, { fast: false })).toBe(payload);
+      // The cap lift is qwenThinking-only: an OpenAI-style payload keeps its cap byte-for-byte.
+      const openai = { model: 'gpt-5.5', messages: [], reasoning_effort: 'high', max_completion_tokens: 8192 };
+      expect(applyProviderRequestProfile(openai, { fast: false })).toBe(openai);
+      expect(applyProviderRequestProfile(openai, { fast: true, temperature: 0.5 }))
+        .toEqual({ ...openai, service_tier: 'priority', temperature: 0.5 });
+    });
+
+    it('composes with a configured temperature', () => {
+      expect(applyProviderRequestProfile(payload, { fast: false, temperature: 0.7, qwenThinking: true }))
+        .toEqual({ model: 'qwen3.7-max', messages: [], temperature: 0.7, enable_thinking: true, thinking_budget: 8192, max_completion_tokens: 16384 });
+    });
+
+    it('applies only to Qwen models on DashScope-style endpoints', () => {
+      const dashscope = 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1';
+      expect(qwenThinkingWire(dashscope, 'qwen3.8-max-preview')).toBe(true);
+      expect(qwenThinkingWire('https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'qwen3.7-plus')).toBe(true);
+      // The same endpoint's non-Qwen models keep the standard shape…
+      expect(qwenThinkingWire(dashscope, 'glm-5.2')).toBe(false);
+      // …and Qwen through OpenRouter keeps pi-ai's `reasoning` object, which OpenRouter maps itself.
+      expect(qwenThinkingWire('https://openrouter.ai/api/v1', 'qwen/qwen3.7-max')).toBe(false);
     });
   });
 
