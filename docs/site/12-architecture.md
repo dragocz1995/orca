@@ -90,4 +90,4 @@ Authentication and authorization are enforced at daemon routes and again at exec
 
 Read [Account & Security](account-security) for user-facing controls, [Configuration](configuration) for operational settings, and [Plugin development](../PLUGIN_DEV.md) for the extension contract.
 
-[Back to start](getting-started)
+[Next: Channels](channels)
