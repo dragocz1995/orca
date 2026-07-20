@@ -4,6 +4,7 @@
 // swapped to grammY (bot.api.sendMessage / editMessageText / deleteMessage), and the Discord-markdown
 // decorations are rendered as plain text (Telegram messages are sent without a parse_mode).
 import { CHUNK, extractImageRefs, splitContent, stripThinking, footerLine } from './format.mjs';
+import { makeTextHelpers, outputFailed, makeOutputSummary, diffSummary, makeFoldedCalls, makeToolLinesFor, makeCardLines } from '../../_shared/liveTrace.mjs';
 import { resolveDisplaySettings } from './display.mjs';
 
 const EDIT_THROTTLE_MS = 1200; // Telegram edit rate — stay well under it (matches the Discord throttle)
@@ -158,117 +159,21 @@ class StreamingAnswer {
   close() { for (const b of this.bubbles) b.close(); }
 }
 
-/** One rendered progress line. The icon is resolved daemon-side (core map + plugin manifest `icons`) and
- *  rides the `tool` event; the generic wrench is the fallback when a tool declared none. */
-function compactLine(value, max = 180) {
-  const line = String(value ?? '').replace(/\s+/g, ' ').trim();
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
-}
-
-function safeTail(value, max = 600) {
-  const clean = String(value ?? '')
-    .replace(/(?:\[[0-?]*[ -\/]*[@-~]|\][^]*(?:|\\)?|.)?/g, '')
-    .replace(/[ --]/g, '')
-    .trim();
-  return clean.length > max ? `…${clean.slice(clean.length - max + 1)}` : clean;
-}
-
-function outputFailed(output) {
-  return output?.tone === 'warning' || output?.tone === 'danger' || /(?:needs attention|exit [1-9]\d*)/i.test(output?.status ?? '');
-}
-
-function outputSummary(output) {
-  const notes = Array.isArray(output?.notes) ? output.notes.filter(Boolean) : [];
-  const status = compactLine(output?.status);
-  const text = safeTail(output?.text ?? '').split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? '';
-  return compactLine(notes.at(-1) ?? (status && !/^(?:ok|done|exit 0)$/i.test(status) ? status : text) ?? '');
-}
-
-function diffSummary(diff) {
-  const lines = String(diff ?? '').split('\n');
-  const added = lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).length;
-  const removed = lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).length;
-  return [added ? `+${added}` : '', removed ? `−${removed}` : ''].filter(Boolean).join(' ') || 'updated';
-}
-
-/** One tool row plus optional bounded output. The tool icon carries the visual identity; completion is
- *  expressed by the compact result text rather than a second status icon before it. */
-function toolLinesFor(c, display) {
-  let line = `${c.icon ?? '🔧'} \`${c.name}\``;
-  if (c.detail) line += `: "${compactLine(c.detail, 100)}"`;
-  if (c.count > 1) line += ` ×${c.count}`;
-  if (display.toolOutput !== 'hidden' && c.summary) line += ` — ${compactLine(c.summary)}`;
-  if (c.state === 'error' && !c.summary) line += ' — failed';
-  const lines = [line];
-  if (display.toolOutput === 'hidden') return lines;
-  // Mid-run output is exclusive to live activity. A settled rolling tail is still useful with status
-  // activity, while summary mode already carries its one-line result on the main row.
-  const output = c.state === 'running'
-    ? (display.toolActivity === 'live' ? c.progress : '')
-    : (display.toolOutput === 'tail' ? c.finalTail : '');
-  if (!output) return lines;
-  const safe = safeTail(output);
-  if (!safe) return lines;
-  if (display.toolOutput === 'summary') lines.push(`  ↳ ${compactLine(safe.split('\n').at(-1), 220)}`);
-  else lines.push(...safe.split('\n').slice(-6).map((part) => `> ${part || ' '}`));
-  return lines;
-}
-
-/** Fold consecutive calls of the SAME tool into one counted row — the rule the CLI transcript already uses
- *  (`groupToolItems`, src/brain/transcript.ts). A call that has something of its OWN to show — a result
- *  summary, an output tail, a live progress tail, a failure — keeps its row, because that text is the whole
- *  point of the row; a bare call is indistinguishable from its neighbours.
- *
- *  It has to happen at RENDER time. Every real tool call carries a PI toolCallId, and that id is what a
- *  later output/diff/settle is routed to, so the rows must stay separate in the model — folding them when
- *  the call ARRIVES would either lose the routing or lose the results. */
-function foldedCalls(calls, display) {
-  // Whether this call renders anything beyond the bare `<icon> `tool`` head row.
-  const speaks = (call) => {
-    if (call.state === 'error') return true;
-    if (display.toolOutput !== 'hidden' && (call.summary || (display.toolOutput === 'tail' && call.finalTail))) return true;
-    return display.toolActivity === 'live' && call.state === 'running' && Boolean(call.progress);
-  };
-  // A failed call speaks, so bare-row folding never touches it — but a run of the SAME failure (differing
-  // only by the path or number it names) is one failure repeated, and reads as such when collapsed to a
-  // count. Mirrors `failureSignature` in src/brain/transcript.ts: key by tool name plus the summary with
-  // its varying parts (paths, digits) flattened away, so only genuinely identical failures merge.
-  const failureSignature = (call) => {
-    if (call.state !== 'error') return undefined;
-    const shape = compactLine(call.summary).replace(/\S*\/\S+/g, '§').replace(/\d+/g, '#').slice(0, 160);
-    return `${call.name}|${shape}`;
-  };
-  const rows = [];
-  for (const call of calls) {
-    const last = rows[rows.length - 1];
-    if (last && last.name === call.name && !speaks(last) && !speaks(call)) {
-      rows[rows.length - 1] = { ...call, count: (last.count ?? 1) + 1, detail: call.detail ?? last.detail };
-      continue;
-    }
-    const signature = failureSignature(call);
-    if (signature && last && signature === failureSignature(last)) {
-      rows[rows.length - 1] = { ...call, count: (last.count ?? 1) + 1, detail: call.detail ?? last.detail };
-      continue;
-    }
-    rows.push(call);
-  }
-  return rows;
-}
-
-/** A display card (ctx.emitCard) for the progress bubble — title + checklist (emoji per status, since
- *  Telegram plain text has no task-list markdown) + freeform body. Capped so a long card can't blow the
- *  message limit. */
-function cardLines(card, max = 15) {
-  const items = Array.isArray(card?.items) ? card.items : [];
-  const glyph = (s) => (s === 'completed' ? '✅' : s === 'in_progress' ? '🔸' : '⬜');
-  const done = items.filter((t) => t.status === 'completed').length;
-  const lines = [];
-  if (card?.title || items.length) lines.push(`📋 ${card?.title ?? 'Card'}${items.length ? ` (${done}/${items.length})` : ''}`);
-  for (const t of items.slice(0, max)) lines.push(`${glyph(t.status)} ${t.text}`);
-  if (items.length > max) lines.push(`… +${items.length - max}`);
-  if (card?.body) lines.push(String(card.body));
-  return lines;
-}
+// The live-trace render/fold engine is shared (../../_shared/liveTrace.mjs). Telegram sends plain text
+// (no parse_mode), so its style is all-identity — nothing to escape (mentions/fences are inert) and no
+// bold/strike markers — with a plain `  ↳` output line. The fold rule and summaries come from the core.
+const style = {
+  mentionSafe: (s) => s,
+  fenceSafe: (s) => s,
+  bold: (s) => s,
+  strike: (s) => s,
+  summaryLine: (s) => `  ↳ ${s}`,
+};
+const { compactLine, safeTail } = makeTextHelpers(style);
+const outputSummary = makeOutputSummary({ compactLine, safeTail });
+const foldedCalls = makeFoldedCalls(compactLine);
+const toolLinesFor = makeToolLinesFor({ compactLine, safeTail, style });
+const cardLines = makeCardLines(style);
 
 /** One turn with independent presentation axes. Tool calls share one lifecycle bubble keyed by toolCallId;
  *  answer text either streams into separate editable messages or is posted once at finalize. Keeping those

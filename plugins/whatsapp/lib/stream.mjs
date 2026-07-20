@@ -1,5 +1,6 @@
 // Streaming/edit-throttle machinery: the live progress message and the final-answer sending.
 import { CHUNK, stripThinking, extractImageRefs, footerLine } from './format.mjs';
+import { makeCardLines } from '../../_shared/liveTrace.mjs';
 
 const EDIT_THROTTLE_MS = 1500; // WhatsApp is stricter than Discord on edits — stay well under any limit
 /** How long a turn may go with no VISIBLE progress (a new tool call / card) before the `Step N / MAX`
@@ -11,18 +12,9 @@ function toolLine(c) {
   return `${c.icon ?? '🔧'} \`${c.name}\`` + (c.detail ? `: "${c.detail}"` : '…') + (c.count > 1 ? ` ×${c.count}` : '');
 }
 
-/** A display card (ctx.emitCard) for the progress message — title + checklist + freeform body. */
-function cardLines(card, max = 15) {
-  const items = Array.isArray(card?.items) ? card.items : [];
-  const glyph = (s) => (s === 'completed' ? '✅' : s === 'in_progress' ? '🔸' : '⬜');
-  const done = items.filter((t) => t.status === 'completed').length;
-  const lines = [];
-  if (card?.title || items.length) lines.push(`📋 *${card?.title ?? 'Card'}*${items.length ? ` (${done}/${items.length})` : ''}`);
-  for (const t of items.slice(0, max)) lines.push(`${glyph(t.status)} ${t.text}`);
-  if (items.length > max) lines.push(`… +${items.length - max}`);
-  if (card?.body) lines.push(String(card.body));
-  return lines;
-}
+// A display card (ctx.emitCard) for the progress message — title + checklist + freeform body. WhatsApp
+// renders `*bold*` titles and does not strike completed items, so its style bolds and leaves text plain.
+const cardLines = makeCardLines({ bold: (s) => `*${s}*`, strike: (s) => s });
 
 /** One editable WhatsApp message: created on the first write, then edited in place (throttled). Shared
  *  by the tool-progress bubble and — indirectly — the streaming answer. */
