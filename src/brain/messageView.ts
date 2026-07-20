@@ -150,19 +150,23 @@ function resultNotes(details: Record<string, unknown> | undefined): string[] | u
   return notes.length > 0 ? notes : undefined;
 }
 
-/** Drop the console framing the transcript renderer re-creates elsewhere: the leading `$ <cmd>` echo (the
- *  renderer prints the command from args on its own top line) and the trailing `[exit N]` marker (shown as
- *  a status chip). The terminal plugin is the only producer that double-echoes, and it always frames output
- *  as `$ <cmd>\n(cwd: …)\n…\n[exit N]`, so match that exact PAIR — a `$ ` line immediately followed by a
- *  `(cwd: …)` line — rather than any lone `$ ` line, so genuine output that merely starts with `$ ` (or ends
- *  in a bracketed word) is left intact. The `(cwd: …)` line and the real output survive. */
-function stripConsoleFraming(text: string, hasCommand: boolean): string {
-  if (!text || !hasCommand) return text;
+/** Drop the console framing that exists for the MODEL, not the reader: the leading `$ <cmd>` echo (the
+ *  renderer prints the command on its own top line), the `(cwd: …)` line (lifted into the structured `cwd`
+ *  field) and the trailing `[exit N]` marker (the exit code travels as `details.exitCode` → tone/status).
+ *  The terminal plugin is the only producer of this framing and it always frames output as
+ *  `$ <cmd>\n(cwd: …)\n…\n[exit N]`, so match that exact PAIR — a `$ ` line immediately followed by a
+ *  `(cwd: …)` line — rather than any lone `$ ` line, so genuine output that merely starts with `$ ` (or
+ *  ends in a bracketed word) is left intact. Gated on the tool KIND, not on the presence of args: the live
+ *  `tool_execution_end` event carries no args, and the framing must never leak into the display there
+ *  either (it used to surface as a literal `[exit 0]` summary in the chat adapters). */
+function stripConsoleFraming(text: string, isConsole: boolean): { text: string; cwd?: string } {
+  if (!text || !isConsole) return { text };
   const lines = text.split('\n');
-  if (!(lines[0]?.startsWith('$ ') && lines[1]?.startsWith('(cwd: '))) return text;
-  lines.shift();
+  if (!(lines[0]?.startsWith('$ ') && lines[1]?.startsWith('(cwd: '))) return { text };
+  const cwd = /^\(cwd: (.+)\)$/.exec(lines[1] ?? '')?.[1];
+  lines.splice(0, 2);
   if (/^\[exit \d+\]$/.test((lines[lines.length - 1] ?? '').trim())) lines.pop();
-  return lines.join('\n');
+  return { text: lines.join('\n'), ...(cwd ? { cwd } : {}) };
 }
 
 /** Return a compact, user-useful tool output preview. Most raw tool results stay hidden; command/test
@@ -191,11 +195,12 @@ export function toolOutputView(toolName: string, args: unknown, result: unknown,
   // fall back to the result object's own flag for the history path.
   const exitCode = (isError ?? r.isError) === true ? true : (r.details?.exitCode ?? r.details?.code ?? r.status);
   // Console plugins frame their result as `$ <cmd>\n(cwd: …)\n<output>\n[exit N]` so the LLM reads full
-  // context — but the transcript renderer re-derives the command echo (from args) and the exit status
-  // (a chip) itself, so leaving them in the body renders each TWICE. Strip those two redundant framing
-  // lines at this single view seam (live + history + web all pass through here); the cwd line and the
-  // real output stay.
-  const joined = stripConsoleFraming([raw, errorText].filter(Boolean).join('\n'), consoleCommand);
+  // context — but for the READER that framing is redundant noise: the command echo re-derives from args,
+  // the cwd becomes the structured `cwd` field and the exit code arrives as `details.exitCode` (tone +
+  // status). Strip it at this single view seam (live + history + web all pass through here) so only the
+  // real output remains in the body.
+  const framed = stripConsoleFraming([raw, errorText].filter(Boolean).join('\n'), kind === 'console');
+  const joined = framed.text;
   const text = compactOutput(joined);
   const tone = outputTone(text, exitCode);
   // Single-source output visibility (see `toolOutput.ts`): output is HIDDEN by default — a tool NOT on
@@ -204,11 +209,17 @@ export function toolOutputView(toolName: string, args: unknown, result: unknown,
   // always surfaces so nothing important is swallowed. This replaced the old name-regex allowlist; the
   // policy is injected at bootstrap.
   if (!toolOutputShown(toolName) && tone !== 'warning' && tone !== 'danger' && !notes) return undefined;
-  // Nothing worth a block: a non-console tool that exited truly silently with no notes (a shown tool
-  // whose output was genuinely empty).
-  if (!consoleCommand && !notes && !text) return undefined;
+  // Nothing worth a block: a tool that exited truly silently with no notes (a shown tool whose output
+  // was genuinely empty). A console FAILURE keeps its block even then — the framing strip can leave a
+  // silent failing command with an empty body, and the status chip (exit N) is the whole story; the live
+  // path carries no args, so `consoleCommand` alone cannot vouch for it.
+  const consoleFailure = kind === 'console' && (tone === 'warning' || tone === 'danger');
+  if (!consoleCommand && !notes && !text && !consoleFailure) return undefined;
+  // A clean exit 0 carries NO status — success is the default state of a settled row, and naming it
+  // ("exit 0"/"ok") just trained every consumer to filter the string back out. Mirrors localShellTurn.
+  // A failure keeps its exit code so the trace still says WHY the row is flagged.
   const status = typeof exitCode === 'number'
-    ? `exit ${exitCode}`
+    ? (exitCode === 0 ? undefined : `exit ${exitCode}`)
     : tone === 'success'
       ? 'ok'
       : tone === 'warning'
@@ -217,7 +228,7 @@ export function toolOutputView(toolName: string, args: unknown, result: unknown,
           ? 'done'
           : undefined;
   const fullText = expandedOutput(joined);
-  return { title: outputTitle(toolName, kind), kind, text, ...(fullText && fullText !== text ? { fullText } : {}), command, status, tone, ...(notes ? { notes } : {}) };
+  return { title: outputTitle(toolName, kind), kind, text, ...(fullText && fullText !== text ? { fullText } : {}), command, ...(framed.cwd ? { cwd: framed.cwd } : {}), status, tone, ...(notes ? { notes } : {}) };
 }
 
 /** The verbatim shell command a console tool ran (for the always-on first line), collapsed to one line

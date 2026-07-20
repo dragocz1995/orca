@@ -188,7 +188,15 @@ describe('toolOutputView', () => {
     expect(out).toBeDefined();
     expect(out?.command).toBe('mkdir -p build');
     expect(out?.kind).toBe('console');
-    expect(out?.status).toBe('exit 0');
+    // A clean exit 0 is the default state of a settled row — it carries NO status to display.
+    expect(out?.status).toBeUndefined();
+    expect(out?.tone).toBe('success');
+  });
+
+  it('a failing command keeps its exit code as the status', () => {
+    const out = toolOutputView('Bash', { command: 'false' }, { content: [{ type: 'text', text: 'boom' }], details: { exitCode: 3 } });
+    expect(out?.status).toBe('exit 3');
+    expect(out?.tone).toBe('warning');
   });
 
   it('marks a silent successful shell command as done when no exit code is reported', () => {
@@ -202,16 +210,45 @@ describe('toolOutputView', () => {
     expect(out).toBeUndefined();
   });
 
-  it('strips the redundant `$ command` echo and `[exit N]` from a console body (renderer re-adds both)', () => {
+  it('strips the console framing from the body: command echo, cwd (→ structured field) and exit marker', () => {
     // The terminal plugin frames its result verbatim as `$ <cmd>\n(cwd: …)\n<output>\n[exit N]`.
     const framed = '$ rm -rf public/x && echo done\n(cwd: /var/www/wemx)\ndone\n[exit 0]';
     const out = toolOutputView('Bash', { command: 'rm -rf public/x && echo done' }, { content: [{ type: 'text', text: framed }], details: { exitCode: 0 } });
     expect(out?.command).toBe('rm -rf public/x && echo done'); // echoed once, from args
-    expect(out?.status).toBe('exit 0');                        // exit shown once, as the chip
+    expect(out?.status).toBeUndefined();                       // clean success → no status noise
     expect(out?.text).not.toMatch(/^\$ /);                     // no leading command echo left in the body
     expect(out?.text).not.toContain('[exit 0]');               // no trailing exit marker left in the body
-    expect(out?.text).toContain('(cwd: /var/www/wemx)');       // cwd + real output survive
-    expect(out?.text).toContain('done');
+    expect(out?.cwd).toBe('/var/www/wemx');                    // cwd lifted into its structured field
+    expect(out?.text).toBe('done');                            // only the real output survives in the body
+  });
+
+  it('strips the framing on the LIVE path too, where the end event carries no args (the "[exit 0]" leak)', () => {
+    // `tool_execution_end` has no args → no command — but the tool KIND is known, so the framing must
+    // still never reach the display text (its last line used to become the chat adapters' summary).
+    const framed = '$ sudo ls -lt /var/log/letsencrypt/ | head -5\n(cwd: /var/www/elowen)\ntotal 12\nletsencrypt.log\n[exit 0]';
+    const out = toolOutputView('Bash', undefined, { content: [{ type: 'text', text: framed }], details: { exitCode: 0 } });
+    expect(out?.text).not.toContain('[exit 0]');
+    expect(out?.text.split('\n').at(-1)).toBe('letsencrypt.log');
+    expect(out?.cwd).toBe('/var/www/elowen');
+    expect(out?.status).toBeUndefined();
+    expect(out?.tone).toBe('success');
+    expect(out?.fullText ?? out?.text).not.toContain('[exit 0]');
+  });
+
+  it('a live-path FAILURE still exposes its exit code structurally', () => {
+    const framed = '$ false\n(cwd: /var/www/elowen)\nboom: something broke\n[exit 3]';
+    const out = toolOutputView('Bash', undefined, { content: [{ type: 'text', text: framed }], details: { exitCode: 3 } });
+    expect(out?.status).toBe('exit 3');
+    expect(out?.tone).toBe('warning');
+    expect(out?.text).not.toContain('[exit 3]');
+  });
+
+  it('a SILENT live-path failure keeps its block: the exit-code status is the whole story', () => {
+    const framed = '$ false\n(cwd: /var/www/elowen)\n[exit 3]';
+    const out = toolOutputView('Bash', undefined, { content: [{ type: 'text', text: framed }], details: { exitCode: 3 } });
+    expect(out).toBeDefined();
+    expect(out?.status).toBe('exit 3');
+    expect(out?.tone).toBe('warning');
   });
 
   it('leaves genuine output that merely starts with `$ ` or ends in brackets intact', () => {
@@ -234,7 +271,8 @@ describe('toolOutputView — single-source show policy', () => {
     expect(toolOutputView('MemorySearch', {}, { content: [{ type: 'text', text: 'a memory' }] })).toBeUndefined();
     // Bash IS on the allowlist → its console output surfaces.
     const shown = toolOutputView('Bash', { command: 'ls' }, { content: [{ type: 'text', text: 'a.ts' }], details: { exitCode: 0 } });
-    expect(shown).toMatchObject({ kind: 'console', text: 'a.ts', status: 'exit 0' });
+    expect(shown).toMatchObject({ kind: 'console', text: 'a.ts', tone: 'success' });
+    expect(shown?.status).toBeUndefined();
   });
 
   it('hides output by default — a tool on NO show list stays hidden (regression: default is hide)', () => {
@@ -293,7 +331,7 @@ describe('tool output tone (needs attention)', () => {
       details: { exitCode: 0 },
     });
     expect(v?.tone).toBe('success');
-    expect(v?.status).toBe('exit 0');
+    expect(v?.status).toBeUndefined();
   });
 
   it('a non-zero exit stays a warning', () => {

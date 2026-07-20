@@ -39,16 +39,36 @@ describe('shared liveTrace output/diff summaries', () => {
   const { compactLine, safeTail } = makeTextHelpers(PLAIN);
   const outputSummary = makeOutputSummary({ compactLine, safeTail });
 
-  it('outputFailed flags warning/danger tones and non-zero exits', () => {
+  it('outputFailed reads the structured tone, not status strings', () => {
     expect(outputFailed({ tone: 'warning' })).toBe(true);
-    expect(outputFailed({ status: 'exit 1' })).toBe(true);
-    expect(outputFailed({ status: 'exit 0', tone: 'success' })).toBe(false);
+    expect(outputFailed({ tone: 'danger', status: 'exit 1' })).toBe(true);
+    expect(outputFailed({ tone: 'success' })).toBe(false);
+    expect(outputFailed(undefined)).toBe(false);
   });
 
-  it('outputSummary prefers a note, then a meaningful status, then the last text line', () => {
-    expect(outputSummary({ notes: ['done well'], status: 'exit 0', text: 'x' })).toBe('done well');
-    expect(outputSummary({ status: 'needs attention', text: 'x' })).toBe('needs attention');
-    expect(outputSummary({ status: 'exit 0', text: 'line1\nlast line' })).toBe('last line');
+  it('outputSummary prefers a note, then a FAILURE status, then the last text line', () => {
+    expect(outputSummary({ notes: ['done well'], tone: 'success', text: 'x' })).toBe('done well');
+    expect(outputSummary({ status: 'needs attention', tone: 'warning', text: 'x' })).toBe('needs attention');
+    expect(outputSummary({ tone: 'success', text: 'line1\nlast line' })).toBe('last line');
+  });
+
+  it('a clean console success never surfaces exit-status noise (the Discord "[exit 0]" regression)', () => {
+    // Exactly what toolOutputView produces for a successful Bash after the framing strip: success tone,
+    // NO status, structured cwd, body = real output only.
+    const success = {
+      title: 'console output', kind: 'console', tone: 'success', cwd: '/var/www/elowen',
+      text: 'total 12\n-rw-r--r-- 1 root root 55 letsencrypt.log',
+    };
+    const summary = outputSummary(success);
+    expect(summary).toBe('-rw-r--r-- 1 root root 55 letsencrypt.log');
+    expect(summary).not.toMatch(/exit\s*0/i);
+    expect(outputFailed(success)).toBe(false);
+  });
+
+  it('a FAILING console run still surfaces its exit code as the summary', () => {
+    const failed = { title: 'console output', kind: 'console', tone: 'warning', status: 'exit 3', text: 'boom: something broke' };
+    expect(outputFailed(failed)).toBe(true);
+    expect(outputSummary(failed)).toBe('exit 3');
   });
 
   it('diffSummary counts added/removed lines', () => {

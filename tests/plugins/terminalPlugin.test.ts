@@ -43,7 +43,16 @@ describe('terminal plugin', () => {
   it('runs a command in an allowed repo (default cwd = first root)', async () => {
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'Bash', { command: 'echo terminaltest' }), { identity: owner });
     expect(res.content[0].text).toContain('terminaltest');
+    // The `[exit N]` marker in the TEXT is framing for the model and must stay; the display path reads
+    // the exit code structurally from details.
     expect(res.content[0].text).toContain('[exit 0]');
+    expect(res.details.exitCode).toBe(0);
+  });
+
+  it('reports a non-zero exit code structurally in details as well as in the model-facing text', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'Bash', { command: 'exit 3' }), { identity: owner });
+    expect(res.content[0].text).toContain('[exit 3]');
+    expect(res.details.exitCode).toBe(3);
   });
 
   it('a turn bound to a project defaults the cwd to that project path, not the first root', async () => {

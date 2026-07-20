@@ -58,6 +58,8 @@ function ToolOutputBlock({ output }: { output: NonNullable<ToolItem['output']> }
   return (
     <div data-testid="chat-tool-output" className={`my-1 overflow-hidden whitespace-pre-wrap break-words rounded-md px-2.5 py-1.5 ${tone}`}>
       {output.command ? <div className="text-text">$ {output.command}</div> : null}
+      {/* Working directory lifted out of the console framing — faint context under the command echo. */}
+      {output.cwd ? <div className="opacity-60">(cwd: {output.cwd})</div> : null}
       {output.status ? <div className="opacity-80">{output.status}</div> : null}
       <div>{output.text || ' '}</div>
       {/* Hook-appended annotations (the `tools.call.after` contract, e.g. "formatted a.ts with prettier") —

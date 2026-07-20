@@ -17,6 +17,9 @@ export interface ToolOutputView {
   text: string;
   fullText?: string;
   command?: string;
+  /** Working directory of a console run, lifted out of the terminal plugin's `(cwd: …)` framing line so
+   *  the body carries only real output. Renderers show it as faint context under the command echo. */
+  cwd?: string;
   status?: string;
   tone?: 'normal' | 'success' | 'warning' | 'danger';
   /** Hook-appended annotations lifted off `result.details.notes` (the `tools.call.after` contract —

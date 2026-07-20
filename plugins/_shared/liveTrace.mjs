@@ -39,19 +39,22 @@ export function makeTextHelpers(style) {
   return { compactLine, safeTail };
 }
 
-/** Whether a tool output reads as a failure — a warning/danger tone or a non-zero exit in its status. */
+/** Whether a tool output reads as a failure. The tone is the structured verdict every ToolOutputView
+ *  producer derives from the authoritative signals (isError flag, numeric exit code) — no string-matching
+ *  of status values here. */
 export function outputFailed(output) {
-  return output?.tone === 'warning' || output?.tone === 'danger' || /(?:needs attention|exit [1-9]\d*)/i.test(output?.status ?? '');
+  return output?.tone === 'warning' || output?.tone === 'danger';
 }
 
-/** The one-line result summary for a settled tool: the last note if any, else a meaningful status, else
- *  the last non-empty line of the output text. */
+/** The one-line result summary for a settled tool: the last note if any, else — on a FAILURE — its status
+ *  (the exit code / "needs attention"), else the last non-empty line of the output text. A clean success
+ *  never surfaces its status: success is what the settled row already means, so naming it is noise. */
 export function makeOutputSummary({ compactLine, safeTail }) {
   return (output) => {
     const notes = Array.isArray(output?.notes) ? output.notes.filter(Boolean) : [];
-    const status = compactLine(output?.status);
+    const status = outputFailed(output) ? compactLine(output?.status) : '';
     const text = safeTail(output?.text ?? '').split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? '';
-    return compactLine(notes.at(-1) ?? (status && !/^(?:ok|done|exit 0)$/i.test(status) ? status : text) ?? '');
+    return compactLine(notes.at(-1) ?? (status || text));
   };
 }
 

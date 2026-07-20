@@ -326,7 +326,12 @@ export function register(ctx) {
           const note = run.timedOut
             ? `[killed: timed out after ${Math.round(timeoutMs / 1000)}s]\n`
             : run.exitCode === null ? '[killed]\n' : '';
-          return ok(formatRunResult(p.command, cwd, run.output, run.exitCode, note, outputCap));
+          // The `[exit N]` marker inside the text is framing for the MODEL; the display path reads the
+          // exit code structurally from details (tone + status chip), so report it there as well. A
+          // killed run has no exit code (null) and its note already says why.
+          const res = ok(formatRunResult(p.command, cwd, run.output, run.exitCode, note, outputCap));
+          if (typeof run.exitCode === 'number') res.details.exitCode = run.exitCode;
+          return res;
         }
         // prune finished processes before the cap check so dead entries don't block new work (the cap is
         // per session, so both the prune and the count stay session-scoped)

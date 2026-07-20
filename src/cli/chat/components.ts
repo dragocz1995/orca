@@ -764,8 +764,12 @@ export function toolOutputBlock(output: ToolOutputView, width: number, expanded 
   const lines: string[] = [];
   // Muted, not full-bright: the command echo is context, not content (matches the dim tool rows).
   if (output.command) lines.push(` ${ansi.open(theme.faint, '$')} ${ansi.open(theme.muted, terminalPlainText(output.command).replace(/\s+/g, ' ').trim())}`);
+  // The working directory lifted out of the console framing — faint context under the command echo.
+  if (output.cwd) lines.push(` ${ansi.open(theme.faint, `(cwd: ${terminalPlainText(output.cwd).replace(/\s+/g, ' ').trim()})`)}`);
+  // A clean success carries no status (the view seam leaves it undefined), so whatever arrives is
+  // worth a line — no string-filtering of "exit 0" here anymore.
   const status = output.status ? terminalPlainText(output.status).replace(/\s+/g, ' ').trim() : '';
-  if (status && !/^\[?exit\s+0\]?$/i.test(status)) {
+  if (status) {
     const statusColor = output.tone === 'warning' || output.tone === 'danger' ? theme.warning : theme.success;
     lines.push(` ${ansi.open(statusColor, status)}`);
   }
@@ -776,10 +780,11 @@ export function toolOutputBlock(output: ToolOutputView, width: number, expanded 
   // stray blank row it would otherwise render.
   for (const raw of body ? body.split('\n') : []) {
     if (!raw) { lines.push(''); continue; }
-    if (/^\s*\[?exit\s+0\]?\s*$/i.test(raw)) continue;
-    // Bookkeeping lines ((cwd: …), [exit N], repeated $ command echoes) drop to faint — they are
-    // context, not content, and at full muted they competed with the agent's actual reply.
-    const toneColor = /^\s*(\(cwd: |\[exit \d+\]|\$ )/.test(raw)
+    // Bookkeeping lines drop to faint — they are context, not content, and at full muted they competed
+    // with the agent's actual reply. The terminal plugin's own `$ cmd\n(cwd: …)…[exit N]` framing never
+    // reaches the body anymore (stripped at the view seam), but process-management results still print
+    // `(cwd: …)` and `$ cmd` context lines of their own, so the dimming stays load-bearing for those.
+    const toneColor = /^\s*(\(cwd: |\$ )/.test(raw)
       ? theme.faint
       : /\b(error|failed|warning|needs attention|exit\s+[1-9])\b/i.test(raw)
         ? theme.warning

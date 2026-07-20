@@ -184,11 +184,12 @@ describe('chat components', () => {
   });
 
   it('encodes persisted tool output as terminal-safe printable rows', () => {
+    // A clean success carries NO status (the view seam leaves it undefined) — nothing exit-ish renders.
     const lines = toolOutputBlock({
       title: 'console output',
       kind: 'console',
       command: 'du\t-xhd2',
-      status: 'exit 0',
+      tone: 'success',
       text: '984M\t/var/www/.local\rupdated\x1b[31mRED\x1b[0m\x1b]52;c;bad\x07\nnext\b!',
     }, 60);
     const rendered = lines.join('\n');
