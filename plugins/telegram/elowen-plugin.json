@@ -142,9 +142,13 @@
     {
       "key": "language",
       "label": "Service language",
-      "type": "string",
+      "type": "enum",
       "default": "en",
-      "hint": "Language of the bot's own service messages (/new, /model, placeholders): en (default) or cs."
+      "options": [
+        { "value": "en", "label": "English" },
+        { "value": "cs", "label": "Čeština" }
+      ],
+      "hint": "Language of the bot's own service messages (/new, /model, placeholders)."
     },
     {
       "key": "sec_conversation",
