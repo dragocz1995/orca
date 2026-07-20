@@ -41,6 +41,40 @@ export function recordSessionEvent(
   (live.pendingSessionNotices ??= []).push(NOTICE[kind](clean));
 }
 
+/** How long the reasoning level must sit unchanged before its marker lands. Cycling with ctrl+r fires
+ *  one change per keypress and stepping several levels takes roughly 150–300ms between presses, so the
+ *  window must comfortably outlast the next press of a burst; much longer only delays the marker after
+ *  the user has visibly settled. */
+export const REASONING_MARKER_DEBOUNCE_MS = 600;
+
+/** Debounce the reasoning-effort marker: apply-now, announce-later. The caller has already applied the
+ *  new level to the live session — only the visible marker (and its model-facing notice, both via
+ *  recordSessionEvent) waits until the level has been STABLE for the debounce window, so cycling
+ *  low→medium→high emits one "reasoning → high" instead of a marker per keystroke. Changing again
+ *  restarts the window and keeps the latest target; settling back on the level the transcript last
+ *  reflected cancels the marker entirely (nothing changed, nothing to announce). */
+export function scheduleReasoningMarker(store: BrainStore, live: LiveBrain, previousLevel: string | undefined, level: string): void {
+  const pending = live.pendingReasoningMarker;
+  if (pending) clearTimeout(pending.timer);
+  const baseline = pending ? pending.baseline : previousLevel;
+  if (baseline === level) { live.pendingReasoningMarker = undefined; return; }
+  const timer = setTimeout(() => flushReasoningMarker(store, live), REASONING_MARKER_DEBOUNCE_MS);
+  timer.unref?.();
+  live.pendingReasoningMarker = { timer, baseline, level };
+}
+
+/** Land a pending (debounced) reasoning marker NOW. Called by the settle timer, and by the turn runner
+ *  at turn admission — a turn must not start with the marker still in flight, or the marker row would
+ *  land AFTER the user message it preceded and its model-facing notice would miss the turn. No-op when
+ *  nothing is pending. */
+export function flushReasoningMarker(store: BrainStore, live: LiveBrain): void {
+  const pending = live.pendingReasoningMarker;
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  live.pendingReasoningMarker = undefined;
+  recordSessionEvent(store, live.sessionId, live, 'reasoning', live.thinkingLabels[pending.level] ?? pending.level);
+}
+
 /** Drain the queued session-change notices into a single model-facing <system-reminder>, clearing the
  *  buffer (one-shot). Returns '' when nothing is queued. Placed under the user message like the mode
  *  reminder — it is volatile per-turn context the agent should adapt to, not durable history. */

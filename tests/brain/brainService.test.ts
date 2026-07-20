@@ -1233,6 +1233,26 @@ describe('BrainService', () => {
     await expect(svc.setThinkingLevel(1, 'bogus')).rejects.toThrow(/does not support/);
   });
 
+  // The debounced marker (sessionEvents.test.ts covers the timing itself) through the real service: no
+  // marker lands per keypress, and a turn starting mid-window flushes exactly one with the settled level.
+  it('setThinkingLevel debounces the transcript marker and a send flushes the settled level', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const sessionId = svc.status(1).sessionId!;
+    await svc.send({ userId: 1, text: 'hello' }); // markers only exist once the conversation has turns
+    const markers = () => d.store.getSessionEvents(sessionId).filter((e) => e.kind === 'reasoning');
+
+    await svc.setThinkingLevel(1, 'low');
+    await svc.setThinkingLevel(1, 'medium');
+    await svc.setThinkingLevel(1, 'max');
+    expect(svc.status(1).thinkingLevel).toBe('max'); // the level itself applied immediately
+    expect(markers()).toEqual([]);                   // ...but no marker per intermediate change
+
+    await svc.send({ userId: 1, text: 'go' });       // turn start lands the pending marker
+    expect(markers().map((e) => e.detail)).toEqual(['max']);
+  });
+
   it('toggles Fast only for OpenAI OAuth and reports the live request profile', async () => {
     const d = fakeDeps();
     d.config = { providers: [{ id: 'codex', label: 'ChatGPT', type: 'oauth-openai-codex' as const, baseUrl: '', models: ['gpt-5.5'], apiKey: null }] };

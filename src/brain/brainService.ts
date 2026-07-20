@@ -26,7 +26,7 @@ import { PermissionApprovalService } from './service/permissionApproval.js';
 import { GoalLoopService } from './service/goalLoop.js';
 import { LiveSessionSpawner } from './service/spawner.js';
 import { ConversationLifecycle } from './service/lifecycle.js';
-import { recordSessionEvent } from './service/sessionEvents.js';
+import { recordSessionEvent, scheduleReasoningMarker } from './service/sessionEvents.js';
 import { clientDir } from './service/workDir.js';
 import { terminalizeWorkflow } from './workflowRuns.js';
 import { BrainTurnRunner } from './service/turnRunner.js';
@@ -559,7 +559,9 @@ export class BrainService {
     sess.setThinkingLevel?.(canonical);
     b.thinkingLevel = canonical;
     b.interactedAt = Date.now(); // a reasoning-effort change is a deliberate touch — don't idle-roll it over
-    if (prevLevel !== canonical) recordSessionEvent(this.d.store, b.sessionId, b, 'reasoning', b.thinkingLabels[canonical] ?? canonical);
+    // The level above applied immediately; only the MARKER is debounced, so ctrl+r cycling through the
+    // ladder lands one marker with the settled level instead of one per keypress.
+    scheduleReasoningMarker(this.d.store, b, prevLevel, canonical);
     return { thinkingLevel: (sess.thinkingLevel as string) ?? canonical };
   }
 

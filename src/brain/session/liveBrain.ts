@@ -117,6 +117,12 @@ export interface LiveBrain {
    *  Ephemeral like the mode reminder — never persisted. The durable, user-visible marker is the
    *  separate brain_session_events row emitted alongside each notice. */
   pendingSessionNotices?: string[];
+  /** A reasoning-effort change riding out its debounce window before the visible marker lands (see
+   *  scheduleReasoningMarker) — rapid ctrl+r cycling coalesces here into ONE marker showing the settled
+   *  level. `baseline` is the level the transcript last reflected, `level` the latest target; the level
+   *  itself is applied to the session immediately, only the marker waits. The turn runner flushes it at
+   *  turn admission; LiveSessionRegistry.dispose clears it so no timer outlives its session. */
+  pendingReasoningMarker?: { timer: ReturnType<typeof setTimeout>; baseline: string | undefined; level: string };
   /** The work mode of the last send on this session, so a change (build↔plan↔workflow) can be detected
    *  and recorded — mode is client-stamped per send, with no discrete daemon event of its own. */
   lastMode?: 'build' | 'plan' | 'workflow';

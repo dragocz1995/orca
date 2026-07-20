@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { recordSessionEvent, drainSessionNotices } from '../../src/brain/service/sessionEvents.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  recordSessionEvent, drainSessionNotices,
+  scheduleReasoningMarker, flushReasoningMarker, REASONING_MARKER_DEBOUNCE_MS,
+} from '../../src/brain/service/sessionEvents.js';
 import type { BrainStore, BrainSessionEvent, SessionEventKind } from '../../src/store/brainStore.js';
 import type { LiveBrain } from '../../src/brain/session/liveBrain.js';
 import type { BrainEvent } from '../../src/brain/events.js';
@@ -7,6 +10,7 @@ import type { BrainEvent } from '../../src/brain/events.js';
 function fakeLive(published: BrainEvent[]): LiveBrain {
   return {
     sessionId: 's1',
+    thinkingLabels: { low: 'Low', medium: 'Medium', high: 'High' },
     replay: { publish: (event: BrainEvent) => { published.push(event); } },
   } as unknown as LiveBrain;
 }
@@ -74,6 +78,70 @@ describe('recordSessionEvent', () => {
     const store = fakeStore();
     recordSessionEvent(store, 's1', undefined, 'rename', 'Marker demo');
     expect(store.appended).toEqual([{ kind: 'rename', detail: 'Marker demo' }]);
+  });
+});
+
+// The reasoning-effort marker is DEBOUNCED: ctrl+r cycling fires one change per keypress, and the level
+// itself applies immediately — only the visible marker waits until the level sat unchanged for the window,
+// so a burst coalesces into one marker showing where the user settled.
+describe('scheduleReasoningMarker', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('coalesces rapid cycling into ONE marker showing the settled level', () => {
+    const published: BrainEvent[] = [];
+    const live = fakeLive(published);
+    const store = fakeStore();
+    scheduleReasoningMarker(store, live, 'low', 'medium');
+    scheduleReasoningMarker(store, live, 'medium', 'high');
+    expect(store.appended).toEqual([]); // nothing lands per keypress
+    vi.advanceTimersByTime(REASONING_MARKER_DEBOUNCE_MS);
+    expect(store.appended).toEqual([{ kind: 'reasoning', detail: 'High' }]);
+    expect(live.pendingSessionNotices).toEqual(['set your reasoning effort to High']);
+    vi.advanceTimersByTime(60_000); // one settle, one marker — the timer is disarmed
+    expect(store.appended).toHaveLength(1);
+  });
+
+  it('a single settled change emits exactly one marker', () => {
+    const live = fakeLive([]);
+    const store = fakeStore();
+    scheduleReasoningMarker(store, live, 'low', 'high');
+    vi.advanceTimersByTime(REASONING_MARKER_DEBOUNCE_MS);
+    expect(store.appended).toEqual([{ kind: 'reasoning', detail: 'High' }]);
+  });
+
+  it('a change mid-window restarts the debounce and keeps the latest target', () => {
+    const live = fakeLive([]);
+    const store = fakeStore();
+    scheduleReasoningMarker(store, live, 'low', 'medium');
+    vi.advanceTimersByTime(REASONING_MARKER_DEBOUNCE_MS - 1);
+    scheduleReasoningMarker(store, live, 'medium', 'high');
+    vi.advanceTimersByTime(REASONING_MARKER_DEBOUNCE_MS - 1);
+    expect(store.appended).toEqual([]); // the second change re-armed the full window
+    vi.advanceTimersByTime(1);
+    expect(store.appended).toEqual([{ kind: 'reasoning', detail: 'High' }]);
+  });
+
+  it('cycling back to the level the transcript already shows cancels the marker', () => {
+    const live = fakeLive([]);
+    const store = fakeStore();
+    scheduleReasoningMarker(store, live, 'low', 'medium');
+    scheduleReasoningMarker(store, live, 'medium', 'low');
+    expect(live.pendingReasoningMarker).toBeUndefined();
+    vi.advanceTimersByTime(60_000);
+    expect(store.appended).toEqual([]); // full circle — nothing changed, nothing announced
+  });
+
+  it('flushReasoningMarker lands a pending marker immediately and disarms the timer (turn start)', () => {
+    const live = fakeLive([]);
+    const store = fakeStore();
+    scheduleReasoningMarker(store, live, 'low', 'high');
+    flushReasoningMarker(store, live);
+    expect(store.appended).toEqual([{ kind: 'reasoning', detail: 'High' }]);
+    vi.advanceTimersByTime(60_000);
+    expect(store.appended).toHaveLength(1); // the settle timer must not fire a second marker
+    flushReasoningMarker(store, live); // nothing pending — a plain no-op
+    expect(store.appended).toHaveLength(1);
   });
 });
 

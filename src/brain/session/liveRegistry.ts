@@ -7,7 +7,7 @@
  *  conversations run concurrently); the bare session id is the inner lock guarding prompt()/spawn.
  *  start()/ensureLive lock the bare session id only — that key difference is what makes
  *  send() → ensureLive() re-entrant. */
-export class LiveSessionRegistry<T extends { sessionId: string; session: { dispose(): void; isStreaming: boolean } }> {
+export class LiveSessionRegistry<T extends { sessionId: string; session: { dispose(): void; isStreaming: boolean }; pendingReasoningMarker?: { timer: ReturnType<typeof setTimeout> } }> {
   private live = new Map<string, T>();
   private active = new Map<number, string>();
   private channels = new Map<string, T>();
@@ -41,10 +41,13 @@ export class LiveSessionRegistry<T extends { sessionId: string; session: { dispo
   get(id: string): T | undefined { return this.live.get(id); }
   has(id: string): boolean { return this.live.has(id); }
   set(id: string, b: T): void { this.live.set(id, b); }
-  /** Dispose the PI session and forget the record (no-op when absent). */
+  /** Dispose the PI session and forget the record (no-op when absent). A reasoning marker still riding
+   *  out its debounce dies with the session — the un-announced level change does not survive a dispose
+   *  (respawns reset it), so the marker must not land after the record is gone. */
   dispose(id: string): void {
     const b = this.live.get(id);
     if (!b) return;
+    if (b.pendingReasoningMarker) { clearTimeout(b.pendingReasoningMarker.timer); b.pendingReasoningMarker = undefined; }
     b.session.dispose();
     this.live.delete(id);
   }

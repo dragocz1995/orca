@@ -17,7 +17,7 @@ import type { GoalLoopService } from './goalLoop.js';
 import type { PermissionApprovalService } from './permissionApproval.js';
 import { TurnAdmission } from './turnAdmission.js';
 import { TurnContextBuilder } from './turnContextBuilder.js';
-import { recordSessionEvent } from './sessionEvents.js';
+import { flushReasoningMarker, recordSessionEvent } from './sessionEvents.js';
 import type { TurnImage, TurnMode, TurnRequest } from './turnRequest.js';
 import { hasActiveNativeCompactionCheck } from '../session/compactionCheckCoordinator.js';
 import type { SubagentCompletion } from '../events.js';
@@ -261,6 +261,9 @@ export class BrainTurnRunner {
     }
     const active = this.d.sessions.get(targetId);
     if (!active) throw new Error('brain not started for user');
+    // A reasoning change may still be riding out its marker debounce — land it before this turn admits
+    // its user row, so the marker precedes the message and its model-facing notice drains into THIS turn.
+    flushReasoningMarker(this.d.store, active);
     // Owner mode switch (build↔plan↔workflow): mode is client-stamped per send with no discrete daemon
     // event, so compare against the last mode seen on this session. Real user turns only — the goal loop
     // (internal) is always build and must not perturb the baseline or emit a marker.
