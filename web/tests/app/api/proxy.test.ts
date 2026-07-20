@@ -19,11 +19,28 @@ describe('proxy catch-all', () => {
     expect((init.headers as Headers).get('cookie')).toBeNull();
   });
 
-  it('returns 401 without calling the daemon when the cookie is missing', async () => {
+  it('forwards a tokenless request WITHOUT an Authorization header, letting the daemon guard decide', async () => {
+    // No cookie → no bearer injected. The daemon is the sole auth guard (open in fresh-install setup mode,
+    // 401 thereafter), so the proxy must forward rather than short-circuit — this is what keeps first-run
+    // onboarding (GET /setup, first-admin POST /users) reachable before any session cookie exists.
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ needsSetup: true }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const req = new Request('https://web.test/api/setup');
+    const res = await GET(req, ctx(['setup']));
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://daemon.test/setup');
+    expect((init.headers as Headers).get('authorization')).toBeNull();
+  });
+
+  it('does not manufacture a cookie-clear on a tokenless 401 (there is no cookie to clear)', async () => {
+    // A protected route on an already-set-up install answers 401 to a tokenless request; the clearCookie
+    // path is gated on having had a token, so the pre-cookie onboarding window is not flipped to logout.
+    fetchMock.mockResolvedValue(new Response('{"error":"unauthorized"}', { status: 401 }));
     const req = new Request('https://web.test/api/tasks');
     const res = await GET(req, ctx(['tasks']));
     expect(res.status).toBe(401);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(res.headers.get('set-cookie')).toBeNull();
   });
 
   it('rejects a mutating request from a foreign origin with 403', async () => {

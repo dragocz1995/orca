@@ -379,17 +379,17 @@ export default function OnboardingPage() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                   <div className="flex-1">
                     <Field label={t.onboarding.fieldUsername}>
-                      <Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
+                      <Input data-testid="onboarding-username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
                         placeholder={t.onboarding.fieldUsername} className="font-mono text-xs" />
                     </Field>
                   </div>
                   <div className="flex-1">
                     <Field label={t.onboarding.fieldPassword}>
-                      <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                      <Input data-testid="onboarding-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
                         placeholder={t.onboarding.fieldPassword} className="font-mono text-xs" />
                     </Field>
                   </div>
-                  <Button variant="accent" icon={UserPlus} disabled={!newUsername.trim() || !newPassword.trim() || createUser.isPending}
+                  <Button data-testid="onboarding-create" variant="accent" icon={UserPlus} disabled={!newUsername.trim() || !newPassword.trim() || createUser.isPending}
                     onClick={handleCreateUser} className="shrink-0">
                     {t.onboarding.createUser}
                   </Button>

@@ -20,12 +20,15 @@ async function proxy(req: Request, ctx: Ctx): Promise<Response> {
     if (blocked) return blocked;
   }
   const token = tokenFromCookie(req);
-  if (!token) return jsonError('unauthorized', 401);
   const { path } = await ctx.params;
   if (!safeSegments(path)) return jsonError('bad_request', 400);
   const search = new URL(req.url).search;
   const headers = forwardHeaders(req);
-  headers.set('authorization', `Bearer ${token}`);
+  // With a session cookie, inject it as the daemon bearer. Without one, forward tokenless and let the
+  // daemon's own global auth guard decide: it 401s every protected route unless the install is fresh
+  // (no users yet), which is exactly what keeps first-run onboarding — GET /setup, then creating the
+  // first admin — reachable through this proxy before any session cookie can exist.
+  if (token) headers.set('authorization', `Bearer ${token}`);
   const upstream = await fetch(`${daemonUrl()}/${path.join('/')}${search}`, {
     method: req.method,
     headers,
@@ -37,8 +40,10 @@ async function proxy(req: Request, ctx: Ctx): Promise<Response> {
   const resHeaders = new Headers(upstream.headers);
   // Never relay a daemon-set cookie to the browser; the proxy is the sole owner of the session cookie.
   resHeaders.delete('set-cookie');
-  // A daemon 401 means the session token is stale/revoked — expire the cookie so the gate logs out.
-  if (upstream.status === 401) resHeaders.append('set-cookie', clearCookie(isHttps(req)));
+  // A daemon 401 on a request we DID authenticate means the session token is stale/revoked — expire the
+  // cookie so the gate logs out. A tokenless 401 (a protected route on an already-set-up install) has no
+  // cookie to clear, and must not manufacture a logout during the pre-cookie onboarding window.
+  if (upstream.status === 401 && token) resHeaders.append('set-cookie', clearCookie(isHttps(req)));
   return new Response(upstream.body, { status: upstream.status, headers: resHeaders });
 }
 

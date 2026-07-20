@@ -5,7 +5,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useToast } from '../../components/ui/Toast';
 import { useBrainSessions, useBrainCommands } from '../../lib/queries';
 import { elowenClient, BASE } from '../../lib/elowenClient';
-import type { AskAnswer, AskQuestion, BrainCard, BrainModelOption, BrainUsage, SlashCommandDef, StatuslineConfig } from '../../lib/types';
+import type { AskAnswer, AskQuestion, BrainCard, BrainModelOption, BrainUsage, SlashCommandDef, StatuslineConfig, ToolOutputView } from '../../lib/types';
 import { fromHistory, prependHistory, reduce, upsertCard, type ChatTurn, type TranscriptEvent } from '../../lib/transcript';
 import { formatTokens, formatCost } from '../../lib/format';
 import { getBrainClientId, buildBinding, type BrainBinding } from '../../lib/brainSession';
@@ -363,6 +363,13 @@ function useBrainChatController(): BrainChatValue {
     es.addEventListener('diff', (e) => {
       const { diff } = JSON.parse((e as MessageEvent).data) as { diff: string };
       setTurns((cur) => fold(cur, { type: 'diff', diff }));
+    });
+    // The final result block of a completed tool call (Bash output, a Read preview, …): fold it onto its
+    // tool pill by id so a finished tool's stand-alone output renders LIVE, not only after a history reload
+    // (parity with `diff`; the reducer's `tool_output` case supersedes any live `tool_progress` tail).
+    es.addEventListener('tool_output', (e) => {
+      const { output, id } = JSON.parse((e as MessageEvent).data) as { output: ToolOutputView; id?: string };
+      setTurns((cur) => fold(cur, { type: 'tool_output', output, id }));
     });
     // AskUserQuestion parked the turn — render the inline choice card until the user answers.
     es.addEventListener('ask', (e) => {
