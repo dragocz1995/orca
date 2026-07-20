@@ -7,9 +7,7 @@ import { openBrainSession } from '../../lib/brainDock';
 import { localDateTime, formatTokens } from '../../lib/format';
 import { useTranslation } from '../../lib/i18n';
 import { useToast } from '../../components/ui/Toast';
-import { useMe, useConfig, QUERY_KEYS } from '../../lib/queries';
-import { Toggle } from '../../components/ui/Toggle';
-import { Input } from '../../components/ui/Input';
+import { useMe } from '../../lib/queries';
 import { usePersistentState } from '../../lib/usePersistentState';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { Segmented } from '../../components/ui/Segmented';
@@ -41,24 +39,6 @@ export function BrainSessionsPanel() {
   const [confirmAll, setConfirmAll] = useState(false);
   const [page, setPage] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-
-  // Admin-only retention control: auto-delete idle conversations older than N days. Off by default; the
-  // daemon's hourly janitor reads this config and skips running/active/child-bearing sessions.
-  const config = useConfig();
-  const retention = config.data?.sessionRetention ?? { enabled: false, days: 90 };
-  const [daysDraft, setDaysDraft] = useState('');
-  useEffect(() => { setDaysDraft(String(retention.days)); }, [retention.days]);
-  const saveRetention = async (next: { enabled?: boolean; days?: number }) => {
-    try {
-      await elowenClient.updateConfig({ sessionRetention: next });
-      await qc.invalidateQueries({ queryKey: QUERY_KEYS.config });
-    } catch { toast(t.sessionsPanel.retentionSaveError, 'error'); }
-  };
-  const commitDays = () => {
-    const parsed = Math.floor(Number(daysDraft));
-    if (!Number.isFinite(parsed) || parsed < 1) { setDaysDraft(String(retention.days)); return; }
-    if (parsed !== retention.days) void saveRetention({ days: parsed });
-  };
 
   const managed = useQuery({ queryKey: ['brain-managed-sessions'], queryFn: elowenClient.brainManagedSessions, enabled: isAdmin && view === 'all' });
   const own = useQuery({ queryKey: ['brain-sessions'], queryFn: elowenClient.brainSessions, enabled: view === 'mine' });
@@ -142,35 +122,6 @@ export function BrainSessionsPanel() {
           ) : null}
         </div>
       </ControlSurfaceToolbar>
-
-      {isAdmin && view === 'all' ? (
-        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-elevated/40 px-3 py-2">
-          <Toggle
-            checked={retention.enabled}
-            onChange={(next) => void saveRetention({ enabled: next })}
-            label={t.sessionsPanel.retentionLabel}
-          />
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-xs font-medium text-text">{t.sessionsPanel.retentionLabel}</span>
-            <span className="text-xs text-text-muted">{t.sessionsPanel.retentionHint}</span>
-          </div>
-          <label className="ml-auto flex items-center gap-2 text-xs text-text-muted">
-            {t.sessionsPanel.retentionOlderThan}
-            <Input
-              type="number"
-              min={1}
-              value={daysDraft}
-              disabled={!retention.enabled}
-              onChange={(e) => setDaysDraft(e.target.value)}
-              onBlur={commitDays}
-              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-              className="w-16 text-center"
-              aria-label={t.sessionsPanel.retentionOlderThan}
-            />
-            {t.sessionsPanel.retentionDays}
-          </label>
-        </div>
-      ) : null}
 
       <ControlSurfaceRegister>
       {q.isLoading ? <p className="py-8 text-xs italic text-text-muted">{t.common.loading}</p>
