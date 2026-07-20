@@ -7,7 +7,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useMobile } from '../../lib/useMobile';
 import { useToast } from '../../components/ui/Toast';
 import type { BrainCard } from '../../lib/types';
-import { collectSubagents, type ChatTurn, type ToolItem } from '../../lib/transcript';
+import { collectSubagents, type ChatTurn, type SessionEventItem, type ToolItem } from '../../lib/transcript';
 import { AskQuestionCard } from './AskQuestionCard';
 import { ProcessPanel } from './ProcessPanel';
 import { AgentsTable } from './AgentsTable';
@@ -60,6 +60,13 @@ function ToolOutputBlock({ output }: { output: NonNullable<ToolItem['output']> }
       {output.command ? <div className="text-text">$ {output.command}</div> : null}
       {output.status ? <div className="opacity-80">{output.status}</div> : null}
       <div>{output.text || ' '}</div>
+      {/* Hook-appended annotations (the `tools.call.after` contract, e.g. "formatted a.ts with prettier") —
+          faint suffix lines under the output body, matching how the daemon renders ToolOutputView.notes. */}
+      {output.notes?.length ? (
+        <div className="mt-1 flex flex-col gap-0.5 opacity-70">
+          {output.notes.map((n, i) => <div key={i}>↳ {n}</div>)}
+        </div>
+      ) : null}
       {output.fullText && output.fullText !== output.text ? <div className="mt-1 opacity-70">Click to expand in terminal</div> : null}
     </div>
   );
@@ -159,6 +166,34 @@ function ContextDivider({ full }: { full?: boolean }) {
   );
 }
 
+/** Phrase a session-change marker — mirror of the daemon `sessionEventLabel` (src/cli/chat/turnRenderer.ts).
+ *  A `cwd` path is shortened to its last two segments (the web has no absolute-path context). */
+function eventLabel(kind: string, detail: string): string {
+  switch (kind) {
+    case 'model': return `model → ${detail}`;
+    case 'mode': return `mode → ${detail}`;
+    case 'rename': return `renamed → "${detail}"`;
+    case 'reasoning': return `reasoning → ${detail}`;
+    case 'cwd': return `cwd → …/${detail.split('/').filter(Boolean).slice(-2).join('/')}`;
+    default: return detail;
+  }
+}
+
+/** A run of session-change markers (model/mode/rename/cwd) — the machine annotating what it did, rendered
+ *  as one faint line per marker, the web twin of the CLI's dim `⚙` event rows. */
+function SessionEvents({ events, tk }: { events: SessionEventItem[]; tk?: string }) {
+  return (
+    <div data-tk={tk} className="flex flex-col gap-0.5 py-1 text-tiny text-text-muted">
+      {events.map((e) => (
+        <div key={e.id || `${e.kind}:${e.detail}`} className="flex items-center gap-1.5">
+          <span aria-hidden className="shrink-0 opacity-60">⚙</span>
+          <span className="truncate">{eventLabel(e.kind, e.detail)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** One message row. In the full /chat page every turn is LEFT-aligned with a role dot + label (the
  *  "Popisky" design); the label only appears when the speaker CHANGES, so a run of assistant turns
  *  (one per tool round) reads as a single Elowen block instead of repeating the heading. Turns inside a
@@ -170,6 +205,7 @@ function ContextDivider({ full }: { full?: boolean }) {
 function Message({ turn, full, showRole, tk }: { turn: ChatTurn; full?: boolean; showRole?: boolean; tk?: string }) {
   const { t } = useTranslation();
   if (turn.role === 'divider') return <ContextDivider full={full} />;
+  if (turn.role === 'event') return <SessionEvents events={turn.events} tk={tk} />;
 
   const you = turn.role === 'you';
   const body = turn.role === 'you'

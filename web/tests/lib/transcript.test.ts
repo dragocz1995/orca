@@ -38,6 +38,53 @@ describe('web groupToolItems: collapse consecutive same-tool pills', () => {
     expect(groups.map((group) => group.count)).toEqual([1, 1, 1]);
     expect(groups[1]!.item.sub?.sessionId).toBe('brain-ch-subagent-child');
   });
+
+  it('folds a run of the SAME failure (differing only by path) and keeps every member', () => {
+    const groups = groupToolItems([
+      { name: 'Edit', output: { title: 't', kind: 'result', text: 'no such file /a/b.ts', tone: 'danger' } },
+      { name: 'Edit', output: { title: 't', kind: 'result', text: 'no such file /c/d.ts', tone: 'danger' } },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.count).toBe(2);
+    expect(groups[0]!.members).toHaveLength(2);
+  });
+
+  it('keeps a WorkflowStart row out of collapsed groups (wf is not collapsible)', () => {
+    const groups = groupToolItems([
+      { name: 'WorkflowStart' },
+      { name: 'WorkflowStart', wf: { id: 'w', toolCallId: 'c', status: 'running', nodes: [] } },
+    ]);
+    expect(groups.map((g) => g.count)).toEqual([1, 1]);
+  });
+});
+
+describe('web transcript fromHistory: session-event and workflow rows', () => {
+  it('folds consecutive session-change markers into one event turn and carries kind/detail', () => {
+    const view = fromHistory([
+      { id: 'e1', role: 'event', text: '', kind: 'model', detail: 'gpt-5' },
+      { id: 'e2', role: 'event', text: '', kind: 'mode', detail: 'build' },
+    ]);
+    expect(view.turns).toHaveLength(1);
+    const turn = view.turns[0]!;
+    expect(turn.role).toBe('event');
+    if (turn.role === 'event') {
+      expect(turn.events.map((e) => [e.kind, e.detail])).toEqual([['model', 'gpt-5'], ['mode', 'build']]);
+    }
+  });
+
+  it('carries a workflow DAG through onto its tool item', () => {
+    const view = fromHistory([{
+      id: 'm1', role: 'assistant', text: '',
+      segments: [{ kind: 'tool', name: 'WorkflowStart', id: 'c', wf: { id: 'w', toolCallId: 'c', status: 'done', nodes: [{ id: 'n', task: 'x', status: 'done', deps: [] }] } }],
+    }]);
+    const turn = view.turns[0]!;
+    expect(turn.role).toBe('elowen');
+    if (turn.role === 'elowen') {
+      const seg = turn.segments[0]!;
+      expect(seg.kind).toBe('tools');
+      if (seg.kind === 'tools') expect(seg.items[0]!.wf?.id).toBe('w');
+    }
+  });
 });
 
 describe('web transcript fromHistory: compaction divider', () => {

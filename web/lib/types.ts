@@ -96,8 +96,8 @@ export interface BrainSearchHit { sessionId: string; sessionTitle: string; role:
  *  imported (type-only, so nothing bundles) rather than re-declared — the web mirror can no longer drift
  *  from what the daemon serves over GET /brain/messages. `BrainMessage` is the web's name for the
  *  daemon's `BrainMessageView`. */
-import type { ToolOutputView, BrainMessageView } from '../../src/shared/wireContract.js';
-export type { ToolOutputView };
+import type { ToolOutputView, BrainWorkflowView, BrainMessageView } from '../../src/shared/wireContract.js';
+export type { ToolOutputView, BrainWorkflowView };
 export type BrainMessage = BrainMessageView;
 
 /** One backwards page of chat history (lazy-load). `nextBefore` is the cursor for the next older page —

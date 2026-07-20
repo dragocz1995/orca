@@ -1,4 +1,8 @@
-import type { BrainCard, BrainMessage, ToolOutputView } from './types';
+import type { BrainCard, BrainMessage, BrainWorkflowView, ToolOutputView } from './types';
+
+/** The workflow DAG a `WorkflowStart` call is running — the shared wire shape (BrainWorkflowView),
+ *  attached to its tool item by call id exactly as `sub` is for a delegate call. */
+type WorkflowState = BrainWorkflowView;
 
 /** Browser MIRROR of the daemon's `src/brain/transcript.ts` (same governance as `web/lib/types.ts`
  *  mirroring `src/brain/events.ts`): the web dock is a standalone Next.js bundle whose Turbopack build
@@ -31,6 +35,9 @@ export type TranscriptEvent =
  *  happened. Consecutive tool calls (no new text between them) collapse into ONE tools segment → the
  *  Claude-Code "grouped pills" look. Useful tool output previews attach to their matching item. */
 export interface ToolItem { name: string; detail?: string; diff?: string; icon?: string; output?: ToolOutputView; id?: string; command?: string; sub?: SubagentState;
+  /** The workflow DAG a `WorkflowStart` call is running, attached by its tool call id exactly as `sub` is
+   *  for a delegate call. Durable — rebuilt from history on every hydration. */
+  wf?: WorkflowState;
   /** Live rolling tail of a still-running `Bash` (from the `tool_progress` event), rendered under
    *  the tool pill while it streams. LIVE-only — never persisted; the final `output`/`diff` clears it. */
   progress?: string }
@@ -59,23 +66,47 @@ type Segment =
  *  {@link groupToolItems}). Grouping lives in the RENDERER, not the fold, so the id-keyed diff/output
  *  attachment still lands on the right item and resumed history collapses for free. An item WITH a diff
  *  or an output block stays its own group (count 1) and renders its own block. */
-export interface ToolGroup { item: ToolItem; count: number }
+export interface ToolGroup { item: ToolItem; count: number;
+  /** Every item of a folded run of FAILED tool results. A bare-row run needs only its count (the rows are
+   *  identical), but each failure carries its own message — the path it refused — so the renderer keeps
+   *  them all to list on expand. */
+  members?: ToolItem[] }
 
 function isCollapsibleTool(item: ToolItem): boolean {
-  return !item.diff && !item.output && !item.sub && !item.command && !item.progress;
+  return !item.diff && !item.output && !item.sub && !item.wf && !item.command && !item.progress;
+}
+
+/** The kind of failure a tool result is, or undefined when it is not one. Four refusals that differ only
+ *  by the file they name are ONE failure repeated — so the signature is the message with its varying parts
+ *  (paths and numbers) flattened away, under the tool that produced it. Only `result` outputs fold; a
+ *  console command's output is the thing you want to read when it fails, and differs every time. MUST stay
+ *  in lockstep with the daemon `failureSignature` (src/brain/transcript.ts) — the conformance test guards it. */
+export function failureSignature(item: ToolItem): string | undefined {
+  const output = item.output;
+  if (!output || output.kind !== 'result') return undefined;
+  if (output.tone !== 'warning' && output.tone !== 'danger') return undefined;
+  const firstLine = (output.text ?? '').split('\n').find((line) => line.trim()) ?? '';
+  const shape = firstLine.replace(/\S*\/\S+/g, '§').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 160);
+  return `${item.name}|${shape}`;
 }
 
 /** Fold a tools segment's items into render groups (see {@link ToolGroup}). Pure — recomputed every
- *  render so a streaming pill's count and latest detail stay live. */
+ *  render so a streaming pill's count and latest detail stay live. Mirror of the daemon `groupToolItems`
+ *  (src/brain/transcript.ts); the conformance test asserts the two stay identical. */
 export function groupToolItems(items: ToolItem[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
   for (const item of items) {
     const last = groups[groups.length - 1];
     if (last && isCollapsibleTool(item) && isCollapsibleTool(last.item) && last.item.name === item.name) {
-      groups[groups.length - 1] = { item, count: last.count + 1 };
-    } else {
-      groups.push({ item, count: 1 });
+      groups[groups.length - 1] = { item, count: last.count + 1 }; // latest detail wins, count grows
+      continue;
     }
+    const signature = failureSignature(item);
+    if (signature && last && signature === failureSignature(last.item)) {
+      groups[groups.length - 1] = { item, count: last.count + 1, members: [...(last.members ?? [last.item]), item] };
+      continue;
+    }
+    groups.push({ item, count: 1 });
   }
   return groups;
 }
@@ -89,7 +120,13 @@ type ElowenTurn = { role: 'elowen'; segments: Segment[]; streaming: boolean; id?
 /** A context-compaction boundary: everything before it was summarized away server-side, so the dock
  *  renders a subtle "context compacted" divider in its place, followed by the kept tail. */
 type DividerTurn = { role: 'divider'; id?: string };
-export type ChatTurn = YouTurn | ElowenTurn | DividerTurn;
+/** One visible marker of an owner session-state change (model/mode/rename/cwd). Mirror of the daemon
+ *  `SessionEventItem`; `id` dedups a live marker against the same durable one seeded from history. */
+export interface SessionEventItem { id: string; kind: string; detail: string }
+/** A run of session-change markers interleaved into the transcript by time. Display-only. Consecutive
+ *  markers collapse into ONE turn (as consecutive tool calls collapse into one segment). */
+type EventTurn = { role: 'event'; events: SessionEventItem[]; id?: string };
+export type ChatTurn = YouTurn | ElowenTurn | DividerTurn | EventTurn;
 
 /** The whole view model the dock renders. `notice` is a transient runtime line (retry/compaction). */
 export interface ChatView { turns: ChatTurn[]; thinking: boolean; notice?: string }
@@ -103,6 +140,14 @@ export function fromHistory(msgs: BrainMessage[]): ChatView {
   for (const m of msgs) {
     // A compaction boundary → a divider turn (the pre-compaction history was summarized away).
     if (m.role === 'compaction') { turns.push({ role: 'divider', id: m.id }); continue; }
+    // A session-change marker (model/mode/rename/cwd) → an event turn; consecutive markers collapse.
+    if (m.role === 'event') {
+      const item: SessionEventItem = { id: m.id ?? '', kind: m.kind ?? '', detail: m.detail ?? '' };
+      const tail = turns[turns.length - 1];
+      if (tail?.role === 'event') tail.events.push(item);
+      else turns.push({ role: 'event', events: [item], id: m.id });
+      continue;
+    }
     if (m.role === 'user') {
       if (m.text.trim()) turns.push({ role: 'you', text: m.text, id: m.id });
       continue;
@@ -112,7 +157,7 @@ export function fromHistory(msgs: BrainMessage[]): ChatView {
       if (seg.kind === 'text') {
         segments.push({ kind: 'text', text: seg.text });
       } else {
-        const item: ToolItem = { name: seg.name, id: seg.id, detail: seg.detail, diff: seg.diff, output: seg.output, command: seg.command, sub: seg.sub };
+        const item: ToolItem = { name: seg.name, id: seg.id, detail: seg.detail, diff: seg.diff, output: seg.output, command: seg.command, sub: seg.sub, wf: seg.wf };
         const tail = segments[segments.length - 1];
         if (tail?.kind === 'tools') tail.items.push(item);
         else segments.push({ kind: 'tools', items: [item] });
