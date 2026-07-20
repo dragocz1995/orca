@@ -30,7 +30,7 @@ function cleanup() {
   spawnSync('docker', ['rm', '-f', CONTAINER], { stdio: 'ignore' });
 }
 
-const version = JSON.parse(spawnSync('node', ['-p', "JSON.stringify(require('./package.json').version)"], { cwd: repo, encoding: 'utf8' }).stdout.trim().replace(/^"|"$/g, ''));
+const version = JSON.parse(spawnSync('node', ['-p', "JSON.stringify(require('./package.json').version)"], { cwd: repo, encoding: 'utf8' }).stdout.trim());
 if (!version) die('could not read package version');
 
 // 1. Fresh build — npm pack does NOT run prepublishOnly, so a stale/empty dist would otherwise ship.
