@@ -15,7 +15,9 @@ export function attachPty(
   pty: PtyModule,
   opts: { session: string; cols: number; rows: number },
 ): PtySession {
-  const proc: IPty = pty.spawn('tmux', ['attach', '-t', opts.session], {
+  // `=name` pins an EXACT session match: a bare `-t name` would let tmux prefix-match a different live
+  // session if this one already exited, attaching the viewer to someone else's pane.
+  const proc: IPty = pty.spawn('tmux', ['attach', '-t', `=${opts.session}`], {
     name: 'xterm-256color',
     cols: opts.cols,
     rows: opts.rows,

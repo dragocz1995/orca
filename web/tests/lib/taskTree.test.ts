@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { epicChildren, phaseIds, epicProgress, epicLive, epicCapacity, epicEffectiveStatus } from '../../lib/taskTree';
+import { epicChildren, phaseIds, epicProgress, epicLive, epicEffectiveStatus } from '../../lib/taskTree';
 import type { Task, Mission } from '../../lib/types';
 
 const task = (over: Partial<Task> = {}): Task => ({ id: 't', title: 'T', status: 'open', ...over });
@@ -49,34 +49,6 @@ describe('epicLive', () => {
     const children = [task({ id: 'a', status: 'in_progress', labels: ['agent:nova'] })];
     const live = epicLive(children, [], { 'elowen-nova': { type: 'needs_input', question: '?' } });
     expect(live).toEqual({ running: 0, needsInput: 0 });
-  });
-});
-
-describe('epicCapacity', () => {
-  it('counts live running phases against the session cap, with free slots', () => {
-    const children = [
-      task({ id: 'a', status: 'in_progress', labels: ['agent:nova'] }),
-      task({ id: 'b', status: 'in_progress', labels: ['agent:atlas'] }),
-      task({ id: 'c', status: 'open', labels: ['agent:orion'] }), // not running yet
-      task({ id: 'd', status: 'in_progress', labels: ['agent:ghost'] }), // in_progress but no live session
-    ];
-    expect(epicCapacity(children, ['elowen-nova', 'elowen-atlas'], 2)).toEqual({ running: 2, max: 2, free: 0 });
-    expect(epicCapacity(children, ['elowen-nova', 'elowen-atlas'], 3)).toEqual({ running: 2, max: 3, free: 1 });
-    expect(epicCapacity(children, [], 2)).toEqual({ running: 0, max: 2, free: 2 });
-  });
-
-  it('clamps running to max (stale in_progress never over-reports) and floors max at 0', () => {
-    const children = [task({ id: 'a', status: 'in_progress', labels: ['agent:nova'] }), task({ id: 'b', status: 'in_progress', labels: ['agent:atlas'] })];
-    expect(epicCapacity(children, ['elowen-nova', 'elowen-atlas'], 1)).toEqual({ running: 1, max: 1, free: 0 });
-    expect(epicCapacity(children, ['elowen-nova', 'elowen-atlas'], 0)).toEqual({ running: 0, max: 0, free: 0 });
-    expect(epicCapacity(children, ['elowen-nova', 'elowen-atlas'], -2)).toEqual({ running: 0, max: 0, free: 0 });
-  });
-
-  // W20: non-finite maxSessions (undefined/NaN from malformed data) must not poison the meter.
-  it('treats non-finite maxSessions as 0 instead of rendering NaN', () => {
-    const children = [task({ id: 'a', status: 'in_progress', labels: ['agent:nova'] })];
-    expect(epicCapacity(children, ['elowen-nova'], NaN)).toEqual({ running: 0, max: 0, free: 0 });
-    expect(epicCapacity(children, ['elowen-nova'], undefined as unknown as number)).toEqual({ running: 0, max: 0, free: 0 });
   });
 });
 

@@ -7,7 +7,7 @@ import { en } from '../../../lib/i18n/dictionaries/en';
 const saveProviders = vi.fn();
 const disconnect = vi.fn();
 const updateConfig = vi.fn(() => Promise.resolve());
-const CONFIG = { brain: { providers: [], agentName: 'Elowen', maxSteps: 20 }, sessionRetention: { enabled: true, days: 30 } };
+const CONFIG = { brain: { providers: [], agentName: 'Elowen', maxSteps: 20 } };
 // The daemon's /brain/oauth/status returns the full supported type set (OAUTH_BUILTIN); the rendered
 // account rows are derived from these keys, so the mock mirrors the endpoint faithfully.
 const OAUTH = { 'oauth-anthropic': true, 'oauth-openai-codex': false, 'oauth-github-copilot': false, 'oauth-kimi': false };
@@ -44,7 +44,7 @@ describe('BrainSection — OAuth account model picker', () => {
     expect(container.querySelector('[data-settings-document]')).toBeNull();
     expect(container.querySelectorAll('[data-settings-group]')).toHaveLength(3);
     // One row per OAuth account type (Claude, ChatGPT, Copilot, Kimi) plus the provider entries.
-    expect(container.querySelectorAll('.settings-row')).toHaveLength(8);
+    expect(container.querySelectorAll('.settings-row')).toHaveLength(7);
     expect(container.querySelector('.spatial-group')).toBeNull();
     expect(container.querySelector('.border-y.divide-y')).toBeNull();
   });
@@ -72,28 +72,5 @@ describe('BrainSection — OAuth account model picker', () => {
     expect(screen.getByText(en.brain.disconnectConfirm.replace('{provider}', en.brain.types['oauth-anthropic']))).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: en.brain.disconnect }));
     expect(disconnect).toHaveBeenCalledWith('oauth-anthropic', expect.any(Object));
-  });
-});
-
-describe('BrainSection — conversation auto-cleanup', () => {
-  it('toggles retention through the config mutation', () => {
-    renderSection();
-    // CONFIG seeds retention on, so the switch is checked; flipping it persists the enabled flag.
-    fireEvent.click(screen.getByRole('switch', { name: en.brain.retention.label }));
-    expect(updateConfig).toHaveBeenCalledWith({ sessionRetention: { enabled: false } });
-  });
-
-  it('commits the days field on blur, clamped to >= 1', () => {
-    renderSection();
-    const days = screen.getByLabelText(en.brain.retention.olderThan);
-    fireEvent.change(days, { target: { value: '45' } });
-    fireEvent.blur(days);
-    expect(updateConfig).toHaveBeenCalledWith({ sessionRetention: { days: 45 } });
-
-    updateConfig.mockClear();
-    fireEvent.change(days, { target: { value: '0' } });
-    fireEvent.blur(days);
-    // Invalid draft (< 1) reverts silently and never hits the mutation.
-    expect(updateConfig).not.toHaveBeenCalled();
   });
 });

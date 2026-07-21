@@ -7,7 +7,7 @@ import type { ConversationTitler } from '../conversationTitler.js';
 import type { ElicitationRegistry } from '../elicitation.js';
 import type { CardRegistry } from '../cards.js';
 import type { IdentityResolver } from '../identity.js';
-import { extractText, isThinkingOnlyReply, NO_REPLY_NUDGE } from '../messageView.js';
+import { extractText, isThinkingOnlyReply, NO_REPLY_NUDGE, lastAssistant } from '../messageView.js';
 import { newCostMeter, runWithMeter } from '../openrouterMeter.js';
 import type { LiveSessionRegistry } from '../session/liveRegistry.js';
 import type { LiveBrain } from '../session/liveBrain.js';
@@ -109,7 +109,7 @@ export class BrainTurnRunner {
       // what the running turn already sees. Refuse BEFORE touching PI and leave the result pending; send()'s
       // post-turn hook re-drains it once the turn settles (no note-failure, no retry timer for this case).
       if (live.session.isStreaming) throw new ParentTurnBusyError(target);
-      const before = [...(live.session.messages as { role?: string }[])].reverse().find((message) => message.role === 'assistant');
+      const before = lastAssistant(live.session.messages as { role?: string }[]);
       const context = this.contextBuilder.buildScope(userId, live);
       await context.run(() => live.session.sendCustomMessage({
         customType,
@@ -117,8 +117,7 @@ export class BrainTurnRunner {
         display: false,
         details: { source: 'elowen', ...(resultId ? { resultId } : {}) },
       }, { triggerTurn: true, deliverAs: 'followUp' }));
-      const settled = [...(live.session.messages as { role?: string; stopReason?: string; errorMessage?: string }[])]
-        .reverse().find((message) => message.role === 'assistant');
+      const settled = lastAssistant(live.session.messages as { role?: string; stopReason?: string; errorMessage?: string }[]);
       // A turn that did not settle normally is NOT automatically a failure to deliver: PI appends the
       // custom message to the transcript before running the turn, so the result may already be in the
       // parent's context, and re-delivering it would put it there twice. Don't assume from the turn's
@@ -261,18 +260,6 @@ export class BrainTurnRunner {
     }
     const active = this.d.sessions.get(targetId);
     if (!active) throw new Error('brain not started for user');
-    // A reasoning change may still be riding out its marker debounce — land it before this turn admits
-    // its user row, so the marker precedes the message and its model-facing notice drains into THIS turn.
-    flushReasoningMarker(this.d.store, active);
-    // Owner mode switch (build↔plan↔workflow): mode is client-stamped per send with no discrete daemon
-    // event, so compare against the last mode seen on this session. Real user turns only — the goal loop
-    // (internal) is always build and must not perturb the baseline or emit a marker.
-    if (!internal) {
-      if (active.lastMode !== undefined && active.lastMode !== mode) {
-        recordSessionEvent(this.d.store, active.sessionId, active, 'mode', `${mode[0]!.toUpperCase()}${mode.slice(1)}`);
-      }
-      active.lastMode = mode;
-    }
     // Esc/stop fences the conversation before it snapshots children and clears PI's queue. Never admit a
     // message into that teardown window: the cancelled compaction/run will not drain it, so it would
     // otherwise survive as a phantom chip and execute on a later prompt.
@@ -283,19 +270,19 @@ export class BrainTurnRunner {
     // awaiting auth. The coordinator spans that gap. Treat it exactly like the running turn it belongs
     // to: new user input enters PI's native queue and becomes a transcript row only on delivery.
     const turnBusy = active.session.isStreaming || hasActiveNativeCompactionCheck(active.session);
-    if (!internal?.goalKickoff && !internal?.goalContinue && !internal?.systemNudge) this.d.goals.cancelGoalContinuation(active.sessionId);
+    if (!internal) this.d.goals.cancelGoalContinuation(active.sessionId); // a real (non-internal) user turn cancels any pending goal continuation
     // A system nudge (a finished background command waking the operator's session) is best-effort: if the
     // session is already streaming the agent is busy and needs no wake, so drop it rather than enqueue a
     // stray user turn. When idle it runs straight through, and — crucially — never drives the goal loop
     // (see the skipped afterTurnGoalJudge below), so it can't burn a goal-budget turn or mis-judge a goal.
-    if (internal?.systemNudge && turnBusy) return;
+    if (internal?.kind === 'systemNudge' && turnBusy) return;
     // Mid-turn: a message sent while a turn is already streaming is STEERED into the running turn — PI
     // delivers it between steps (after the current tool calls, before the next model call), so the agent
     // folds it in during the SAME turn instead of waiting for it to end. Admission creates only PI queue
     // state; the spawner persists/emits the authoritative user row at PI's later message_start, after the
     // matching queue chip disappeared. Internal goal kickoff/continuation is never steered — it drives
     // the loop itself and must run its own turn.
-    if (turnBusy && !internal?.goalKickoff && !internal?.goalContinue) {
+    if (turnBusy && (!internal || internal.kind === 'systemNudge')) {
       const queuedText = this.contextBuilder.withRunningSubagents(text, active.sessionId);
       const admission = new TurnAdmission(
         { store: this.d.store, titler: this.d.titler },
@@ -350,7 +337,7 @@ export class BrainTurnRunner {
         // assistant/tool messages, and projectUserTurn is not called for it), while its assistant reply
         // persists and streams to attached clients as a normal continuation. Straight-line by design:
         // a nudge that again produces nothing simply ends — no loop.
-        const settled = [...(live.session.messages as { role?: string }[])].reverse().find((m) => m.role === 'assistant');
+        const settled = lastAssistant(live.session.messages as { role?: string }[]);
         if (settled && isThinkingOnlyReply(settled)) {
           assertClientCurrent(live.sessionId);
           await live.session.prompt(NO_REPLY_NUDGE);
@@ -359,7 +346,7 @@ export class BrainTurnRunner {
       // Post-turn curator: extract durable facts from this exchange in the background. Fire-and-forget
       // (mirrors brainWorker) — never awaited, never touches live.session, swallows its own errors.
       if (this.d.curator && context.autoSaveMemory) {
-        const last = [...(live.session.messages as { role?: string }[])].reverse().find((m) => m.role === 'assistant');
+        const last = lastAssistant(live.session.messages as { role?: string }[]);
         const assistantText = last ? extractText(last) : '';
         void this.d.curator.run(userId, turnText, assistantText).catch(() => { /* curator is best-effort */ });
       }
@@ -399,6 +386,20 @@ export class BrainTurnRunner {
         // respawns onto the user's vision model in place, and hops back on the next text-only turn).
         b = await this.d.lifecycle.maybeVisionHop(userId, b, !!images?.length, clientCwd);
         assertClientCurrent(b.sessionId);
+        // Markers land on the SESSION THE TURN ACTUALLY RUNS ON — resolved only here, after rollover/vision-hop
+        // may have replaced it. Recording them on the pre-lock `active` would strand the marker + its queued
+        // model-facing notice on the archived session a rollover just left behind (they ride `b`, which carries
+        // only listeners across the hop). A reasoning change still riding its debounce is landed first so its
+        // row precedes this turn's user message; the mode switch (build↔plan↔workflow, client-stamped per send
+        // with no discrete daemon event) is compared against the last mode seen on this session. Internal goal
+        // turns are always build and never roll over — they must not perturb the baseline or emit a marker.
+        flushReasoningMarker(this.d.store, b);
+        if (!internal) {
+          if (b.lastMode !== undefined && b.lastMode !== mode) {
+            recordSessionEvent(this.d.store, b.sessionId, b, 'mode', `${mode[0]!.toUpperCase()}${mode.slice(1)}`);
+          }
+          b.lastMode = mode;
+        }
         // The conversation ↔ launch-directory binding follows explicit client cwds (feeds the CLI's
         // default-start resolution); fallback-resolved dirs are never stamped.
         if (clientCwd) this.d.lifecycle.stampWorkDir(b.sessionId, clientCwd, b.policy);
@@ -413,6 +414,6 @@ export class BrainTurnRunner {
         void this.drainPendingSubagentResults(userId, completedSessionId);
       }
     }
-    if (!internal?.systemNudge) this.d.goals.afterTurnGoalJudge(userId, completedSessionId, internal);
+    if (internal?.kind !== 'systemNudge') this.d.goals.afterTurnGoalJudge(userId, completedSessionId, internal);
   }
 }

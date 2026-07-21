@@ -15,12 +15,35 @@ describe('SpawnService', () => {
     expect(agents.programFor('SwiftLake')).toBe('opencode');
   });
 
-  it('exports ELOWEN_TASK so a worker can run `elowen ask` without passing its own id', async () => {
+  it('delivers ELOWEN_URL/TOKEN/TASK as tmux session env, never as an `export` in the pane command', async () => {
     const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
     const agents = new AgentStore(db); const tmux = new FakeTmuxDriver();
-    const svc = new SpawnService({ tmux, agents, elowen: { cli: 'elowen', url: 'http://localhost:4400', token: 'tok' } });
+    const svc = new SpawnService({ tmux, agents, elowen: { cli: 'elowen', url: 'http://localhost:4400', token: 's3cr3t-tok' } });
     await svc.launch({ projectId: 1, projectPath: '/o', taskId: 'elowen-7', agentName: 'Nova', spec: { program: 'opencode', model: 'm' } });
-    expect(tmux.commandFor('elowen-Nova')).toContain("export ELOWEN_TASK='elowen-7'");
+    // Env reaches the process out-of-band (tmux -e), so the worker can run `elowen ask`/`close`…
+    expect(tmux.spawnEnvFor('elowen-Nova')).toMatchObject({ ELOWEN_URL: 'http://localhost:4400', ELOWEN_TOKEN: 's3cr3t-tok', ELOWEN_TASK: 'elowen-7' });
+    // …but the token (and any env) is NEVER typed into the pane, where capturePane could surface it (N1).
+    expect(tmux.commandFor('elowen-Nova')).not.toContain('export ELOWEN_');
+    expect(tmux.commandFor('elowen-Nova')).not.toContain('s3cr3t-tok');
+  });
+
+  it('merges caller extraEnv into the tmux session env (reasoning agents: ELOWEN_PLAN_JOB etc.)', async () => {
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+    const agents = new AgentStore(db); const tmux = new FakeTmuxDriver();
+    const svc = new SpawnService({ tmux, agents, elowen: { cli: 'elowen', url: 'http://x', token: 'tok' } });
+    await svc.launch({ projectId: 1, projectPath: '/o', taskId: 'pj-1', agentName: 'Pilot', spec: { program: 'claude-code', model: 'opus' }, rawPrompt: 'PLAN', extraEnv: { ELOWEN_PLAN_JOB: 'pj-1' } });
+    expect(tmux.spawnEnvFor('elowen-Pilot')?.ELOWEN_PLAN_JOB).toBe('pj-1');
+  });
+
+  it('scrubs the token from a tmux spawn failure and re-throws a sanitized error', async () => {
+    const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+    const agents = new AgentStore(db); const tmux = new FakeTmuxDriver();
+    tmux.failSpawn = true; // a real tmux failure embeds `-e ELOWEN_TOKEN=<token>` in its error message
+    const svc = new SpawnService({ tmux, agents, elowen: { cli: 'elowen', url: 'http://x', token: 'sup3r-s3cret' } });
+    await expect(svc.launch({ projectId: 1, projectPath: '/o', taskId: 'elowen-1', agentName: 'Nova', spec: { program: 'opencode', model: 'm' } }))
+      .rejects.toThrow(/agent spawn failed/);
+    await expect(svc.launch({ projectId: 1, projectPath: '/o', taskId: 'elowen-1', agentName: 'Nova', spec: { program: 'opencode', model: 'm' } }))
+      .rejects.not.toThrow(/sup3r-s3cret/); // the raw token never rides out in the thrown error
   });
 
   it('applies the provider resolver binary + args to the spawned command', async () => {

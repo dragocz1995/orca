@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { createKeymap } from '../../../src/cli/chat/keys.js';
 import {
-  bottomHintItems, bottomHints, fitSegments, fitVariants, startScreenHintItems, startScreenHints,
+  bottomHintItems, fitSegments, fitVariants,
 } from '../../../src/cli/chat/chatComposition.js';
 import { StatusBar } from '../../../src/cli/chat/components.js';
 
@@ -78,10 +78,6 @@ describe('bottomHintItems priorities', () => {
     expect(priorityOf('ctrl+r')).toBeLessThan(priorityOf('/'));
   });
 
-  it('bottomHints stays the full joined form of the items', () => {
-    expect(bottomHints(keymap, 'idle')).toBe(bottomHintItems(keymap, 'idle').map((s) => s.text).join('   ·   '));
-    expect(startScreenHints(keymap)).toBe(startScreenHintItems(keymap).map((s) => s.text).join(' · '));
-  });
 });
 
 describe('StatusBar adaptive left', () => {

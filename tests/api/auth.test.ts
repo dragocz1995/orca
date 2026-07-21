@@ -8,17 +8,21 @@ import { EventBus } from '../../src/api/sse.js';
 import { createServer } from '../../src/api/server.js';
 import { FakeClock } from '../../src/shared/clock.js';
 import { ConfigStore } from '../../src/store/configStore.js';
+import { BrainStore } from '../../src/store/brainStore.js';
+import { PushSubscriptionStore } from '../../src/store/pushSubscriptionStore.js';
 
 function makeAuthedApp() {
   const db = openDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db); users.create('alice', 'secret');
+  const brainStore = new BrainStore(db);
+  const pushSubscriptions = new PushSubscriptionStore(db);
   const app = createServer({
     tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db),
     bus: new EventBus(), engine: null as any, spawn: null as any, tmux: null as any,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
-    clock: new FakeClock(0), config: new ConfigStore(db), users,
+    clock: new FakeClock(0), config: new ConfigStore(db), users, brainStore, pushSubscriptions,
   });
-  return { app, users };
+  return { app, users, brainStore, pushSubscriptions };
 }
 
 describe('auth', () => {
@@ -79,14 +83,51 @@ describe('auth', () => {
     const { app } = makeAuthedApp();
     const t = ((await (await app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'secret' }) })).json()).token) as string;
     const h = { authorization: `Bearer ${t}`, 'content-type': 'application/json' };
-    const created = await app.request('/users', { method: 'POST', headers: h, body: JSON.stringify({ username: 'bob', password: 'pw' }) });
+    const created = await app.request('/users', { method: 'POST', headers: h, body: JSON.stringify({ username: 'bob', password: 'bobsecret' }) });
     expect(created.status).toBe(201);
-    const dup = await app.request('/users', { method: 'POST', headers: h, body: JSON.stringify({ username: 'bob', password: 'pw' }) });
+    const dup = await app.request('/users', { method: 'POST', headers: h, body: JSON.stringify({ username: 'bob', password: 'bobsecret' }) });
     expect(dup.status).toBe(409);
     // delete bob ok, then deleting the remaining last user (alice) is refused
     const bobId = (await created.json()).id as number;
     expect((await app.request(`/users/${bobId}`, { method: 'DELETE', headers: { authorization: `Bearer ${t}` } })).status).toBe(200);
     const aliceId = (await (await app.request('/users', { headers: { authorization: `Bearer ${t}` } })).json())[0].id;
     expect((await app.request(`/users/${aliceId}`, { method: 'DELETE', headers: { authorization: `Bearer ${t}` } })).status).toBe(400);
+  });
+
+  it('POST /users enforces a password policy and validates the body (400, not 500/409)', async () => {
+    const { app } = makeAuthedApp();
+    const t = ((await (await app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'secret' }) })).json()).token) as string;
+    const h = { authorization: `Bearer ${t}`, 'content-type': 'application/json' };
+    // Sub-8-char password → 400 from the schema (previously accepted, creating a weak account).
+    expect((await app.request('/users', { method: 'POST', headers: h, body: JSON.stringify({ username: 'weak', password: 'short' }) })).status).toBe(400);
+    // Empty username → 400.
+    expect((await app.request('/users', { method: 'POST', headers: h, body: JSON.stringify({ username: '', password: 'longenough' }) })).status).toBe(400);
+    // No body at all → 400 (previously a destructure TypeError → 500).
+    expect((await app.request('/users', { method: 'POST', headers: h })).status).toBe(400);
+  });
+
+  it('DELETE /users/:id with a non-numeric id is a 400, not a silent no-op success', async () => {
+    const { app } = makeAuthedApp();
+    const t = ((await (await app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'secret' }) })).json()).token) as string;
+    expect((await app.request('/users/abc', { method: 'DELETE', headers: { authorization: `Bearer ${t}` } })).status).toBe(400);
+  });
+
+  it('DELETE /users/:id wipes the user\'s brain conversations and push devices (no rowid-reuse leak)', async () => {
+    const { app, users, brainStore, pushSubscriptions } = makeAuthedApp();
+    const t = ((await (await app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'secret' }) })).json()).token) as string;
+    const bob = users.create('bob', 'pw');
+    // Seed private brain data + a registered push device for bob.
+    brainStore.createSession({ id: `brain-${bob.id}-x`, userId: bob.id, model: 'm' });
+    brainStore.appendMessage({ id: 'm1', sessionId: `brain-${bob.id}-x`, parentId: null, role: 'user', content: { text: 'bob secret' } });
+    pushSubscriptions.upsert(bob.id, { endpoint: 'https://push/bob', keys: { p256dh: 'p', auth: 'a' } });
+    expect(brainStore.listSessions(bob.id).length).toBe(1);
+    expect(pushSubscriptions.listForUsers([bob.id]).length).toBe(1);
+
+    expect((await app.request(`/users/${bob.id}`, { method: 'DELETE', headers: { authorization: `Bearer ${t}` } })).status).toBe(200);
+
+    // The route MUST wire brainStore.removeForUser + pushSubscriptions.removeAllForUser — otherwise the
+    // rows survive keyed to a rowid SQLite will reissue to the next-created user.
+    expect(brainStore.listSessions(bob.id).length).toBe(0);
+    expect(pushSubscriptions.listForUsers([bob.id]).length).toBe(0);
   });
 });

@@ -12,7 +12,7 @@ beforeEach(() => { db = openDb(':memory:'); store = new PushSubscriptionStore(db
 describe('PushSubscriptionStore', () => {
   it('upserts and lists a subscription for a user', () => {
     store.upsert(1, sub('https://push/1'));
-    const rows = store.listForUser(1);
+    const rows = store.listForUsers([1]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ user_id: 1, endpoint: 'https://push/1', p256dh: 'p', auth: 'a' });
   });
@@ -20,7 +20,7 @@ describe('PushSubscriptionStore', () => {
   it('re-upserting the same endpoint updates keys without duplicating', () => {
     store.upsert(1, sub('https://push/1', 'old', 'old'));
     store.upsert(1, sub('https://push/1', 'new', 'new'));
-    const rows = store.listForUser(1);
+    const rows = store.listForUsers([1]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ p256dh: 'new', auth: 'new' });
   });
@@ -28,22 +28,22 @@ describe('PushSubscriptionStore', () => {
   it('re-points an endpoint that moved to another user', () => {
     store.upsert(1, sub('https://push/shared'));
     store.upsert(2, sub('https://push/shared'));
-    expect(store.listForUser(1)).toHaveLength(0);
-    expect(store.listForUser(2)).toHaveLength(1);
+    expect(store.listForUsers([1])).toHaveLength(0);
+    expect(store.listForUsers([2])).toHaveLength(1);
   });
 
   it('removes a subscription by endpoint', () => {
     store.upsert(1, sub('https://push/1'));
     store.remove('https://push/1');
-    expect(store.listForUser(1)).toHaveLength(0);
+    expect(store.listForUsers([1])).toHaveLength(0);
   });
 
   it('removeForUser only deletes the caller\'s own device, never another user\'s', () => {
     store.upsert(1, sub('https://push/1'));
     store.removeForUser(2, 'https://push/1'); // user 2 must not be able to delete user 1's device
-    expect(store.listForUser(1)).toHaveLength(1);
+    expect(store.listForUsers([1])).toHaveLength(1);
     store.removeForUser(1, 'https://push/1'); // the owner can
-    expect(store.listForUser(1)).toHaveLength(0);
+    expect(store.listForUsers([1])).toHaveLength(0);
   });
 
   it('listForUsers returns the union and is empty for no users', () => {

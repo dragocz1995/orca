@@ -20,13 +20,13 @@ import {
   reconcileMirrors,
   stageDeliveredUserEchoes,
 } from '../session/queueMirror.js';
-import { isErroredContextOverflow, toBrainEvent, usageOf, withDescendantUsage } from '../events.js';
+import { isErroredContextOverflow, toBrainEvent, sessionUsageSnapshot } from '../events.js';
 import type { BrainEvent } from '../events.js';
 import type { BrainDeps } from '../brainDeps.js';
 import { turnWorkDir } from './workDir.js';
 import { modelCapabilities, qwenThinkingWire } from '../modelCapabilities.js';
 import { LiveEventReplay } from '../session/liveEventReplay.js';
-import { extractText } from '../messageView.js';
+import { extractText, lastAssistant } from '../messageView.js';
 import { abortSessionWork } from '../session/abortSessionWork.js';
 
 /** PI already classifies and retries transient provider failures. Reuse that same classifier after its
@@ -237,7 +237,7 @@ export class LiveSessionSpawner {
       const agentEndMessages = raw === 'agent_end'
         ? ((e as { messages?: { role?: string; stopReason?: string; errorMessage?: string; content?: unknown; usage?: unknown }[] }).messages ?? [])
         : [];
-      const agentEndLastAssistant = [...agentEndMessages].reverse().find((message) => message.role === 'assistant');
+      const agentEndLastAssistant = lastAssistant(agentEndMessages);
       const agentEndOverflow = !!agentEndLastAssistant && isErroredContextOverflow(agentEndLastAssistant, model.contextWindow);
       // Canonical fallback: PI can settle without a second agent_end when retry backoff is cancelled, or
       // without compaction_end when an overflow has nothing summarizable. Flush the deferred terminal
@@ -257,7 +257,7 @@ export class LiveSessionSpawner {
         if (terminalIdleDeferred) {
           replay.publish({
             type: 'idle', model: model.id,
-            usage: withDescendantUsage(usageOf(session), this.d.store.descendantUsage(sessionId)),
+            usage: sessionUsageSnapshot(session, this.d.store, sessionId),
           });
           terminalIdleDeferred = false;
         }
@@ -278,7 +278,7 @@ export class LiveSessionSpawner {
           logger('brain-step-ceiling').warn(`session ${sessionId} hit the step ceiling (${steps} > ${maxSteps}); aborting the run`);
           void abortSessionWork(session).catch(() => { /* already settling */ });
         } else {
-          const usage = withDescendantUsage(usageOf(session), this.d.store.descendantUsage(sessionId));
+          const usage = sessionUsageSnapshot(session, this.d.store, sessionId);
           replay.publish({ type: 'step', step: steps, maxSteps, usage });
         }
       }
@@ -367,7 +367,7 @@ export class LiveSessionSpawner {
       // terminal idle: headless must keep waiting and interactive clients must keep their spinner alive.
       if (suppressAgentEndIdle && be.type === 'idle') return;
       if (be.type === 'idle') {
-        be.usage = withDescendantUsage(usageOf(session), this.d.store.descendantUsage(sessionId));
+        be.usage = sessionUsageSnapshot(session, this.d.store, sessionId);
         be.model = model.id;
         terminalIdleDeferred = false;
       } // statusline data rides the idle event
@@ -376,7 +376,7 @@ export class LiveSessionSpawner {
       if (emitFailedRecoveryIdle) {
         replay.publish({
           type: 'idle', model: model.id,
-          usage: withDescendantUsage(usageOf(session), this.d.store.descendantUsage(sessionId)),
+          usage: sessionUsageSnapshot(session, this.d.store, sessionId),
         });
         terminalIdleDeferred = false;
       }

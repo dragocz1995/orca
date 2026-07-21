@@ -19,9 +19,6 @@
         "tests/e2e/**",
         "playwright.config.ts"
       ],
-      "ignoreDependencies": [
-        "@playwright/test"
-      ],
       "playwright": false
     }
   },
@@ -32,8 +29,7 @@
     "dot",
     "gh",
     "elowen",
-    "ollama",
-    "playwright"
+    "ollama"
   ],
   "ignoreIssues": {
     "web/lib/i18n/types.ts": [

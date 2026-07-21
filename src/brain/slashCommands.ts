@@ -4,33 +4,11 @@
  *  server-side ones at `POST /brain/command`. Add a new command HERE only — never per surface. */
 
 import { createSyntheticSourceInfo, type PromptTemplate } from '@earendil-works/pi-coding-agent';
+// SlashCommandDef/SlashSurface live in the shared wire contract so the web dock's menu can't drift from
+// this canonical list. Re-exported here for the daemon/CLI importers that expect them.
+import type { SlashCommandDef, SlashSurface } from '../shared/wireContract.js';
 
-export type SlashSurface = 'cli' | 'discord' | 'whatsapp' | 'telegram' | 'web';
-
-/** How a surface handles the command once the user picks it:
- *  - `action`: a server-side effect with no chooser (new, stop, compact, restart) — POST /brain/command.
- *  - `info`:   fetch + render data (status, help) — no state change.
- *  - `picker`: opens a surface-local chooser (model, think, and the CLI conversation pickers).
- *  - `mode`:   switches the chat work mode on the local surface; not server-dispatched.
- *  - `prompt`: a plugin-contributed prompt macro — the surface sends the RAW `/name args` slash and the
- *              daemon feeds it to PI, which expands the template's arguments natively in prompt(). */
-type SlashKind = 'action' | 'info' | 'picker' | 'mode' | 'prompt';
-
-export interface SlashCommandDef {
-  name: string;
-  /** One-line help shown in every surface's menu. English (surfaces localize their own chrome only). */
-  description: string;
-  kind: SlashKind;
-  /** Gated to admins (server-side check is `user.is_admin`). e.g. `restart`. */
-  adminOnly?: boolean;
-  /** Which surfaces expose it. Omitted → all three. The CLI conversation pickers are CLI-only. */
-  surfaces?: SlashSurface[];
-  /** For `kind:'prompt'` (plugin) commands: the prompt template. PI expands its argument placeholders
-   *  ($1/$@/$ARGUMENTS/${N:-default}) when the raw slash reaches the session — the surface never expands. */
-  prompt?: string;
-  /** For plugin commands: the owning plugin's name (menu attribution + provenance). */
-  plugin?: string;
-}
+export type { SlashCommandDef, SlashSurface };
 
 /** The canonical command set. Order is the display order in menus. */
 export const SLASH_COMMANDS: readonly SlashCommandDef[] = [

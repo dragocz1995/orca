@@ -45,6 +45,17 @@ describe('MemoryStore', () => {
     expect(store.list(1, { status: '' }).map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
   });
 
+  it('list with an offset but no limit paginates instead of 500ing on invalid SQL', () => {
+    const db = openDb(':memory:'); const s = new MemoryStore(db);
+    const a = s.add(1, { body: 'a' }, 'agent', '');
+    const b = s.add(1, { body: 'b' }, 'agent', '');
+    // `OFFSET ?` without a `LIMIT` is a SQLite syntax error; the store must emit `LIMIT -1 OFFSET ?`.
+    expect(() => s.list(1, { offset: 1 })).not.toThrow();
+    const page = s.list(1, { offset: 1 }).map((m) => m.id);
+    expect(page).toEqual([a.id]); // newest-first (b), skip 1 → a
+    expect(b.id).toBeGreaterThan(a.id);
+  });
+
   it('softDelete then restore roundtrips and audits both transitions', () => {
     const m = store.add(1, { body: 'x' }, 'agent', '');
     expect(store.softDelete(1, m.id, 'user:1', 'obsolete')).toBe(true);

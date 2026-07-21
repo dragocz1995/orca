@@ -5,7 +5,7 @@
 
 /** True when a question is answered by a single button click: single-select (not multiSelect). A click
  *  on a single-question single-select ask answers instantly; multiSelect / multi-question asks need Submit. */
-export function askUsesButtons(q) {
+function askUsesButtons(q) {
   const n = q.options?.length ?? 0;
   return q.multiSelect !== true && n >= 1;
 }

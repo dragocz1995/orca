@@ -8,6 +8,8 @@ type StoredTurnRow = { id?: string; role: string; content: string; created_at?: 
 // re-exported here for daemon callers (BrainStore passes its validated rows straight through). See
 // wireContract.ts for why they live outside src/brain.
 import type { ToolOutputView, BrainSubagentView, BrainWorkflowView, BrainSegment, BrainMessageView } from '../shared/wireContract.js';
+import { parseDbTs } from '../shared/time.js';
+import { DEFAULT_BRAIN_LIMITS } from '../store/configStore.js';
 // Only these two have daemon consumers that import them from here; BrainSubagentView/BrainWorkflowView/
 // BrainSegment are used internally by the shaping code below, and anything else that needs them imports
 // straight from wireContract.
@@ -120,7 +122,7 @@ function compactOutput(text: string): string {
  *  without a restart. `mapEvent` is a pure transform shared by the live and history paths (and mirrored
  *  in the web transcript), so a module-level resolver is the single seam rather than threading config
  *  through every call site. Defaults match the historical constants. */
-let toolOutputCaps: () => { lines: number; chars: number } = () => ({ lines: 80, chars: 12000 });
+let toolOutputCaps: () => { lines: number; chars: number } = () => ({ lines: DEFAULT_BRAIN_LIMITS.toolOutputMaxLines, chars: DEFAULT_BRAIN_LIMITS.toolOutputMaxChars });
 export function setToolOutputCaps(resolve: () => { lines: number; chars: number }): void { toolOutputCaps = resolve; }
 
 function expandedOutput(text: string): string {
@@ -277,6 +279,14 @@ export function extractText(msg: unknown): string {
   return '';
 }
 
+/** The most recent assistant message in a list, or undefined — the single "what did the agent last say"
+ *  expression, reused by the turn runner, channels, spawner and status views. Scans from the end so it
+ *  neither copies nor reverses the array. */
+export function lastAssistant<T extends { role?: string }>(messages: readonly T[]): T | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) if (messages[i]!.role === 'assistant') return messages[i];
+  return undefined;
+}
+
 /** The ONE automatic recovery prompt for a thinking-only turn (see `isThinkingOnlyReply`). Sent straight
  *  to session.prompt — never persisted as a user message (only its assistant reply lands in history). */
 export const NO_REPLY_NUDGE = 'Your last turn produced no visible reply or tool call. Answer the user now, in plain text.';
@@ -389,19 +399,14 @@ export function shapeBrainMessages(
   // BEFORE a user row and AFTER any other row. That is what makes a mode switch (always recorded in the
   // same second as the very turn it precedes) render identically here and in the live event fold.
   if (sessionEvents.length === 0) return stamped.map((s) => s.view);
-  const toMs = (s: string): number => {
-    const iso = s.includes('T') ? s : `${s.replace(' ', 'T')}Z`;
-    const ms = Date.parse(iso);
-    return Number.isNaN(ms) ? 0 : ms;
-  };
   const events = sessionEvents.map((e) => ({
-    ms: toMs(e.at),
+    ms: parseDbTs(e.at),
     view: { id: e.id, role: 'event', text: '', kind: e.kind, detail: e.detail } as BrainMessageView,
   }));
   const merged: BrainMessageView[] = [];
   let next = 0;
   for (const row of stamped) {
-    const ms = toMs(row.at);
+    const ms = parseDbTs(row.at);
     while (next < events.length
       && (events[next]!.ms < ms || (events[next]!.ms === ms && row.view.role === 'user'))) {
       merged.push(events[next]!.view);

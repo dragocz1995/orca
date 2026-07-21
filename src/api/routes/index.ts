@@ -9,7 +9,7 @@ import { registerBrainRoutes } from './brain.js';
 import { registerIntegrationRoutes } from './integrations.js';
 import { registerMissionRoutes } from './missions.js';
 import { registerConfigRoutes } from './config.js';
-import { registerPluginRoutes } from './plugins.js';
+import { registerPluginRoutes } from './plugins/index.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerMemoryRoutes } from './memory.js';
 

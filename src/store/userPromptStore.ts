@@ -32,9 +32,4 @@ export class UserPromptStore {
   remove(userId: number, name: string): void {
     this.db.prepare('DELETE FROM user_prompts WHERE user_id = ? AND name = ?').run(userId, name);
   }
-
-  /** Drop all of a user's overrides — called when the user is deleted so no orphan rows linger. */
-  removeForUser(userId: number): void {
-    this.db.prepare('DELETE FROM user_prompts WHERE user_id = ?').run(userId);
-  }
 }

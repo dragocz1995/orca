@@ -139,7 +139,7 @@ describe('DELETE /sessions/:name tears the chat terminal down', () => {
 
     expect((await del(app, adminTok, terminal)).status).toBe(200);   // owner tears it down
     expect(await tmux.list()).not.toContain(terminal);
-    expect(users.userForToken(token)).toBeNull();
+    expect(users.principalForToken(token)).toBeNull();
     expect(brainStore.getBrainTerminal(terminal)).toBeUndefined();
   });
 });

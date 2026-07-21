@@ -448,6 +448,21 @@ describe('brain routes', () => {
     expect((await app.request('/brain/send', post(amyTok, {}))).status).toBe(400);
   });
 
+  it('the zod-migrated POST bodies 400 on malformed JSON and missing required fields', async () => {
+    const { app, amyTok } = setup();
+    await app.request('/brain/start', post(amyTok, {}));
+    const raw = (path: string, body: string) => app.request(path, { method: 'POST', headers: { authorization: `Bearer ${amyTok}`, 'content-type': 'application/json' }, body });
+    // Malformed JSON now 400s (before the migration the hand-rolled `catch(() => ({}))` silently defaulted it).
+    expect((await raw('/brain/think', '{ not json')).status).toBe(400);
+    // Missing/ill-typed required fields are 400 at the schema, before the handler runs.
+    expect((await app.request('/brain/think', post(amyTok, {}))).status).toBe(400);   // level required
+    expect((await app.request('/brain/cwd', post(amyTok, {}))).status).toBe(400);     // dir required
+    expect((await app.request('/brain/goal', post(amyTok, {}))).status).toBe(400);    // text required
+    expect((await app.request('/brain/sessions/brain-1', { method: 'PATCH', headers: { authorization: `Bearer ${amyTok}`, 'content-type': 'application/json' }, body: JSON.stringify({ title: 7 }) })).status).toBe(400); // title must be a string
+    // An all-optional body (fast/yolo/abort/compact) still accepts an empty object.
+    expect((await app.request('/brain/fast', post(amyTok, {}))).status).toBe(200);
+  });
+
   it('an agent-scoped token cannot use brain routes', async () => {
     const { app, agentTok } = setup();
     expect((await app.request('/brain/status', auth(agentTok))).status).toBe(403);

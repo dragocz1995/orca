@@ -7,6 +7,7 @@ import { onUnhandledRequest } from '../msw';
 import SettingsPage from '../../app/settings/page';
 import { ToastProvider } from '../../components/ui/Toast';
 import { createWrapper } from '../test-utils';
+import { en } from '../../lib/i18n/dictionaries/en';
 
 let putBody: unknown = null;
 const server = setupServer(
@@ -259,6 +260,42 @@ describe('SettingsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByLabelText('My Custom Model')).toBeNull());
+  });
+
+  it('toggles conversation auto-cleanup from the System section and persists sessionRetention', async () => {
+    server.use(http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet'], customModels: [], autopilot: { model: 'm', apiUrl: 'u', apiKeySet: false, notes: '' }, defaults: { exec: 'sonnet', autonomy: 'L1', maxSessions: 1 }, security: { tokenTtlDays: 30 }, sessionRetention: { enabled: false, days: 90 } })));
+    localStorage.setItem('elowen.settings.category', 'system');
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+    await screen.findByRole('heading', { level: 1, name: 'System' });
+
+    // Off by default → flipping the switch persists just the enabled flag (its own PUT, not bundled
+    // with the token-TTL defaults autosave).
+    putBody = null;
+    fireEvent.click(screen.getByRole('switch', { name: en.settings.retention.label }));
+    await waitFor(() => expect((putBody as { sessionRetention: { enabled: boolean } }).sessionRetention).toEqual({ enabled: true }));
+  });
+
+  it('commits the retention days field on blur from the System section, clamped to >= 1', async () => {
+    server.use(http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet'], customModels: [], autopilot: { model: 'm', apiUrl: 'u', apiKeySet: false, notes: '' }, defaults: { exec: 'sonnet', autonomy: 'L1', maxSessions: 1 }, security: { tokenTtlDays: 30 }, sessionRetention: { enabled: true, days: 30 } })));
+    localStorage.setItem('elowen.settings.category', 'system');
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
+    await screen.findByRole('heading', { level: 1, name: 'System' });
+
+    const days = await screen.findByLabelText(en.settings.retention.olderThan);
+    await waitFor(() => expect(days).toHaveValue(30));
+
+    putBody = null;
+    fireEvent.change(days, { target: { value: '45' } });
+    fireEvent.blur(days);
+    await waitFor(() => expect((putBody as { sessionRetention: { days: number } }).sessionRetention).toEqual({ days: 45 }));
+
+    putBody = null;
+    fireEvent.change(days, { target: { value: '0' } });
+    fireEvent.blur(days);
+    // Invalid draft (< 1) reverts silently and never PUTs.
+    expect(putBody).toBeNull();
   });
 });
 

@@ -57,14 +57,15 @@ describe('buildAgentCommand', () => {
     expect(cmd).toContain("--model 'sonnet; touch /tmp/pwned #'"); // wrapped, not interpolated raw
     expect(cmd).not.toContain('--model sonnet; touch'); // the `;` never reaches the shell as a separator
   });
-  it('embeds the close command in the prompt and exports the provided env', () => {
+  it('embeds the close command in the prompt but never exports env into the pane command (delivered via tmux -e)', () => {
     const cmd = buildAgentCommand(
       { program: 'opencode', model: 'm' },
-      { projectPath: '/o', taskId: 'elowen-1', agentName: 'Nova', closeCommand: 'node /x/cli.js close elowen-1', env: { ELOWEN_URL: 'http://localhost:4400', ELOWEN_TOKEN: 'tok' } },
+      { projectPath: '/o', taskId: 'elowen-1', agentName: 'Nova', closeCommand: 'node /x/cli.js close elowen-1' },
     );
-    expect(cmd).toContain('export ELOWEN_URL=');
-    expect(cmd).toContain('export ELOWEN_TOKEN=');
     expect(cmd).toContain('node /x/cli.js close elowen-1');
+    // The agent's env (incl. its token) is injected as tmux session env by the spawn layer, so the typed
+    // pane command must carry NO `export ELOWEN_*` line — that would leak the token into the scrollback.
+    expect(cmd).not.toContain('export ELOWEN_');
   });
   it('defaults the close command to `elowen close <id>` when none is given', () => {
     const cmd = buildAgentCommand({ program: 'opencode', model: 'm' }, { projectPath: '/o', taskId: 'elowen-9', agentName: 'A' });
@@ -126,11 +127,10 @@ describe('buildAgentCommand', () => {
   it('uses rawPrompt verbatim and skips the worker preamble (reasoning agents)', () => {
     const cmd = buildAgentCommand(
       { program: 'claude-code', model: 'opus' },
-      { projectPath: '/repo', taskId: 'pj-1', agentName: 'Pilot', rawPrompt: 'PLAN ONLY: do not implement', env: { ELOWEN_PLAN_JOB: 'pj-1' } },
+      { projectPath: '/repo', taskId: 'pj-1', agentName: 'Pilot', rawPrompt: 'PLAN ONLY: do not implement' },
     );
     expect(cmd).toContain("--model 'opus'");
     expect(cmd).toContain("'PLAN ONLY: do not implement'");
-    expect(cmd).toContain('export ELOWEN_PLAN_JOB=');
     expect(cmd).not.toContain('elowen close'); // no close-command preamble for reasoning agents
     expect(cmd).not.toContain('1200000 ms'); // reasoning agents bypass the worker preamble
   });

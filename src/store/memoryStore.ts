@@ -137,7 +137,9 @@ export class MemoryStore {
     }
     let sql = `SELECT * FROM memories WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, id DESC`;
     if (opts.limit !== undefined) { sql += ' LIMIT ?'; params.push(opts.limit); }
-    if (opts.offset !== undefined) { sql += ' OFFSET ?'; params.push(opts.offset); }
+    // SQLite's grammar only allows OFFSET after a LIMIT; when paging without an explicit cap, use
+    // LIMIT -1 (unbounded) so `offset` alone doesn't produce `... OFFSET ?` — invalid SQL that 500s.
+    if (opts.offset !== undefined) { sql += opts.limit === undefined ? ' LIMIT -1 OFFSET ?' : ' OFFSET ?'; params.push(opts.offset); }
     return this.db.prepare(sql).all(...params) as MemoryRow[];
   }
 

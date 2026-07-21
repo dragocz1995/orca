@@ -7,11 +7,14 @@ export interface TurnImage {
 
 export type TurnMode = 'build' | 'plan' | 'workflow';
 
-/** Internal turns reuse the normal PI pipeline but do not render an authoritative user echo. */
-interface InternalTurn {
-  goalKickoff?: boolean;
-  goalContinue?: boolean;
-  systemNudge?: boolean;
+/** The three internal turn kinds: a goal-loop kickoff, a goal-loop continuation, or a system nudge. */
+type InternalTurnKind = 'goalKickoff' | 'goalContinue' | 'systemNudge';
+
+/** Internal turns reuse the normal PI pipeline but do not render an authoritative user echo. A single
+ *  discriminated `kind` replaces three independent booleans — the three kinds are mutually exclusive, so an
+ *  illegal `{ goalKickoff: true, systemNudge: true }` is now unrepresentable. */
+export interface InternalTurn {
+  kind: InternalTurnKind;
 }
 
 /** Stable identity carried by generation-bound CLI requests. Web/channel/internal sends omit it. */

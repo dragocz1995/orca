@@ -152,6 +152,20 @@ describe('BrainService', () => {
     expect(buildPrompt).not.toContain('cli/plan-mode');
   });
 
+  it('records a work-mode marker only when the mode actually changes (first turn sets the baseline)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    const modes = () => d.store.getSessionEvents('brain-1').filter((e) => e.kind === 'mode').map((e) => e.detail);
+
+    await svc.send({ userId: 1, text: 'one', mode: 'build', session: 'brain-1' });     // baseline — no marker
+    expect(modes()).toEqual([]);
+    await svc.send({ userId: 1, text: 'two', mode: 'plan', session: 'brain-1' });       // build → plan
+    await svc.send({ userId: 1, text: 'three', mode: 'plan', session: 'brain-1' });     // unchanged — no marker
+    await svc.send({ userId: 1, text: 'four', mode: 'workflow', session: 'brain-1' });  // plan → workflow
+    expect(modes()).toEqual(['Plan', 'Workflow']);
+  });
+
   it('start creates a session row and reports running', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
@@ -1181,7 +1195,7 @@ describe('BrainService', () => {
     await svc.start(1);
     const seen: { type: string }[] = [];
     svc.subscribe(1, (e) => seen.push(e as { type: string }));
-    await svc.send({ userId: 1, text: 'autonomous continuation', mode: 'build', internal: { goalKickoff: true } });
+    await svc.send({ userId: 1, text: 'autonomous continuation', mode: 'build', internal: { kind: 'goalKickoff' } });
     expect(seen.some((e) => e.type === 'user')).toBe(false);
   });
 
@@ -1746,14 +1760,14 @@ describe('BrainService', () => {
     d.session.prompt.mockImplementationOnce(async () => {
       d.emit({ type: 'agent_end', willRetry: false, messages: [{ role: 'assistant', content: 'GOAL_DONE: shipped' }] });
     });
-    await svc.send({ userId: 1, text: 'continue', mode: 'build', internal: { goalContinue: true } });
+    await svc.send({ userId: 1, text: 'continue', mode: 'build', internal: { kind: 'goalContinue' } });
     expect(d.store.getGoal(sid)?.status).toBe('active');
 
     // Turn 2: checks the subgoal off AND declares done → completes.
     d.session.prompt.mockImplementationOnce(async () => {
       d.emit({ type: 'agent_end', willRetry: false, messages: [{ role: 'assistant', content: 'SUBGOAL_DONE: 1\nGOAL_DONE: shipped, subgoal closed' }] });
     });
-    await svc.send({ userId: 1, text: 'continue', mode: 'build', internal: { goalContinue: true } });
+    await svc.send({ userId: 1, text: 'continue', mode: 'build', internal: { kind: 'goalContinue' } });
     const g = d.store.getGoal(sid);
     expect(g?.status).toBe('done');
     expect(JSON.parse(g!.subgoals)[0].done).toBe(true);
@@ -1777,7 +1791,7 @@ describe('BrainService', () => {
     d.session.prompt.mockClear();
     d.session.steer.mockClear();
     d.session.isStreaming = true;
-    await svc.send({ userId: 1, text: 'Continue the active persistent goal.', mode: 'build', internal: { goalContinue: true } });
+    await svc.send({ userId: 1, text: 'Continue the active persistent goal.', mode: 'build', internal: { kind: 'goalContinue' } });
     expect(d.session.steer).not.toHaveBeenCalled();
     expect(svc.queueList(1)).toEqual([]); // an internal continuation is NEVER steered — it drives the loop
     expect(d.session.prompt.mock.calls.at(-1)?.[0]).toBe('Continue the active persistent goal.');
@@ -2790,6 +2804,21 @@ describe('idle rollover (send)', () => {
     await svc.send({ userId: 1, text: 'second' });
     expect(svc.status(1).sessionId).toBe('brain-1');
     expect(svc.listSessions(1)).toHaveLength(1);
+  });
+
+  // Regression: the mode-switch marker was recorded on `active` (pre-lock) before maybeRollover replaced the
+  // session, so a send that both switched mode AND rolled over stranded the marker on the archived brain-1.
+  it('never strands a mode-switch marker on a session that then rolls over', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    await svc.start(1);
+    await svc.send({ userId: 1, text: 'first', mode: 'build' }); // baseline build on brain-1
+    backdate(d);
+    await svc.send({ userId: 1, text: 'second', mode: 'plan' }); // mode change + rollover in the same send
+    expect(svc.status(1).sessionId).not.toBe('brain-1');
+    // The build→plan marker must NOT dangle on the now-archived conversation; the fresh session simply
+    // starts under plan mode (no prior mode in it to switch from).
+    expect(d.store.getSessionEvents('brain-1').filter((e) => e.kind === 'mode')).toEqual([]);
   });
 
   // The cutoff is a cost optimisation for conversations nobody is watching. A terminal that still has the
@@ -3986,6 +4015,20 @@ describe('BrainService.bindChannelContext (/context move-binding)', () => {
     expect(svc.listContextSessions(1).items.map((s) => s.id)).not.toContain(chosen);
   });
 
+  it('tears down a bound `elowen chat` terminal before re-keying so the sweep cannot later reap it as conversationGone', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    const teardown = vi.fn(async () => {});
+    svc.attachTerminalTeardown(teardown);
+    await svc.start(1);
+    const chosen = await freshSpoken(svc, 'has a live terminal');
+
+    await svc.bindChannelContext(1, 'discord-c1', chosen);
+
+    // The bound terminal was torn down under the OLD id, before reassignSession moved it out of reach.
+    expect(teardown).toHaveBeenCalledWith(1, chosen);
+  });
+
   it('rejects a foreign session (owner-scope guard, invariant 6)', async () => {
     const d = fakeDeps();
     const svc = new BrainService(d as never);
@@ -4137,5 +4180,23 @@ describe('retention janitor — pending cron wake-up protection', () => {
 
     await expect(svc.purgeStaleSessionsForUser(1, 30)).resolves.toBe(1);
     expect(d.store.getSession('brain-1-stale')).toBeUndefined();
+  });
+
+  it('purges a stale conversation together with its sub-agent transcripts (no orphan leak)', async () => {
+    const d = fakeDeps();
+    const svc = new BrainService(d as never);
+    seedCurrent(d);
+    // A stale parent with a delegated sub-agent child. deleteSession detaches the child to top-level,
+    // where its brain-ch- prefix excludes it from staleConversationIds forever — the janitor must purge
+    // the whole tree instead of leaking the child's transcript.
+    seedStale(d, 'brain-1-parent');
+    d.store.createSession({ id: 'brain-ch-subagent-abc', userId: 1, model: 'm', parentSessionId: 'brain-1-parent' });
+    d.store.appendMessage({ id: 'sub-m', sessionId: 'brain-ch-subagent-abc', parentId: null, role: 'assistant', content: { text: 'child work' } });
+    d.db.prepare('INSERT INTO brain_subagent_runs (parent_session_id, tool_call_id, child_session_id, state) VALUES (?, ?, ?, ?)')
+      .run('brain-1-parent', 'tc1', 'brain-ch-subagent-abc', JSON.stringify({ status: 'done', task: 'child', tools: 0, seconds: 0 }));
+
+    await svc.purgeStaleSessionsForUser(1, 30);
+    expect(d.store.getSession('brain-1-parent')).toBeUndefined();       // parent purged
+    expect(d.store.getSession('brain-ch-subagent-abc')).toBeUndefined(); // child purged WITH it (previously leaked)
   });
 });

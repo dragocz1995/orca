@@ -63,7 +63,17 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
     d.bus.publish({ type: 'task', taskId: created.id, status: created.status });
     return c.json(created, 201);
   });
-  app.get('/tasks/ready', c => c.json(d.readiness.ready(d.project.id)));
+  app.get('/tasks/ready', c => {
+    // Scope like GET /tasks: previously this always returned the daemon home project's ready queue,
+    // unscoped — leaking its task titles/descriptions to any user (or agent token) assigned only to a
+    // different project, while that project's own ready tasks were unreachable. Resolve an accessible
+    // project (optional ?project_id, else home) and yield [] when the caller can't access it.
+    const allowed = accessibleProjects(c); // undefined ⇒ admin / open mode (unrestricted)
+    const pidRaw = c.req.query('project_id');
+    const pid = pidRaw !== undefined && pidRaw !== '' && Number.isFinite(Number(pidRaw)) ? Number(pidRaw) : d.project.id;
+    if (allowed && !allowed.has(pid)) return c.json([]);
+    return c.json(d.readiness.ready(pid));
+  });
   app.get('/tasks/deps', c => {
     const allowed = accessibleProjects(c);
     const deps = d.tasks.allDeps();
@@ -488,6 +498,11 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
     const job = planJobs.get(c.req.param('jobId'));
     if (!job) return c.json({ error: 'not found' }, 404);
     if (c.get('tokenScope') !== 'agent' && !canAccessProject(c, job.projectId)) return c.json({ error: 'forbidden' }, 403);
+    // Idempotency guard: a terminal job lingers ~10 min (TERMINAL_TTL_MS). Without this, a retried submit
+    // (pilot re-send / curl retry on timeout) re-runs persistPlan on the already-planned epic — appending
+    // the whole phase set a second time and re-engaging the mission — and a submit on a `failed` job would
+    // silently resurrect it. Only a job still `planning` may be submitted.
+    if (job.status !== 'planning') return c.json({ error: `plan job already ${job.status}` }, 409);
     const body = await c.req.json().catch(() => ({})) as { phases?: unknown };
     let phases: Phase[];
     try { phases = parsePhases(JSON.stringify(body.phases ?? [])); } // reuse the relay validator (DRY)

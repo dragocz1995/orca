@@ -44,22 +44,6 @@ export function epicLive(children: Task[], sessions: string[], signals: Record<s
   return { running, needsInput };
 }
 
-/** Mission capacity: how many of the maxSessions slots are occupied by live running phases.
- *  `running` is clamped to [0, max] so a stale in_progress child without a live session never
- *  over-reports. `free` is the number of slots still open for the overseer to schedule into. */
-export function epicCapacity(children: Task[], sessions: string[], maxSessions: number): { running: number; max: number; free: number } {
-  let running = 0;
-  for (const c of children) {
-    const s = taskSessionName(c);
-    if (c.status === 'in_progress' && s && sessions.includes(s)) running++;
-  }
-  // Guard against non-finite maxSessions (undefined/NaN from malformed data) so the meter never
-  // renders "NaN/NaN" — Math.floor(NaN) stays NaN and poisons every downstream value.
-  const max = Math.max(0, Number.isFinite(maxSessions) ? Math.floor(maxSessions) : 0);
-  const clamped = Math.min(running, max);
-  return { running: clamped, max, free: Math.max(0, max - clamped) };
-}
-
 /** The status an epic should display by, derived from its mission + phases rather than its own
  *  (often-stale) 'open' task status: an active mission or a running phase reads as in_progress;
  *  once every phase is closed/cancelled the epic reads as closed; otherwise blocked/open by its

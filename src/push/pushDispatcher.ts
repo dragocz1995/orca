@@ -37,7 +37,12 @@ export class PushDispatcher {
   private handle(e: ElowenEvent): void {
     const payload = this.map(e);
     if (!payload) return;
-    const recipients = payload.missionId ? recipientsForMission(payload.missionId, this.d) : [];
+    // A standalone (mission-less) task still needs a human when it blocks or asks — buildNeedsInput /
+    // buildBlocked deliberately model `missionId: undefined`. Fall back to admins (mirroring
+    // recipientsForMission's own owner-less fallback) instead of dropping the notification entirely.
+    const recipients = payload.missionId
+      ? recipientsForMission(payload.missionId, this.d)
+      : this.d.users.list().filter((u) => u.is_admin).map((u) => u.id);
     if (recipients.length === 0) return; // no one to notify (e.g. owner-less mission, no admins)
     // Fire-and-forget: the bus publish is synchronous, so never await network I/O here.
     void this.d.sender.sendToUsers(recipients, payload).catch((err) => log.error('push send failed', err));

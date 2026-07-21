@@ -1,4 +1,4 @@
-import type { ModuleMeta, ModuleGroup } from './types';
+import type { ModuleMeta } from './types';
 import { meta as dashboard } from './dashboard/meta';
 import { meta as stats } from './stats/meta';
 import { meta as tasks } from './tasks/meta';
@@ -51,8 +51,3 @@ export function navigationWorldForPath(pathname: string): NavigationWorld | unde
   ));
 }
 
-const GROUP_ORDER: ModuleGroup[] = ['Operate', 'Config'];
-
-export function modulesByGroup(): { group: ModuleGroup; items: ModuleMeta[] }[] {
-  return GROUP_ORDER.map((group) => ({ group, items: MODULES.filter((m) => m.group === group) }));
-}

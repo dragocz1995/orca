@@ -26,13 +26,13 @@ describe('PushSender', () => {
   it('prunes a dead endpoint on a 410', async () => {
     const deliver: Deliver = async () => { throw Object.assign(new Error('gone'), { statusCode: 410 }); };
     await new PushSender(subs, () => KEYS, deliver).sendToUsers([1], payload);
-    expect(subs.listForUser(1)).toHaveLength(0);
+    expect(subs.listForUsers([1])).toHaveLength(0);
   });
 
   it('keeps the endpoint on a transient 500', async () => {
     const deliver: Deliver = async () => { throw Object.assign(new Error('boom'), { statusCode: 500 }); };
     await new PushSender(subs, () => KEYS, deliver).sendToUsers([1], payload);
-    expect(subs.listForUser(1)).toHaveLength(1);
+    expect(subs.listForUsers([1])).toHaveLength(1);
   });
 
   it('is a no-op when VAPID keys are not configured', async () => {

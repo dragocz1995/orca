@@ -180,11 +180,6 @@ export function prependHistory(view: ChatView, older: BrainMessage[]): ChatView 
   return { ...view, turns: [...prepend, ...view.turns] };
 }
 
-/** Append the user's turn (finalized) — called optimistically when they hit send. */
-export function pushUser(view: ChatView, text: string): ChatView {
-  return { ...view, turns: [...view.turns, { role: 'you', text }] };
-}
-
 /** Fold one brain event into the view. Pure: returns a new ChatView, never mutates the input. */
 export function reduce(view: ChatView, e: TranscriptEvent): ChatView {
   const turns = view.turns.slice();

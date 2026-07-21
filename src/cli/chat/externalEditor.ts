@@ -8,10 +8,27 @@ import { BoundedChildTermination } from './processTermination.js';
  *  (tui.stop()) around this round-trip and re-inits afterwards; this module only owns the temp-file
  *  dance and the $VISUAL/$EDITOR resolution, so it stays unit-testable with a mocked spawn. */
 
-/** The editor command as argv: $VISUAL, else $EDITOR, else vi. Split on whitespace so commands with
- *  arguments ("code --wait") work. */
+/** The editor command as argv: $VISUAL, else $EDITOR, else vi. Tokenised shell-style so commands with
+ *  arguments ("code --wait") work AND a binary path containing spaces launches when quoted
+ *  ("'/opt/My Editor/bin/edit' --wait") — a plain whitespace split would mangle the latter into a bogus argv. */
 export function editorCommand(env: NodeJS.ProcessEnv = process.env): string[] {
-  return (env.VISUAL?.trim() || env.EDITOR?.trim() || 'vi').split(/\s+/);
+  return tokenizeCommand(env.VISUAL?.trim() || env.EDITOR?.trim() || 'vi');
+}
+
+/** Minimal shell-style tokenizer: splits on unquoted whitespace, honouring single/double quotes so a
+ *  quoted path with spaces stays one argv element. Not a full shell parser (no escapes/expansion) — just
+ *  enough for $VISUAL/$EDITOR. */
+function tokenizeCommand(s: string): string[] {
+  const out: string[] = [];
+  let cur = ''; let quote: '"' | "'" | null = null; let has = false;
+  for (const ch of s) {
+    if (quote) { if (ch === quote) quote = null; else cur += ch; has = true; }
+    else if (ch === '"' || ch === "'") { quote = ch; has = true; }
+    else if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false; } }
+    else { cur += ch; has = true; }
+  }
+  if (has) out.push(cur);
+  return out.length ? out : ['vi'];
 }
 
 export interface ExternalEditOpts {

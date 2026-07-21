@@ -72,7 +72,7 @@ describe('GoalLoopService — budget + YOLO', () => {
       id: 'a1', sessionId: 'brain-1', parentId: null, role: 'assistant',
       content: { content: 'GOAL_DONE: indicator verified in tmux' },
     });
-    loop.afterTurnGoalJudge(1, 'brain-1', { goalKickoff: true });
+    loop.afterTurnGoalJudge(1, 'brain-1', { kind: 'goalKickoff' });
 
     expect(published.at(-1)).toMatchObject({ status: 'done', last_verdict: 'done' });
   });

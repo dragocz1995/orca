@@ -12,6 +12,11 @@ describe('parseSse', () => {
     const { frames } = parseSse(': ping\n\n');
     expect(frames).toHaveLength(0);
   });
+
+  it('joins multiple data: lines in one frame with newlines (SSE spec), not by concatenation', () => {
+    const { frames } = parseSse('data: line1\ndata: line2\n\n');
+    expect(frames).toEqual([{ event: undefined, data: 'line1\nline2' }]);
+  });
 });
 
 const j = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });

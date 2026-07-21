@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { dbTsToIso } from '../shared/time.js';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { BrainRunMessage, BrainStore } from '../store/brainStore.js';
@@ -362,7 +363,7 @@ export function rehydrateWithTimestamps(store: BrainStore, sessionId: string, cw
   for (const { msg, createdAt } of parsedRows(store, sessionId)) {
     sm.appendMessage(msg as never);
     // SQLite stores UTC `YYYY-MM-DD HH:MM:SS`; normalize to ISO 8601 so PI's exporter renders it.
-    timestamps.push(new Date(`${createdAt.replace(' ', 'T')}Z`).toISOString());
+    timestamps.push(dbTsToIso(createdAt));
   }
   return { sm, timestamps };
 }

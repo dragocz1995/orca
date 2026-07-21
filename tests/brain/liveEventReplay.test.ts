@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BrainEvent } from '../../src/brain/events.js';
-import { appendBufferedBrainEvent, LiveEventReplay } from '../../src/brain/session/liveEventReplay.js';
+import { appendReplayBrainEvent, LiveEventReplay } from '../../src/brain/session/liveEventReplay.js';
 
 describe('LiveEventReplay', () => {
   it('coalesces concurrent snapshot buffers without mutating their shared event object', () => {
@@ -11,10 +11,10 @@ describe('LiveEventReplay', () => {
 
     // LiveEventReplay fans the same object reference to every listener. Each route buffers it while its
     // snapshot frame flushes, then observes the same next delta.
-    appendBufferedBrainEvent(streamA, first, 2_048);
-    appendBufferedBrainEvent(streamB, first, 2_048);
-    appendBufferedBrainEvent(streamA, next, 2_048);
-    appendBufferedBrainEvent(streamB, next, 2_048);
+    appendReplayBrainEvent(streamA, first, 2_048);
+    appendReplayBrainEvent(streamB, first, 2_048);
+    appendReplayBrainEvent(streamA, next, 2_048);
+    appendReplayBrainEvent(streamB, next, 2_048);
 
     expect(first).toEqual({ type: 'text', delta: 'hel' });
     expect(streamA).toEqual([{ type: 'text', delta: 'hello' }]);

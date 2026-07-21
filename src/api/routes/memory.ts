@@ -35,8 +35,8 @@ export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
   // The caller's whole audit feed (newest first). Own memories only.
   app.get('/memory/events', (c) => {
     if (!store) return c.json({ error: 'memory unavailable' }, 400);
-    const limit = c.req.query('limit');
-    return c.json(store.listEvents(c.get('user').id, { limit: limit ? Number(limit) : undefined }));
+    const limit = queryInt(c.req.query('limit'), { min: 1, fallback: undefined }); // guard NaN → LIMIT bind → 500
+    return c.json(store.listEvents(c.get('user').id, { limit }));
   });
 
   // Read the workspace embedding block plus a computed `configured` flag (for the settings UI). Any
@@ -225,7 +225,7 @@ export function registerMemoryRoutes(app: ElowenApp, ctx: RouteContext): void {
     const q = c.req.query('q');
     const limit = c.req.query('limit');
     if (q && q.trim() !== '') {
-      const lim = limit ? Number(limit) : 50;
+      const lim = queryInt(limit, { min: 1, max: 500, fallback: 50 }); // guard NaN → LIMIT bind → 500
       if (ctx.memoryService) return c.json(await ctx.memoryService.searchSemantic(userId, q, lim));
       return c.json(store.search(userId, q, lim));
     }

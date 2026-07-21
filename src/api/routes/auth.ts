@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { parseBody } from '../validation.js';
-import { loginSchema, profilePatchSchema, passwordChangeSchema, userPermissionsSchema, projectAssignSchema, promptSaveSchema } from '../schemas/auth.js';
+import { loginSchema, profilePatchSchema, passwordChangeSchema, userPermissionsSchema, projectAssignSchema, promptSaveSchema, userCreateSchema } from '../schemas/auth.js';
 import { EDITABLE_PROMPTS, isEditablePrompt, isAppendOnlyPrompt } from '../../prompts/catalog.js';
 import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
 import { BUILTIN_TOOL_ICONS, builtinToolMetas } from '../../brain/tools/index.js';
@@ -278,29 +278,41 @@ export function registerAuthRoutes(app: ElowenApp, ctx: RouteContext): void {
     return c.json(users.list());
   });
   app.post('/users', async (c) => {
-    const { username, password } = await c.req.json();
+    const b = await parseBody(c, userCreateSchema); // 400 on empty/malformed body or a sub-8-char password
     // Allow creation during setup (no users yet), otherwise admin only
     if (users.count() > 0) {
       const actor = c.get('user');
       if (!actor || !users.isAdmin(actor.id)) return c.json({ error: 'forbidden' }, 403);
     }
-    try { return c.json(users.create(username, password), 201); }
-    catch { return c.json({ error: 'username taken' }, 409); }
+    try { return c.json(users.create(b.username, b.password), 201); }
+    catch (e) {
+      // Only a duplicate username is a 409; any other failure is a real error, not "taken".
+      if (e instanceof Error && /UNIQUE/i.test(e.message)) return c.json({ error: 'username taken' }, 409);
+      throw e;
+    }
   });
   app.delete('/users/:id', (c) => {
     // Admin-only — mirrors POST/PATCH /users. Without this a non-admin could delete other users
     // and cascade-wipe their settings/personality/memory.
     const actor = c.get('user');
     if (!actor || !users.isAdmin(actor.id)) return c.json({ error: 'forbidden' }, 403);
+    const id = Number(c.req.param('id'));
+    if (!Number.isInteger(id)) return c.json({ error: 'invalid user id' }, 400); // a non-numeric id must 400, not silently no-op
     if (users.count() <= 1) return c.json({ error: 'cannot delete the last user' }, 400);
     // Never delete the admin: it would lock out assignment management and (on restart) silently
     // re-elect another user as admin. The flag must be transferred deliberately first.
-    if (users.isAdmin(Number(c.req.param('id')))) return c.json({ error: 'cannot delete the admin' }, 400);
-    const id = Number(c.req.param('id'));
+    if (users.isAdmin(id)) return c.json({ error: 'cannot delete the admin' }, 400);
     users.delete(id);
     d.userSettings?.removeForUser(id); // drop the user's CLI/brain settings (incl. personalityBody) so no orphan rows linger
     d.memoryStore?.removeForUser(id); // hard-delete the user's memories (+cascade embeddings) and audit events
     d.memoryCategoryStore?.removeForUser(id); // drop the user's memory categories so no orphan rows linger
+    // Dispose any live conversations (+ their terminals/processes) for the user, then hard-delete ALL of
+    // their brain data and push devices. Without this a deleted user's private transcripts and browser
+    // subscriptions survive — and because users.id is a reused SQLite rowid, the next-created user would
+    // inherit them (their sessions, their notifications).
+    d.brain?.deleteAllManagedSessions(id);
+    d.brainStore?.removeForUser(id);
+    d.pushSubscriptions?.removeAllForUser(id);
     return c.json({ ok: true });
   });
 
@@ -395,7 +407,7 @@ export function registerAuthRoutes(app: ElowenApp, ctx: RouteContext): void {
   // User ↔ project assignments. Only the bootstrap admin may view/manage them.
   if (d.userProjects) {
     const up = d.userProjects;
-    const adminOnly = (c: { get: (k: 'user') => User }) => up.isAdmin(c.get('user').id);
+    const adminOnly = (c: { get: (k: 'user') => User | undefined }) => { const u = c.get('user'); return !!u && up.isAdmin(u.id); };
     app.get('/users/:id/projects', (c) => {
       if (!adminOnly(c)) return c.json({ error: 'forbidden' }, 403);
       return c.json(up.forUser(Number(c.req.param('id'))));

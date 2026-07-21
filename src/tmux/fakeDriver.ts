@@ -4,15 +4,28 @@ export class FakeTmuxDriver implements TmuxDriver {
   private keys = new Map<string, string[][]>();
   private raw = new Map<string, string[]>();
   private commands = new Map<string, string>();
+  private spawnEnvs = new Map<string, Record<string, string>>();
   private argvSpawns = new Map<string, { argv: string[]; env: Record<string, string> }>();
   setPane(session: string, text: string) { this.panes.set(session, text); }
   sentKeys(session: string) { return this.keys.get(session) ?? []; }
   commandFor(session: string) { return this.commands.get(session) ?? ''; }
+  /** The tmux session env passed to spawn (`-e KEY=VAL`), or undefined if none was supplied. */
+  spawnEnvFor(session: string) { return this.spawnEnvs.get(session); }
   /** The recorded argv/env launch for a session (spawnArgv), or undefined if it was never argv-launched. */
   argvSpawnFor(session: string) { return this.argvSpawns.get(session); }
   private sizes = new Map<string, { cols: number; rows: number }>();
   sizeFor(session: string) { return this.sizes.get(session); }
-  async spawn(session: string, opts: SpawnOpts) { this.panes.set(session, ''); this.commands.set(session, opts.command); }
+  /** Test hook: when true, spawn rejects with a message embedding the token exactly as the real
+   *  execFile('tmux', … '-e', 'ELOWEN_TOKEN=…') failure would — proving the caller sanitizes it. */
+  failSpawn = false;
+  async spawn(session: string, opts: SpawnOpts) {
+    if (this.failSpawn) {
+      throw new Error(`Command failed: tmux new-session -d -s ${session} -e ELOWEN_TOKEN=${opts.env?.ELOWEN_TOKEN ?? ''}`);
+    }
+    this.panes.set(session, '');
+    this.commands.set(session, opts.command);
+    if (opts.env) this.spawnEnvs.set(session, { ...opts.env });
+  }
   /** Test hook: when true, spawnArgv rejects with a message that embeds the token exactly as the real
    *  execFile('tmux', …) failure would — so a test can prove open() sanitizes + revokes without leaking it. */
   failArgvSpawn = false;

@@ -1,20 +1,31 @@
-// Streaming/edit-throttle machinery: the live progress message and the final-answer sending.
+// Streaming/edit-throttle machinery: the live progress message and the final-answer sending. The
+// render/fold engine (result summaries, diff summaries, the same-failure fold rule, tool/card lines) is
+// the SHARED transport-neutral core (../../_shared/liveTrace.mjs) — the exact one Discord and Telegram
+// use — so WhatsApp no longer silently drops tool results, diffs, sub-agent panels or retry/compaction
+// notices the way its old bespoke `toolLine` did. Only the transport (Baileys edit) stays local.
 import { CHUNK, stripThinking, extractImageRefs, footerLine } from './format.mjs';
-import { makeCardLines } from '../../_shared/liveTrace.mjs';
+import { makeTextHelpers, outputFailed, makeOutputSummary, diffSummary, makeFoldedCalls, makeToolLinesFor, makeCardLines } from '../../_shared/liveTrace.mjs';
+import { resolveDisplaySettings } from '../../_shared/display.mjs';
 
 const EDIT_THROTTLE_MS = 1500; // WhatsApp is stricter than Discord on edits — stay well under any limit
 /** How long a turn may go with no VISIBLE progress (a new tool call / card) before the `Step N / MAX`
  *  counter surfaces as a "still working" reassurance; any fresh tool/card resets the clock and drops it. */
 const STALL_HINT_MS = 60_000;
 
-/** One rendered progress line: `<icon> \`tool\`` + optional `: "detail"` + optional ` ×N` counter. */
-function toolLine(c) {
-  return `${c.icon ?? '🔧'} \`${c.name}\`` + (c.detail ? `: "${c.detail}"` : '…') + (c.count > 1 ? ` ×${c.count}` : '');
-}
-
-// A display card (ctx.emitCard) for the progress message — title + checklist + freeform body. WhatsApp
-// renders `*bold*` titles and does not strike completed items, so its style bolds and leaves text plain.
-const cardLines = makeCardLines({ bold: (s) => `*${s}*`, strike: (s) => s });
+// WhatsApp renders plain text (nothing to escape for mentions/fences), `*bold*` titles, no strikethrough on
+// completed items, and an indented `↳` result line — the surface style the shared engine renders through.
+const style = {
+  mentionSafe: (s) => s,
+  fenceSafe: (s) => s,
+  bold: (s) => `*${s}*`,
+  strike: (s) => s,
+  summaryLine: (s) => `  ↳ ${s}`,
+};
+const { compactLine, safeTail } = makeTextHelpers(style);
+const outputSummary = makeOutputSummary({ compactLine, safeTail });
+const foldedCalls = makeFoldedCalls(compactLine);
+const toolLinesFor = makeToolLinesFor({ compactLine, safeTail, style });
+const cardLines = makeCardLines(style);
 
 /** One editable WhatsApp message: created on the first write, then edited in place (throttled). Shared
  *  by the tool-progress bubble and — indirectly — the streaming answer. */
@@ -54,7 +65,10 @@ export class LiveMessage {
     this.jid = jid;
     this.quoted = quoted;     // the triggering message — the final answer quotes it
     this.askerJid = askerJid; // who to route an AskUserQuestion prompt to (and gate its answer on)
-    this.toolCalls = [];
+    this.display = resolveDisplaySettings(adapter.cfg); // status activity + summary output + single message
+    this.toolCalls = []; // lifecycle rows in display order
+    this.toolById = new Map(); // PI toolCallId → row (parallel-safe completion/progress updates)
+    this.notices = new Map(); // retry/compaction status lines by kind
     this.progress = null;
     this.text = '';
     this.imageRefs = [];
@@ -74,7 +88,10 @@ export class LiveMessage {
     if (this.maxSteps > 0 && Date.now() - this.lastActivityAt >= STALL_HINT_MS) {
       toolLines.push(`⚙️ Step ${Math.min(this.step, this.maxSteps)} / ${this.maxSteps}`);
     }
-    toolLines.push(...this.toolCalls.map(toolLine));
+    // Fold consecutive same-tool calls (and same-signature failures) into one counted row, then render each
+    // with its result summary / output tail — the shared rule Discord and Telegram use.
+    for (const call of foldedCalls(this.toolCalls, this.display)) toolLines.push(...toolLinesFor(call, this.display));
+    for (const notice of this.notices.values()) toolLines.push(`🔄 ${compactLine(notice, 240)}`);
     if (this.a.cfg?.showReasoning && this.reasoning.trim()) {
       const tail = this.reasoning.trim().slice(-280).replace(/\s+/g, ' ');
       toolLines.push(`💭 _${tail}_`);
@@ -94,17 +111,70 @@ export class LiveMessage {
     this.stallTimer = setTimeout(() => this.renderProgress(), STALL_HINT_MS);
     if (typeof this.stallTimer.unref === 'function') this.stallTimer.unref();
   }
+  findTool(id) {
+    return id ? this.toolById.get(id) : this.toolCalls[this.toolCalls.length - 1];
+  }
+  /** Settle a tool row (its output/diff/end/image arrived): stamp state + result summary + output tail,
+   *  reset the stall clock, and re-render. No-op when the row is gone (a reconnect dropped it). */
+  settleTool(id, state = 'done', summary = '', tail = '') {
+    const call = this.findTool(id);
+    if (!call) return;
+    call.state = state;
+    call.progress = '';
+    if (summary) call.summary = summary;
+    if (tail) call.finalTail = tail;
+    this.lastActivityAt = Date.now();
+    this.armStallHint();
+    this.renderProgress();
+  }
   onEvent(e) {
     if (e.type === 'tool' && e.name) {
-      const last = this.toolCalls[this.toolCalls.length - 1];
-      if (last && last.name === e.name) {
-        last.count += 1;
-        if (e.detail) last.detail = e.detail;
+      if (this.display.toolActivity === 'off') return;
+      const existing = e.id ? this.toolById.get(e.id) : null;
+      let call;
+      if (existing) {
+        call = existing;
+        call.detail = e.detail ?? call.detail;
+        call.icon = e.icon ?? call.icon;
+        call.state = 'running';
       } else {
-        this.toolCalls.push({ name: e.name, detail: e.detail, icon: e.icon, count: 1 });
+        call = { id: e.id, name: e.name, detail: e.detail, icon: e.icon, state: 'running', progress: '', summary: '', finalTail: '' };
+        this.toolCalls.push(call);
+        if (e.id) this.toolById.set(e.id, call);
       }
       this.lastActivityAt = Date.now(); // visible progress → reset the stall clock, hide the step counter
       this.armStallHint();
+      this.renderProgress();
+    } else if (e.type === 'tool_progress' && e.id) {
+      const call = this.findTool(e.id);
+      if (call && this.display.toolActivity === 'live') {
+        call.progress = safeTail(e.text);
+        this.lastActivityAt = Date.now();
+        this.armStallHint();
+        this.renderProgress();
+      }
+    } else if (e.type === 'tool_output') {
+      const output = e.output ?? {};
+      this.settleTool(e.id, outputFailed(output) ? 'error' : 'done', outputSummary(output), output.fullText ?? output.text);
+    } else if (e.type === 'diff') {
+      const note = outputSummary(e.output);
+      this.settleTool(e.id, outputFailed(e.output) ? 'error' : 'done', note || diffSummary(e.diff), e.diff);
+    } else if (e.type === 'tool_end') {
+      this.settleTool(e.id, e.isError ? 'error' : 'done');
+    } else if (e.type === 'subagent' && e.id) {
+      const call = this.findTool(e.id);
+      if (call) {
+        call.detail = e.detail || e.task || call.detail;
+        call.summary = `${e.tools ?? 0} tools · ${e.seconds ?? 0}s`;
+        if (e.status !== 'running') call.state = e.status === 'error' ? 'error' : 'done';
+        this.lastActivityAt = Date.now(); this.armStallHint(); this.renderProgress();
+      }
+    } else if (e.type === 'notice' && e.kind) {
+      // Notices annotate an existing trace; they never create a standalone bubble that would go stale as
+      // soon as the transient notice clears.
+      if (!this.progress && this.toolCalls.length === 0 && this.cards.size === 0) return;
+      if (e.done) this.notices.delete(e.kind);
+      else if (e.message) this.notices.set(e.kind, e.message);
       this.renderProgress();
     } else if (e.type === 'reasoning' && e.delta) {
       this.reasoning += e.delta;
@@ -113,6 +183,7 @@ export class LiveMessage {
       this.text += e.delta;
     } else if (e.type === 'image' && e.ref) {
       this.imageRefs.push(e.ref);
+      this.settleTool(e.id, 'done', 'image ready');
     } else if (e.type === 'card' && e.card?.id) {
       const empty = (!e.card.items || e.card.items.length === 0) && !e.card.body;
       if (empty) this.cards.delete(e.card.id); else this.cards.set(e.card.id, e.card);
@@ -136,6 +207,8 @@ export class LiveMessage {
   }
   async finalize(reply) {
     clearTimeout(this.stallTimer);
+    for (const call of this.toolCalls) if (call.state === 'running') call.state = 'done';
+    this.notices.clear();
     if (this.progress) {
       this.lastActivityAt = Date.now(); // drop the stall step-counter from the settled tool trace
       this.renderProgress();

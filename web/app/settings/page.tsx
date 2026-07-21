@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { Activity, useCallback, useEffect, useState, useRef, useMemo, type ReactNode } from 'react';
-import { Bot, SlidersHorizontal, Plus, X, Pencil, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, RefreshCw, RotateCcw, Sparkles, FlaskConical, Search, Server } from 'lucide-react';
+import { Bot, SlidersHorizontal, Plus, X, Pencil, Radio, Cpu, Gauge, Layers, Link2, KeyRound, FileText, Eye, Lock, Trash2, GitPullRequest, GitBranch, TerminalSquare, RefreshCw, RotateCcw, Sparkles, FlaskConical, Search, Server, CalendarClock } from 'lucide-react';
 import { PROVIDERS, ProviderLogo } from '../../modules/settings/providers';
 import { ModelIcon } from '../../components/ui/ModelIcon';
 import { BackendPicker } from '../../components/ui/BackendPicker';
@@ -191,6 +191,13 @@ export default function SettingsPage() {
   const [defTokenTtl, setDefTokenTtl] = useState(30);
   const [autoUpdate, setAutoUpdate] = useState(false);
 
+  // Conversation auto-cleanup: the daemon's hourly janitor deletes idle conversations older than N
+  // days. Off by default; it never touches running/active/channel sessions. Saved immediately
+  // (toggle) or on blur/Enter (days), clamped to >= 1, reverting an invalid draft. Persists
+  // independently of the token-TTL defaults autosave.
+  const retention = config.data?.sessionRetention ?? { enabled: false, days: 90 };
+  const [retentionDaysDraft, setRetentionDaysDraft] = useState('');
+
   // Add / edit model modal state
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingExec, setEditingExec] = useState<string | null>(null);
@@ -236,6 +243,10 @@ export default function SettingsPage() {
     }
   }, [config.data]);
 
+  // The retention days field tracks the stored value directly (not the one-shot seed above), so an
+  // external change is reflected and an invalid draft can revert to the saved number.
+  useEffect(() => { setRetentionDaysDraft(String(retention.days)); }, [retention.days]);
+
   // Persist only the active mode's fields, and explicitly clear the other backend so the two never
   // coexist (relay clears the execs; agents leave the relay model/key untouched but unused).
   const saveAutopilot = async () => {
@@ -265,6 +276,18 @@ export default function SettingsPage() {
   const saveDefaults = async () => {
     try { await update.mutateAsync({ defaults: { exec: defExec, autonomy: defAutonomy, maxSessions: defMaxSessions }, security: { tokenTtlDays: defTokenTtl } }); }
     catch (error) { toast(String(error), 'error'); throw error; }
+  };
+
+  // Retention saves on its own (not bundled with the defaults autosave): the toggle persists
+  // immediately, the days field commits on blur/Enter and reverts an invalid (< 1) draft.
+  const saveRetention = async (next: { enabled?: boolean; days?: number }) => {
+    try { await update.mutateAsync({ sessionRetention: next }); }
+    catch { toast(t.settings.retention.saveError, 'error'); }
+  };
+  const commitRetentionDays = () => {
+    const parsed = Math.floor(Number(retentionDaysDraft));
+    if (!Number.isFinite(parsed) || parsed < 1) { setRetentionDaysDraft(String(retention.days)); return; }
+    if (parsed !== retention.days) void saveRetention({ days: parsed });
   };
 
   // Auto-persist: every settings form saves itself shortly after a change (no Save buttons anywhere).
@@ -450,15 +473,6 @@ export default function SettingsPage() {
                   className="pl-9"
                 />
               </div>
-              {/* Quiet cross-link with its own line; it must never collide with the first provider heading. */}
-              <button
-                type="button"
-                onClick={() => setCategory('brain')}
-                className="inline-flex w-fit items-center gap-1.5 px-1 text-xs text-text-muted transition-colors hover:text-accent"
-              >
-                <Link2 size={12} aria-hidden />
-                {t.settings.embeddedProviderLink}
-              </button>
             </SettingsToolbar>
             {/* One catalog, grouped by the engine that runs the model — the same grouping the
              *  executor picker uses, so what admins configure here matches what users pick. */}
@@ -789,13 +803,7 @@ export default function SettingsPage() {
                         <div className="font-mono text-[11px] text-text-muted">{p.id}</div>
                       </div>
                     </div>
-                    {p.embedded ? (
-                      <div className="flex flex-1 flex-col justify-center gap-2 @sm:pt-1">
-                        <button type="button" onClick={() => setCategory('brain')} className="self-start text-xs font-medium text-accent hover:underline">
-                          {t.settings.embeddedProviderLink}
-                        </button>
-                      </div>
-                    ) : (
+                    {p.embedded ? null : (
                     <div className="flex flex-1 flex-col gap-3">
                       <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
                         <Field label={t.settings.binary}>
@@ -868,6 +876,26 @@ export default function SettingsPage() {
             <SettingsGroup title={t.settings.sessionsAndSecurity} icon={KeyRound} className="settings-system-security">
               <SettingsRow label={t.settings.tokenTtl} description={t.help.tokenTtl} icon={KeyRound}>
                 <input type="number" min={1} value={defTokenTtl} onChange={(e) => setDefTokenTtl(Number(e.target.value))} className={inputClass} />
+              </SettingsRow>
+              <SettingsRow label={t.settings.retention.label} description={t.settings.retention.hint} icon={CalendarClock}>
+                <div className="flex items-center gap-3">
+                  <Toggle checked={retention.enabled} onChange={(next) => void saveRetention({ enabled: next })} label={t.settings.retention.label} />
+                  <label className="flex items-center gap-2 whitespace-nowrap text-xs text-text-muted">
+                    {t.settings.retention.olderThan}
+                    <Input
+                      type="number"
+                      min={1}
+                      value={retentionDaysDraft}
+                      disabled={!retention.enabled}
+                      onChange={(e) => setRetentionDaysDraft(e.target.value)}
+                      onBlur={commitRetentionDays}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      className="w-16 text-center"
+                      aria-label={t.settings.retention.olderThan}
+                    />
+                    {t.settings.retention.days}
+                  </label>
+                </div>
               </SettingsRow>
             </SettingsGroup>
 

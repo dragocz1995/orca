@@ -24,6 +24,12 @@ export const brainStopSchema = z.object({
   generation: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
+/** Rename one of the caller's conversations (PATCH /brain/sessions/:id). A non-string/absent title is a
+ *  400 (as it was under the hand-rolled guard); a name collision is a 409 raised by renameSession. */
+export const brainRenameSchema = z.object({
+  title: z.string(),
+});
+
 /** Switch a conversation to another configured provider/model (the /model picker). `session` targets
  *  the caller's own explicit conversation (a bound CLI); absent → the active one. */
 export const brainModelSchema = z.object({
@@ -57,6 +63,54 @@ export const brainSendSchema = z.object({
   /** The client's CLEAN rendering of the message (before @mention/prompt expansion) — what the daemon's
    *  authoritative `user` echo and the queued chip show. Absent → the model-facing `text` is echoed. */
   display: z.string().optional(),
+});
+
+/** A session-scoped live toggle (POST /brain/fast, /brain/yolo): `on` absent → toggle the current state,
+ *  `session` targets the caller's bound conversation (absent → the active one). */
+export const brainToggleSchema = z.object({
+  on: z.boolean().optional(),
+  session: z.string().max(200).optional(),
+});
+
+/** Set the caller's reasoning effort live (POST /brain/think). A non-string/absent `level` is a 400. */
+export const brainThinkSchema = z.object({
+  level: z.string(),
+  session: z.string().max(200).optional(),
+});
+
+/** Annotate a client working-directory move (POST /brain/cwd). A non-string/absent `dir` is a 400. */
+export const brainCwdSchema = z.object({
+  dir: z.string(),
+  session: z.string().max(200).optional(),
+});
+
+/** Manual context compaction (POST /brain/compact). `instruction` is an optional focus hint (trimmed +
+ *  capped by the route); `session` targets the caller's bound conversation. */
+export const brainCompactSchema = z.object({
+  session: z.string().max(200).optional(),
+  instruction: z.string().optional(),
+});
+
+/** Bind (MOVE) one of the caller's conversations into a platform channel slot (POST /brain/context,
+ *  admin-only). Both are required strings (a missing one was a 400 under the hand-rolled guard). */
+export const brainContextSchema = z.object({
+  channel: z.string(),
+  session: z.string(),
+});
+
+/** Open (or re-attach to) the caller's `elowen chat` terminal bound to their conversation
+ *  (POST /brain/terminal, admin-only). A non-string/absent `session` is a 400. */
+export const brainTerminalSchema = z.object({
+  session: z.string(),
+});
+
+/** Set a persistent goal on the caller's conversation (POST /brain/goal). A non-string/absent `text` is a
+ *  400; `turnBudget` is clamped to [1, 50] by the route; `draft` opens the goal in draft (contract) mode. */
+export const brainGoalSchema = z.object({
+  text: z.string(),
+  draft: z.boolean().optional(),
+  turnBudget: z.number().optional(),
+  session: z.string().max(200).optional(),
 });
 
 /** Install one registry language server by its binary name (POST /brain/lsp/install, admin-only). */

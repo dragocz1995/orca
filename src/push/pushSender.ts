@@ -27,14 +27,18 @@ export class PushSender {
     // contact is informational only; the daemon has no real address — a mailto is required by spec.
     webpush.setVapidDetails('mailto:push@elowen.local', keys.publicKey, keys.privateKey);
     const body = JSON.stringify(payload);
-    for (const rec of this.subs.listForUsers(userIds)) {
-      try {
-        await this.deliver(rec, body);
-      } catch (e) {
-        const code = (e as { statusCode?: number }).statusCode;
-        if (code === 404 || code === 410) this.subs.remove(rec.endpoint); // gone → prune
-        else log.error(`push send failed for endpoint (status ${code ?? '?'})`, e);
-      }
+    // Deliver in parallel: a single slow/hung endpoint must not delay every later device by minutes
+    // (the old sequential await did). allSettled so one rejection never aborts the batch.
+    await Promise.allSettled(this.subs.listForUsers(userIds).map((rec) => this.sendOne(rec, body)));
+  }
+
+  private async sendOne(rec: PushSubscriptionRecord, body: string): Promise<void> {
+    try {
+      await this.deliver(rec, body);
+    } catch (e) {
+      const code = (e as { statusCode?: number }).statusCode;
+      if (code === 404 || code === 410) this.subs.remove(rec.endpoint); // gone → prune
+      else log.error(`push send failed for endpoint (status ${code ?? '?'})`, e);
     }
   }
 }

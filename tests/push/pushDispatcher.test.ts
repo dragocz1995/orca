@@ -57,6 +57,18 @@ describe('PushDispatcher', () => {
     expect(h.sent[0]!.payload.session).toBe('elowen-zoe');
   });
 
+  it('notifies admins for a standalone (mission-less) task needs_input instead of dropping it', () => {
+    // A task with no parent epic has no mission, so the payload carries missionId: undefined. Previously
+    // the dispatcher resolved [] recipients and silently dropped the "needs input" push; it must fall
+    // back to admins (mirroring recipientsForMission's owner-less fallback).
+    h.tasks.create({ id: 't1', project_id: 1, title: 'Solo', labels: ['agent:solo'] });
+    h.bus.publish({ type: 'signal', session: 'elowen-solo', signal: { type: 'needs_input', question: 'Run?', options: [], context: '' } });
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.payload.kind).toBe('needs_input');
+    expect(h.sent[0]!.payload.missionId).toBeUndefined();
+    expect(h.sent[0]!.userIds).toEqual([h.adminId]);
+  });
+
   it('pushes a done payload with the PR url when a mission completes naturally (epic closed)', () => {
     const withPr = harness({ prInfo: () => ({ prUrl: 'https://gh/pr/9' }) });
     withPr.tasks.create({ id: 'e1', project_id: 1, title: 'Epic', type: 'epic' });

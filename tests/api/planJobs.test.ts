@@ -64,6 +64,21 @@ describe('async plan jobs (relay path)', () => {
     expect(tasks.some((t) => t.title === 'Build')).toBe(true);
   });
 
+  it('POST /plan/:id/submit is idempotent — a second submit is 409, not a duplicate epic', async () => {
+    const { app, token } = await makeTestApp({ apiKey: '' });
+    await app.request('/config', { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ autopilot: { pilotExec: 'claude:opus' } }) });
+    const { jobId } = await (await app.request('/tasks/plan', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'agent plan' }) })).json() as { jobId: string };
+    const body = { phases: [{ title: 'Build', type: 'feature' }] };
+    const first = await app.request(`/plan/${jobId}/submit`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect(first.status).toBe(200);
+    // Retry (pilot re-send / timeout retry): the job is now `done`, so re-submitting must 409 rather than
+    // re-persisting the phases onto the epic and re-engaging the mission.
+    const second = await app.request(`/plan/${jobId}/submit`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect(second.status).toBe(409);
+    const builds = (await (await app.request('/tasks', { headers: { authorization: `Bearer ${token}` } })).json() as { title: string }[]).filter((t) => t.title === 'Build');
+    expect(builds).toHaveLength(1); // not duplicated
+  });
+
   it('de-duplicates agent names across phases so sessions can never collide', async () => {
     // The pilot (an LLM) can hand the SAME agent name to several phases. Agent names double as tmux
     // session names and as the janitor's session↔task key, so duplicates cause "duplicate session"

@@ -136,9 +136,6 @@ export class UserStore {
     this.db.prepare('INSERT INTO auth_tokens (token, user_id, scope) VALUES (?, ?, ?)').run(token, userId, scope);
     return token;
   }
-  userForToken(token: string, days?: number): User | null {
-    return this.principalForToken(token, days)?.user ?? null;
-  }
   /** Resolve a token to its owning user AND scope, so route guards can restrict agent tokens.
    *  Tokens expire after the configured TTL — an old token captured from a log / URL stops working
    *  even if it was never explicitly revoked. */
@@ -148,14 +145,6 @@ export class UserStore {
       .get(token) as (Row & { token_scope: string }) | undefined;
     if (!r) return null;
     return { user: mask(r), scope: r.token_scope === 'agent' ? 'agent' : 'full' };
-  }
-  /** Re-issue the daemon's agent service token: drop any prior agent-scoped tokens for the user, then
-   *  mint a fresh one. An explicit rotation primitive (e.g. a leaked-token reset). */
-  refreshAgentToken(userId: number): string {
-    return this.db.transaction(() => {
-      this.db.prepare("DELETE FROM auth_tokens WHERE user_id = ? AND scope = 'agent'").run(userId);
-      return this.issueToken(userId, 'agent');
-    })();
   }
   /** The daemon's agent service token, reused across restarts: return the existing valid agent token
    *  if one is still within TTL, else clear stale ones and mint a fresh token. Called at boot — unlike

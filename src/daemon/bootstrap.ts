@@ -615,7 +615,7 @@ export async function buildApp(opts: BuildOpts) {
       userId,
       text,
       mode: 'build',
-      internal: { systemNudge: true },
+      internal: { kind: 'systemNudge' },
       session: sessionId ?? undefined,
     })
       .catch(() => { /* best-effort wake */ });

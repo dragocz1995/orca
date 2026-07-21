@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 
-export type ModuleGroup = 'Operate' | 'Config';
+type ModuleGroup = 'Operate' | 'Config';
 
 export interface ModuleMeta {
   id: string;

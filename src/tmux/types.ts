@@ -1,4 +1,8 @@
-export interface SpawnOpts { cwd: string; command: string; width?: number; height?: number }
+/** Launch a session by typing `command` into the pane shell (tmux `send-keys`). `env`, when present, is
+ *  injected as tmux session environment (`-e KEY=VAL` on `new-session`) rather than an inline `export …`
+ *  in the command — so secrets it may carry (e.g. an agent token) never enter the pane scrollback, while
+ *  the login-shell/PATH/prompt behaviour of a typed command is preserved (unlike the shell-less spawnArgv). */
+export interface SpawnOpts { cwd: string; command: string; env?: Record<string, string>; width?: number; height?: number }
 /** Launch a session by running an argv directly (tmux `-- <argv>`, no shell, no `send-keys`) with an
  *  explicit session environment (tmux `-e KEY=VAL`). Keeps secrets out of the pane scrollback: the
  *  command and its env never appear as typed keystrokes the way `SpawnOpts.command` does. */

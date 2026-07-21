@@ -71,7 +71,7 @@ describe('BrainTerminalService', () => {
     expect(terminalTokens()).toBe(1); // exactly one token minted, none orphaned/revoked
     expect((await tmux.list()).filter((s) => s === a.terminal)).toHaveLength(1); // one live tmux
     const token = tmux.argvSpawnFor(a.terminal)!.env.ELOWEN_TOKEN;
-    expect(users.userForToken(token)?.id).toBe(admin.id); // the live tmux's token is NOT revoked
+    expect(users.principalForToken(token)?.user.id).toBe(admin.id); // the live tmux's token is NOT revoked
   });
 
   it('keeps exactly one binding per (admin, conversation)', async () => {
@@ -90,10 +90,10 @@ describe('BrainTerminalService', () => {
     await tmux.kill(first.terminal); // tmux died while the daemon was down (binding row survives)
     const again = await svc.open(admin.id, id);
     expect(again.created).toBe(true);
-    expect(users.userForToken(oldToken)).toBeNull(); // stale token revoked
+    expect(users.principalForToken(oldToken)).toBeNull(); // stale token revoked
     const newToken = tmux.argvSpawnFor(again.terminal)!.env.ELOWEN_TOKEN;
     expect(newToken).not.toBe(oldToken);
-    expect(users.userForToken(newToken)?.id).toBe(admin.id);
+    expect(users.principalForToken(newToken)?.user.id).toBe(admin.id);
   });
 
   it('stop kills tmux, revokes the token and deletes the binding', async () => {
@@ -103,7 +103,7 @@ describe('BrainTerminalService', () => {
     const token = tmux.argvSpawnFor(terminal)!.env.ELOWEN_TOKEN;
     await svc.stop(admin.id, terminal);
     expect(await tmux.list()).not.toContain(terminal);
-    expect(users.userForToken(token)).toBeNull();
+    expect(users.principalForToken(token)).toBeNull();
     expect(store.getBrainTerminal(terminal)).toBeUndefined();
   });
 
@@ -124,7 +124,7 @@ describe('BrainTerminalService', () => {
     const token = tmux.argvSpawnFor(terminal)!.env.ELOWEN_TOKEN;
     await svc.stopForSession(admin.id, id);
     expect(await tmux.list()).not.toContain(terminal);
-    expect(users.userForToken(token)).toBeNull();
+    expect(users.principalForToken(token)).toBeNull();
     expect(store.getBrainTerminalBySession(admin.id, id)).toBeUndefined();
   });
 
@@ -137,7 +137,7 @@ describe('BrainTerminalService', () => {
     tmux.setPane('elowen-chat-999-orphan', ''); // stray pane with no binding
     await svc.sweep();
     expect(store.getBrainTerminal(terminal)).toBeUndefined(); // orphaned binding reaped
-    expect(users.userForToken(token)).toBeNull();              // orphaned token revoked
+    expect(users.principalForToken(token)).toBeNull();              // orphaned token revoked
     expect(await tmux.list()).not.toContain('elowen-chat-999-orphan'); // stray pane killed
   });
 
@@ -149,7 +149,7 @@ describe('BrainTerminalService', () => {
     store.deleteSession(id); // conversation gone, terminal still live
     await svc.sweep();
     expect(await tmux.list()).not.toContain(terminal);
-    expect(users.userForToken(token)).toBeNull();
+    expect(users.principalForToken(token)).toBeNull();
     expect(store.getBrainTerminal(terminal)).toBeUndefined();
   });
 

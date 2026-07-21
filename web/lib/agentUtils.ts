@@ -131,13 +131,6 @@ export function keysForOption(id: string): string[] {
   return [...Array<string>(steps).fill('Down'), 'Enter'];
 }
 
-/** The most recently closed task (by closed_at), for the "last outcome" surfaces. */
-export function lastClosedTask(tasks: Task[]): Task | null {
-  const closed = tasks.filter((x) => x.status === 'closed');
-  if (closed.length === 0) return null;
-  return closed.reduce((a, b) => ((parseTs(b.closed_at) ?? 0) > (parseTs(a.closed_at) ?? 0) ? b : a));
-}
-
 /** Resolve the task a live session (`elowen-<agent>`) belongs to. Agent names come from a small
  *  pool and get reused across tasks, so prefer an in_progress match, then the most recent. */
 export function taskForSession(tasks: Task[], sessionName: string): Task | undefined {

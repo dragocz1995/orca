@@ -8,12 +8,12 @@ import {
   type DelegatedExecutionScope,
 } from './delegatedScope.js';
 import type { AskQuestion, BrainEvent, BrainUsage, CompactResult, SubagentCompletion, SubagentUpdate, WorkflowUpdate } from './events.js';
-import { usageOf, runCompaction, withDescendantUsage } from './events.js';
+import { runCompaction, withDescendantUsage, sessionUsageSnapshot } from './events.js';
 import type { ElicitationRegistry } from './elicitation.js';
 import { normalizeCard } from './cards.js';
 import { projectUserTurn } from './persistence.js';
 import { newCostMeter, runWithMeter } from './openrouterMeter.js';
-import { extractText, frameUntrusted, isThinkingOnlyReply, NO_REPLY_NUDGE } from './messageView.js';
+import { extractText, frameUntrusted, isThinkingOnlyReply, NO_REPLY_NUDGE, lastAssistant } from './messageView.js';
 import { channelSessionId, archivedChannelSessionId, isChannelSession, channelIdOf } from './sessionId.js';
 import { isPromptCommand } from './slashCommands.js';
 import { rolloverDue, SESSION_IDLE_ROLLOVER_MS } from './session/idleRollover.js';
@@ -427,14 +427,14 @@ export class ChannelSessionService {
             if (this.d.registry.consumePendingAbort(sessionId)) throw new Error('delegation aborted');
             // Thinking-only guard (#115): a reasoning model that ends a 'stop' turn with ONLY a thinking
             // block would settle with an empty reply. ONE automatic nudge, never persisted, no loop.
-            const settled = [...(ch.session.messages as { role?: string }[])].reverse().find((m) => m.role === 'assistant');
+            const settled = lastAssistant(ch.session.messages as { role?: string }[]);
             if (settled && isThinkingOnlyReply(settled)) {
               await ch.session.prompt(NO_REPLY_NUDGE);
               if (this.d.registry.consumePendingAbort(sessionId)) throw new Error('delegation aborted');
             }
           }, { identity: opts.identity, elicit, emitCard, emitSubagent, emitSubagentCompletion, emitWorkflow, toolPolicy: effectiveToolPolicy, permissions, sessionId, model: { provider: ch.providerId, model: ch.model } }));
           // Deterministic settled idle (model + context fill) AFTER the turn — proactive footers depend on it.
-          turnOnEvent?.({ type: 'idle', model: ch.model, usage: withDescendantUsage(usageOf(ch.session), this.d.store.descendantUsage(ch.sessionId)) });
+          turnOnEvent?.({ type: 'idle', model: ch.model, usage: sessionUsageSnapshot(ch.session, this.d.store, ch.sessionId) });
         } finally { detach?.(); }
         // Auto-compaction is PI-native (the factory configures the channel's reserveTokens from
         // DEFAULT_AUTO_COMPACT_PCT): PI compacts on its own after this turn's agent_end, and the factory's
@@ -442,7 +442,7 @@ export class ChannelSessionService {
         // The reply = the last assistant message of the settled turn. A failed turn must FAIL, not settle
         // silently: PI resolves prompt() even on a provider error (stopReason 'error', empty content).
         const msgs = ch.session.messages as { role?: string; stopReason?: string; errorMessage?: string }[];
-        const last = [...msgs].reverse().find((m) => m.role === 'assistant');
+        const last = lastAssistant(msgs);
         const assistantText = last ? extractText(last) : '';
         if (opts.internalSystem && (!last || last === assistantBefore || last.stopReason === 'error' || last.stopReason === 'aborted')) {
           throw new Error(last?.errorMessage?.trim() || 'sub-agent result was not processed by the delegated parent');
@@ -477,7 +477,7 @@ export class ChannelSessionService {
       // A background delegate can outlive the parent's own prompt. Keep `/stop` available while any
       // tracked descendant is still running so the channel can cancel the whole tree.
       streaming: ch.session.isStreaming || this.d.registry.hasActiveChildren(ch.sessionId),
-      usage: withDescendantUsage(usageOf(ch.session), this.d.store.descendantUsage(ch.sessionId)),
+      usage: sessionUsageSnapshot(ch.session, this.d.store, ch.sessionId),
       fast: ch.requestProfile.fast,
       fastAvailable: ch.fastAvailable,
     } : null;

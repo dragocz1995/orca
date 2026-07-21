@@ -13,7 +13,7 @@ import { DiscordAdapter } from './lib/adapter.mjs';
 import { registerTools } from './lib/tools.mjs';
 
 export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, memberIsAdmin, displayNameOf, resolveMentions, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
-export { askUsesButtons, buildAskComponents } from './lib/ask.mjs';
+export { buildAskComponents } from './lib/ask.mjs';
 export { LiveMessage } from './lib/stream.mjs';
 export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
 

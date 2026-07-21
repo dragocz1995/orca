@@ -1,5 +1,5 @@
 // Keep in sync with the server-side allow-list (`src/shared/execs.ts` → KNOWN_EXECS / EXEC_NOTES).
-const EXEC_PRESETS: { label: string; exec: string }[] = [
+export const EXEC_PRESETS: { label: string; exec: string }[] = [
   { label: 'GLM 5.2', exec: 'ollama-cloud/glm-5.2' },
   { label: 'GPT 5.5', exec: 'codex:gpt-5.5' },
   { label: 'Claude Sonnet 4.5', exec: 'sonnet' },

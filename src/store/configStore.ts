@@ -36,7 +36,7 @@ export interface CategorizationBlock {
 }
 
 interface ProviderConfig { bin: string; args: string; skipPermissions: boolean; resume: boolean }
-export type Providers = Record<string, ProviderConfig>;
+type Providers = Record<string, ProviderConfig>;
 
 export interface ElowenConfig {
   allowedExecs: string[];
@@ -441,8 +441,6 @@ export class ConfigStore {
       categorization: s.categorization,
     };
   }
-
-  providers(): Providers { return this.read().providers; }
 
   apiKey(): string | null { return this.read().apiKey; }
 

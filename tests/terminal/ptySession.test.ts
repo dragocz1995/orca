@@ -19,7 +19,7 @@ describe('attachPty', () => {
     const { mod, calls } = fakePty();
     attachPty(mod, { session: 'elowen-advisor-1', cols: 80, rows: 24 });
     expect(calls.spawn[0][0]).toBe('tmux');
-    expect(calls.spawn[0][1]).toEqual(['attach', '-t', 'elowen-advisor-1']);
+    expect(calls.spawn[0][1]).toEqual(['attach', '-t', '=elowen-advisor-1']); // '=' pins an exact session match (no prefix fallback to another user's pane)
     expect(calls.spawn[0][2]).toMatchObject({ cols: 80, rows: 24, name: 'xterm-256color' });
   });
 

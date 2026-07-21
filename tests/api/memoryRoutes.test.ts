@@ -89,6 +89,14 @@ describe('memory routes', () => {
     expect(facts[0].kind).toBe('fact');
   });
 
+  it('a non-numeric ?limit falls back instead of binding NaN into a LIMIT → 500', async () => {
+    const { app, amyTok } = setup();
+    await app.request('/memory', post(amyTok, { body: 'likes espresso', kind: 'preference' }));
+    // Both the keyword-search LIMIT and the events LIMIT previously reached SQLite as NaN → 500.
+    expect((await app.request('/memory?q=espresso&limit=abc', auth(amyTok))).status).toBe(200);
+    expect((await app.request('/memory/events?limit=abc', auth(amyTok))).status).toBe(200);
+  });
+
   it('ownership boundary — amy cannot read, patch or delete bob\'s memory', async () => {
     const { app, amyTok, bobTok } = setup();
     const bobRow = await (await app.request('/memory', post(bobTok, { body: 'bob secret' }))).json();

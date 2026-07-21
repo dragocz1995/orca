@@ -89,15 +89,14 @@ export interface ManagedSession { id: string; title: string; model: string; upda
 /** Mirror of the daemon's slash-command def (src/brain/slashCommands.ts) — published at GET /brain/commands.
  *  `kind:'prompt'` is a plugin prompt macro: the surface sends the RAW `/name args` slash and PI expands
  *  the template's arguments ($ARGUMENTS/$1..$9) on the daemon; `prompt` is kept for menu/identification. */
-export interface SlashCommandDef { name: string; description: string; kind: 'action' | 'info' | 'picker' | 'mode' | 'prompt'; adminOnly?: boolean; prompt?: string }
 /** One fulltext-search match across the caller's brain conversations. */
 export interface BrainSearchHit { sessionId: string; sessionTitle: string; role: string; snippet: string; ts: string }
 /** The display-transcript shapes are the daemon↔web wire contract, defined once in src/shared and
  *  imported (type-only, so nothing bundles) rather than re-declared — the web mirror can no longer drift
  *  from what the daemon serves over GET /brain/messages. `BrainMessage` is the web's name for the
  *  daemon's `BrainMessageView`. */
-import type { ToolOutputView, BrainWorkflowView, BrainMessageView } from '../../src/shared/wireContract.js';
-export type { ToolOutputView, BrainWorkflowView };
+import type { ToolOutputView, BrainWorkflowView, BrainMessageView, SlashCommandDef } from '../../src/shared/wireContract.js';
+export type { ToolOutputView, BrainWorkflowView, SlashCommandDef };
 export type BrainMessage = BrainMessageView;
 
 /** One backwards page of chat history (lazy-load). `nextBefore` is the cursor for the next older page —

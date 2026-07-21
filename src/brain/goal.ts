@@ -1,5 +1,5 @@
 import type { BrainGoalRow, BrainStore } from '../store/brainStore.js';
-import { extractText } from './messageView.js';
+import { extractText, lastAssistant } from './messageView.js';
 
 export interface StoredSubgoal { text: string; done?: boolean }
 
@@ -68,7 +68,7 @@ export function goalContinuePrompt(row: BrainGoalRow): string {
 }
 
 export function lastAssistantText(store: BrainStore, sessionId: string): string {
-  const row = [...store.getMessages(sessionId)].reverse().find((m) => m.role === 'assistant');
+  const row = lastAssistant(store.getMessages(sessionId));
   if (!row) return '';
   try { return extractText(JSON.parse(row.content)); }
   catch { return ''; }

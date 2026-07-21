@@ -70,7 +70,10 @@ export function parseSse(buffer: string): { frames: { event?: string; id?: strin
     for (const line of raw.split('\n')) {
       if (line.startsWith('event:')) event = line.slice(6).trim();
       else if (line.startsWith('id:')) id = line.slice(3).trim();
-      else if (line.startsWith('data:')) data += line.slice(5).trim();
+      // Per the SSE spec multiple data: lines in one frame join with '\n', and only a single leading
+      // space after the colon is stripped. Trimming + concatenating without a separator would corrupt any
+      // multi-line frame (a re-chunking proxy can produce them) into unparseable JSON that's silently dropped.
+      else if (line.startsWith('data:')) data += (data ? '\n' : '') + line.slice(5).replace(/^ /, '');
     }
     if (data) frames.push({ event, ...(id ? { id } : {}), data });
   }

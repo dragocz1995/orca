@@ -61,13 +61,24 @@ export class SpawnService {
     // file defaults — via the shared resolver (renderPromptFor), not a re-spelled fallback. The rawPrompt
     // path (Pilot/Overseer/Advisor) is rendered by its own caller, so this only affects workers.
     const renderPrompt = (name: string, vars?: Record<string, string>) => renderPromptFor(this.d.prompts, name, vars, input.ownerId);
+    // env is delivered as tmux session environment (`-e`, below), NOT an inline `export …` in the typed
+    // command, so the agent token never enters the pane scrollback (readable via capturePane).
     const command = buildAgentCommand(input.spec, {
       projectPath: input.projectPath, taskId: input.taskId, agentName: input.agentName,
       taskTitle: input.taskTitle, taskDescription: input.taskDescription, resumeNote: input.resumeNote,
-      closeCommand, epicId: input.epicId, cli, env, bin: provider?.bin, extraArgs: provider?.args,
+      closeCommand, epicId: input.epicId, cli, bin: provider?.bin, extraArgs: provider?.args,
       skipPermissions: provider?.skipPermissions, rawPrompt: input.rawPrompt, resume, mcpUrl: input.mcpUrl, tddMode,
     }, renderPrompt);
-    await this.d.tmux.spawn(session, { cwd: input.projectPath, command });
+    try {
+      await this.d.tmux.spawn(session, { cwd: input.projectPath, command, env });
+    } catch (e) {
+      // A tmux failure message embeds the argv INCLUDING `-e ELOWEN_TOKEN=<token>`; never let the raw
+      // token escape into a thrown error or log (mirrors terminalService). Scrub it, then re-throw sanitized.
+      const token = elowen?.token;
+      const reason = token ? String((e as Error)?.message ?? e).split(token).join('***') : String((e as Error)?.message ?? e);
+      log.warn(`agent spawn failed for ${session} (task ${input.taskId}): ${reason}`);
+      throw new Error('agent spawn failed');
+    }
     // Explicit spawn record: captures pilot/overseer launches too (they have no task row, so the
     // bus 'task → in_progress' activity line never covers them).
     log.info(`spawned ${session} (${input.spec.program}/${input.spec.model}) for task ${input.taskId}`);

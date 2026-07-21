@@ -64,7 +64,7 @@ describe('POST /mcp auth gating', () => {
 
   it('agent-scope service token gets 403 (not in agentAllowed)', async () => {
     const { app, users } = makeApp();
-    const agentTok = users.refreshAgentToken(users.list()[0]!.id);
+    const agentTok = users.ensureAgentToken(users.list()[0]!.id);
     const res = await app.request('/mcp', {
       method: 'POST', headers: mcpHeaders(agentTok), body: mcpInitBody(),
     });

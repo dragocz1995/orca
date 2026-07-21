@@ -267,6 +267,16 @@ export function withDescendantUsage(usage: BrainUsage, extra: { totalTokens: num
   return { ...usage, totalTokens: usage.totalTokens + extra.totalTokens, cost: usage.cost + extra.cost };
 }
 
+/** The usage figure an idle/status event reports: this session's own token+cost totals rolled up with its
+ *  delegated descendants'. The single expression every idle/status emit site shares, so they can't drift. */
+export function sessionUsageSnapshot(
+  session: AgentSession,
+  store: { descendantUsage(id: string): { totalTokens: number; cost: number } },
+  sessionId: string,
+): BrainUsage {
+  return withDescendantUsage(usageOf(session), store.descendantUsage(sessionId));
+}
+
 /** A short human reason for a retry notice. Provider errors usually arrive as `429 {json blob}` — the
  *  raw blob is unreadable in a one-line notice, so dig the inner `error.message`/`message` out of the
  *  JSON (or drop the blob entirely) and cap the result to one compact clause. */
@@ -308,6 +318,19 @@ const AUTHORING_THROTTLE_MS = 250;
  *  `toolcall_delta` mapping. Entries are dropped when the tool actually starts/ends executing (its
  *  authoring window is over), so the map never outgrows the set of in-flight calls. */
 const lastAuthoringAt = new Map<string, { detail: string | undefined; at: number }>();
+
+/** Hard cap on the throttle maps above. They are normally released on `tool_execution_start`/`_end`, but a
+ *  call the model only *drafts* — an aborted turn / Esc mid-authoring — never reaches those events, so its
+ *  entry would leak for the daemon's lifetime (the maps are process-global, shared by all sessions). Bound
+ *  them by evicting the oldest-inserted entry; that only ever resets a stale throttle slot. */
+const THROTTLE_MAP_CAP = 1024;
+function capSet<V>(map: Map<string, V>, key: string, value: V): void {
+  if (!map.has(key) && map.size >= THROTTLE_MAP_CAP) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, value);
+}
 
 /** Extract the rolling tail of text from a PI `partialResult` (same `{ content: [{ text }] }` shape as
  *  a final tool result). Concatenates the text parts and keeps only the last `PROGRESS_TAIL_CHARS`. */
@@ -371,7 +394,7 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
       const last = lastAuthoringAt.get(id);
       if (last && last.detail === detail) return null;               // unchanged → nothing new to render
       if (last && now - last.at < AUTHORING_THROTTLE_MS) return null; // changed but within the window → drop
-      lastAuthoringAt.set(id, { detail, at: now });
+      capSet(lastAuthoringAt, id, { detail, at: now });
       return { type: 'tool_authoring', ...(name ? { name } : {}), detail };
     }
     return null;
@@ -401,7 +424,7 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
     if (now - last < PROGRESS_THROTTLE_MS) return null;
     const text = progressTail(anyE.partialResult);
     if (!text) return null;
-    lastProgressAt.set(anyE.toolCallId, now);
+    capSet(lastProgressAt, anyE.toolCallId, now);
     return { type: 'tool_progress', id: anyE.toolCallId, text };
   }
   // Emit the tool name ONCE, when it starts — never the raw streamed output (_update noise).
@@ -452,8 +475,9 @@ export function queueItems(steering: readonly string[], followUp: readonly strin
   return [...steering, ...followUp].map((text, i) => ({ id: String(i), text }));
 }
 
-/** Snapshot a session's statusline numbers: context fill from PI plus per-message usage totals. */
-export function usageOf(session: AgentSession): BrainUsage {
+/** Snapshot a session's statusline numbers: context fill from PI plus per-message usage totals. Internal
+ *  to this module now — callers use {@link sessionUsageSnapshot} to also roll up delegated descendants. */
+function usageOf(session: AgentSession): BrainUsage {
   const ctx = session.getContextUsage();
   let totalTokens = 0;
   let cost = 0;

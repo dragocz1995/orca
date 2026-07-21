@@ -27,6 +27,25 @@ describe.runIf(hasTmux)('RealTmuxDriver', () => {
     const t = new RealTmuxDriver();
     expect(await t.capturePane(`elowen-gone-${process.pid}`, 60)).toBe('');
   });
+
+  it('targets sessions EXACTLY — a gone session never prefix-matches a longer-named live one', async () => {
+    // Regression: session names carry numeric suffixes (elowen-advisor-<userId> etc.). With tmux's default
+    // prefix matching, an op on the already-exited `-1` would fall through to the live `-10` — killing it,
+    // injecting keystrokes, or reading its scrollback across users. Exact `=name:` targeting must prevent it.
+    const t = new RealTmuxDriver();
+    const base = `elowen-exact-${process.pid}`;
+    const short = `${base}-1`, long = `${base}-10`;
+    await t.spawn(short, { cwd: '/tmp', command: 'cat' });
+    await t.spawn(long, { cwd: '/tmp', command: 'cat' });
+    await new Promise((r) => setTimeout(r, 300));
+    await t.kill(short);                                    // `-1` is now gone
+    await t.sendKeys(short, ['INJECTED', 'Enter']).catch(() => { /* exact target gone → no-op, must not reach -10 */ });
+    await t.kill(short);                                   // second kill of the gone `-1` must not hit `-10`
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await t.list()).toContain(long);               // `-10` survived
+    expect(await t.capturePane(long, 60)).not.toContain('INJECTED'); // `-10` received no stray keystrokes
+    await t.kill(long);
+  });
 });
 
 describe.runIf(hasTmux)('RealTmuxDriver.sendRaw', () => {

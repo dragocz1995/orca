@@ -40,7 +40,7 @@ describe('setup mode (no users)', () => {
     // Onboarding can save config in setup mode (no token).
     expect((await app.request('/config', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ allowedExecs: ['sonnet'] }) })).status).toBe(200);
     // Create the first user (becomes the bootstrap admin) with no token.
-    const res = await app.request('/users', json({ username: 'admin', password: 'pw' }));
+    const res = await app.request('/users', json({ username: 'admin', password: 'adminpass' })); // ≥8 chars: the bootstrap admin obeys the password policy too
     expect(res.status).toBe(201);
     expect((await res.json()).is_admin).toBe(true);
     // Auth now re-engages: a protected route without a token is rejected.

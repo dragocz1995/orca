@@ -1,6 +1,7 @@
 import type { MemoryRow, MemoryStore } from '../store/memoryStore.js';
 import type { EmbeddingConfig, EmbeddingService } from '../embeddings/embeddingService.js';
 import { isEmbeddingConfigured } from '../embeddings/embeddingService.js';
+import { parseDbTs } from '../shared/time.js';
 
 /** Weight of each signal in the combined retrieval score. Semantic similarity dominates; importance,
  *  recency and usage nudge ties. Sums to 1.0. */
@@ -343,11 +344,10 @@ function usageWeightOf(m: MemoryRow): number {
   return n / (n + USAGE_K);
 }
 
-/** Parse a SQLite 'YYYY-MM-DD HH:MM:SS' UTC timestamp to epoch millis, or null if unparseable. */
+/** Parse a SQLite 'YYYY-MM-DD HH:MM:SS' UTC timestamp to epoch millis, or null if unparseable. Delegates
+ *  to the shared DB-timestamp parser; 0 (empty/unparseable) maps back to null for the `??` fallback below. */
 function parseTs(s: string | null): number | null {
-  if (!s) return null;
-  const ms = Date.parse(s.includes('T') ? s : `${s.replace(' ', 'T')}Z`);
-  return Number.isNaN(ms) ? null : ms;
+  return parseDbTs(s) || null;
 }
 
 /** Project ranked candidates to the debug score shape, flagging which were picked. */

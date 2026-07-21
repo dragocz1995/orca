@@ -37,9 +37,10 @@ export class PushSubscriptionStore {
     this.db.prepare('DELETE FROM user_push_subscriptions WHERE endpoint = ? AND user_id = ?').run(endpoint, userId);
   }
 
-  listForUser(userId: number): PushSubscriptionRecord[] {
-    return this.db.prepare(`SELECT ${COLS} FROM user_push_subscriptions WHERE user_id = ? ORDER BY id`)
-      .all(userId) as PushSubscriptionRecord[];
+  /** Drop every device subscription of a user — called when the user is deleted so their browsers can
+   *  never receive another (rowid-reused) user's notifications, and no orphan rows linger. */
+  removeAllForUser(userId: number): void {
+    this.db.prepare('DELETE FROM user_push_subscriptions WHERE user_id = ?').run(userId);
   }
 
   /** All subscriptions belonging to any of the given users (deduped by row). Empty input → []. */

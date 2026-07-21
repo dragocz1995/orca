@@ -114,14 +114,6 @@ export function appendReplayBrainEvent(events: BrainEvent[], event: BrainEvent, 
   return true;
 }
 
-/** Append one event to a short-lived transport buffer, coalescing adjacent provider deltas without ever
- * mutating an event object owned by the replay fan-out. Multiple snapshot streams receive the SAME event
- * reference from LiveEventReplay.publish(); replacing the local tail is therefore essential — mutating it
- * would make each concurrent stream append the new delta again to every other stream's buffered copy. */
-export function appendBufferedBrainEvent(events: BrainEvent[], event: BrainEvent, maxEvents: number): void {
-  void appendReplayBrainEvent(events, event, maxEvents);
-}
-
 function eventChars(event: BrainEvent): number {
   try { return JSON.stringify(event).length; }
   catch { return 0; }

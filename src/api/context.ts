@@ -16,13 +16,23 @@ import { createTicketStore, type TicketStore } from '../terminal/ticketStore.js'
 import type { Phase } from '../overseer/planner.js';
 import type { EventProjectDeps } from './eventProject.js';
 import type { Task } from '../store/types.js';
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import type { User, TokenScope } from '../store/userStore.js';
 import type { ServerDeps } from './deps.js';
 
+/** The per-request Hono variables the auth middleware sets — the single source for `c.get('user')` etc. */
+type ElowenVariables = { user: User; token: string; tokenScope: TokenScope };
+
 /** The daemon's Hono app, typed with the per-request variables the auth middleware sets. Shared by
  *  `createServer` and every route-family registrar so they all agree on `c.get('user')` etc. */
-export type ElowenApp = Hono<{ Variables: { user: User; token: string; tokenScope: TokenScope } }>;
+export type ElowenApp = Hono<{ Variables: ElowenVariables }>;
+
+/** A single request's context, typed with the same variables as {@link ElowenApp}. Handlers pulled out of
+ *  an inline `app.get(path, c => …)` (e.g. behind a guard wrapper) annotate `c` with this to keep the
+ *  typed `c.get('user')` they'd otherwise get from Hono's inference. Route path params are not carried
+ *  here (Hono infers those only for inline handlers), so a wrapped `:id` handler reads `param('id')` with
+ *  a non-null assertion — the route only matches when the segment is present. */
+export type ElowenContext = Context<{ Variables: ElowenVariables }>;
 
 /** Minimal structural view of the request context the access predicates read (the real Hono context
  *  satisfies it). Overloaded `get` so a caller can read both the user and the token scope. */

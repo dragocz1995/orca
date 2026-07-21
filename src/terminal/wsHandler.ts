@@ -41,7 +41,15 @@ export function terminalWsHandler(deps: TerminalWsDeps): (c: Context) => Promise
           return;
         }
         const attach = deps.attach ?? attachPty;
-        const pty = attach(mod, { session: ticket.session, cols: 80, rows: 24 });
+        let pty: ReturnType<typeof attachPty>;
+        try {
+          pty = attach(mod, { session: ticket.session, cols: 80, rows: 24 });
+        } catch {
+          // node-pty can throw at spawn time (e.g. tmux binary missing despite the module loading). Degrade
+          // via the dedicated close code instead of letting the exception escape into the WS library.
+          ws.close(UNSUPPORTED_CLOSE, 'pty');
+          return;
+        }
         b = bridge(
           pty,
           { send: (d: string) => ws.send(d), close: () => ws.close() },

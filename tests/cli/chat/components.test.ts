@@ -141,6 +141,16 @@ describe('chat components', () => {
     expect(legacy[1]).toContain('new');
   });
 
+  it('colours a legacy diff row by its sign even with a padded line number (not as a context line)', () => {
+    // '   2 - old' also matches the pi-row regex, but with a BLANK sign — which would render it as an
+    // uncoloured context line and leak the raw '-' into the text. It must render identically to the pi form.
+    const legacyDel = diffBlock('   2 - old')[0]!;
+    const piDel = diffBlock('-    2 old')[0]!;
+    // Same rendered row (identical gutter + delete background/colour) as the pi form. Before the fix the
+    // legacy row parsed with a blank sign → context (grey) styling with the '-' shoved into the text.
+    expect(legacyDel).toBe(piDel);
+  });
+
   it('diffBlock keeps add/delete colouring active across the whole row', () => {
     const [line] = diffBlock('+    6 $number = 2026;', 60, 40);
     const beforeText = line!.slice(0, line!.indexOf('$number'));

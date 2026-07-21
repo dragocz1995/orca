@@ -3,8 +3,15 @@ import {
   chordFromInput, createKeymap, createLeaderState, keybindDefault, keybindRows, parseKeybind, KEYBIND_ACTIONS,
 } from '../../../src/cli/chat/keys.js';
 import {
-  bottomHints, INTERRUPT_CONFIRM_MS, interruptPress, noticeAction, startScreenHints, quitHint, modelMetaLine,
+  bottomHintItems, INTERRUPT_CONFIRM_MS, interruptPress, noticeAction, startScreenHintItems, quitHint, modelMetaLine,
 } from '../../../src/cli/chat/chatComposition.js';
+
+// The live footer/start screen render through `*Items` + `fitSegments`; these mirror the removed
+// convenience joiners so the content assertions below still exercise the keymap-driven item builders.
+const bottomHints = (...args: Parameters<typeof bottomHintItems>): string =>
+  bottomHintItems(...args).map((s) => s.text).join('   ·   ');
+const startScreenHints = (...args: Parameters<typeof startScreenHintItems>): string =>
+  startScreenHintItems(...args).map((s) => s.text).join(' · ');
 
 // Raw bytes the terminal sends for the chords under test.
 const CTRL = (letter: string): string => String.fromCharCode(letter.charCodeAt(0) - 96);

@@ -1,6 +1,6 @@
 import type { BrainStore, BrainGoalRow } from '../../store/brainStore.js';
 import { allSubgoalsDone, applySubgoalDone, goalContinuePrompt, goalDraft, goalPrompt, judgeGoalBlocked, judgeGoalCompletion, lastAssistantText, parseProgress, parseSubgoalDone, parseSubgoals } from '../goal.js';
-import type { TurnRequest } from './turnRequest.js';
+import type { TurnRequest, InternalTurn } from './turnRequest.js';
 
 interface GoalLoopDeps {
   store: BrainStore;
@@ -119,7 +119,7 @@ export class GoalLoopService {
             // would strip mutating tools) or workflow (which would nudge DAG orchestration). It must not
             // inherit the mode of whatever manual turn happened to trigger this judge.
             mode: 'build',
-            internal: { goalContinue: true },
+            internal: { kind: 'goalContinue' },
             session: sessionId,
           });
         })
@@ -170,7 +170,7 @@ export class GoalLoopService {
           userId,
           text: goalPrompt(row),
           mode: 'build',
-          internal: { goalKickoff: true },
+          internal: { kind: 'goalKickoff' },
           session,
         });
       } catch (e) {
@@ -220,7 +220,7 @@ export class GoalLoopService {
     return this.updateGoal(sessionId, { subgoals: JSON.stringify(items) })!;
   }
 
-  afterTurnGoalJudge(userId: number, sessionId: string, internal?: { goalKickoff?: boolean; goalContinue?: boolean }): void {
+  afterTurnGoalJudge(userId: number, sessionId: string, internal?: InternalTurn): void {
     const row = this.d.store.getGoal(sessionId);
     if (!row || row.user_id !== userId || row.status !== 'active') return;
     const turns = row.turns_used + 1;
@@ -260,7 +260,7 @@ export class GoalLoopService {
       if (yolo && turns < ceiling) {
         this.updateGoal(sessionId, { turns_used: turns, subgoals: subgoalsJson, last_verdict: 'continue', last_evidence: progress });
         if (!this.goalDriven(userId, sessionId)) return;
-        this.scheduleGoalContinuation(userId, sessionId, internal?.goalContinue ? 250 : 100);
+        this.scheduleGoalContinuation(userId, sessionId, internal?.kind === 'goalContinue' ? 250 : 100);
         return;
       }
       const reason = yolo ? `safety ceiling reached (${turns}/${ceiling})` : `turn budget reached (${turns}/${row.turn_budget})`;
@@ -273,6 +273,6 @@ export class GoalLoopService {
     const doneRejected = verdict.done; // reached here only when NOT allSubgoalsDone
     this.updateGoal(sessionId, { turns_used: turns, subgoals: subgoalsJson, last_verdict: doneRejected ? 'done_pending_subgoals' : 'continue', last_evidence: progress });
     if (!this.goalDriven(userId, sessionId)) return;
-    this.scheduleGoalContinuation(userId, sessionId, internal?.goalContinue ? 250 : 100);
+    this.scheduleGoalContinuation(userId, sessionId, internal?.kind === 'goalContinue' ? 250 : 100);
   }
 }

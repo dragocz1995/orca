@@ -2,7 +2,7 @@ import { streamSSE } from 'hono/streaming';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseBody } from '../validation.js';
-import { brainStartSchema, brainStopSchema, brainSendSchema, brainModelSchema, brainAnswerSchema, lspInstallSchema, subagentSendSchema } from '../schemas/brain.js';
+import { brainStartSchema, brainStopSchema, brainSendSchema, brainModelSchema, brainRenameSchema, brainToggleSchema, brainThinkSchema, brainCwdSchema, brainCompactSchema, brainContextSchema, brainTerminalSchema, brainGoalSchema, brainAnswerSchema, lspInstallSchema, subagentSendSchema } from '../schemas/brain.js';
 import { brainConfigFromElowen } from '../../brain/config.js';
 import { listBrainModels, fetchOpenAiModels } from '../../brain/models.js';
 import { elowenExec, isExecAllowedForUser } from '../../shared/execs.js';
@@ -15,7 +15,7 @@ import { kimiUsageSource } from '../../brain/kimiUsage.js';
 import { anthropicUsageSource } from '../../brain/anthropicUsage.js';
 import { brainEventReplayCursor, withoutBrainEventReplayCursor } from '../../brain/session/liveEventReplay.js';
 import { SerializedEventBuffer } from '../../brain/session/serializedEventBuffer.js';
-import type { ElowenApp, RouteContext } from '../context.js';
+import type { ElowenApp, ElowenContext, RouteContext } from '../context.js';
 
 /** Normalize a client-supplied `/compact <text>` instruction: require a string, trim, drop empty, and cap
  *  the length so a stray large payload can't bloat the summary prompt. Undefined means "default compaction". */
@@ -71,6 +71,20 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   } : {};
   const forbidden = (c: { get: (k: 'tokenScope') => string }) => c.get('tokenScope') === 'agent';
 
+  /** The prologue almost every brain route shares: 503 when the engine isn't wired, 403 for an agent-scope
+   *  token (a spawned agent must never drive a human's brain), and — with `{ admin: true }` — 403 for a
+   *  non-admin. Wrapping it hands the handler a guaranteed-present `brain`, so the guard is the DEFAULT a new
+   *  route can't forget rather than a two-line prologue copy-pasted (and occasionally mis-ordered) per handler.
+   *  Routes whose unavailable response is a benign default (`status`/`sessions`/`rate-limits` → {} / [] / null)
+   *  and the SSE stream keep their bespoke guard — this covers only the uniform `503 + forbidden` shape. */
+  type BrainService = NonNullable<typeof d.brain>;
+  const withBrain = (handler: (c: ElowenContext, brain: BrainService) => Response | Promise<Response>, opts?: { admin?: boolean }) =>
+    async (c: ElowenContext): Promise<Response> => {
+      if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
+      if (forbidden(c) || (opts?.admin === true && !c.get('user')?.is_admin)) return c.json({ error: 'forbidden' }, 403);
+      return handler(c, d.brain);
+    };
+
   app.get('/brain/status', async c => {
     if (!d.brain) return c.json({ running: false, sessionId: null, model: '', usage: null, statusline: null });
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
@@ -113,18 +127,16 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     return c.json(result);
   });
 
-  app.post('/brain/start', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/start', withBrain(async (c, brain) => {
     const { provider, session, fresh, cwd, client, generation } = await parseBody(c, brainStartSchema);
-    try { return c.json(await d.brain.start(c.get('user').id, { provider, session, fresh, cwd, clientId: client, clientGeneration: generation }), 201); }
+    try { return c.json(await brain.start(c.get('user').id, { provider, session, fresh, cwd, clientId: client, clientGeneration: generation }), 201); }
     catch (e) {
       const message = (e as Error).message;
       return message === 'client request is no longer current'
         ? c.json({ error: message }, 409)
         : c.json({ error: message }, 500);
     }
-  });
+  }));
 
   // The caller's conversations (most recent first) for the session pickers in web chat and the CLI.
   // Pagination is opt-in via ?limit&offset (applied after the identity filter): absent → the historical
@@ -141,27 +153,23 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   // so `:id` below never captures "managed-sessions". Admin-only (channel/task sessions are shared state).
   app.get('/brain/managed-sessions', async c => {
     if (!d.brain) return c.json([]);
-    if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
+    if (forbidden(c) || !c.get('user')?.is_admin) return c.json({ error: 'forbidden' }, 403);
     return c.json(d.brain.listManagedSessions(c.get('user').id));
   });
   // Delete EVERYTHING (the panel's confirmed "delete all"). Registered before the `/:id` variant.
-  app.delete('/brain/managed-sessions', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
-    return c.json({ deleted: d.brain.deleteAllManagedSessions(c.get('user').id) });
-  });
-  app.delete('/brain/managed-sessions/:id', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
-    return c.json({ deleted: d.brain.deleteManagedSession(c.get('user').id, c.req.param('id')) });
-  });
+  app.delete('/brain/managed-sessions', withBrain((c, brain) =>
+    c.json({ deleted: brain.deleteAllManagedSessions(c.get('user').id) }), { admin: true }));
+  app.delete('/brain/managed-sessions/:id', withBrain((c, brain) =>
+    c.json({ deleted: brain.deleteManagedSession(c.get('user').id, c.req.param('id')!) }), { admin: true }));
 
   // Background processes (terminal plugin's `Bash(background:true)` children) — the panel next to
   // the todos lists them, reads output for the modal, and kills on demand. OWNER-only (not merely admin):
   // the underlying shell reads any absolute path — secrets, the config DB — exactly like the terminal tools
   // that spawn these (owner-only there). A second admin is admin-but-not-owner and must not see the buffers.
-  const denyNonOwner = (c: { get: (k: 'tokenScope' | 'user') => unknown }): boolean =>
-    forbidden(c as { get: (k: 'tokenScope') => string }) || !d.brain?.isOwner((c.get('user') as { id: number }).id);
+  const denyNonOwner = (c: { get: (k: 'tokenScope' | 'user') => unknown }): boolean => {
+    const u = c.get('user') as { id: number } | undefined; // absent during setup mode (0 users) — fail closed
+    return forbidden(c as { get: (k: 'tokenScope') => string }) || !u || !d.brain?.isOwner(u.id);
+  };
   app.get('/brain/processes', c => {
     if (denyNonOwner(c)) return c.json({ error: 'forbidden' }, 403);
     try { return c.json(d.brain!.processes(c.get('user').id, c.req.query('session'))); }
@@ -203,21 +211,16 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     return c.json({ error: 'not found' }, 404);
   });
 
-  app.delete('/brain/sessions/:id', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    try { d.brain.deleteSession(c.get('user').id, c.req.param('id')); return c.json({ ok: true }); }
+  app.delete('/brain/sessions/:id', withBrain((c, brain) => {
+    try { brain.deleteSession(c.get('user').id, c.req.param('id')!); return c.json({ ok: true }); }
     catch { return c.json({ error: 'unknown session' }, 404); }
-  });
+  }));
 
-  app.patch('/brain/sessions/:id', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const body = (await c.req.json().catch(() => ({}))) as { title?: unknown };
-    if (typeof body.title !== 'string') return c.json({ error: 'title must be a string' }, 400);
-    try { return c.json(d.brain.renameSession(c.get('user').id, c.req.param('id'), body.title)); }
+  app.patch('/brain/sessions/:id', withBrain(async (c, brain) => {
+    const { title } = await parseBody(c, brainRenameSchema);
+    try { return c.json(brain.renameSession(c.get('user').id, c.req.param('id')!, title)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Download one of the caller's OWN conversations as a self-contained HTML transcript (`?format=html`,
   // the default) or a JSONL session file (`?format=jsonl`). Owner-scoped exactly like /brain/messages —
@@ -308,68 +311,56 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
 
   // Stop the streaming turn (the Esc key in chat clients). `session` scopes it to the caller's own
   // bound conversation (the CLI); absent → the active one.
-  app.post('/brain/abort', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { session?: unknown };
-    try { await d.brain.abort(c.get('user').id, typeof b.session === 'string' ? b.session : undefined); return c.json({ ok: true }); }
+  app.post('/brain/abort', withBrain(async (c, brain) => {
+    const { session } = await parseBody(c, brainStopSchema);
+    try { await brain.abort(c.get('user').id, session); return c.json({ ok: true }); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Esc with a queued owner message: atomically interrupt the active PI run and promote the oldest queue
   // entry into a fresh user turn. Client generation fencing prevents a delayed request from reviving a
   // conversation after that CLI switched/stopped.
-  app.post('/brain/interrupt-queued', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/interrupt-queued', withBrain(async (c, brain) => {
     const { session, client, generation } = await parseBody(c, brainStopSchema);
     const boundClient = session && client && generation ? { id: client, generation } : undefined;
-    try { return c.json(await d.brain.interruptQueued(c.get('user').id, session, boundClient)); }
+    try { return c.json(await brain.interruptQueued(c.get('user').id, session, boundClient)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Ctrl+B: release foreground delegate tool waits without cancelling their child channels. The plugin
   // keeps the jobs alive; BrainService routes their eventual results back into this exact conversation.
-  app.post('/brain/subagents/background', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/subagents/background', withBrain(async (c, brain) => {
     const { session, client, generation } = await parseBody(c, brainStopSchema);
     const boundClient = session && client && generation ? { id: client, generation } : undefined;
-    try { return c.json(await d.brain.detachForegroundSubagents(c.get('user').id, session, boundClient)); }
+    try { return c.json(await brain.detachForegroundSubagents(c.get('user').id, session, boundClient)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Ctrl+B: move a running foreground Bash command to the background without killing it. The plugin keeps
   // it running; its exit later nudges this same conversation, exactly like Bash(background=true).
-  app.post('/brain/commands/background', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/commands/background', withBrain(async (c, brain) => {
     const { session, client, generation } = await parseBody(c, brainStopSchema);
     const boundClient = session && client && generation ? { id: client, generation } : undefined;
-    try { return c.json(await d.brain.detachForegroundCommands(c.get('user').id, session, boundClient)); }
+    try { return c.json(await brain.detachForegroundCommands(c.get('user').id, session, boundClient)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Closing a session-bound client: abort its active run and dispose the live PI session only when no
   // other client is attached. Persisted history remains resumable.
-  app.post('/brain/session/stop', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/session/stop', withBrain(async (c, brain) => {
     const { session, client, generation } = await parseBody(c, brainStopSchema);
-    try { return c.json(await d.brain.stopSession(c.get('user').id, session, client, generation)); }
+    try { return c.json(await brain.stopSession(c.get('user').id, session, client, generation)); }
     catch (e) { return c.json({ error: (e as Error).message }, 404); }
-  });
+  }));
 
   // Switch the active conversation (or the caller's explicit `session`) to another configured model (the
   // /model picker). The session respawns in place under the same id — open SSE taps survive the respawn
   // and every attached client reconciles via the pushed `session-event`, so no client reopens its stream.
-  app.post('/brain/model', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/model', withBrain(async (c, brain) => {
     const { session, ...sel } = await parseBody(c, brainModelSchema);
-    try { return c.json(await d.brain.switchModel(c.get('user').id, sel, session)); }
+    try { return c.json(await brain.switchModel(c.get('user').id, sel, session)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Bind (MOVE, not fork) one of the caller's OWN conversations into a platform channel/thread (the
   // /context picker): the chosen session is re-keyed onto `brain-ch-<channel>` so the channel's next turn
@@ -379,14 +370,11 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   // on a caller-supplied `channel` target, so it is ADMIN-gated here too — matching the operator gate the
   // platform adapters already apply — on top of the ownership guard inside bindChannelContext (caller-owned
   // sessions only). `channel` is the keyOf key (e.g. 'discord-123'); a guard rejection surfaces as 409.
-  app.post('/brain/context', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { channel?: unknown; session?: unknown };
-    if (typeof b.channel !== 'string' || typeof b.session !== 'string') return c.json({ error: 'channel and session must be strings' }, 400);
-    try { return c.json(await d.brain.bindChannelContext(c.get('user').id, b.channel, b.session)); }
+  app.post('/brain/context', withBrain(async (c, brain) => {
+    const { channel, session } = await parseBody(c, brainContextSchema);
+    try { return c.json(await brain.bindChannelContext(c.get('user').id, channel, session)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }, { admin: true }));
 
   // Open (or re-attach to) an admin's interactive `elowen chat` terminal bound to one of THEIR OWN
   // conversations. ADMIN-only (invariant 4): agent tokens AND ordinary full-scope non-admins are rejected
@@ -394,12 +382,10 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   // admin's session throws `unknown session`), so the generic admin bypass never widens this. The response
   // carries only { terminal, created } — the per-terminal token (invariant 5) never leaves the daemon.
   // The running state is DERIVED from the owner-filtered GET /sessions (no separate polling endpoint).
-  app.post('/brain/terminal', async c => {
-    if (!d.brain || !d.brainTerminal) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { session?: unknown };
-    if (typeof b.session !== 'string') return c.json({ error: 'session must be a string' }, 400);
-    try { return c.json(await d.brainTerminal.open(c.get('user').id, b.session), 201); }
+  app.post('/brain/terminal', withBrain(async (c) => {
+    if (!d.brainTerminal) return c.json({ error: 'brain unavailable' }, 503);
+    const { session } = await parseBody(c, brainTerminalSchema);
+    try { return c.json(await d.brainTerminal.open(c.get('user').id, session), 201); }
     catch (e) {
       // Never echo raw error text here: open()'s launch-failure path would otherwise carry the tmux argv
       // (and thus the per-terminal token) into the response body. Only the known ownership rejection is
@@ -409,61 +395,49 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
       if (msg === 'unknown session') return c.json({ error: msg }, 404);
       return c.json({ error: 'terminal launch failed' }, 409);
     }
-  });
+  }, { admin: true }));
 
   // Set the active conversation's reasoning effort live (the /think command) — no session rebuild.
-  app.post('/brain/think', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { level?: unknown; session?: unknown };
-    if (typeof b.level !== 'string') return c.json({ error: 'level must be a string' }, 400);
-    try { return c.json(await d.brain.setThinkingLevel(c.get('user').id, b.level, typeof b.session === 'string' ? b.session : undefined)); }
+  app.post('/brain/think', withBrain(async (c, brain) => {
+    const { level, session } = await parseBody(c, brainThinkSchema);
+    try { return c.json(await brain.setThinkingLevel(c.get('user').id, level, session)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Record that the client moved its working directory (the CLI's /cd). The cwd itself already rides
   // every turn; this only annotates the conversation so the agent is told, and rejects a directory the
   // caller's policy would refuse rather than announcing a move that cannot happen.
-  app.post('/brain/cwd', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { dir?: unknown; session?: unknown };
-    if (typeof b.dir !== 'string') return c.json({ error: 'dir must be a string' }, 400);
-    try { return c.json(d.brain.noteWorkDir(c.get('user').id, b.dir, typeof b.session === 'string' ? b.session : undefined)); }
+  app.post('/brain/cwd', withBrain(async (c, brain) => {
+    const { dir, session } = await parseBody(c, brainCwdSchema);
+    try { return c.json(brain.noteWorkDir(c.get('user').id, dir, session)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // OpenAI OAuth priority service tier (`service_tier: priority`). Session-scoped and live, like YOLO;
   // unsupported providers are rejected instead of silently pretending Fast is active.
-  app.post('/brain/fast', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { on?: unknown; session?: unknown };
-    try { return c.json(d.brain.setFast(c.get('user').id, typeof b.on === 'boolean' ? b.on : undefined, typeof b.session === 'string' ? b.session : undefined)); }
+  app.post('/brain/fast', withBrain(async (c, brain) => {
+    const { on, session } = await parseBody(c, brainToggleSchema);
+    try { return c.json(brain.setFast(c.get('user').id, on, session)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // SESSION-scoped YOLO override (the CLI /yolo command): flips "ask" permission rules to auto-approve
   // for the caller's ACTIVE live conversation only (deny rules still deny). `on` absent → toggle the
   // current effective state. The persisted per-user default lives at /auth/me/permissions.
-  app.post('/brain/yolo', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { on?: unknown; session?: unknown };
-    try { return c.json(d.brain.setYolo(c.get('user').id, typeof b.on === 'boolean' ? b.on : undefined, typeof b.session === 'string' ? b.session : undefined)); }
+  app.post('/brain/yolo', withBrain(async (c, brain) => {
+    const { on, session } = await parseBody(c, brainToggleSchema);
+    try { return c.json(brain.setYolo(c.get('user').id, on, session)); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // Manual context compaction (the /compact command in chat clients). Returns the fresh usage numbers
   // plus whether anything was compacted — a too-small/already-compacted session is a benign no-op
   // (200 with compacted:false), NOT an opaque 409, so clients show a friendly notice instead of a failure.
-  app.post('/brain/compact', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const b = (await c.req.json().catch(() => ({}))) as { session?: unknown; instruction?: unknown };
-    try { return c.json(await d.brain.compact(c.get('user').id, typeof b.session === 'string' ? b.session : undefined, compactInstruction(b.instruction))); }
+  app.post('/brain/compact', withBrain(async (c, brain) => {
+    const { session, instruction } = await parseBody(c, brainCompactSchema);
+    try { return c.json(await brain.compact(c.get('user').id, session, compactInstruction(instruction))); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // The published slash-command catalog for one surface + user — the SINGLE source of truth
   // (src/brain/slashCommands.ts). Every chat client renders its menu / registers its commands from this,
@@ -483,21 +457,22 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
 
   // Execute a server-side (`action`) slash command through ONE dispatch path for every surface. Pickers
   // (`model`/`think`) and info (`status`/`help`) stay client-side (their own endpoints / rendering).
-  app.post('/brain/command', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/command', withBrain(async (c, brain) => {
     const user = c.get('user');
+    // Polymorphic dispatch body: `name` selects the command and the remaining fields are per-command, so
+    // this one stays a permissive hand-rolled read rather than a single zod schema (mirrors the streaming
+    // handler). A bad `name` is a 400 below either way.
     const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; session?: unknown; on?: unknown; instruction?: unknown };
     const cmd = typeof body.name === 'string' ? findCommand(body.name) : undefined;
     if (!cmd || cmd.kind !== 'action') return c.json({ error: 'unknown command' }, 400);
     if (cmd.adminOnly && !user.is_admin) return c.json({ error: 'forbidden' }, 403);
     try {
       switch (cmd.name) {
-        case 'stop': await d.brain.abort(user.id, typeof body.session === 'string' ? body.session : undefined); return c.json({ ok: true, message: 'Agent stopped.' });
-        case 'new': return c.json({ ok: true, message: 'Started a fresh conversation.', data: await d.brain.start(user.id, { fresh: true }) });
-        case 'compact': { const r = await d.brain.compact(user.id, typeof body.session === 'string' ? body.session : undefined, compactInstruction(body.instruction)); return c.json({ ok: true, message: r.compacted ? 'Conversation compacted.' : (r.message ?? 'Nothing to compact yet.'), data: { usage: r.usage } }); }
+        case 'stop': await brain.abort(user.id, typeof body.session === 'string' ? body.session : undefined); return c.json({ ok: true, message: 'Agent stopped.' });
+        case 'new': return c.json({ ok: true, message: 'Started a fresh conversation.', data: await brain.start(user.id, { fresh: true }) });
+        case 'compact': { const r = await brain.compact(user.id, typeof body.session === 'string' ? body.session : undefined, compactInstruction(body.instruction)); return c.json({ ok: true, message: r.compacted ? 'Conversation compacted.' : (r.message ?? 'Nothing to compact yet.'), data: { usage: r.usage } }); }
         case 'fast': {
-          const r = d.brain.setFast(user.id, typeof body.on === 'boolean' ? body.on : undefined, typeof body.session === 'string' ? body.session : undefined);
+          const r = brain.setFast(user.id, typeof body.on === 'boolean' ? body.on : undefined, typeof body.session === 'string' ? body.session : undefined);
           return c.json({ ok: true, message: `Fast mode ${r.fast ? 'enabled' : 'disabled'}.`, data: r });
         }
         case 'restart':
@@ -514,7 +489,7 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
         default: return c.json({ error: 'command is not server-dispatchable' }, 400);
       }
     } catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // LSP health at a glance: enabled?, any server running?, and a per-server installed/running row.
   // Read-only for every chat user (the toggle above stays admin-only) — drives the CLI /lsp modal and
@@ -529,7 +504,7 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   // software on the host. Only npm-canonical servers are self-installable; the rest 400 with their
   // toolchain's install hint so the CLI shows the exact command to run instead.
   app.post('/brain/lsp/install', async c => {
-    if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
+    if (forbidden(c) || !c.get('user')?.is_admin) return c.json({ error: 'forbidden' }, 403);
     const { command } = await parseBody(c, lspInstallSchema);
     const { listServers, commandExists } = await import('../../lsp/servers.js');
     const spec = listServers().find((s) => s.command === command);
@@ -546,7 +521,7 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   // Uninstall a server from Elowen's own LSP prefix (the /lsp modal's ctrl+u). Admin-only, npm-managed
   // servers only; a live client for it is disposed first so nothing keeps running from a removed binary.
   app.post('/brain/lsp/uninstall', async c => {
-    if (forbidden(c) || !c.get('user').is_admin) return c.json({ error: 'forbidden' }, 403);
+    if (forbidden(c) || !c.get('user')?.is_admin) return c.json({ error: 'forbidden' }, 403);
     const { command } = await parseBody(c, lspInstallSchema);
     const { listServers, commandExists } = await import('../../lsp/servers.js');
     const spec = listServers().find((s) => s.command === command);
@@ -562,22 +537,20 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     return c.json({ ok: true, message: commandExists(spec.command) ? `${spec.label} removed from Elowen's prefix — a system-installed copy remains on PATH.` : `${spec.label} uninstalled.` });
   });
 
-  app.post('/brain/send', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/send', withBrain(async (c, brain) => {
     const { text, images, mode, cwd, session, display, client, generation } = await parseBody(c, brainSendSchema);
     // `session` binds the turn to the caller's own explicit conversation (ownership-checked in send();
     // channel/task sessions rejected). Absent → the active conversation, exactly as before. `display` is
     // the clean text the daemon echoes back as the authoritative `user` turn (the client no longer echoes
     // optimistically); absent → the model-facing text is shown.
     const boundClient = session && client && generation ? { id: client, generation } : undefined;
-    try { d.brain.preflightSend(c.get('user').id, session, boundClient); }
+    try { brain.preflightSend(c.get('user').id, session, boundClient); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); } // not started yet / unknown session
     // A model/tool turn can outlive nginx/SSH proxy request timeouts while its authoritative output is
     // already flowing over SSE. Wait only until the user row + stream echo are durable, then return 202.
     // A failure before that boundary is an HTTP error; a later failure is an ordered SSE error so an
     // attached TUI/headless client cannot silently lose an accepted prompt.
-    const operation = d.brain.startSend({
+    const operation = brain.startSend({
       userId: c.get('user').id,
       text,
       images,
@@ -591,7 +564,7 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
       try {
         const admittedSession = await operation.admitted;
         logger('brain-send').error(`accepted turn failed for ${admittedSession}`, error);
-        d.brain?.publishAcceptedSendFailure(admittedSession, error);
+        brain.publishAcceptedSendFailure(admittedSession, error);
       } catch { /* pre-admission failure is returned by this request below */ }
     });
     try { await operation.admitted; }
@@ -600,7 +573,7 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
     return c.json({ ok: true, accepted: true }, 202);
-  });
+  }));
 
   // The caller's pending mid-turn backlog (messages sent while a turn streams are STEERED into it and
   // reported by PI until delivered). `session` scopes it to a bound CLI's conversation; absent → the
@@ -618,23 +591,19 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   // the `:id` is accepted for wire compatibility and ignored; this clears whatever is still pending.
   // Always 200 with { removed } (false when nothing was pending). The cleared snapshot fans out via the
   // `queue` stream event.
-  app.delete('/brain/queue/:id', c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    try { return c.json({ removed: d.brain.queueRemove(c.get('user').id, c.req.param('id'), c.req.query('session')) }); }
+  app.delete('/brain/queue/:id', withBrain((c, brain) => {
+    try { return c.json({ removed: brain.queueRemove(c.get('user').id, c.req.param('id')!, c.req.query('session')) }); }
     catch { return c.json({ error: 'unknown session' }, 404); }
-  });
+  }));
 
   // Answer a parked AskUserQuestion. Deliberately bypasses the per-turn send() lock (the parked turn
   // holds it) — it just resolves the registry Promise, so it never deadlocks. An unknown/expired id is a
   // tolerated no-op (matched:false) rather than an error, so a late double-click is harmless.
-  app.post('/brain/answer', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/answer', withBrain(async (c, brain) => {
     const { id, answers } = await parseBody(c, brainAnswerSchema);
-    const matched = d.brain.answerQuestion(id, answers, c.get('user').id); // owner route: only the caller's own question
+    const matched = brain.answerQuestion(id, answers, c.get('user').id); // owner route: only the caller's own question
     return c.json({ ok: true, matched });
-  });
+  }));
 
   // Goal routes: `session` (query on GET/action, body on POST) scopes the goal to the caller's own
   // bound conversation (the CLI); absent → the active one.
@@ -645,43 +614,35 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     catch { return c.json({ error: 'unknown session' }, 404); }
   });
 
-  app.post('/brain/goal', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown; draft?: unknown; turnBudget?: unknown; session?: unknown };
-    if (typeof body.text !== 'string') return c.json({ error: 'text must be a string' }, 400);
-    const turnBudget = typeof body.turnBudget === 'number' && Number.isFinite(body.turnBudget) ? Math.max(1, Math.min(50, Math.floor(body.turnBudget))) : undefined;
-    try { return c.json(await d.brain.setGoal(c.get('user').id, body.text, { draft: body.draft === true, turnBudget }, typeof body.session === 'string' ? body.session : undefined), 201); }
+  app.post('/brain/goal', withBrain(async (c, brain) => {
+    const { text, draft, turnBudget: rawBudget, session } = await parseBody(c, brainGoalSchema);
+    const turnBudget = rawBudget !== undefined && Number.isFinite(rawBudget) ? Math.max(1, Math.min(50, Math.floor(rawBudget))) : undefined;
+    try { return c.json(await brain.setGoal(c.get('user').id, text, { draft: draft === true, turnBudget }, session), 201); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
-  app.post('/brain/goal/action', c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/goal/action', withBrain((c, brain) => {
     const action = c.req.query('action');
     if (action !== 'pause' && action !== 'resume' && action !== 'clear') return c.json({ error: 'unknown action' }, 400);
-    try { return c.json(d.brain.goalAction(c.get('user').id, action, c.req.query('session'))); }
+    try { return c.json(brain.goalAction(c.get('user').id, action, c.req.query('session'))); }
     catch { return c.json({ error: 'unknown session' }, 404); }
-  });
+  }));
 
-  app.post('/brain/subgoal', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
+  app.post('/brain/subgoal', withBrain(async (c, brain) => {
+    // Polymorphic on `action` (add carries `text`, remove carries `index`), so a hand-rolled read rather
+    // than a single schema — like /brain/command. An unknown action is a 400 below.
     const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; text?: unknown; index?: unknown; session?: unknown };
     if (body.action !== 'add' && body.action !== 'remove' && body.action !== 'clear') return c.json({ error: 'unknown action' }, 400);
     try {
       const value = body.action === 'add' ? body.text : body.action === 'remove' ? body.index : undefined;
-      return c.json(d.brain.subgoal(c.get('user').id, body.action, value as string | number | undefined, typeof body.session === 'string' ? body.session : undefined));
+      return c.json(brain.subgoal(c.get('user').id, body.action, value as string | number | undefined, typeof body.session === 'string' ? body.session : undefined));
     } catch (e) { return c.json({ error: (e as Error).message }, 409); }
-  });
+  }));
 
   // The owner talking into a delegated sub-agent's session: steered into its running turn, or run as
   // a fresh turn when the child is idle. Fire-and-forget — the reply rides the tapped session stream
   // (an idle child's turn can take minutes; blocking the HTTP call on it would just time out).
-  app.post('/brain/subagent/send', async c => {
-    if (!d.brain) return c.json({ error: 'brain unavailable' }, 503);
-    if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
-    const brain = d.brain;
+  app.post('/brain/subagent/send', withBrain(async (c, brain) => {
     const body = await parseBody(c, subagentSendSchema);
     try { brain.messagesOf(c.get('user').id, body.session); } catch { return c.json({ error: 'unknown session' }, 404); }
     // Validate the durable child boundary before detaching the potentially minutes-long turn. Without this
@@ -691,7 +652,7 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
     void brain.sendToSubagent(c.get('user').id, body.session, body.text).catch(() => { /* surfaced on the child's stream */ });
     return c.json({ ok: true });
-  });
+  }));
 
   // Live events of the ACTIVE conversation by default, or of one explicitly owned session when
   // `?session=<id>` is given (the sub-agent drill-in stream — survives that session's respawns).

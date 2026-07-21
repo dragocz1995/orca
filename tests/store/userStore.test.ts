@@ -27,10 +27,10 @@ describe('UserStore', () => {
   it('issues, resolves and revokes tokens', () => {
     const u = users.create('a', 'x');
     const t = users.issueToken(u.id);
-    expect(users.userForToken(t)?.id).toBe(u.id);
+    expect(users.principalForToken(t)?.user.id).toBe(u.id);
     users.revokeToken(t);
-    expect(users.userForToken(t)).toBeNull();
-    expect(users.userForToken('garbage')).toBeNull();
+    expect(users.principalForToken(t)).toBeNull();
+    expect(users.principalForToken('garbage')).toBeNull();
   });
   it('expires tokens past the TTL and purgeExpiredTokens drops them', () => {
     const db = openDb(':memory:');
@@ -39,8 +39,8 @@ describe('UserStore', () => {
     const t = store.issueToken(u.id);
     // Backdate the token 40 days.
     db.prepare("UPDATE auth_tokens SET created_at = datetime('now','-40 days') WHERE token = ?").run(t);
-    expect(store.userForToken(t)).toBeNull();                 // default 30-day TTL → expired
-    expect(store.userForToken(t, 60)?.id).toBe(u.id);         // a longer configured TTL still accepts it
+    expect(store.principalForToken(t)).toBeNull();                 // default 30-day TTL → expired
+    expect(store.principalForToken(t, 60)?.user.id).toBe(u.id);    // a longer configured TTL still accepts it
     store.purgeExpiredTokens(30);                             // sweep at the 30-day TTL
     expect(db.prepare('SELECT COUNT(*) c FROM auth_tokens').get()).toEqual({ c: 0 });
   });
@@ -51,26 +51,14 @@ describe('UserStore', () => {
     expect(users.principalForToken(full)).toEqual({ user: expect.objectContaining({ id: u.id }), scope: 'full' });
     expect(users.principalForToken(agent)?.scope).toBe('agent');
   });
-  it('refreshAgentToken rotates the agent token and drops the prior one (S51)', () => {
-    const u = users.create('a', 'x');
-    const first = users.refreshAgentToken(u.id);
-    const second = users.refreshAgentToken(u.id);
-    expect(second).not.toBe(first);
-    expect(users.principalForToken(first)).toBeNull();         // old agent token revoked on refresh
-    expect(users.principalForToken(second)?.scope).toBe('agent');
-    // A full token for the same user is untouched by an agent refresh.
-    const full = users.issueToken(u.id);
-    users.refreshAgentToken(u.id);
-    expect(users.userForToken(full)?.id).toBe(u.id);
-  });
   it('ensureAgentToken reuses an existing valid agent token across restarts, mints when absent', () => {
     const u = users.create('a', 'x');
     const first = users.ensureAgentToken(u.id);
     const second = users.ensureAgentToken(u.id);
     expect(second).toBe(first);                                 // reused — a restart keeps in-flight agents valid
     expect(users.principalForToken(first)?.scope).toBe('agent');
-    // After an explicit rotation the prior token is gone, so ensure mints a new (different) one.
-    users.refreshAgentToken(u.id);
+    // Once the prior token is gone, ensure mints a new (different) one.
+    users.revokeToken(first);
     const third = users.ensureAgentToken(u.id);
     expect(third).not.toBe(first);
     expect(users.principalForToken(third)?.scope).toBe('agent');
@@ -95,7 +83,7 @@ describe('UserStore', () => {
     db.prepare('INSERT INTO user_projects (user_id, project_id) VALUES (?, 1)').run(u.id);
     store.delete(u.id);
     expect(store.count()).toBe(0);
-    expect(store.userForToken(t)).toBeNull();
+    expect(store.principalForToken(t)).toBeNull();
     expect(db.prepare('SELECT COUNT(*) c FROM user_projects WHERE user_id = ?').get(u.id)).toEqual({ c: 0 });
   });
 

@@ -49,7 +49,7 @@ describe('POST /push/subscribe', () => {
     const { app, pushSubscriptions, bob, bobTok } = setup();
     const res = await app.request('/push/subscribe', post(bobTok, validSub));
     expect(res.status).toBe(201);
-    expect(pushSubscriptions.listForUser(bob.id).map((r) => r.endpoint)).toEqual(['https://push/abc']);
+    expect(pushSubscriptions.listForUsers([bob.id]).map((r) => r.endpoint)).toEqual(['https://push/abc']);
   });
   it('rejects a malformed body with 400', async () => {
     const { app, bobTok } = setup();
@@ -67,12 +67,12 @@ describe('POST /push/unsubscribe', () => {
     await app.request('/push/subscribe', post(bobTok, validSub));
     const res = await app.request('/push/unsubscribe', post(bobTok, { endpoint: 'https://push/abc' }));
     expect(res.status).toBe(200);
-    expect(pushSubscriptions.listForUser(bob.id)).toHaveLength(0);
+    expect(pushSubscriptions.listForUsers([bob.id])).toHaveLength(0);
   });
   it('does not let another user remove your device by guessing the endpoint', async () => {
     const { app, pushSubscriptions, bob, bobTok, malloryTok } = setup();
     await app.request('/push/subscribe', post(bobTok, validSub));
     await app.request('/push/unsubscribe', post(malloryTok, { endpoint: 'https://push/abc' }));
-    expect(pushSubscriptions.listForUser(bob.id)).toHaveLength(1); // bob's device survives
+    expect(pushSubscriptions.listForUsers([bob.id])).toHaveLength(1); // bob's device survives
   });
 });

@@ -661,9 +661,13 @@ function paintTokenRow(gutter: string, gutterFg: string, parts: readonly CodeTok
 function diffLine(line: string, width?: number, lang?: string | null): string[] {
   const pi = PI_ROW.exec(line);
   const legacy = LEGACY_ROW.exec(line);
-  const sign = pi?.[1] ?? legacy?.[2] ?? ' ';
-  const num = pi?.[2] ?? legacy?.[1] ?? '';
-  const text = pi?.[3] ?? legacy?.[3] ?? line;
+  // A legacy row with a left-padded line number ('   2 - old') ALSO matches PI_ROW — but with a blank
+  // sign, which would strip its add/delete colouring and leak the real '-'/'+' into the rendered text.
+  // Prefer the legacy parse whenever PI's sign is meaningless (no PI match, or a blank PI sign).
+  const useLegacy = legacy != null && (pi == null || pi[1] === ' ');
+  const sign = (useLegacy ? legacy![2] : pi?.[1]) ?? ' ';
+  const num = (useLegacy ? legacy![1] : pi?.[2]) ?? '';
+  const text = (useLegacy ? legacy![3] : pi?.[3]) ?? line;
   const gutter = `${num.padStart(5)} ${sign}`;
   // Wrap the source under a fixed gutter instead of truncating it: continuation rows repeat the gutter
   // width as blanks, so an over-wide line stays fully readable and column-aligned. Row width is

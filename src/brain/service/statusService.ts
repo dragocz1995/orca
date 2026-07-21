@@ -2,9 +2,9 @@ import { createAgentSession, SessionManager, DefaultResourceLoader } from '@eare
 import type { BrainStore, BrainSearchHit, BrainWorkflowRun } from '../../store/brainStore.js';
 import type { BrainRuntimeConfig } from '../providers.js';
 import { buildBrainRegistry, resolveBrainModel } from '../providers.js';
-import { extractText, shapeBrainMessages } from '../messageView.js';
+import { extractText, shapeBrainMessages, lastAssistant } from '../messageView.js';
 import type { BrainMessageView } from '../messageView.js';
-import { usageOf, withDescendantUsage } from '../events.js';
+import { sessionUsageSnapshot } from '../events.js';
 import type { AskQuestion, BrainCard, BrainUsage } from '../events.js';
 import type { LiveSessionRegistry } from '../session/liveRegistry.js';
 import type { LiveBrain } from '../session/liveBrain.js';
@@ -48,6 +48,38 @@ export interface MessagePageOpts { limit: number; before?: number }
 /** One page of display history plus the cursor for the next (older) page. `nextBefore` is null once the
  *  oldest turn is loaded, which is also exactly when `hasMore` is false. */
 export interface MessagePage { items: BrainMessageView[]; hasMore: boolean; nextBefore: number | null }
+
+/** Chat-client status of a conversation — returned by both {@link BrainStatusService.status} and the
+ *  BrainService facade that delegates to it. Named once so the ~15-field shape can't drift between them. */
+export interface BrainStatusView {
+  running: boolean;
+  sessionId: string | null;
+  title: string;
+  model: string;
+  provider: string;
+  usage: BrainUsage | null;
+  thinkingLevel: string;
+  thinkingLevels: string[];
+  thinkingLevelLabels: Record<string, string>;
+  fast: boolean;
+  fastAvailable: boolean;
+  pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null;
+  cards: BrainCard[];
+  queued: { id: string; text: string }[];
+  yolo: boolean;
+}
+
+/** One row of the admin session-management panel ({@link BrainStatusService.listManagedSessions}). */
+export interface ManagedSessionView {
+  id: string;
+  title: string;
+  model: string;
+  updated_at: string;
+  running: boolean;
+  active: boolean;
+  kind: 'conversation' | 'channel' | 'task';
+  tokens: number;
+}
 
 /** Take the `limit` views ending just before `before` (default: the tail = newest). `start` is clamped so
  *  an out-of-range `before` still yields a valid window, and `nextBefore` points at this window's start so
@@ -168,7 +200,7 @@ export class BrainStatusService {
       const timeout = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('brain did not respond within 20s')), 20_000); });
       try { await Promise.race([live.prompt('Reply with just: OK'), timeout]); }
       finally { if (timer) clearTimeout(timer); }
-      const last = [...(live.messages as { role?: string }[])].reverse().find((m) => m.role === 'assistant');
+      const last = lastAssistant(live.messages as { role?: string }[]);
       const reply = (last ? extractText(last) : '').trim();
       if (!reply) return { ok: false, model: resolved.id, error: 'brain returned an empty reply' };
       return { ok: true, model: resolved.id, reply: reply.slice(0, 200) };
@@ -181,7 +213,7 @@ export class BrainStatusService {
 
   /** Chat-client status — of the active conversation, or of the caller's explicit `session` (a bound
    *  CLI), so a client bound elsewhere never renders another conversation's model/title/pending ask. */
-  status(userId: number, session?: string): { running: boolean; sessionId: string | null; title: string; model: string; provider: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; thinkingLevelLabels: Record<string, string>; fast: boolean; fastAvailable: boolean; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; queued: { id: string; text: string }[]; yolo: boolean } {
+  status(userId: number, session?: string): BrainStatusView {
     const explicit = session ? this.d.lifecycle.ownedUserSession(userId, session) : undefined;
     const b = explicit ? this.d.sessions.get(explicit) : this.d.lifecycle.activeLive(userId);
     const sess = b?.session as { thinkingLevel?: string; supportsThinking?: () => boolean; getAvailableThinkingLevels?: () => string[] } | undefined;
@@ -192,7 +224,7 @@ export class BrainStatusService {
     const title = (activeId && this.d.store.getSession(activeId)?.title) || '';
     return {
       running: !!b, sessionId: b?.sessionId ?? null, title, model: b?.model ?? '', provider: b?.provider ?? '',
-      usage: b ? withDescendantUsage(usageOf(b.session), this.d.store.descendantUsage(b.sessionId)) : null,
+      usage: b ? sessionUsageSnapshot(b.session, this.d.store, b.sessionId) : null,
       thinkingLevel: (sess?.thinkingLevel as string) ?? b?.thinkingLevel ?? '',
       thinkingLevels: supports ? (sess?.getAvailableThinkingLevels?.() ?? []) : [],
       thinkingLevelLabels: b?.thinkingLabels ?? {},
@@ -257,7 +289,7 @@ export class BrainStatusService {
    *  own conversations PLUS the platform channel sessions (Discord) and task-worker sessions. Only the
    *  never-spoken-in shells are withheld (same rule as listSessions — an open CLI is not a conversation
    *  yet); each surviving row is tagged with its `kind` so the UI can group + icon it. */
-  listManagedSessions(userId: number): { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean; kind: 'conversation' | 'channel' | 'task'; tokens: number }[] {
+  listManagedSessions(userId: number): ManagedSessionView[] {
     const activeId = this.d.lifecycle.activeSessionId(userId);
     const tokens = this.d.store.tokenTotals(userId);
     const unspoken = this.d.store.unspokenSessionIds(userId);

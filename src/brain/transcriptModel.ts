@@ -171,39 +171,8 @@ export class TranscriptModel implements TranscriptRead {
         this.publish(fresh ? { kind: 'append', index } : { kind: 'turn', index });
         return true;
       }
-      case 'tool': {
-        const { turn, index, fresh } = this.ensureAssistant();
-        turn.composing = false; // the marker renders now — the authoring hint has done its job
-        turn.composingTool = undefined;
-        turn.composingDetail = undefined;
-        const item: ToolItem = {
-          name: event.name,
-          detail: event.detail,
-          icon: event.icon,
-          ...(event.id ? { id: event.id } : {}),
-          ...(event.command ? { command: event.command } : {}),
-        };
-        const tailIndex = turn.segments.length - 1;
-        const tail = turn.segments[tailIndex];
-        let segmentIndex: number;
-        let itemIndex: number;
-        if (tail?.kind === 'tools') {
-          const items = [...tail.items, item];
-          turn.segments[tailIndex] = { kind: 'tools', items };
-          segmentIndex = tailIndex;
-          itemIndex = items.length - 1;
-        } else {
-          turn.segments.push({ kind: 'tools', items: [item] });
-          segmentIndex = turn.segments.length - 1;
-          itemIndex = 0;
-        }
-        const location = { turn: index, segment: segmentIndex, item: itemIndex, source: toolSource(event.id, index, segmentIndex, itemIndex) };
-        this.lastToolLocation = location;
-        if (event.id) this.toolLocations.set(event.id, location);
-        this.thinkingState = true;
-        this.publish(fresh ? { kind: 'append', index } : { kind: 'turn', index });
-        return true;
-      }
+      case 'tool':
+        return this.applyTool(event);
       case 'tool_progress':
         return this.patchToolEvent(event.id, (item) => ({ ...item, progress: event.text }));
       case 'diff':
@@ -217,43 +186,10 @@ export class TranscriptModel implements TranscriptRead {
           ...item,
           output: item.command && !event.output.command ? { ...event.output, command: item.command } : event.output,
         }));
-      case 'subagent': {
-        const location = this.toolLocations.get(event.id);
-        if (!location) return false;
-        const sub: SubagentState = {
-          sessionId: event.sessionId,
-          status: event.status,
-          task: event.task,
-          detail: event.detail,
-          tools: event.tools,
-          tokens: event.tokens,
-          seconds: event.seconds,
-          model: event.model,
-          thinkingLevel: event.thinkingLevel,
-          thinkingLabel: event.thinkingLabel,
-          background: event.background,
-          autoDeliver: event.autoDeliver,
-          resultDelivery: event.resultDelivery,
-        };
-        if (!this.patchTool(location, (item) => ({ ...item, sub }))) return false;
-        this.upsertSubagent(location.source, sub, true);
-        this.publish({ kind: 'turn', index: location.turn });
-        return true;
-      }
-      case 'workflow': {
-        // A workflow snapshot is the WHOLE DAG, attached to its WorkflowStart row by tool call id —
-        // exactly like `subagent` above. Attaching (rather than only projecting) is what makes it durable:
-        // the panel is rebuilt from the transcript on every hydration, so a projection-only workflow was
-        // erased by any reconnect and could never be reopened.
-        const location = this.toolLocations.get(event.toolCallId);
-        if (!location) return false;
-        const { type: _type, ...update } = event;
-        const wf = freezeWorkflow(update);
-        if (!this.patchTool(location, (item) => ({ ...item, wf }))) return false;
-        this.upsertWorkflow(wf, true);
-        this.publish({ kind: 'turn', index: location.turn });
-        return true;
-      }
+      case 'subagent':
+        return this.applySubagent(event);
+      case 'workflow':
+        return this.applyWorkflow(event);
       case 'session':
         this.turns.length = 0;
         this.clearDerived();
@@ -320,6 +256,83 @@ export class TranscriptModel implements TranscriptRead {
       default:
         return false;
     }
+  }
+
+  /** A completed tool call: settle the authoring hint, append (or extend the tail) tools segment, and
+   *  record its location so later `tool_progress`/`diff`/`output`/`subagent`/`workflow` events can patch it. */
+  private applyTool(event: Extract<BrainEvent, { type: 'tool' }>): boolean {
+    const { turn, index, fresh } = this.ensureAssistant();
+    turn.composing = false; // the marker renders now — the authoring hint has done its job
+    turn.composingTool = undefined;
+    turn.composingDetail = undefined;
+    const item: ToolItem = {
+      name: event.name,
+      detail: event.detail,
+      icon: event.icon,
+      ...(event.id ? { id: event.id } : {}),
+      ...(event.command ? { command: event.command } : {}),
+    };
+    const tailIndex = turn.segments.length - 1;
+    const tail = turn.segments[tailIndex];
+    let segmentIndex: number;
+    let itemIndex: number;
+    if (tail?.kind === 'tools') {
+      const items = [...tail.items, item];
+      turn.segments[tailIndex] = { kind: 'tools', items };
+      segmentIndex = tailIndex;
+      itemIndex = items.length - 1;
+    } else {
+      turn.segments.push({ kind: 'tools', items: [item] });
+      segmentIndex = turn.segments.length - 1;
+      itemIndex = 0;
+    }
+    const location = { turn: index, segment: segmentIndex, item: itemIndex, source: toolSource(event.id, index, segmentIndex, itemIndex) };
+    this.lastToolLocation = location;
+    if (event.id) this.toolLocations.set(event.id, location);
+    this.thinkingState = true;
+    this.publish(fresh ? { kind: 'append', index } : { kind: 'turn', index });
+    return true;
+  }
+
+  /** Attach a sub-agent snapshot to the tool row that spawned it (by tool call id), and mirror it into the
+   *  panel index. No-op when the anchoring tool row is gone (a reconnect that dropped it). */
+  private applySubagent(event: Extract<BrainEvent, { type: 'subagent' }>): boolean {
+    const location = this.toolLocations.get(event.id);
+    if (!location) return false;
+    const sub: SubagentState = {
+      sessionId: event.sessionId,
+      status: event.status,
+      task: event.task,
+      detail: event.detail,
+      tools: event.tools,
+      tokens: event.tokens,
+      seconds: event.seconds,
+      model: event.model,
+      thinkingLevel: event.thinkingLevel,
+      thinkingLabel: event.thinkingLabel,
+      background: event.background,
+      autoDeliver: event.autoDeliver,
+      resultDelivery: event.resultDelivery,
+    };
+    if (!this.patchTool(location, (item) => ({ ...item, sub }))) return false;
+    this.upsertSubagent(location.source, sub, true);
+    this.publish({ kind: 'turn', index: location.turn });
+    return true;
+  }
+
+  /** Attach a workflow snapshot (the WHOLE DAG) to its WorkflowStart row by tool call id — exactly like
+   *  `applySubagent`. Attaching (rather than only projecting) is what makes it durable: the panel is rebuilt
+   *  from the transcript on every hydration, so a projection-only workflow was erased by any reconnect and
+   *  could never be reopened. No-op when the anchoring tool row is gone. */
+  private applyWorkflow(event: Extract<BrainEvent, { type: 'workflow' }>): boolean {
+    const location = this.toolLocations.get(event.toolCallId);
+    if (!location) return false;
+    const { type: _type, ...update } = event;
+    const wf = freezeWorkflow(update);
+    if (!this.patchTool(location, (item) => ({ ...item, wf }))) return false;
+    this.upsertWorkflow(wf, true);
+    this.publish({ kind: 'turn', index: location.turn });
+    return true;
   }
 
   changesSince(revision: number): TranscriptChange {

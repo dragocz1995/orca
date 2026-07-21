@@ -188,22 +188,6 @@ export function bottomHintItems(
   ];
 }
 
-/** The bottom-bar hint line for the given chat state — the full, unfitted form of
- *  {@link bottomHintItems}. The live footer renders through {@link fitSegments} instead. Pure. */
-export function bottomHints(
-  keymap: Keymap,
-  state: 'child' | 'thinking' | 'idle',
-  hasSubagents = false,
-  interruptArmed = false,
-  hasQueued = false,
-  hasForegroundSubagent = false,
-  hasForegroundCommand = false,
-): string {
-  return bottomHintItems(
-    keymap, state, hasSubagents, interruptArmed, hasQueued, hasForegroundSubagent, hasForegroundCommand,
-  ).map((s) => s.text).join('   ·   ');
-}
-
 /** The start-screen hint segments — same keymap-driven contract as {@link bottomHintItems}. Pure. */
 export function startScreenHintItems(keymap: Keymap): HintSegment[] {
   const mode = keymap.chordLabel('mode_toggle');
@@ -215,11 +199,6 @@ export function startScreenHintItems(keymap: Keymap): HintSegment[] {
     { text: '↑ history', priority: 50 },
     ...(mode ? [{ text: `${mode} mode`, priority: 40 }] : []),
   ];
-}
-
-/** The start-screen hint line — the full, unfitted form of {@link startScreenHintItems}. Pure. */
-export function startScreenHints(keymap: Keymap): string {
-  return startScreenHintItems(keymap).map((s) => s.text).join(' · ');
 }
 
 /** The bottom-bar right side ("ctrl+c quit"), empty when quit is unbound. Pure. */

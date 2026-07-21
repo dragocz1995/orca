@@ -1,7 +1,7 @@
 // AskUserQuestion UI rendering: native Discord components for a parked question.
 /** True when a question renders as a button row: single-select with few options — a click IS the pick.
  *  MultiSelect or >5 options need a string select (Discord caps 5 buttons per action row). */
-export function askUsesButtons(q) {
+function askUsesButtons(q) {
   const n = q.options?.length ?? 0;
   return q.multiSelect !== true && n >= 1 && n <= 5;
 }

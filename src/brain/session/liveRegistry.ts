@@ -27,7 +27,12 @@ export class LiveSessionRegistry<T extends { sessionId: string; session: { dispo
   withLock<K>(key: string, fn: () => Promise<K>): Promise<K> {
     const prev = this.locks.get(key) ?? Promise.resolve();
     const next = prev.then(fn, fn);
-    this.locks.set(key, next.catch(() => undefined));
+    const stored = next.then(() => undefined, () => undefined);
+    this.locks.set(key, stored);
+    // Release the key once it settles so the map doesn't accumulate a permanent entry for every session
+    // id ever locked (idle/channel rollover mints fresh ids for the daemon's whole lifetime). Only delete
+    // when we're still the tail — a newer withLock on the same key will have replaced `stored`.
+    void stored.then(() => { if (this.locks.get(key) === stored) this.locks.delete(key); });
     return next;
   }
 

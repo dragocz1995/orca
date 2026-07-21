@@ -32,7 +32,7 @@ function setup() {
   return {
     app, tasks, tmux, planJobs,
     adminTok: users.issueToken(admin.id),
-    agentTok: users.refreshAgentToken(admin.id), // agent-scoped token owned by the (admin) service user
+    agentTok: users.ensureAgentToken(admin.id), // agent-scoped token owned by the (admin) service user
   };
 }
 const auth = (t: string) => ({ headers: { authorization: `Bearer ${t}` } });

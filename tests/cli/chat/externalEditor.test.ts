@@ -12,6 +12,11 @@ describe('editorCommand', () => {
     expect(editorCommand({ EDITOR: '  ' })).toEqual(['vi']);
     expect(editorCommand({})).toEqual(['vi']);
   });
+
+  it('keeps a quoted binary path with spaces as a single argv element', () => {
+    expect(editorCommand({ VISUAL: "'/opt/My Editor/bin/edit' --wait" })).toEqual(['/opt/My Editor/bin/edit', '--wait']);
+    expect(editorCommand({ EDITOR: '"C:\\Program Files\\ed.exe"' })).toEqual(['C:\\Program Files\\ed.exe']);
+  });
 });
 
 /** A fake spawn: "edits" the temp file (last argv entry), then reports the given exit code. */

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, Plus, Pencil, Trash2, KeyRound, Link2, Unlink, ExternalLink, Check, ListChecks, SlidersHorizontal, Gauge, EyeOff, CalendarClock } from 'lucide-react';
+import { BrainCircuit, Plus, Pencil, Trash2, KeyRound, Link2, Unlink, ExternalLink, Check, ListChecks, SlidersHorizontal, Gauge, EyeOff } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -23,7 +23,6 @@ import { useAutoSaveStatus, type SaveStatus } from '../../lib/useAutoSaveStatus'
 import { useSaveBrainProviders, useBrainOauthDisconnect } from '../../lib/mutations';
 import { elowenClient } from '../../lib/elowenClient';
 import type { BrainProvider, BrainProviderType, OAuthFlowState, BrainLimits } from '../../lib/types';
-import { Toggle } from '../../components/ui/Toggle';
 import { SettingsGroup, SettingsRow, SettingsState } from './SettingsSurface';
 
 // UI-only icon slug per OAuth type. The daemon exposes the SUPPORTED type set (the keys of
@@ -304,22 +303,6 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
     catch (error) { toast(t.brain.saveError, 'error'); throw error; }
   }, { ready: limitsSeeded && !!limits });
 
-  // Auto-cleanup: the daemon's hourly janitor deletes idle conversations older than N days. Off by
-  // default; it never touches running/active/channel sessions. Saved immediately (toggle) or on
-  // blur/Enter (days), clamped to >= 1, reverting an invalid draft.
-  const retention = config?.sessionRetention ?? { enabled: false, days: 90 };
-  const [daysDraft, setDaysDraft] = useState('');
-  useEffect(() => { setDaysDraft(String(retention.days)); }, [retention.days]);
-  const saveRetention = async (next: { enabled?: boolean; days?: number }) => {
-    try { await updateConfig.mutateAsync({ sessionRetention: next }); }
-    catch { toast(t.brain.retention.saveError, 'error'); }
-  };
-  const commitDays = () => {
-    const parsed = Math.floor(Number(daysDraft));
-    if (!Number.isFinite(parsed) || parsed < 1) { setDaysDraft(String(retention.days)); return; }
-    if (parsed !== retention.days) void saveRetention({ days: parsed });
-  };
-
   const saveStatus: SaveStatus = [nameStatus, stepsStatus, limitsStatus].includes('error')
     ? 'error'
     : [nameStatus, stepsStatus, limitsStatus].includes('saving')
@@ -417,26 +400,6 @@ export function BrainSection({ onSaveState }: { onSaveState?: (section: string, 
             </button>
           </SettingsRow>
         ) : null}
-        <SettingsRow label={t.brain.retention.label} description={t.brain.retention.hint} icon={CalendarClock}>
-          <div className="flex items-center gap-3">
-            <Toggle checked={retention.enabled} onChange={(next) => void saveRetention({ enabled: next })} label={t.brain.retention.label} />
-            <label className="flex items-center gap-2 whitespace-nowrap text-xs text-text-muted">
-              {t.brain.retention.olderThan}
-              <Input
-                type="number"
-                min={1}
-                value={daysDraft}
-                disabled={!retention.enabled}
-                onChange={(e) => setDaysDraft(e.target.value)}
-                onBlur={commitDays}
-                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                className="w-16 text-center"
-                aria-label={t.brain.retention.olderThan}
-              />
-              {t.brain.retention.days}
-            </label>
-          </div>
-        </SettingsRow>
       </SettingsGroup>
       {limits && limitsOpen ? (
             <BrainLimitsModal

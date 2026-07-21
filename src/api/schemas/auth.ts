@@ -30,6 +30,14 @@ export const userPermissionsSchema = z.object({
   disabled_tools: z.array(z.string()).optional(),
 });
 
+/** Admin / setup user creation. Username must be non-empty and the password floored at 8 (same rule as
+ *  passwordChangeSchema) — so an admin-created account, and the bootstrap admin itself, can never ship
+ *  with an empty or trivially weak password. Malformed/empty bodies surface as a 400 via parseBody. */
+export const userCreateSchema = z.object({
+  username: z.string().trim().min(1, 'username required'),
+  password: z.string().min(8, 'password too short (min 8)'),
+});
+
 /** Assign a project to a user. */
 export const projectAssignSchema = z.object({
   projectId: z.number(),

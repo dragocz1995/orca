@@ -18,7 +18,7 @@ import type { ChannelSendOpts } from './channels.js';
 import { PlatformOrchestrator } from './platforms.js';
 import type { BrainMessageView } from './messageView.js';
 import { runCompaction, withDescendantUsage } from './events.js';
-import type { AskAnswer, AskQuestion, BrainCard, BrainEvent, BrainUsage, CompactResult } from './events.js';
+import type { AskAnswer, BrainEvent, CompactResult } from './events.js';
 import { isNonUserSession, isOwnedUserSession, isChannelSession, isSubagentSession, channelIdOf, defaultUserSessionId, channelSessionId, archivedChannelSessionId } from './sessionId.js';
 import { lastAssistantText } from './goal.js';
 import { ClientAttachments } from './service/attachments.js';
@@ -32,7 +32,7 @@ import { terminalizeWorkflow } from './workflowRuns.js';
 import { BrainTurnRunner } from './service/turnRunner.js';
 import type { BoundClientRequest, TurnRequest } from './service/turnRequest.js';
 import { BrainStatusService } from './service/statusService.js';
-import type { SessionListItem, SessionPage, SessionPageOpts, MessagePage, MessagePageOpts } from './service/statusService.js';
+import type { SessionListItem, SessionPage, SessionPageOpts, MessagePage, MessagePageOpts, BrainStatusView, ManagedSessionView } from './service/statusService.js';
 import { exportBrainSession } from './session/exportSession.js';
 import type { ExportFormat, SessionExport } from './session/exportSession.js';
 import type { BrainDeps } from './brainDeps.js';
@@ -577,7 +577,7 @@ export class BrainService {
 
   /** Chat-client status — of the active conversation, or of the caller's explicit `session` (a bound
    *  CLI) — see BrainStatusService.status. */
-  status(userId: number, session?: string): { running: boolean; sessionId: string | null; title: string; model: string; provider: string; usage: BrainUsage | null; thinkingLevel: string; thinkingLevels: string[]; thinkingLevelLabels: Record<string, string>; fast: boolean; fastAvailable: boolean; pendingAsk: { id: string; questions: AskQuestion[]; kind?: 'approval' } | null; cards: BrainCard[]; queued: { id: string; text: string }[]; yolo: boolean } {
+  status(userId: number, session?: string): BrainStatusView {
     return this.statusView.status(userId, session);
   }
 
@@ -712,6 +712,11 @@ export class BrainService {
       // bind of an already-moved id finds nothing here (the id ceased to exist on the first bind).
       const row = this.d.store.getSession(chosenSessionId);
       if (!row || row.user_id !== callerUserId) throw new Error('unknown session');
+      // A bound `elowen chat` terminal was launched with `--session <chosenSessionId>`; the re-key below
+      // moves that id out from under it, so its tmux would resume a gone id and the next sweep would reap
+      // it as 'conversationGone' — killing the live pane and revoking its token. Tear it down cleanly
+      // first (mirrors deleteSession), a no-op when the conversation has no bound terminal.
+      void this.terminalTeardown?.(callerUserId, chosenSessionId).catch((e) => logger('brain').error(`terminal teardown failed for ${chosenSessionId}`, e));
       // Live-session safety: a conversation open in web/CLI must not have its id changed underneath the
       // live PI object — dispose it and clear the active pointer first (mirrors deleteSession).
       if (this.sessions.get(chosenSessionId)) this.sessions.dispose(chosenSessionId);
@@ -739,7 +744,7 @@ export class BrainService {
   }
 
   /** ADMIN session-management view (the sessions/ panel) — see BrainStatusService.listManagedSessions. */
-  listManagedSessions(userId: number): { id: string; title: string; model: string; updated_at: string; running: boolean; active: boolean; kind: 'conversation' | 'channel' | 'task'; tokens: number }[] {
+  listManagedSessions(userId: number): ManagedSessionView[] {
     return this.statusView.listManagedSessions(userId);
   }
 
@@ -770,6 +775,19 @@ export class BrainService {
     }
   }
 
+  /** Every delegated descendant session id under `id` (breadth-first via the sub-agent run tree), the
+   *  root excluded. The janitor uses this to purge a stale conversation's sub-agent transcripts WITH it —
+   *  deleteSession only detaches children to top-level, where their `brain-ch-` prefix then excludes them
+   *  from staleConversationIds forever, leaking the transcripts. */
+  private descendantSessionIds(id: string): string[] {
+    const out: string[] = [];
+    const stack = [id];
+    for (let index = 0; index < stack.length; index += 1) {
+      for (const child of this.d.store.getSubagentRuns(stack[index]!)) { out.push(child.sessionId); stack.push(child.sessionId); }
+    }
+    return out;
+  }
+
   /** Delete ALL of the owner's brain sessions (the panel's "delete everything" — the client confirms).
    *  Returns the count removed. */
   deleteAllManagedSessions(userId: number): number {
@@ -796,6 +814,9 @@ export class BrainService {
     for (const id of this.d.store.staleConversationIds(userId, days)) {
       if (id === activeId || pendingOrigins.has(id)) continue;
       if (this.sessions.has(id) || this.sessions.hasActiveChildren(id)) continue;
+      // Purge the whole delegated tree, not just the root: collect the sub-agent descendants FIRST (before
+      // deleteSession detaches them), then delete each. Otherwise their transcripts leak forever.
+      for (const descId of this.descendantSessionIds(id)) n += this.deleteManagedSession(userId, descId);
       n += this.deleteManagedSession(userId, id);
     }
     return n;

@@ -492,6 +492,7 @@ export class BoundedChildTermination {
       if (!this.identity && this.child.exitCode !== null && this.child.exitCode !== undefined) return;
       try { this.child.kill('SIGKILL'); } catch { /* already gone */ }
     }, Math.max(0, this.graceMs));
+    this.forceTimer.unref?.(); // don't keep the event loop alive for the grace window (mirrors BoundedProcessGroupTermination.arm)
     return true;
   }
 

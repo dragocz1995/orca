@@ -73,3 +73,29 @@ export type BrainSegment =
  *  the flat reply; `segments` preserve the true order. `kind`/`detail` mark a non-message system row (a
  *  model/mode/rename/cwd event) rather than an assistant/user turn. */
 export interface BrainMessageView { id?: string; role: string; text: string; segments?: BrainSegment[]; kind?: string; detail?: string }
+
+/** Which chat surface exposes a slash command. Part of the wire contract because `GET /brain/commands`
+ *  serves the filtered list to every surface (CLI, web dock, platform bots). */
+export type SlashSurface = 'cli' | 'discord' | 'whatsapp' | 'telegram' | 'web';
+
+/** How a surface handles a command once picked: `action` (server effect), `info` (fetch+render),
+ *  `picker` (surface-local chooser), `mode` (local work-mode switch), `prompt` (plugin prompt macro). */
+type SlashKind = 'action' | 'info' | 'picker' | 'mode' | 'prompt';
+
+/** A chat slash command as served over `GET /brain/commands`. Defined ONCE here so the daemon's
+ *  canonical list (src/brain/slashCommands.ts) and the web dock's menu can never drift — the web copy had
+ *  silently lost `surfaces` (which gates visibility) and `plugin` (menu attribution). */
+export interface SlashCommandDef {
+  name: string;
+  /** One-line help shown in every surface's menu. English (surfaces localize their own chrome only). */
+  description: string;
+  kind: SlashKind;
+  /** Gated to admins (server-side check is `user.is_admin`). e.g. `restart`. */
+  adminOnly?: boolean;
+  /** Which surfaces expose it. Omitted → all. */
+  surfaces?: SlashSurface[];
+  /** For `kind:'prompt'` (plugin) commands: the prompt template PI expands when the raw slash arrives. */
+  prompt?: string;
+  /** For plugin commands: the owning plugin's name (menu attribution + provenance). */
+  plugin?: string;
+}

@@ -38,6 +38,19 @@ describe('project access gating', () => {
     expect(((await (await app.request('/projects', auth(bobTok))).json()) as unknown[]).length).toBe(0);
   });
 
+  it('GET /tasks/ready is tenant-scoped — a user assigned only to another project cannot read the home queue', async () => {
+    const { app, adminTok, bobTok, bob } = setup();
+    // Seed a ready (open, non-epic, dep-free) task in the home project (id 1).
+    expect((await app.request('/tasks', post(adminTok, { title: 'home ready', type: 'feature', project_id: 1 }))).status).toBe(201);
+    // A second project, with bob assigned to it ONLY.
+    const p2 = await (await app.request('/projects', post(adminTok, { slug: 'other', path: '/o2' }))).json() as { id: number };
+    expect((await app.request(`/users/${bob.id}/projects`, post(adminTok, { projectId: p2.id }))).status).toBe(200);
+    // Bob passes the ≥1-project gate but must NOT receive the home project's ready queue by default.
+    expect(await (await app.request('/tasks/ready', auth(bobTok))).json()).toEqual([]);
+    // The admin still sees the home project's ready task.
+    expect(((await (await app.request('/tasks/ready', auth(adminTok))).json()) as unknown[]).length).toBe(1);
+  });
+
   it('non-admin is 403 on the editor + task surface until the admin assigns them', async () => {
     const { app, adminTok, bobTok, bob } = setup();
     expect((await app.request('/projects/1/files', auth(bobTok))).status).toBe(403);

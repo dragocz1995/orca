@@ -24,8 +24,6 @@ export interface SpawnCtx {
   /** The parent epic's id, when this task is a mission phase. Frames the preamble as one phase of a
    *  mission; the epic-close instructions themselves live in the on-demand `{{cli}} help` guide. */
   epicId?: string;
-  /** Env vars exported before the agent starts (e.g. ELOWEN_URL/ELOWEN_TOKEN so the close command reaches the daemon). */
-  env?: Record<string, string>;
   /** Override the provider binary (e.g. an absolute path); defaults to the program's conventional name. */
   bin?: string;
   /** Extra CLI args inserted after the model flag (configured per provider in Settings). */
@@ -96,15 +94,9 @@ export function buildAgentCommand(spec: AgentSpec, ctx: SpawnCtx, renderPrompt: 
  *  by the worker path (assembled preamble) and the reasoning path (rawPrompt). */
 function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): string {
   const cd = `cd ${esc(ctx.projectPath)}`;
-  // Values are single-quote-escaped; KEYS are interpolated raw, so a malformed key would break the
-  // shell. They're always our own literals (ELOWEN_*) or caller extraEnv, but guard the invariant
-  // explicitly rather than trust every future caller — a bad key is a programming error, not input.
-  const envExport = ctx.env && Object.keys(ctx.env).length > 0
-    ? Object.entries(ctx.env).map(([k, v]) => {
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new Error(`invalid env var name: ${JSON.stringify(k)}`);
-        return `export ${k}=${esc(v)}`;
-      }).join(' && ') + ' && '
-    : '';
+  // NB: agent environment (ELOWEN_URL/TOKEN/TASK + caller extraEnv) is NOT exported here — the spawn layer
+  // injects it as tmux session env (`-e KEY=VAL`) so a token can never enter the pane scrollback. Keeping
+  // that as the single delivery path also stops a future caller from re-introducing the leak through here.
   const extra = ctx.extraArgs && ctx.extraArgs.trim() ? ` ${ctx.extraArgs.trim()}` : '';
   // Bypass interactive permission prompts unless the operator turned it off for this provider
   // (Settings → Providers). Each agent has its own mechanism; undefined defaults to on.
@@ -127,7 +119,7 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     // OPENCODE_CONFIG_CONTENT sets permission "*" → allow without writing any file into the repo.
     const yolo = skip ? `export OPENCODE_CONFIG_CONTENT=${esc('{"permission":"allow"}')} && ` : '';
     // opencode bypasses via the yolo env, not a flag, so both placements land after the binary.
-    return `${cd} && ${envExport}${yolo}${bin}${resumeBefore}${resumeAfter} --model ${esc(spec.model)}${extra} --prompt ${esc(prompt)}`;
+    return `${cd} && ${yolo}${bin}${resumeBefore}${resumeAfter} --model ${esc(spec.model)}${extra} --prompt ${esc(prompt)}`;
   }
   if (spec.program.startsWith('codex')) {
     const bin = ctx.bin || 'codex';
@@ -138,7 +130,7 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     // [flag, value, …]; the `-c` flags are our own literals, only the values are dynamic — quote just
     // those (mirrors `--model ${esc(model)}`), so an odd-charactered URL can't break the shell.
     const mcp = ctx.mcpUrl ? ' ' + codexMcpArgs(spec.program, ctx.mcpUrl).map((a, i) => i % 2 === 0 ? a : esc(a)).join(' ') : '';
-    return `${cd} && ${envExport}${bin}${resumeBefore}${bypass}${resumeAfter}${mcp} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
+    return `${cd} && ${bin}${resumeBefore}${bypass}${resumeAfter}${mcp} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
   }
   if (spec.program === 'kilo') {
     const bin = ctx.bin || 'kilo';
@@ -147,14 +139,14 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     // provider, and resume (`--session <id>`) is a 'flag'. Kilo 7.x has no skip-permissions flag —
     // tool auto-approval lives in the user's kilo config (`permission: { bash: "allow", … }`), so
     // `skip` has no effect here (the Providers toggle is a no-op for kilo, same as pi/omp).
-    return `${cd} && ${envExport}${bin}${resumeBefore}${resumeAfter} --model ${esc(spec.model)}${extra} --prompt ${esc(prompt)}`;
+    return `${cd} && ${bin}${resumeBefore}${resumeAfter} --model ${esc(spec.model)}${extra} --prompt ${esc(prompt)}`;
   }
   if (spec.program === 'pi') {
     const bin = ctx.bin || 'pi';
     // Pi interactive TUI: positional prompt seeds and submits the conversation. Pi has no
     // skip-permissions flag — its built-in tools run without confirmation — so `skip` has no effect
     // here (the Providers toggle is a no-op for pi). Resume (`--session <id>`) is a 'flag'.
-    return `${cd} && ${envExport}${bin}${resumeBefore}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
+    return `${cd} && ${bin}${resumeBefore}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
   }
   if (spec.program === 'omp') {
     const bin = ctx.bin || 'omp';
@@ -162,11 +154,11 @@ function buildLaunchCommand(spec: AgentSpec, ctx: SpawnCtx, prompt: string): str
     // approval prompts (its skip-permissions equivalent). Resume (`--resume <id>`) is a 'flag'. Note:
     // omp runs on the Bun runtime, so `bun` must be on the daemon's PATH for the bin to start.
     const bypass = skip ? ' --auto-approve' : '';
-    return `${cd} && ${envExport}${bin}${resumeBefore}${bypass}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
+    return `${cd} && ${bin}${resumeBefore}${bypass}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
   }
   const bin = ctx.bin || 'claude';
   // Autonomous approval bypass: elowen-spawned agents run unattended in a tmux pane, so an
   // interactive permission prompt would hang the whole mission.
   const bypass = skip ? ' --dangerously-skip-permissions' : '';
-  return `${cd} && ${envExport}${bin}${resumeBefore}${bypass}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
+  return `${cd} && ${bin}${resumeBefore}${bypass}${resumeAfter} --model ${esc(spec.model)}${extra} ${esc(prompt)}`;
 }

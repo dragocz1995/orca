@@ -14,7 +14,7 @@ import { TelegramAdapter } from './lib/adapter.mjs';
 import { registerTools } from './lib/tools.mjs';
 
 export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
-export { askUsesButtons, buildAskKeyboard } from './lib/ask.mjs';
+export { buildAskKeyboard } from './lib/ask.mjs';
 export { senderIsAdmin, matchesId, senderIds, displayNameOf } from './lib/ids.mjs';
 export { LiveMessage } from './lib/stream.mjs';
 export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
