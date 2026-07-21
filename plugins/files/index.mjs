@@ -604,7 +604,7 @@ export function register(ctx) {
     description: [
       'Read a UTF-8 text file, an image, or a PDF within the accessible repositories.',
       'This is the right tool when you need exact source text, config, logs or docs before editing. For broad discovery across the codebase, use Search or ListDir first.',
-      'The path must be absolute. For a large file use offset (1-indexed line to start from) and limit (max lines) and read only the part you need — details.truncated and the continuation hint tell you where to resume.',
+      'The path must be absolute. It is okay to read a file that does not exist — you get an error, not a crash. Directories cannot be read: use ListDir for those. For a large file use offset (1-indexed line to start from) and limit (max lines) and read only the part you need — details.truncated and the continuation hint tell you where to resume.',
       'Images (jpg/png/gif/webp/bmp) come back as an attachment you can see.',
       `PDFs require \`pages\` ("3", "1-5" or "1,3,5"; at most ${PDF_MAX_PAGES} pages per call). Pages with a text layer are returned as text; a scanned page with no text layer is rendered and returned as an image.`,
       'Do not re-read a file you just edited to check the change landed — Edit and Write would have errored if the write failed, so a verification read costs a round and tells you nothing.',
@@ -712,6 +712,7 @@ export function register(ctx) {
       'Create a new UTF-8 text file, or fully replace an existing one, within the accessible repositories.',
       'Use it only when you intend to replace the ENTIRE file content — for a localized change use Edit instead.',
       'Creating a new file is always fine. To overwrite an EXISTING file you must have read it in this conversation first: overwriting a file you have not inspected discards content you never reviewed, so the write is refused until you have.',
+      'The parent directory must already exist — create it with Bash (mkdir -p) first if needed. Never create documentation files (*.md, README) unless the user explicitly asked, and keep emojis out of file content unless asked.',
       'Output includes a human summary, details.diff for review and details.patch (unified) for tooling. Read the diff before you consider an overwrite done.',
     ].join(' '),
     parameters: Type.Object({
@@ -750,7 +751,7 @@ export function register(ctx) {
     description: [
       'Replace an exact text snippet in a UTF-8 file within the accessible repositories. Use it for a targeted change, after reading enough surrounding context to locate the change precisely.',
       'You must have read the file in this conversation before editing it, and it must not have changed on disk since — an edit written from assumption, or against content that moved, is how work gets silently discarded.',
-      'By default oldText must match exactly ONCE, so the snippet has to be unique — if it appears more than once, include more surrounding context. Matching tolerates smart quotes, Unicode dashes and trailing whitespace, and the file\'s BOM and CRLF line endings are preserved. Set replaceAll only when every occurrence really is the same change.',
+      'By default oldText must match exactly ONCE, so the snippet has to be unique — if it appears more than once, include more surrounding context. Matching tolerates smart quotes, Unicode dashes and trailing whitespace, and the file\'s BOM and CRLF line endings are preserved. Set replaceAll when every occurrence really is the same change — e.g. renaming a symbol across the whole file in one call.',
       'Output includes details.diff for review and details.patch (unified). If oldText is missing or ambiguous, read the file again and give more context.',
     ].join(' '),
     parameters: Type.Object({
@@ -813,7 +814,7 @@ export function register(ctx) {
     name: 'Search', label: 'Search files',
     description: [
       'Search file names or UTF-8 file contents within an accessible repository path.',
-      'Use for codebase discovery before reading or editing files. Prefer content mode for symbols/text and files mode for path/name lookup.',
+      'Use for codebase discovery before reading or editing files. Prefer content mode for symbols/text and files mode for path/name lookup. Always use this tool for content or name search — never grep, rg or find through Bash.',
       'Input path must be an accessible directory or file. Output is grouped matches with line numbers and is capped; details.truncated indicates more specific searches are needed.',
     ].join(' '),
     parameters: Type.Object({
