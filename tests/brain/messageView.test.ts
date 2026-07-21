@@ -1,6 +1,26 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { stripInlineReasoning, extractText, toolDetail, toolOutputView, isThinkingOnlyReply, shapeBrainMessages, setToolOutputPolicy } from '../../src/brain/messageView.js';
+import { stripInlineReasoning, extractText, toolDetail, toolDisplay, toolOutputView, isThinkingOnlyReply, shapeBrainMessages, setToolOutputPolicy } from '../../src/brain/messageView.js';
 import { makeToolOutputPolicy } from '../../src/brain/toolOutput.js';
+
+describe('toolDisplay: skill loads', () => {
+  it('renders a Read of a skill file as `Skill <name>`', () => {
+    expect(toolDisplay('Read', { path: '/var/www/.config/elowen/plugins-data/skills/email-management.md' }))
+      .toEqual({ name: 'Skill', detail: 'email-management' });
+  });
+
+  it('takes the skill name from the directory for a plugin SKILL.md', () => {
+    expect(toolDisplay('Read', { path: '/var/www/.config/elowen/plugins/sarah-hair/skills/salon-operations/SKILL.md' }))
+      .toEqual({ name: 'Skill', detail: 'salon-operations' });
+  });
+
+  it('leaves ordinary reads and other tools untouched', () => {
+    expect(toolDisplay('Read', { path: 'src/brain/messageView.ts' }))
+      .toEqual({ name: 'Read', detail: 'src/brain/messageView.ts' });
+    expect(toolDisplay('Write', { path: '/x/skills/notes.md' }).name).toBe('Write');
+    // A SKILL.md directly at the skills root has no derivable name → plain Read.
+    expect(toolDisplay('Read', { path: '/x/skills/SKILL.md' }).name).toBe('Read');
+  });
+});
 
 describe('toolDetail: read ranges', () => {
   it('shows the requested line range for paginated Read calls', () => {

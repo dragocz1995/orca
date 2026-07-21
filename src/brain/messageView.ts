@@ -50,6 +50,32 @@ export function toolDetail(args: unknown, toolName?: string): string | undefined
   return `${truncateToolDetail(s, TOOL_DETAIL_MAX - suffix.length)}${suffix}`;
 }
 
+/** Loading a skill IS a Read of its file (the system prompt tells the agent to Read it), so a Read
+ *  pointed at a skill displays as `Skill <name>`, not `Read <path>`. Undefined for an ordinary read. */
+function skillLoadDisplay(args: Record<string, unknown>): { name: string; detail: string } | undefined {
+  const raw = args.path;
+  if (typeof raw !== 'string') return undefined;
+  // Everything past the `/skills/` segment: a flat skill file ("email-management.md") or a plugin
+  // skill directory ("salon-operations/SKILL.md") — either way the skill's name leads.
+  const after = raw.split('/skills/')[1];
+  if (!after) return undefined;
+  const lead = after.split('/')[0] ?? '';
+  if (!lead || lead.toLowerCase() === 'skill.md') return undefined;
+  const dot = lead.lastIndexOf('.');
+  const name = dot > 0 ? lead.slice(0, dot) : lead;
+  return name ? { name: 'Skill', detail: name } : undefined;
+}
+
+/** Display name + detail for a tool call: the tool's own name with toolDetail(), except a skill-file
+ *  Read, which renders as `Skill <name>` on every surface (CLI row, live platform trace, web). */
+export function toolDisplay(toolName: string, args: unknown): { name: string; detail?: string } {
+  if (toolName === 'Read' && args && typeof args === 'object') {
+    const skill = skillLoadDisplay(args as Record<string, unknown>);
+    if (skill) return skill;
+  }
+  return { name: toolName, detail: toolDetail(args, toolName) };
+}
+
 function textParts(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -368,13 +394,13 @@ export function shapeBrainMessages(
         // only place the verbatim shell command survives — reaches the console renderer.
         const res = p.id ? results.get(p.id) : undefined;
         const output = res ? toolOutputView(p.name, p.arguments, res.result, res.isError) : undefined;
-        const detail = toolDetail(p.arguments, p.name);
+        const display = toolDisplay(p.name, p.arguments);
         const diff = p.id ? diffs.get(p.id) : undefined;
         const command = toolCommand(p.arguments);
         segments.push({
-          kind: 'tool', name: p.name,
+          kind: 'tool', name: display.name,
           ...(p.id ? { id: p.id } : {}),
-          ...(detail ? { detail } : {}),
+          ...(display.detail ? { detail: display.detail } : {}),
           ...(diff ? { diff } : {}),
           ...(output ? { output } : {}),
           ...(command ? { command } : {}),

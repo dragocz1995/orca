@@ -1,6 +1,6 @@
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { isContextOverflow } from '@earendil-works/pi-ai';
-import { toolCommand, toolDetail, toolOutputView } from './messageView.js';
+import { toolCommand, toolDetail, toolDisplay, toolOutputView } from './messageView.js';
 import type { ToolOutputView } from './messageView.js';
 import type { ProcessInfo } from './processRegistry.js';
 
@@ -432,7 +432,8 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
     if (typeof anyE.toolCallId === 'string') lastAuthoringAt.delete(anyE.toolCallId); // authoring is over
     // The start event carries the arguments (the end event does not), so the verbatim shell command is
     // captured HERE and threaded to the output on the matching end event by the transcript reducer.
-    return { type: 'tool', name: anyE.toolName, detail: toolDetail(anyE.args, anyE.toolName), command: toolCommand(anyE.args), id: anyE.toolCallId };
+    const display = toolDisplay(anyE.toolName, anyE.args);
+    return { type: 'tool', name: display.name, detail: display.detail, command: toolCommand(anyE.args), id: anyE.toolCallId };
   }
   // Edits carry a display diff in their result details — that's the one tool output worth showing.
   if (anyE.type === 'tool_execution_end') {
