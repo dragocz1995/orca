@@ -86,7 +86,7 @@ describe('workflow CLI rendering', () => {
     const frame0 = modal.render(90);
     show('modal — node "gather" selected', frame0);
     const flat0 = frame0.map(strip).join('\n');
-    expect(flat0).toContain('Workflow');
+    expect(flat0).toContain('WORKFLOW');
     expect(flat0).toContain('gather');
     expect(flat0).toContain('root'); // gather has no deps — its detail column says so
     expect(flat0).toContain('enter open node transcript'); // selected node has a session
@@ -96,7 +96,7 @@ describe('workflow CLI rendering', () => {
     modal.handleInput('\x1b[B');
     const frame1 = modal.render(90);
     show('modal — node "analyze" selected', frame1);
-    expect(frame1.map(strip).join('\n')).toContain('deps: gather');
+    expect(frame1.map(strip).join('\n')).toMatch(/deps\s+gather/);
 
     // Arrow down again → the pending 'write' node (no session) → the hint changes.
     modal.handleInput('\x1b[B');
@@ -152,7 +152,7 @@ describe('workflow CLI rendering', () => {
     // the third node declared. Its detail carries the whole truth the tree can only half-draw.
     captured!.handleInput('\x1b[B');
     captured!.handleInput('\x1b[B');
-    expect(strip(captured!.render(110).join('\n'))).toContain('deps: lex, parse');
+    expect(strip(captured!.render(110).join('\n'))).toMatch(/deps\s+lex, parse/);
   });
 
   it('lists every node even when the DAG is malformed', () => {
@@ -259,10 +259,10 @@ describe('workflow CLI rendering', () => {
     captured!.handleInput('\x1b[B'); // select `b`, whose deps render in the detail column
     const frame = captured!.render(90);
     expect(frame.join('\n')).not.toContain('\x1b[31m');
-    expect(strip(frame.join('\n'))).toContain('deps: a, ghost');
+    expect(strip(frame.join('\n'))).toMatch(/deps\s+a, ghost/);
   });
 
-  it('keeps its OLED palette whatever theme the chat is on', () => {
+  it('follows the active chat theme instead of owning a fixed palette', () => {
     const frame = (): string[] => {
       let captured: { render(w: number): string[] } | null = null;
       openWorkflowModal({
@@ -278,9 +278,12 @@ describe('workflow CLI rendering', () => {
     const onMatrix = frame();
     setChatTheme('elowen');
     const onElowen = frame();
-    // Byte-identical: the modal is its own surface, so /theme must not reach inside it.
-    expect(onMatrix).toEqual(onElowen);
-    expect(onElowen.join('')).toContain('\x1b[48;2;0;0;0m'); // pure black, not the theme's modalBg
+    setChatTheme('elowen');
+    // The modal is an Elowen surface, so /theme recolours it — the two frames must differ.
+    expect(onMatrix).not.toEqual(onElowen);
+    // Rows are painted on the theme's modalBg (elowen's is a warm near-black, matrix's a green one).
+    expect(onElowen.join('')).toContain('\x1b[48;2;12;8;8m');
+    expect(onMatrix.join('')).toContain('\x1b[48;2;1;9;5m');
   });
 
   it('renders every row at exactly the frame width, in both layouts', () => {

@@ -1,45 +1,27 @@
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import type { Component, Editor, Focusable, TUI } from '@earendil-works/pi-tui';
 import { isDownKey, isEnterKey, isEscapeKey, isKeyRelease, isPageDownKey, isPageUpKey, isUpKey } from './keys.js';
-import { ansi, paintRow } from './theme.js';
+import { chatTheme, color, paintRow } from './theme.js';
 import { formatDuration, formatK, padAnsi, terminalInlineText } from '../ui/text.js';
 import type { WorkflowState, WorkflowNode } from '../../brain/transcript.js';
 
-// A fixed, theme-independent palette: the workflow modal is deliberately its own surface — pure OLED
-// black under white text — so a DAG reads as a separate plane from the themed chat behind it. This
-// cannot go through `color.*`/`chatTheme()`, whose helpers resolve the active theme at CALL time: a
-// /theme switch would drag the modal's palette along with it. Same reason, and the same shape, as the
-// diff block's fixed GitHub green/red (see components.ts).
-const OLED_BG = ansi.bg(0, 0, 0);
-const WHITE = ansi.fg(255, 255, 255);
-const GREY = ansi.fg(158, 158, 158);
-const FAINT = ansi.fg(88, 88, 88);
-const RUNNING = ansi.fg(255, 184, 0);
-const DONE = ansi.fg(80, 220, 130);
-const FAILED = ansi.fg(255, 95, 110);
-/** Selection inverts to white-on-black. NOT `color.selected`, which hardcodes a black foreground on the
- *  theme's accent — on an OLED surface that fights the palette instead of reading as a highlight. */
-const SELECTED = `${ansi.bg(255, 255, 255)};${ansi.fg(0, 0, 0)};1`;
+// The workflow modal follows the active chat theme (resolved at CALL time, so a /theme switch recolours
+// it live) instead of owning a fixed palette: it is Elowen's surface and should read as part of the same
+// design language as the pickers behind it, not a detached black plane. Backgrounds come from
+// `chatTheme().modalBg` and are painted per ROW (see paintRow); selection reuses the shared
+// `color.selected` (theme accent background, black text) that every other themed modal already uses.
+const ROW = (t: string, width: number): string => paintRow(chatTheme().modalBg, t, width);
 
-const W = (t: string): string => ansi.sgr(WHITE, t);
-const G = (t: string): string => ansi.sgr(GREY, t);
-const F = (t: string): string => ansi.sgr(FAINT, t);
-const BOLD = (t: string): string => `\x1b[1m${t}\x1b[22m`;
-const ROW = (t: string, width: number): string => paintRow(OLED_BG, t, width);
-/** Invert a row as ONE unit. Its text must arrive PLAIN: SGR has no stack, so any colour escape inside
- *  would reset the inversion mid-row — and paintRow only re-arms the BACKGROUND, not the foreground.
- *  That is the bug this replaces: the old selected row wrapped text that already carried a status
- *  glyph's own reset, so the highlight died one character in and looked like an unselected row. */
-const SEL = (t: string): string => ansi.sgr(SELECTED, t);
-
-const GLYPH: Record<WorkflowNode['status'], string> = { running: '●', done: '✓', error: '✗', pending: '⏸' };
+const STATUS_GLYPH: Record<WorkflowNode['status'], string> = { running: '●', done: '✓', error: '✗', pending: '⏸' };
+/** Status → themed ink. These hold the `color.*` helpers (stable references) which resolve the ACTIVE
+ *  theme when invoked, so the modal recolours on /theme without a rebuild. */
 const STATUS_INK: Record<WorkflowNode['status'], (t: string) => string> = {
-  running: (t) => ansi.sgr(RUNNING, t),
-  done: (t) => ansi.sgr(DONE, t),
-  error: (t) => ansi.sgr(FAILED, t),
-  pending: F,
+  running: color.warning,
+  done: color.success,
+  error: color.error,
+  pending: color.faint,
 };
-/** Identity on the selected row (which SEL inverts whole), the real ink everywhere else. */
+/** Identity on the selected row (which color.selected inverts whole), the real ink everywhere else. */
 const ink = (selected: boolean, paint: (t: string) => string) =>
   (t: string): string => (selected ? t : paint(t));
 
@@ -53,7 +35,7 @@ const GUTTER = 3;        // ' │ '
 const MIN_LIST = 26;
 const MIN_DETAIL = 30;
 const MIN_TWO_COL = MIN_LIST + GUTTER + MIN_DETAIL;
-const CHROME_ROWS = 6;   // title, blank, column header, rule, blank, footer
+const CHROME_ROWS = 6;   // title, summary, column header, rule, blank, footer
 
 /** One source of truth for the modal's geometry. maxHeight used to be hardcoded at the call site and
  *  never reached render(), so the list's capacity and the real row budget disagreed and a long DAG
@@ -119,11 +101,11 @@ interface WorkflowModalOpts {
   onDrill(sessionId: string): void;
 }
 
-/** The navigable workflow modal: nodes on the left, the selected node's detail on the right. Arrows move
- *  the selection, Enter opens that node's transcript, Esc closes. Renders live — each frame reads the
- *  current snapshot, so statuses/tokens update in place while nodes run. A standalone focus-capturing
- *  overlay with the same chrome geometry + restore contract as the pickers, deliberately diverging from
- *  them in one respect only: its fixed OLED palette. */
+/** The navigable workflow modal: nodes on the left, the selected node's detail on the right, with a
+ *  summary strip tracking the whole run. Arrows move the selection, Enter opens that node's transcript,
+ *  Esc closes. Renders live — each frame reads the current snapshot, so statuses/tokens update in place
+ *  while nodes run. A standalone focus-capturing overlay in the same chrome geometry + restore contract
+ *  as the pickers, sharing their themed palette. */
 class WorkflowModal implements Component, Focusable {
   private _focused = false;
   private selectedIndex = 0;
@@ -186,57 +168,91 @@ class WorkflowModal implements Component, Focusable {
   }
 
   /** One list row: branch art + status glyph + id, with tokens right-aligned. Built plain when selected
-   *  so SEL can invert the whole cell (see SEL). */
+   *  so color.selected can invert the whole cell as one accent-background block. */
   private listCell(row: TreeRow, selected: boolean, width: number): string {
     const { node } = row;
     const meta = node.tokens ? `${formatK(node.tokens)} tok` : '';
     const idRoom = Math.max(4, width - visibleWidth(row.branch) - 2 - (meta ? visibleWidth(meta) + 1 : 0));
-    const head = `${ink(selected, F)(row.branch)}${ink(selected, STATUS_INK[node.status])(GLYPH[node.status])} `
-      + `${ink(selected, W)(truncateToWidth(terminalInlineText(node.id), idRoom, '…'))}`;
-    const tail = meta ? ink(selected, F)(meta) : '';
+    const head = `${ink(selected, color.faint)(row.branch)}${ink(selected, STATUS_INK[node.status])(STATUS_GLYPH[node.status])} `
+      + `${ink(selected, color.text)(truncateToWidth(terminalInlineText(node.id), idRoom, '…'))}`;
+    const tail = meta ? ink(selected, color.faint)(meta) : '';
     const gap = Math.max(1, width - visibleWidth(head) - visibleWidth(tail));
     return fit(`${head}${' '.repeat(gap)}${tail}`, width);
   }
 
-  /** The selected node's detail column: status line, deps, the task, and its current tool. The FULL dep
-   *  list belongs here — the tree can only draw one parent per node, so this is where a node that waits
-   *  on several stops being a half-truth. */
+  /** The selected node's detail column: a bold id header, its vitals as aligned key/value rows, the task
+   *  body, and its current tool. The FULL dep list belongs here — the tree can only draw one parent per
+   *  node, so this is where a node that waits on several stops being a half-truth. */
   private detailBlock(node: WorkflowNode, width: number, maxRows: number): string[] {
-    const meta = [
-      node.status,
-      node.model ? terminalInlineText(node.model) : '',
-      node.tokens ? `${formatK(node.tokens)} tok` : '',
-      node.seconds !== undefined ? formatDuration(node.seconds) : '',
-    ].filter(Boolean).join(' · ');
-    const rows: string[] = [
-      `${STATUS_INK[node.status](GLYPH[node.status])} ${W(terminalInlineText(node.id))}  ${F(meta)}`,
-      F(node.deps.length ? `deps: ${terminalInlineText(node.deps.join(', '))}` : 'root'),
-      '',
-    ];
-    const task = wrapTextWithAnsi(G(terminalInlineText(node.task)), width);
-    const room = Math.max(1, maxRows - rows.length - (node.detail ? 2 : 0));
+    const rows: string[] = [];
+    rows.push(`${STATUS_INK[node.status](STATUS_GLYPH[node.status])} ${color.bold(color.text(terminalInlineText(node.id)))}`);
+    const label = (key: string): string => `  ${color.faint(key.padEnd(8))}`;
+    rows.push(`${label('status')}${STATUS_INK[node.status](terminalInlineText(node.status))}`);
+    if (node.model) rows.push(`${label('model')}${color.text(terminalInlineText(node.model))}`);
+    if (node.tokens != null) {
+      const dur = node.seconds !== undefined ? color.faint(` · ${formatDuration(node.seconds)}`) : '';
+      rows.push(`${label('tokens')}${color.text(formatK(node.tokens))}${color.faint(' tok')}${dur}`);
+    }
+    rows.push(`${label('deps')}${node.deps.length ? color.text(terminalInlineText(node.deps.join(', '))) : color.faint('root')}`);
+    rows.push(`  ${color.faint('─'.repeat(Math.max(4, Math.min(16, width - 4))))}`);
+    const headerCount = rows.length;
+
+    const task = wrapTextWithAnsi(color.text(terminalInlineText(node.task)), width);
+    const detailReserve = node.detail ? 2 : 0;
+    const room = Math.max(1, maxRows - headerCount - detailReserve);
     // The "+N more" line costs a row of `room` itself. Counting it as free overran maxRows by one, and the
     // overlay trims from the BOTTOM — so a long task silently ate the footer's keybind hint.
-    if (task.length > room) rows.push(...task.slice(0, room - 1), F(`… +${task.length - room + 1} more`));
+    if (task.length > room) rows.push(...task.slice(0, room - 1), color.faint(`… +${task.length - room + 1} more`));
     else rows.push(...task);
     if (node.detail) {
       rows.push('');
-      rows.push(F(`▸ ${terminalInlineText(node.detail)}`));
+      rows.push(color.accent(`▸ ${terminalInlineText(node.detail)}`));
     }
-    // The status/deps head has no upper bound of its own, so on a very short budget it alone can outgrow
-    // maxRows. Cede the overflow here rather than at the caller: the overlay trims from the bottom, and
-    // losing the tail of a detail beats losing the footer that says which keys work.
+    // The header has no upper bound of its own, so on a very short budget it alone can outgrow maxRows.
+    // Cede the overflow here rather than at the caller: the overlay trims from the bottom, and losing the
+    // tail of a detail beats losing the footer that says which keys work.
     return rows.slice(0, Math.max(1, maxRows));
+  }
+
+  /** The whole-run strip under the title: a progress bar, per-status counts, and the run's totals. Gives
+   *  the DAG a headline — "how far along is this?" — without reading a single row. */
+  private summaryLine(wf: WorkflowState): string {
+    const total = wf.nodes.length;
+    const countOf = (s: WorkflowNode['status']): number => wf.nodes.reduce((n, x) => n + (x.status === s ? 1 : 0), 0);
+    const done = countOf('done');
+    const running = countOf('running');
+    const error = countOf('error');
+    const pending = countOf('pending');
+    const finished = done + error;
+
+    const barW = 8;
+    const filled = total ? Math.round((finished / total) * barW) : 0;
+    const bar = color.accent('▰'.repeat(filled)) + color.faint('▱'.repeat(barW - filled));
+    const counts = [
+      done ? color.success(`✓${done}`) : '',
+      running ? color.warning(`●${running}`) : '',
+      error ? color.error(`✗${error}`) : '',
+      pending ? color.faint(`⏸${pending}`) : '',
+    ].filter(Boolean).join(' ');
+    const totalTok = wf.nodes.reduce((s, n) => s + (n.tokens ?? 0), 0);
+    const maxSec = wf.nodes.reduce((m, n) => Math.max(m, n.seconds ?? 0), 0);
+    const extras = [
+      totalTok ? `${color.text(formatK(totalTok))}${color.faint(' tok')}` : '',
+      maxSec ? color.text(formatDuration(maxSec)) : '',
+    ].filter(Boolean).join(color.faint(' · '));
+    return `  ${bar} ${color.text(`${finished}/${total}`)}`
+      + (counts ? ` ${color.faint('·')} ${counts}` : '')
+      + (extras ? ` ${color.faint('·')} ${extras}` : '');
   }
 
   /** Full-chrome message frame — an empty modal should still read as this modal, not a broken one. */
   private messageFrame(width: number, message: string): string[] {
     return [
-      ROW(`  ${BOLD(W('Workflow'))}`, width),
+      ROW(`  ${color.bold(color.accent('⚙ WORKFLOW'))}`, width),
       ROW('', width),
-      ROW(`  ${F(message)}`, width),
+      ROW(`  ${color.faint(message)}`, width),
       ROW('', width),
-      ROW(`  ${F('esc close')}`, width),
+      ROW(`  ${color.faint('esc close')}`, width),
     ];
   }
 
@@ -265,43 +281,48 @@ class WorkflowModal implements Component, Focusable {
     const window = tree.slice(start, start + listRoom);
 
     const out: string[] = [];
-    const statusInk = wf.status === 'running' ? (t: string) => ansi.sgr(RUNNING, t)
-      : wf.status === 'done' ? (t: string) => ansi.sgr(DONE, t)
-        : wf.status === 'error' ? (t: string) => ansi.sgr(FAILED, t) : F;
-    const title = terminalInlineText(wf.title || `${tree.length}-node workflow`);
-    const head = `  ${BOLD(W('Workflow'))}  ${G(truncateToWidth(title, Math.max(8, bodyWidth - 24), '…'))}  ${statusInk(wf.status)}`;
-    out.push(ROW(head, width));
-    out.push(ROW(`  ${F(`${' '.repeat(Math.max(0, bodyWidth - 3))}esc`)}`, width));
+    // Title row: brand · name on the left, the run's status pill and esc hint right-aligned.
+    const wfInk = wf.status === 'running' ? color.warning
+      : wf.status === 'done' ? color.success
+        : wf.status === 'error' ? color.error : color.faint;
+    const wfGlyph = wf.status === 'running' ? '●' : wf.status === 'done' ? '✓' : wf.status === 'error' ? '✗' : '–';
+    const title = terminalInlineText(wf.title || `${wf.nodes.length}-node workflow`);
+    const right = `${wfInk(`${wfGlyph} ${wf.status}`)}  ${color.faint('esc')}`;
+    const left = `  ${color.accent('⚙ WORKFLOW')} ${color.faint('·')} `
+      + color.text(truncateToWidth(title, Math.max(8, bodyWidth - 34), '…'));
+    const titleGap = Math.max(2, width - visibleWidth(left) - visibleWidth(right));
+    out.push(ROW(`${left}${' '.repeat(titleGap)}${right}`, width));
+    out.push(ROW(this.summaryLine(wf), width));
 
     const range = tree.length > listRoom
       ? `${start + 1}–${Math.min(tree.length, start + listRoom)}/${tree.length} ↕`
       : `${tree.length}`;
-    const listHeader = `${F('NODES')}  ${F(range)}`;
+    const listHeader = `${color.faint('NODES')}  ${color.faint(range)}`;
     const selected = tree[this.selectedIndex]!;
     const detail = this.detailBlock(selected.node, detailWidth, detailRoom);
 
     if (twoColumn) {
       // ONE paintRow per row, at the OUTER level: painting the columns separately would emit a mid-row
       // reset and drop the background for the remainder of the line.
-      const join = (left: string, right: string): string =>
-        ROW(`  ${left}${F(' │ ')}${fit(right, detailWidth)}  `, width);
-      out.push(join(fit(listHeader, listWidth), F(terminalInlineText(selected.node.id))));
-      out.push(ROW(`  ${F(`${'─'.repeat(listWidth)}─┼─${'─'.repeat(detailWidth)}`)}  `, width));
+      const join = (leftCell: string, rightCell: string): string =>
+        ROW(`  ${leftCell}${color.faint(' │ ')}${fit(rightCell, detailWidth)}  `, width);
+      out.push(join(fit(listHeader, listWidth), color.faint(terminalInlineText(selected.node.id))));
+      out.push(ROW(`  ${color.faint(`${'─'.repeat(listWidth)}─┼─${'─'.repeat(detailWidth)}`)}  `, width));
       const rows = Math.max(window.length, detail.length);
       for (let i = 0; i < rows; i += 1) {
         const row = window[i];
         const isSelected = row !== undefined && start + i === this.selectedIndex;
         const cell = row ? this.listCell(row, isSelected, listWidth) : ' '.repeat(listWidth);
-        out.push(join(isSelected ? SEL(cell) : cell, detail[i] ?? ''));
+        out.push(join(isSelected ? color.selected(cell) : cell, detail[i] ?? ''));
       }
     } else {
       out.push(ROW(`  ${fit(listHeader, bodyWidth)}  `, width));
       for (const [i, row] of window.entries()) {
         const isSelected = start + i === this.selectedIndex;
         const cell = this.listCell(row, isSelected, bodyWidth);
-        out.push(ROW(`  ${isSelected ? SEL(cell) : cell}  `, width));
+        out.push(ROW(`  ${isSelected ? color.selected(cell) : cell}  `, width));
       }
-      out.push(ROW(`  ${F('─'.repeat(bodyWidth))}  `, width));
+      out.push(ROW(`  ${color.faint('─'.repeat(bodyWidth))}  `, width));
       for (const line of detail) out.push(ROW(`  ${fit(line, bodyWidth)}  `, width));
     }
 
@@ -309,7 +330,7 @@ class WorkflowModal implements Component, Focusable {
     const hint = selected.node.sessionId
       ? 'enter open node transcript · ↑↓ move · esc close'
       : '↑↓ move · esc close (node not started)';
-    out.push(ROW(`  ${this.notice ? ansi.sgr(RUNNING, this.notice) : F(hint)}`, width));
+    out.push(ROW(`  ${this.notice ? color.warning(this.notice) : color.faint(hint)}`, width));
     return out;
   }
 }
