@@ -213,48 +213,8 @@ export class ChannelSessionService {
       delegatedCall = true;
     }
     try {
-    // Mid-run: a SAME-SENDER message that arrives while this channel's turn streams is STEERED into the
-    // running turn — PI delivers it between steps (after the current tool calls, before the next model
-    // call), so the agent folds it in without stalling the Discord handler on the channel lock or spawning
-    // a separate turn. Same-sender is REQUIRED: the running turn executes under the original sender's
-    // policy/identity, so steering a DIFFERENT member's words would run them with the first sender's powers
-    // — a shared channel keeps each sender isolated, so a different sender falls through to its own turn.
-    const streaming = this.d.registry.channelGet(opts.channelId);
-    if (streaming?.session.isStreaming) {
-      // Owner steering a delegated SUB-AGENT (BrainService.sendToSubagent sets ownerSteer): inject the
-      // guidance mid-run — the owner owns the child, so redirecting it immediately is the point. Now the
-      // SAME primitive as the Discord same-sender path below.
-      if (opts.ownerSteer && !opts.internalSystem) {
-        // This path intentionally does not take the channel lock (it must steer the current PI turn), so
-        // fence it on both sides of the await. If stop clears PI's queue while steer() is pending, the
-        // second check clears it again before rejecting; no late instruction survives the aborted tree.
-        if (delegationAborted()) throw new Error('delegation aborted');
-        await enqueueMirrored(streaming, 'steer', text, undefined, {
-          persistText: text, displayText: text, sourceText: text, publish: true,
-        });
-        if (delegationAborted()) {
-          streaming.session.clearQueue();
-          clearDeliveredUserEchoes(streaming);
-          throw new Error('delegation aborted');
-        }
-        return '';
-      }
-      // A platform (Discord) SAME-SENDER follow-up: steer it into the running turn. Its queue item carries
-      // the clean durable identity until PI actually delivers it; the spawner journals/persists that
-      // message_start without rebroadcasting it to the platform sink. Image bytes ride the same queue item.
-      if (streaming.turnSender != null && streaming.turnSender === opts.identity?.userId) {
-        const persisted = opts.images?.length ? `${text}\n[📎 ${opts.images.length}× image]` : text;
-        // Mirror the enqueue so the image bytes survive a positional queue-remove (PI's clearQueue drops them).
-        await enqueueMirrored(
-          streaming,
-          'steer',
-          text,
-          opts.images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })),
-          { persistText: persisted, displayText: persisted, sourceText: text, publish: false },
-        );
-        return '';
-      }
-    }
+    const steered = await this.trySteerIntoRunningTurn(opts, text, delegationAborted);
+    if (steered !== null) return steered;
     return await this.d.registry.withLock(sessionId, async () => {
       if (parentSessionId && this.d.registry.isParentAborting(parentSessionId)) throw new Error('delegation aborted');
       if (this.d.registry.consumePendingAbort(sessionId)) throw new Error('delegation aborted');
@@ -464,6 +424,54 @@ export class ChannelSessionService {
     } finally {
       if (parentSessionId && delegatedCall) this.endDelegatedCall(parentSessionId, sessionId);
     }
+  }
+
+  /** Mid-run: a SAME-SENDER message that arrives while this channel's turn streams is STEERED into the
+   *  running turn — PI delivers it between steps (after the current tool calls, before the next model
+   *  call), so the agent folds it in without stalling the Discord handler on the channel lock or spawning
+   *  a separate turn. Same-sender is REQUIRED: the running turn executes under the original sender's
+   *  policy/identity, so steering a DIFFERENT member's words would run them with the first sender's powers
+   *  — a shared channel keeps each sender isolated, so a different sender falls through to its own turn.
+   *  Returns '' when it steered (nothing to run), or null when it fell through (no live turn / different
+   *  sender) and send() must take the channel lock and run its own turn. */
+  private async trySteerIntoRunningTurn(opts: ChannelSendOpts, text: string, delegationAborted: () => boolean): Promise<string | null> {
+    const streaming = this.d.registry.channelGet(opts.channelId);
+    if (streaming?.session.isStreaming) {
+      // Owner steering a delegated SUB-AGENT (BrainService.sendToSubagent sets ownerSteer): inject the
+      // guidance mid-run — the owner owns the child, so redirecting it immediately is the point. Now the
+      // SAME primitive as the Discord same-sender path below.
+      if (opts.ownerSteer && !opts.internalSystem) {
+        // This path intentionally does not take the channel lock (it must steer the current PI turn), so
+        // fence it on both sides of the await. If stop clears PI's queue while steer() is pending, the
+        // second check clears it again before rejecting; no late instruction survives the aborted tree.
+        if (delegationAborted()) throw new Error('delegation aborted');
+        await enqueueMirrored(streaming, 'steer', text, undefined, {
+          persistText: text, displayText: text, sourceText: text, publish: true,
+        });
+        if (delegationAborted()) {
+          streaming.session.clearQueue();
+          clearDeliveredUserEchoes(streaming);
+          throw new Error('delegation aborted');
+        }
+        return '';
+      }
+      // A platform (Discord) SAME-SENDER follow-up: steer it into the running turn. Its queue item carries
+      // the clean durable identity until PI actually delivers it; the spawner journals/persists that
+      // message_start without rebroadcasting it to the platform sink. Image bytes ride the same queue item.
+      if (streaming.turnSender != null && streaming.turnSender === opts.identity?.userId) {
+        const persisted = opts.images?.length ? `${text}\n[📎 ${opts.images.length}× image]` : text;
+        // Mirror the enqueue so the image bytes survive a positional queue-remove (PI's clearQueue drops them).
+        await enqueueMirrored(
+          streaming,
+          'steer',
+          text,
+          opts.images?.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })),
+          { persistText: persisted, displayText: persisted, sourceText: text, publish: false },
+        );
+        return '';
+      }
+    }
+    return null;
   }
 
   /** Live status of a channel session (model + whether a turn is in flight + context usage) for a platform

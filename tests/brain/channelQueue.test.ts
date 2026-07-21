@@ -405,6 +405,112 @@ describe('ChannelSessionService — mid-turn steering (Discord double-message)',
     expect(registry.isParentAborting(parentSessionId)).toBe(false);
   });
 
+  it('owner-steer into a streaming child with no pending abort enqueues a steer and returns ""', async () => {
+    const store = new BrainStore(openDb(':memory:'));
+    const registry = new LiveSessionRegistry<Brain>();
+    const parentSessionId = 'brain-parent';
+    const childChannel = 'subagent-steer-clean';
+    const childSessionId = channelSessionId(childChannel);
+    const scope: DelegatedExecutionScope = { admin: true, projectIds: [], owner: true, permissionBoundary: null };
+    store.createSession({ id: parentSessionId, userId: 1, model: 'kimi' });
+    store.createSession({ id: childSessionId, userId: 1, model: 'kimi', parentSessionId, delegatedAccess: scope });
+    const child = fakeBrain('moonshot', 'kimi', undefined, childSessionId);
+    child.session.isStreaming = true;
+    Object.assign(child.session, { clearQueue: vi.fn() });
+    registry.channelTouch(childChannel, child);
+    const svc = new ChannelSessionService({ registry, store, users: { get: () => ({ username: 'owner' }) }, spawn: vi.fn() } as never);
+    const opts = {
+      channelId: childChannel, ownerUserId: 1, parentSessionId,
+      policy: { allowedProjectIds: 'all' as const, allowedPaths: () => [] }, trusted: true, ownerSteer: true,
+      delegatedAccess: scope, identity: { platform: 'subagent', userId: 'subagent', admin: true, owner: true },
+    };
+
+    const ret = await svc.send(opts, 'redirect the child');
+
+    expect(ret).toBe('');
+    expect(child.session.steer).toHaveBeenCalledWith('redirect the child', undefined);
+    expect(child.session.clearQueue).not.toHaveBeenCalled();
+    expect(child.queuedSteer).toEqual([
+      expect.objectContaining({ text: 'redirect the child', echo: expect.objectContaining({ persistText: 'redirect the child', publish: true }) }),
+    ]);
+  });
+
+  it('owner-steer with a pending abort BEFORE the steer throws and enqueues nothing', async () => {
+    const store = new BrainStore(openDb(':memory:'));
+    const registry = new LiveSessionRegistry<Brain>();
+    const parentSessionId = 'brain-parent';
+    const childChannel = 'subagent-steer-pre-abort';
+    const childSessionId = channelSessionId(childChannel);
+    const scope: DelegatedExecutionScope = { admin: true, projectIds: [], owner: true, permissionBoundary: null };
+    store.createSession({ id: parentSessionId, userId: 1, model: 'kimi' });
+    store.createSession({ id: childSessionId, userId: 1, model: 'kimi', parentSessionId, delegatedAccess: scope });
+    const child = fakeBrain('moonshot', 'kimi', undefined, childSessionId);
+    child.session.isStreaming = true;
+    Object.assign(child.session, { clearQueue: vi.fn() });
+    registry.channelTouch(childChannel, child);
+    // A child stop is already pending when the steer arrives → the pre-await fence rejects before enqueue.
+    registry.requestPendingAbort(childSessionId);
+    const svc = new ChannelSessionService({ registry, store, users: { get: () => ({ username: 'owner' }) }, spawn: vi.fn() } as never);
+    const opts = {
+      channelId: childChannel, ownerUserId: 1, parentSessionId,
+      policy: { allowedProjectIds: 'all' as const, allowedPaths: () => [] }, trusted: true, ownerSteer: true,
+      delegatedAccess: scope, identity: { platform: 'subagent', userId: 'subagent', admin: true, owner: true },
+    };
+
+    await expect(svc.send(opts, 'late redirect')).rejects.toThrow('delegation aborted');
+    expect(child.session.steer).not.toHaveBeenCalled();
+    expect(child.queuedSteer ?? []).toEqual([]);
+  });
+
+  it('owner-steer where a pending abort lands AFTER enqueue clears the queue and throws', async () => {
+    const store = new BrainStore(openDb(':memory:'));
+    const registry = new LiveSessionRegistry<Brain>();
+    const parentSessionId = 'brain-parent';
+    const childChannel = 'subagent-steer-post-abort';
+    const childSessionId = channelSessionId(childChannel);
+    const scope: DelegatedExecutionScope = { admin: true, projectIds: [], owner: true, permissionBoundary: null };
+    store.createSession({ id: parentSessionId, userId: 1, model: 'kimi' });
+    store.createSession({ id: childSessionId, userId: 1, model: 'kimi', parentSessionId, delegatedAccess: scope });
+    const child = fakeBrain('moonshot', 'kimi', undefined, childSessionId);
+    child.session.isStreaming = true;
+    Object.assign(child.session, {
+      clearQueue: vi.fn(() => { child.queuedSteer = []; }),
+      // The stop lands while native steer() is admitting the message → observed only on the post-await fence.
+      steer: vi.fn(async () => { registry.requestPendingAbort(childSessionId); }),
+    });
+    registry.channelTouch(childChannel, child);
+    const svc = new ChannelSessionService({ registry, store, users: { get: () => ({ username: 'owner' }) }, spawn: vi.fn() } as never);
+    const opts = {
+      channelId: childChannel, ownerUserId: 1, parentSessionId,
+      policy: { allowedProjectIds: 'all' as const, allowedPaths: () => [] }, trusted: true, ownerSteer: true,
+      delegatedAccess: scope, identity: { platform: 'subagent', userId: 'subagent', admin: true, owner: true },
+    };
+
+    await expect(svc.send(opts, 'redirect racing a stop')).rejects.toThrow('delegation aborted');
+    expect(child.session.steer).toHaveBeenCalledOnce();
+    expect(child.session.clearQueue).toHaveBeenCalledOnce();
+  });
+
+  it('a same-sender mid-turn follow-up with an image steers it in with the image mirrored', async () => {
+    const { registry, svc, channelId, opts } = setup();
+    await svc.send(opts(7), 'first');
+    const live = registry.channelGet(channelId)!;
+    live.session.isStreaming = true;
+    live.turnSender = 7;
+
+    const ret = await svc.send({ ...opts(7), images: [{ data: 'AAA', mimeType: 'image/png' }] }, 'look at this');
+
+    expect(ret).toBe('');
+    expect(live.session.steer).toHaveBeenCalledWith('look at this', [{ type: 'image', data: 'AAA', mimeType: 'image/png' }]);
+    expect(live.queuedSteer).toEqual([
+      expect.objectContaining({
+        text: 'look at this',
+        images: [{ type: 'image', data: 'AAA', mimeType: 'image/png' }],
+        echo: expect.objectContaining({ persistText: 'look at this\n[📎 1× image]', publish: false }),
+      }),
+    ]);
+  });
+
   it('keeps an LRU channel live while its background child is running', async () => {
     const { store, registry, svc, opts } = setup(1);
     const busyId = 'discord-busy';
