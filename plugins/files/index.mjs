@@ -20,6 +20,8 @@ const RESULT_LINE_MAX = 500; // cap each search hit so one minified line can't f
 // whose encoded payload tops ~5 MB, so cap the RAW bytes at ~3.75 MB to keep the base64 under that ceiling.
 const IMAGE_MAX_BYTES = 3_750_000;
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'web-dist', '.next', '.turbo']);
+const DEFAULT_GLOB_MAX = 100;
+const DEFAULT_GREP_MAX_MATCHES = 200;
 const execFileP = promisify(execFile);
 const ok = (tool, text, details = {}) => ({
   content: [{ type: 'text', text }],
@@ -38,6 +40,14 @@ function sliceBytes(text, maxBytes) {
   let end = maxBytes;
   while (end > 0 && (buf[end] & 0xc0) === 0x80) end -= 1; // back up to a UTF-8 char boundary
   return buf.subarray(0, end).toString('utf-8');
+}
+
+/** Prepend `cat -n` style line numbers (right-aligned, tab-separated) to each line of `text`.
+ *  `startLine` is the 1-based number of the first line. */
+function addLineNumbers(text, startLine) {
+  const lines = text.split('\n');
+  const width = String(startLine + lines.length - 1).length;
+  return lines.map((line, i) => `${String(startLine + i).padStart(width)}\t${line}`).join('\n');
 }
 
 // ── Fuzzy-edit core ──────────────────────────────────────────────────────────
@@ -595,6 +605,44 @@ async function rgSearch(abs, root, queryText, include, mode, maxMatches) {
   }
 }
 
+/** ripgrep wrapper for the Grep tool: supports output modes, context lines, multiline and head_limit.
+ *  Returns an array of formatted result lines (paths made relative to `root`). */
+async function rgGrep(abs, root, pattern, opts = {}) {
+  const { include, outputMode = 'content', beforeContext, afterContext, contextLines, multiline, headLimit, maxMatches } = opts;
+  const ignoreGlobs = [...SKIP_DIRS].map((d) => `!${d}/**`);
+  const args = ['--color', 'never', '--no-heading'];
+  if (outputMode === 'files_with_matches') {
+    args.push('--files-with-matches');
+  } else if (outputMode === 'count') {
+    args.push('--count');
+  } else {
+    args.push('--line-number', '--with-filename');
+    if (beforeContext != null) args.push('-B', String(beforeContext));
+    if (afterContext != null) args.push('-A', String(afterContext));
+    if (contextLines != null) args.push('-C', String(contextLines));
+  }
+  if (multiline) args.push('--multiline');
+  args.push(...ignoreGlobs.flatMap((g) => ['--glob', g]));
+  if (include) args.push('--glob', include);
+  args.push('--', pattern, abs);
+  try {
+    const { stdout } = await execFileP('rg', args, { cwd: root, encoding: 'utf8', timeout: SEARCH_TIMEOUT_MS, maxBuffer: 2_000_000 });
+    let lines = stdout.split('\n').filter(Boolean);
+    const cap = Math.min(headLimit ?? Infinity, maxMatches ?? Infinity);
+    if (lines.length > cap) lines = lines.slice(0, cap);
+    return lines.map((line) => {
+      if (!line.startsWith('/')) return line;
+      const first = line.indexOf(':');
+      const second = first >= 0 ? line.indexOf(':', first + 1) : -1;
+      if (second < 0) return line;
+      return `${relative(root, line.slice(0, first))}${line.slice(first)}`;
+    });
+  } catch (e) {
+    if (e && typeof e === 'object' && 'code' in e && e.code === 1) return [];
+    throw e;
+  }
+}
+
 export function register(ctx) {
   const readCap = Math.min(Math.max(Number(ctx.config.readCap) || DEFAULT_MAX, 20_000), 500_000);
   const searchMaxMatches = Math.min(Math.max(Number(ctx.config.searchMaxMatches) || DEFAULT_SEARCH_MAX_MATCHES, 50), 1000);
@@ -605,6 +653,7 @@ export function register(ctx) {
       'Read a UTF-8 text file, an image, or a PDF within the accessible repositories.',
       'This is the right tool when you need exact source text, config, logs or docs before editing. For broad discovery across the codebase, use Search or ListDir first.',
       'The path must be absolute. It is okay to read a file that does not exist — you get an error, not a crash. Directories cannot be read: use ListDir for those. For a large file use offset (1-indexed line to start from) and limit (max lines) and read only the part you need — details.truncated and the continuation hint tell you where to resume.',
+      'Results are returned with line numbers (cat -n format: line number + tab + content), starting at 1.',
       'Images (jpg/png/gif/webp/bmp) come back as an attachment you can see.',
       `PDFs require \`pages\` ("3", "1-5" or "1,3,5"; at most ${PDF_MAX_PAGES} pages per call). Pages with a text layer are returned as text; a scanned page with no text layer is rendered and returned as an image.`,
       'Do not re-read a file you just edited to check the change landed — Edit and Write would have errored if the write failed, so a verification read costs a round and tells you nothing.',
@@ -695,7 +744,7 @@ export function register(ctx) {
         }
         const endShown = start + shownLines; // 1-indexed last line shown
         const truncated = byteTruncated || endShown < total;
-        let text = shownText;
+        let text = addLineNumbers(shownText, start + 1);
         if (r.firstLineExceedsLimit) {
           text += `\n\n[Line ${start + 1} exceeds the ${formatSize(readCap)} read limit; showing the first ${formatSize(Buffer.byteLength(shownText))}. Use bash (sed/head) to read the rest.]`;
         } else if (truncated) {
@@ -911,5 +960,121 @@ export function register(ctx) {
     },
   }));
 
-  ctx.logger.info('registered Read, Write, Edit, ListDir, Search, FileInfo, GitStatus');
+  ctx.registerTool(defineTool({
+    name: 'Glob', label: 'Find files by pattern',
+    description: [
+      'Fast file pattern matching tool that works with any codebase size.',
+      'Supports glob patterns like "**/*.js" or "src/**/*.ts".',
+      'Returns matching file paths sorted by modification time (newest first).',
+      'Use this tool when you need to find files by name patterns. For content search, use Grep or Search.',
+    ].join(' '),
+    parameters: Type.Object({
+      pattern: Type.String({ description: 'The glob pattern to match files against (e.g. "**/*.ts", "src/**/*.{js,jsx}")' }),
+      path: Type.Optional(Type.String({ description: 'The directory to search in. Defaults to the current working directory.' })),
+    }),
+    execute: async (_id, p) => {
+      try {
+        const searchRoot = p.path ? ctx.assertPathAllowed(p.path) : ctx.defaultCwd();
+        const abs = statSync(searchRoot).isDirectory() ? searchRoot : dirname(searchRoot);
+        const regex = globRegex(p.pattern);
+        if (!regex) return ok('Glob', 'Error: invalid glob pattern.', { ok: false });
+        const globMax = Math.min(Math.max(Number(ctx.config.globMax) || DEFAULT_GLOB_MAX, 10), 500);
+        const files = walkFiles(abs, 10_000);
+        const matched = [];
+        for (const file of files) {
+          const rel = relative(abs, file) || file;
+          if (regex.test(rel) || regex.test(rel.split('/').at(-1) ?? rel)) {
+            try { matched.push({ path: rel, mtime: statSync(file).mtimeMs }); } catch { /* skip unreadable */ }
+          }
+          if (matched.length >= globMax * 2) break; // collect extra for sorting, then trim
+        }
+        matched.sort((a, b) => b.mtime - a.mtime);
+        const results = matched.slice(0, globMax).map((m) => m.path);
+        const truncated = matched.length > globMax;
+        return ok('Glob', results.join('\n') || 'No files matched.', {
+          path: abs, pattern: p.pattern, matches: results.length, truncated,
+        });
+      } catch (e) { return fail('Glob', e); }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'Grep', label: 'Search file contents',
+    description: [
+      'A powerful search tool built on ripgrep for searching file contents by regular expression.',
+      'ALWAYS use Grep for content search tasks. NEVER invoke grep or rg as a Bash command.',
+      'Supports full regex syntax (e.g. "log.*Error", "function\\s+\\w+").',
+      'Filter files with the glob parameter (e.g. "*.js", "**/*.tsx").',
+      'Output modes: "content" shows matching lines (default), "files_with_matches" shows only file paths, "count" shows match counts per file.',
+      'Use context lines (-A/-B/-C) to show surrounding lines in content mode.',
+      'For multiline patterns (crossing line boundaries), set multiline: true.',
+    ].join(' '),
+    parameters: Type.Object({
+      pattern: Type.String({ description: 'The regular expression pattern to search for in file contents' }),
+      path: Type.Optional(Type.String({ description: 'File or directory to search in. Defaults to the current working directory.' })),
+      glob: Type.Optional(Type.String({ description: 'Glob pattern to filter files (e.g. "*.js", "*.{ts,tsx}")' })),
+      output_mode: Type.Optional(Type.Union([
+        Type.Literal('content'), Type.Literal('files_with_matches'), Type.Literal('count'),
+      ], { description: 'Output mode: "content" shows matching lines (default), "files_with_matches" shows file paths, "count" shows match counts.' })),
+      '-A': Type.Optional(Type.Number({ description: 'Lines to show after each match (content mode only).' })),
+      '-B': Type.Optional(Type.Number({ description: 'Lines to show before each match (content mode only).' })),
+      '-C': Type.Optional(Type.Number({ description: 'Lines to show before and after each match (content mode only).' })),
+      multiline: Type.Optional(Type.Boolean({ description: 'Enable multiline matching for patterns crossing line boundaries.' })),
+      head_limit: Type.Optional(Type.Number({ description: 'Max number of result lines to return.' })),
+    }),
+    execute: async (_id, p) => {
+      try {
+        const searchRoot = p.path ? ctx.assertPathAllowed(p.path) : ctx.defaultCwd();
+        const abs = statSync(searchRoot).isDirectory() ? searchRoot : dirname(searchRoot);
+        const root = statSync(abs).isDirectory() ? abs : dirname(abs);
+        if (!String(p.pattern ?? '').trim()) return ok('Grep', 'Error: pattern is required.', { ok: false });
+        const outputMode = p.output_mode ?? 'content';
+        const grepMax = Math.min(Math.max(Number(ctx.config.searchMaxMatches) || DEFAULT_GREP_MAX_MATCHES, 50), 1000);
+        let lines;
+        let rgOk = false;
+        try {
+          lines = await rgGrep(abs, root, p.pattern, {
+            include: p.glob,
+            outputMode,
+            beforeContext: p['-B'],
+            afterContext: p['-A'],
+            contextLines: p['-C'],
+            multiline: p.multiline === true,
+            headLimit: p.head_limit,
+            maxMatches: grepMax,
+          });
+          rgOk = true;
+        } catch { /* rg unavailable — fall back below */ }
+        if (!rgOk) {
+          // Fallback: bounded JS walk for content mode only (files_with_matches/count need rg).
+          if (outputMode !== 'content') {
+            return ok('Grep', `Error: ripgrep (rg) is required for output_mode "${outputMode}" but is not installed.`, { ok: false });
+          }
+          const query = safeRegex(p.pattern);
+          const include = globRegex(p.glob);
+          lines = [];
+          for (const file of walkFiles(abs)) {
+            const rel = relative(root, file) || file;
+            if (include && !include.test(rel) && !include.test(rel.split('/').at(-1) ?? rel)) continue;
+            let body = '';
+            try { body = readFileSync(file, 'utf-8'); } catch { continue; }
+            const fileLines = body.split('\n');
+            for (let i = 0; i < fileLines.length; i++) {
+              if (!query.test(fileLines[i])) continue;
+              lines.push(`${rel}:${i + 1}: ${fileLines[i]}`);
+              if (lines.length >= grepMax) break;
+            }
+            if (lines.length >= grepMax) break;
+          }
+        }
+        const formatted = lines.map((l) => truncateLine(l, RESULT_LINE_MAX).text).join('\n');
+        const truncated = lines.length >= grepMax;
+        return ok('Grep', formatted || 'No matches found.', {
+          path: abs, pattern: p.pattern, outputMode, matches: lines.length, truncated,
+        });
+      } catch (e) { return fail('Grep', e); }
+    },
+  }));
+
+  ctx.logger.info('registered Read, Write, Edit, ListDir, Search, FileInfo, GitStatus, Glob, Grep');
 }

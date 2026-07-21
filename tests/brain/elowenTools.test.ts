@@ -9,7 +9,9 @@ describe('buildElowenTools', () => {
   it('exposes the expected tool names (elowen control plane + the owner-chat LSP probe)', () => {
     const names = buildElowenTools({ url: 'http://x', token: 't' }).map((t) => t.name).sort();
     expect(names).toEqual([
-      'ElowenCreateTask', 'ElowenListMissions', 'ElowenListSessions', 'ElowenListTasks', 'ElowenPlan', 'ElowenUpdateTask', 'LspDiagnostics',
+      'ElowenCreateTask', 'ElowenGetTask', 'ElowenListMissions', 'ElowenListSessions', 'ElowenListTasks',
+      'ElowenPlan', 'ElowenStopTask', 'ElowenTaskOutput', 'ElowenUpdateTask',
+      'LspDiagnostics', 'LspDocumentSymbol', 'LspFindReferences', 'LspGoToDefinition', 'LspHover', 'LspWorkspaceSymbol',
     ]);
   });
 

@@ -106,3 +106,42 @@ export function elowenListSessions(ctx: ElowenToolCtx) {
     execute: async () => call(ctx, 'GET', '/sessions'),
   });
 }
+
+export function elowenGetTask(ctx: ElowenToolCtx) {
+  return defineTool({
+    name: 'ElowenGetTask', label: 'Get task',
+    description: 'Get a single task by its id, including its title, status, description, result summary, outcome, labels, dependencies and changed files. Use it to inspect a task\'s full state before updating or closing it.',
+    parameters: Type.Object({
+      task_id: Type.String({ description: 'Id of the task to retrieve' }),
+    }),
+    execute: async (_id, p: { task_id: string }) =>
+      call(ctx, 'GET', `/tasks/${encodeURIComponent(p.task_id)}`),
+  });
+}
+
+export function elowenStopTask(ctx: ElowenToolCtx) {
+  return defineTool({
+    name: 'ElowenStopTask', label: 'Stop task',
+    description: 'Stop a running task: revert its status to open (so it can be re-spawned) or cancel it entirely. If the task has a live agent session, the session is killed. Use this when a task is stuck, producing wrong results, or no longer needed.',
+    parameters: Type.Object({
+      task_id: Type.String({ description: 'Id of the task to stop' }),
+      cancel: Type.Optional(Type.Boolean({ description: 'Cancel the task permanently (default: revert to open for re-spawn)' })),
+    }),
+    execute: async (_id, p: { task_id: string; cancel?: boolean }) => {
+      const status = p.cancel ? 'cancelled' : 'open';
+      return call(ctx, 'PATCH', `/tasks/${encodeURIComponent(p.task_id)}`, { status });
+    },
+  });
+}
+
+export function elowenTaskOutput(ctx: ElowenToolCtx) {
+  return defineTool({
+    name: 'ElowenTaskOutput', label: 'Task output',
+    description: 'Read a task\'s agent-reported result summary, outcome and token/cost usage. Returns the result_summary and outcome the agent recorded when it closed the task, plus usage statistics. Use it to review what a completed task actually did.',
+    parameters: Type.Object({
+      task_id: Type.String({ description: 'Id of the task to read output from' }),
+    }),
+    execute: async (_id, p: { task_id: string }) =>
+      call(ctx, 'GET', `/tasks/${encodeURIComponent(p.task_id)}/usage`),
+  });
+}

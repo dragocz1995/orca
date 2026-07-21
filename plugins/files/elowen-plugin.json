@@ -12,7 +12,9 @@
       "ListDir",
       "Search",
       "FileInfo",
-      "GitStatus"
+      "GitStatus",
+      "Glob",
+      "Grep"
     ]
   },
   "icons": {
@@ -22,14 +24,18 @@
     "Edit": "✏️",
     "Search": "🔎",
     "FileInfo": "📄",
-    "GitStatus": "🌿"
+    "GitStatus": "🌿",
+    "Glob": "🔎",
+    "Grep": "🔎"
   },
   "planSafe": [
     "Read",
     "Search",
     "ListDir",
     "FileInfo",
-    "GitStatus"
+    "GitStatus",
+    "Glob",
+    "Grep"
   ],
   "configSchema": [
     {
@@ -59,6 +65,17 @@
       "placeholder": "200",
       "default": 200,
       "hint": "Max number of matches Search returns before truncating."
+    },
+    {
+      "key": "globMax",
+      "label": "Glob max results",
+      "type": "number",
+      "min": 10,
+      "max": 500,
+      "step": 10,
+      "placeholder": "100",
+      "default": 100,
+      "hint": "Max number of files Glob returns before truncating."
     }
   ]
 }

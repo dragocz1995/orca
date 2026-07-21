@@ -195,6 +195,67 @@ export class LspManager {
     }
   }
 
+  // ── Code-intelligence operations ─────────────────────────────────────────────────────────────────
+  // Each resolves the language server for the file, ensures a client is running, and delegates to the
+  // client's corresponding method. Returns the raw LSP result (or null on any failure) — the caller
+  // (lspTools) formats it for the model.
+
+  /** Resolve the server + client for a file and run an operation against it. Returns null when the
+   *  language is unknown, no server is installed, or the operation fails. */
+  private async withClient<T>(path: string, boundary: string | undefined, op: (client: LspClient, text: string, language: string) => Promise<T>): Promise<T | null> {
+    if (!this.enabled) return null;
+    const language = detectLanguage(path);
+    if (!language) return null;
+    const spec = serverForLanguage(language);
+    if (!spec) return null;
+    let text: string;
+    try { text = this.readFile(path); } catch { return null; }
+    const root = projectRootForFile(path, boundary ?? this.root);
+    const entry = this.clientFor(spec, root);
+    if (!entry) return null;
+    entry.activeChecks++;
+    try {
+      return await op(entry.client, text, language);
+    } catch {
+      this.retire(entry);
+      return null;
+    } finally {
+      this.release(entry);
+    }
+  }
+
+  async definition(path: string, line: number, character: number, boundary?: string): Promise<unknown> {
+    return this.withClient(path, boundary, (c, text, lang) => c.definition(path, text, lang, line, character));
+  }
+
+  async references(path: string, line: number, character: number, boundary?: string): Promise<unknown> {
+    return this.withClient(path, boundary, (c, text, lang) => c.references(path, text, lang, line, character));
+  }
+
+  async hover(path: string, line: number, character: number, boundary?: string): Promise<unknown> {
+    return this.withClient(path, boundary, (c, text, lang) => c.hover(path, text, lang, line, character));
+  }
+
+  async documentSymbol(path: string, boundary?: string): Promise<unknown> {
+    return this.withClient(path, boundary, (c, text, lang) => c.documentSymbol(path, text, lang));
+  }
+
+  async workspaceSymbol(query: string, boundary?: string): Promise<unknown> {
+    if (!this.enabled) return null;
+    // workspace/symbol needs ANY running client for the project. Pick the first available one.
+    const root = boundary ?? this.root;
+    if (!root) return null;
+    // Find any live client whose root matches, or spawn one for the first known server.
+    for (const entry of this.clients.values()) {
+      if (entry.client.isDisposed()) continue;
+      entry.activeChecks++;
+      try { return await entry.client.workspaceSymbol(query); }
+      catch { this.retire(entry); return null; }
+      finally { this.release(entry); }
+    }
+    return null;
+  }
+
   private keyFor(spec: LanguageServerSpec, root: string): string { return `${spec.command}\0${root}`; }
 
   private hasRunningClient(spec: LanguageServerSpec): boolean {

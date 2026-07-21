@@ -365,6 +365,78 @@ export class LspClient {
     return false;
   }
 
+  // ── Code-intelligence operations (goToDefinition, findReferences, hover, symbols) ──────────────
+  // Each ensures the document is open (didOpen/didChange), then sends the corresponding LSP request
+  // and returns the raw result. The caller (lspTools) formats it for the model.
+
+  /** Open or update a document so subsequent requests operate on the current text. */
+  async ensureOpen(path: string, text: string, language: string): Promise<void> {
+    if (this.disposed) throw new Error('language server disposed');
+    await this.start();
+    const uri = pathToFileURL(path).href;
+    const previous = this.documents.get(uri);
+    if (previous?.language === language && previous.text === text) {
+      this.touchDocument(uri, previous);
+      return;
+    }
+    const version = (previous?.version ?? 0) + 1;
+    const document: OpenDocument = { language, version, text };
+    if (!previous) this.evictDocumentsFor(uri);
+    else this.documents.delete(uri);
+    this.documents.set(uri, document);
+    if (!previous) {
+      this.notify('textDocument/didOpen', { textDocument: { uri, languageId: language, version, text } });
+    } else {
+      this.notify('textDocument/didChange', { textDocument: { uri, version }, contentChanges: [{ text }] });
+    }
+  }
+
+  /** textDocument/definition — where a symbol is defined. */
+  async definition(path: string, text: string, language: string, line: number, character: number, timeoutMs = 8000): Promise<unknown> {
+    const uri = pathToFileURL(path).href;
+    await this.ensureOpen(path, text, language);
+    const res = await this.request('textDocument/definition', {
+      textDocument: { uri }, position: { line: line - 1, character: character - 1 },
+    }, timeoutMs);
+    return res.result;
+  }
+
+  /** textDocument/references — all references to a symbol. */
+  async references(path: string, text: string, language: string, line: number, character: number, timeoutMs = 8000): Promise<unknown> {
+    const uri = pathToFileURL(path).href;
+    await this.ensureOpen(path, text, language);
+    const res = await this.request('textDocument/references', {
+      textDocument: { uri }, position: { line: line - 1, character: character - 1 },
+      context: { includeDeclaration: true },
+    }, timeoutMs);
+    return res.result;
+  }
+
+  /** textDocument/hover — documentation and type info for a symbol. */
+  async hover(path: string, text: string, language: string, line: number, character: number, timeoutMs = 8000): Promise<unknown> {
+    const uri = pathToFileURL(path).href;
+    await this.ensureOpen(path, text, language);
+    const res = await this.request('textDocument/hover', {
+      textDocument: { uri }, position: { line: line - 1, character: character - 1 },
+    }, timeoutMs);
+    return res.result;
+  }
+
+  /** textDocument/documentSymbol — all symbols (functions, classes, variables) in a document. */
+  async documentSymbol(path: string, text: string, language: string, timeoutMs = 8000): Promise<unknown> {
+    const uri = pathToFileURL(path).href;
+    await this.ensureOpen(path, text, language);
+    const res = await this.request('textDocument/documentSymbol', { textDocument: { uri } }, timeoutMs);
+    return res.result;
+  }
+
+  /** workspace/symbol — search for symbols across the entire workspace. */
+  async workspaceSymbol(query: string, timeoutMs = 8000): Promise<unknown> {
+    await this.start();
+    const res = await this.request('workspace/symbol', { query }, timeoutMs);
+    return res.result;
+  }
+
   dispose(): void {
     if (this.disposed) return;
     // Best-effort graceful shutdown, then drop the transport. `shutdown` is a REQUEST in LSP (it needs

@@ -230,6 +230,51 @@ export async function register(ctx) {
 
   // Connecting blocks register() (the loader awaits it) — bounded + fail-open per server above.
   await connectAll(ctx, specs, live);
+
+  // ── MCP resource browsing tools ──────────────────────────────────────────────────────────────────
+  // Let the model discover and read resources exposed by connected MCP servers (prompts, docs, data).
+  ctx.registerTool(defineTool({
+    name: 'ListMcpResources', label: 'List MCP resources',
+    description: 'List available resources from all connected MCP servers. Each resource has a server name, URI, name and description. Use ReadMcpResource to read a specific resource by its server and URI.',
+    parameters: Type.Object({}),
+    execute: async () => {
+      const results = [];
+      for (const entry of live) {
+        try {
+          const { resources } = await withTimeout(entry.client.listResources(), 10_000, `mcp listResources ${entry.name}`);
+          for (const r of resources ?? []) {
+            results.push({ server: entry.name, uri: r.uri, name: r.name, description: r.description ?? '', mimeType: r.mimeType ?? '' });
+          }
+        } catch { /* skip servers that don't support resources */ }
+      }
+      if (results.length === 0) return ok('No MCP resources available. Either no servers are connected or they expose no resources.');
+      const text = results.map((r) => `[${r.server}] ${r.name} (${r.uri})${r.description ? ` — ${r.description}` : ''}`).join('\n');
+      return ok(text, { count: results.length });
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'ReadMcpResource', label: 'Read MCP resource',
+    description: 'Read a specific resource from a connected MCP server by its server name and URI. Returns the resource content as text. Use ListMcpResources first to discover available resources.',
+    parameters: Type.Object({
+      server: Type.String({ description: 'Name of the MCP server to read from' }),
+      uri: Type.String({ description: 'URI of the resource to read' }),
+    }),
+    execute: async (_id, p) => {
+      const entry = live.find((e) => e.name === p.server);
+      if (!entry) return fail(new Error(`MCP server "${p.server}" is not connected. Use ListMcpResources to see available servers.`));
+      try {
+        const result = await withTimeout(entry.client.readResource({ uri: p.uri }), 30_000, `mcp readResource ${p.uri}`);
+        const parts = Array.isArray(result?.contents) ? result.contents : [];
+        const text = parts.map((c) => {
+          if (c?.text != null) return String(c.text);
+          if (c?.blob != null) return `[binary content: ${c.mimeType ?? 'unknown'}, ${c.blob.length} bytes base64]`;
+          return '[empty content]';
+        }).join('\n\n');
+        return ok(text || '(no content)', { server: p.server, uri: p.uri });
+      } catch (e) { return fail(e); }
+    },
+  }));
 }
 
 // Exported for the process-cleanup test scenario (see tests/plugins/mcpPlugin.test.ts).

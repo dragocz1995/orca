@@ -29,7 +29,7 @@ describe('files plugin', () => {
   });
 
   it('registers read/write/edit/list tools', () => {
-    expect(reg.tools.map((t) => t.name).sort()).toEqual(['Edit', 'FileInfo', 'GitStatus', 'ListDir', 'Read', 'Search', 'Write']);
+    expect(reg.tools.map((t) => t.name).sort()).toEqual(['Edit', 'FileInfo', 'GitStatus', 'Glob', 'Grep', 'ListDir', 'Read', 'Search', 'Write']);
   });
 
   it('reads a file inside an allowed root', async () => {
@@ -265,6 +265,10 @@ describe('files plugin — configurable readCap', () => {
     return idx;
   };
 
+  /** Strip `cat -n` line-number prefixes ("   1\t…") so byte-length assertions measure file content only. */
+  const stripLineNumbers = (text: string): string =>
+    text.split('\n').map((l) => l.replace(/^\s*\d+\t/, '')).join('\n');
+
   it('a configured readCap (min-clamped 20000) truncates a read that the default 100000 would not', async () => {
     const reg = await loadPlugins({
       dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log,
@@ -275,7 +279,7 @@ describe('files plugin — configurable readCap', () => {
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'Read', { path: f }));
     const text = res.content[0].text;
     expect(text).toContain('exceeds the'); // single overlong line: byte-limit hint, not line paging
-    expect(shownLength(text)).toBe(20_000); // single-line file: byte-slice fallback keeps exactly the cap
+    expect(Buffer.byteLength(stripLineNumbers(text.slice(0, shownLength(text))))).toBe(20_000); // single-line file: byte-slice fallback keeps exactly the cap
   });
 
   it('unset readCap reproduces the default 100000-byte cap exactly', async () => {
@@ -291,7 +295,7 @@ describe('files plugin — configurable readCap', () => {
     const overRes = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'Read', { path: over }));
     const text = overRes.content[0].text;
     expect(text).toContain('exceeds the');
-    expect(shownLength(text)).toBe(100_000);
+    expect(Buffer.byteLength(stripLineNumbers(text.slice(0, shownLength(text))))).toBe(100_000);
   });
 
   it('truncates line-aware: keeps whole lines within the cap, never a partial line', async () => {
@@ -305,7 +309,7 @@ describe('files plugin — configurable readCap', () => {
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'Read', { path: f }));
     const text = res.content[0].text;
     expect(text).toContain('Use offset='); // multi-line: line-paging continuation hint
-    const shown = text.slice(0, shownLength(text));
+    const shown = stripLineNumbers(text.slice(0, shownLength(text)));
     expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(20_000); // within cap
     expect(shown.split('\n').every((l) => l === 'x'.repeat(9))).toBe(true); // only whole lines kept
   });
