@@ -89,6 +89,19 @@ export function isBuiltinCommand(name: string): boolean {
   return SLASH_COMMANDS.some((c) => c.name === name);
 }
 
+/** Command names the chat adapters own locally — NOT daemon commands (so absent from SLASH_COMMANDS), but
+ *  still reserved: a plugin command sharing one collides with the adapter's own slash on that surface. On
+ *  Discord both would land in one bulk registration payload → a 400 that drops EVERY slash command for the
+ *  guild; across surfaces the shadow resolves inconsistently (Discord runs the macro, Telegram the built-in).
+ *  Kept beside the built-ins so there is ONE reserved-name check. Must track the adapter-local commands. */
+const RESERVED_ADAPTER_COMMANDS = new Set(['voice', 'display']);
+
+/** True when `name` is a built-in OR an adapter-local reserved command — the single guard a plugin command
+ *  must clear so it can never shadow/collide with either on any surface. */
+export function isReservedCommandName(name: string): boolean {
+  return isBuiltinCommand(name) || RESERVED_ADAPTER_COMMANDS.has(name);
+}
+
 /** A plugin-contributed prompt command as a SlashCommandDef, for merging into a surface's menu. */
 export interface PluginSlashCommand { name: string; description: string; prompt: string; surfaces?: SlashSurface[]; plugin?: string }
 function pluginCommandDef(cmd: PluginSlashCommand): SlashCommandDef {
@@ -100,7 +113,7 @@ function pluginCommandDef(cmd: PluginSlashCommand): SlashCommandDef {
 export function commandsWithPlugins(surface: SlashSurface, isAdmin: boolean, pluginCommands: PluginSlashCommand[]): SlashCommandDef[] {
   const base = commandsFor(surface, isAdmin);
   const extra = pluginCommands
-    .filter((c) => (!c.surfaces || c.surfaces.includes(surface)) && !isBuiltinCommand(c.name))
+    .filter((c) => (!c.surfaces || c.surfaces.includes(surface)) && !isReservedCommandName(c.name))
     .map(pluginCommandDef);
   return [...base, ...extra];
 }

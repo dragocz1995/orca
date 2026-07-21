@@ -32,20 +32,31 @@ describe('shared plugin service messages', () => {
 describe('shared /help renderer', () => {
   it('substitutes the container noun and its Czech locative case', () => {
     const [modelLine, contextLine] = renderHelpLines({
-      lang: 'cs', commands: ['model', 'context'], mono: (s: string) => s, place: 'kanál', placeLoc: 'kanálu',
+      lang: 'cs', commands: [{ name: 'model' }, { name: 'context' }], mono: (s: string) => s, place: 'kanál', placeLoc: 'kanálu',
     });
     expect(modelLine).toBe('/model — výběr AI modelu pro tento kanál');
     expect(contextLine).toBe('/context — navázat v tomto kanálu na jednu ze svých konverzací');
   });
 
   it('placeLoc defaults to place when omitted (English has no cases)', () => {
-    const [line] = renderHelpLines({ lang: 'en', commands: ['context'], mono: (s: string) => s, place: 'chat' });
+    const [line] = renderHelpLines({ lang: 'en', commands: [{ name: 'context' }], mono: (s: string) => s, place: 'chat' });
     expect(line).toBe('/context — continue this chat in one of your conversations');
   });
 
   it('mono wraps the command token in the surface style', () => {
-    const [line] = renderHelpLines({ lang: 'en', commands: ['stop'], mono: (s: string) => '`' + s + '`', place: 'chat' });
+    const [line] = renderHelpLines({ lang: 'en', commands: [{ name: 'stop' }], mono: (s: string) => '`' + s + '`', place: 'chat' });
     expect(line).toBe('`/stop` — stop the running agent');
+  });
+
+  it('falls back to a plugin command\'s own English description while still localizing built-ins', () => {
+    // A name keyed in HELP_DESCRIPTIONS renders localized; anything else (a plugin prompt command) uses the
+    // command's own description verbatim, so a plugin command can never be dropped from a surface's /help.
+    const lines = renderHelpLines({
+      lang: 'cs', commands: [{ name: 'stop', description: 'IGNORED for a built-in' }, { name: 'deploy', description: 'Ship it to prod' }],
+      mono: (s: string) => s, place: 'chat',
+    });
+    expect(lines[0]).toBe('/stop — zastavit běžícího agenta'); // built-in stays localized (own desc ignored)
+    expect(lines[1]).toBe('/deploy — Ship it to prod');        // plugin: English description verbatim
   });
 
   it('describes the same commands in both languages', () => {
@@ -53,12 +64,15 @@ describe('shared /help renderer', () => {
   });
 });
 
-describe('/help stays in sync across surfaces (the Telegram /context drift regression)', () => {
-  it('lists /context in every surface and language that exposes it', () => {
-    // Discord + Telegram expose /context; both languages must list it (Telegram cs previously dropped it).
+describe('/help renders the passed command list (single-source, no drift)', () => {
+  const list = (names: string[]) => names.map((name) => ({ name }));
+
+  it('lists /context localized in every surface and language that passes it in', () => {
+    // help() renders whatever list it is handed; a surface that exposes /context passes it in, and the
+    // shared renderer localizes it in both languages (the exact Telegram cs drift this design removes).
     for (const M of [DISCORD, TELEGRAM]) {
-      expect(M.en.help('Elowen')).toContain('/context');
-      expect(M.cs.help('Elowen')).toContain('/context');
+      expect(M.en.help('Elowen', list(['context']))).toContain('/context');
+      expect(M.cs.help('Elowen', list(['context']))).toContain('/context');
     }
   });
 
@@ -71,11 +85,10 @@ describe('/help stays in sync across surfaces (the Telegram /context drift regre
     }
   });
 
-  it('WhatsApp omits the commands it has no surface for (/voice, /display)', () => {
-    expect(WHATSAPP.en.help('Elowen')).not.toContain('/voice');
-    expect(WHATSAPP.en.help('Elowen')).not.toContain('/display');
-    // …but Discord, which does have them, lists them.
-    expect(DISCORD.en.help('Elowen')).toContain('/voice');
-    expect(DISCORD.en.help('Elowen')).toContain('/display');
+  it('renders a plugin prompt-command from the list via its own English description', () => {
+    const body = DISCORD.en.help('Elowen', [{ name: 'stop' }, { name: 'deploy', description: 'Ship it' }]);
+    expect(body).toContain('Elowen on Discord');
+    expect(body).toContain('/stop'); // built-in still localized from HELP_DESCRIPTIONS
+    expect(body).toContain('`/deploy` — Ship it'); // plugin command appears, fallback description
   });
 });

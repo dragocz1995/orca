@@ -5,8 +5,8 @@
 import { SHARED_MESSAGES } from '../../_shared/messages.mjs';
 import { renderHelpLines } from '../../_shared/help.mjs';
 
-// The commands Discord lists in /help, in display order. Discord wraps command tokens in inline code.
-const HELP_CMDS = ['model', 'context', 'reasoning', 'fast', 'voice', 'display', 'new', 'stop', 'status', 'compact', 'restart', 'help'];
+// Discord wraps command tokens in inline code. The /help LIST is passed in at call time (the daemon's
+// chat-command catalog + adapter-local voice/display) so it can never drift from what is registered.
 const mono = (s) => '`' + s + '`';
 
 export const MESSAGES = {
@@ -31,11 +31,11 @@ export const MESSAGES = {
     nothingRunning: '💤 Nothing is running in this channel.',
     noSession: '💤 No active conversation in this channel yet.',
     status: (model, pct, tokens) => `🧠 **${model}**\n📊 Context ${pct}% · ${tokens} tokens`,
-    help: (name) => [
+    help: (name, commands) => [
       `**${name} on Discord**`,
       'Write to me and I answer.',
       '',
-      ...renderHelpLines({ lang: 'en', commands: HELP_CMDS, mono, place: 'channel' }),
+      ...renderHelpLines({ lang: 'en', commands, mono, place: 'channel' }),
     ].join('\n'),
   },
   cs: {
@@ -59,11 +59,11 @@ export const MESSAGES = {
     nothingRunning: '💤 V tomto kanálu nic neběží.',
     noSession: '💤 V tomto kanálu zatím není žádná aktivní konverzace.',
     status: (model, pct, tokens) => `🧠 **${model}**\n📊 Kontext ${pct}% · ${tokens} tokenů`,
-    help: (name) => [
+    help: (name, commands) => [
       `**${name} na Discordu**`,
       'Napište mi a odpovím.',
       '',
-      ...renderHelpLines({ lang: 'cs', commands: HELP_CMDS, mono, place: 'kanál', placeLoc: 'kanálu' }),
+      ...renderHelpLines({ lang: 'cs', commands, mono, place: 'kanál', placeLoc: 'kanálu' }),
     ].join('\n'),
   },
 };

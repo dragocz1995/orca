@@ -423,19 +423,23 @@ describe('discord display settings', () => {
 });
 
 // The daemon's single source of truth for the Discord surface (ctx.chatCommands('discord')). The adapter
-// derives its registered slash-command LIST from this, so registration tests must pass it in.
+// derives its registered slash-command LIST from this (passed LAZILY as a function), so registration tests
+// must pass it in. A trailing plugin prompt-command (kind:'prompt') exercises the generic args option +
+// RAW dispatch path.
 const DISCORD_CHAT_COMMANDS = [
-  { name: 'new', description: 'Start a fresh conversation' },
-  { name: 'stop', description: 'Stop the running agent' },
-  { name: 'status', description: 'Session info — model, context and usage' },
-  { name: 'compact', description: 'Summarize the conversation to free up context (add text to steer what to keep)' },
-  { name: 'model', description: 'Switch the AI model' },
-  { name: 'context', description: 'Continue this channel in one of your conversations' },
-  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing' },
-  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows' },
-  { name: 'restart', description: 'Restart the Elowen daemon' },
-  { name: 'help', description: 'Show the available commands' },
+  { name: 'new', description: 'Start a fresh conversation', kind: 'action' },
+  { name: 'stop', description: 'Stop the running agent', kind: 'action' },
+  { name: 'status', description: 'Session info — model, context and usage', kind: 'info' },
+  { name: 'compact', description: 'Summarize the conversation to free up context (add text to steer what to keep)', kind: 'action' },
+  { name: 'model', description: 'Switch the AI model', kind: 'picker' },
+  { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker' },
+  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action' },
+  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker' },
+  { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action' },
+  { name: 'help', description: 'Show the available commands', kind: 'info' },
+  { name: 'deploy', description: 'Ship it to $1', kind: 'prompt' },
 ];
+const discordCommands = () => DISCORD_CHAT_COMMANDS;
 
 describe('discord reasoning picker', () => {
   const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, language = 'en') => {
@@ -447,7 +451,7 @@ describe('discord reasoning picker', () => {
     };
     const adapter = new DiscordAdapter(
       { language, rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
-      log, state, async () => models, [], () => null, () => false, DISCORD_CHAT_COMMANDS,
+      log, state, async () => models, [], () => null, () => false, discordCommands,
     );
     const replies: unknown[] = [];
     adapter.rest = async (_method: string, _path: string, body: unknown) => { replies.push(body); return {}; };
@@ -588,7 +592,7 @@ describe('discord /fast capability gate', () => {
     };
     const adapter = new DiscordAdapter(
       { language: 'en', rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
-      log, state, async () => models, [], () => null, () => false, DISCORD_CHAT_COMMANDS,
+      log, state, async () => models, [], () => null, () => false, discordCommands,
     );
     const replies: unknown[] = [];
     adapter.rest = async (_method: string, _path: string, body: unknown) => { replies.push(body); return {}; };
@@ -1355,7 +1359,7 @@ describe('discord paged pickers + /context', () => {
     };
     const adapter = new DiscordAdapter(
       { language, rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
-      log, state, async () => models, [], () => null, () => false, DISCORD_CHAT_COMMANDS,
+      log, state, async () => models, [], () => null, () => false, discordCommands,
     );
     const replies: any[] = [];
     adapter.rest = async (_method: string, _path: string, body: unknown) => { replies.push(body); return {}; };
@@ -1441,5 +1445,73 @@ describe('discord paged pickers + /context', () => {
     adapter.control({ listContext: vi.fn(), bindContext });
     await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { custom_id: 'pick_context', values: ['brain-7-1'] } });
     expect(JSON.stringify(replies[0])).toContain('unknown session');
+  });
+});
+
+// Part A/B for Discord: a plugin prompt-command (kind:'prompt') is natively registered with a generic
+// `args` option, appears in /help via its own description, and is dispatched RAW to the brain so PI
+// expands the macro. The shared catalog `discordCommands` ends with a `deploy` prompt command.
+describe('discord plugin prompt-commands (native registration + RAW dispatch)', () => {
+  const makeAdapter = async () => {
+    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const channels: Record<string, Record<string, unknown>> = {};
+    const state = {
+      get: (id: string) => channels[id] ?? {},
+      patch: (id: string, fields: Record<string, unknown>) => { channels[id] = { ...(channels[id] ?? {}), ...fields }; },
+    };
+    const adapter = new DiscordAdapter(
+      { language: 'en', toolActivity: 'off', answerMode: 'final', rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
+      log, state, async () => [], [], () => null, () => false, discordCommands,
+    );
+    const rest: { method: string; path: string; body: any }[] = [];
+    adapter.rest = async (method: string, path: string, body: unknown) => { rest.push({ method, path, body }); return {}; };
+    return { adapter, rest };
+  };
+
+  it('registers a plugin prompt-command with a generic optional string `args` option (built-ins keep theirs)', async () => {
+    const { adapter, rest } = await makeAdapter();
+    adapter.appId = 'APP';
+    await adapter.registerCommands();
+    const commands = rest.find((r) => r.method === 'PUT')!.body as Array<{ name: string; options?: unknown[] }>;
+    expect(commands.find((c) => c.name === 'deploy')).toEqual({
+      name: 'deploy', description: 'Ship it to $1', type: 1,
+      options: [{ name: 'args', description: 'arguments', type: 3, required: false }],
+    });
+    expect(commands.find((c) => c.name === 'reasoning')!.options).toBeUndefined(); // a built-in picker gets none
+  });
+
+  it('lists the plugin command (own description) and adapter-local voice/display in /help', async () => {
+    const { adapter, rest } = await makeAdapter();
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'help' } });
+    const content = (rest.find((r) => r.path.includes('/callback'))!.body as { data: { content: string } }).data.content;
+    expect(content).toContain('`/deploy` — Ship it to $1'); // plugin command via its own description
+    expect(content).toContain('`/voice`');   // adapter-local
+    expect(content).toContain('`/display`'); // adapter-local
+  });
+
+  it('routes a slash prompt-command RAW to the brain, args expanded into the macro', async () => {
+    const { adapter } = await makeAdapter();
+    let captured: { text: string; channelId: string } | null = null;
+    adapter.handler = async (src: { channelId: string }, text: string) => { captured = { text, channelId: src.channelId }; return 'shipped'; };
+    let posted: string | null = null;
+    adapter.reply = async (_c: string, t: string) => { posted = t; };
+    await adapter.onInteraction({
+      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'], user: { id: 'U1' } },
+      data: { name: 'deploy', options: [{ name: 'args', value: 'prod now' }] },
+    });
+    expect(captured).toEqual({ text: '/deploy prod now', channelId: 'C#0' }); // RAW slash → PI expands it
+    expect(posted).toBe('shipped');
+  });
+
+  it('an unmapped member cannot run a plugin prompt-command', async () => {
+    const { adapter, rest } = await makeAdapter();
+    let called = false;
+    adapter.handler = async () => { called = true; return 'x'; };
+    await adapter.onInteraction({
+      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: [] },
+      data: { name: 'deploy', options: [{ name: 'args', value: 'prod' }] },
+    });
+    expect(called).toBe(false);
+    expect(JSON.stringify(rest.find((r) => r.path.includes('/callback'))!.body)).toContain('Only the operator');
   });
 });

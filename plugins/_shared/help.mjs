@@ -38,12 +38,20 @@ export const HELP_DESCRIPTIONS = {
   },
 };
 
-/** Render the command lines of a `/help` body. `commands` is the ordered list the surface exposes;
- *  `mono` wraps a command token in the surface's inline-code style (backticks on Discord/WhatsApp,
- *  identity on plain-text Telegram); `place`/`placeLoc` fill the container-noun placeholders. */
+/** Render the command lines of a `/help` body. `commands` is the ordered list the surface exposes, each
+ *  `{ name, description }` (as served by `ctx.chatCommands()` plus any adapter-local command). A built-in
+ *  (or voice/display) keyed in `HELP_DESCRIPTIONS` renders its localized wording; anything else — a plugin
+ *  prompt command — falls back to its own English `description`, so the list can never drift from what the
+ *  surface actually registered. `mono` wraps a command token in the surface's inline-code style (backticks
+ *  on Discord/WhatsApp, identity on plain-text Telegram); `place`/`placeLoc` fill the container-noun
+ *  placeholders. */
 export function renderHelpLines({ lang, commands, mono, place, placeLoc = place }) {
   const desc = HELP_DESCRIPTIONS[lang === 'cs' ? 'cs' : 'en'];
-  return commands.map((name) =>
-    `${mono(`/${name}`)} — ${desc[name].replaceAll('{placeLoc}', placeLoc).replaceAll('{place}', place)}`,
-  );
+  return commands.map(({ name, description }) => {
+    const localized = desc[name];
+    const text = localized
+      ? localized.replaceAll('{placeLoc}', placeLoc).replaceAll('{place}', place)
+      : (description ?? '');
+    return `${mono(`/${name}`)} — ${text}`;
+  });
 }

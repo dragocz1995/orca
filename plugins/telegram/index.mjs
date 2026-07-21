@@ -26,7 +26,9 @@ export function register(ctx) {
   const state = new StateStore(join(dataDir, 'channel-state.json'));
   // The image-gen/image-edit plugins are data-dir siblings — their generated PNGs upload from there.
   const imageDirs = [join(dataDir, '..', 'image-gen'), join(dataDir, '..', 'image-edit')];
-  const adapter = new TelegramAdapter({ ...ctx.config, botToken: token }, ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion, ctx.chatCommands('telegram'));
+  // Pass chatCommands LAZILY (a function, not a snapshot) so a plugin registered after Telegram — or a live
+  // plugin reload — is always reflected in the command menu, /help and dispatch.
+  const adapter = new TelegramAdapter({ ...ctx.config, botToken: token }, ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion, () => ctx.chatCommands('telegram'));
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
   ctx.logger.info('telegram platform registered (slash commands + per-chat display + live tools + chat tools)');

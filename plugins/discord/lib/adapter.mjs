@@ -65,7 +65,7 @@ function rolePrompt(policy) {
 
 export class DiscordAdapter {
   name = 'discord';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = []) {
+  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => []) {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
@@ -73,7 +73,7 @@ export class DiscordAdapter {
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
     this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
-    this.chatCommands = chatCommands; // core names/descriptions — presentation/dispatch remains local
+    this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
     this.pendingAsks = new Map(); // id → { channelId, messageId, questions, askerId, selected, awaitingText }
     this.handler = null;
     this.ctl = null; // host channel-control surface (stop/status/compact/restart), wired via control()
@@ -102,6 +102,24 @@ export class DiscordAdapter {
   /** The channel conversation reference for slash commands: same identity onMessage reports (channel id
    *  folded with the /new generation), so a command targets the exact session a message would. */
   channelRef(channelId) { return { platform: 'discord', channelId: `${channelId}#${this.state.get(channelId).gen ?? 0}` }; }
+
+  /** The ordered command list for /help: the daemon's chat-command catalog (built-ins + plugin prompt
+   *  commands) plus this adapter's own voice/display. renderHelpLines localizes the built-ins/voice/display
+   *  and falls back to a plugin command's own English description, so /help can never drift from what is
+   *  registered. */
+  helpCommands() {
+    return [
+      ...this.chatCommands(),
+      { name: 'voice', description: 'toggle spoken audio replies here' },
+      { name: 'display', description: 'configure live tools and answer delivery here' },
+    ];
+  }
+
+  /** The daemon chat-command definition for a slash name IFF it is a plugin prompt macro (kind:'prompt'),
+   *  else undefined — the gate that routes a `/name` interaction RAW to the brain for PI to expand. */
+  promptCommand(name) {
+    return this.chatCommands().find((c) => c.name === name && c.kind === 'prompt');
+  }
 
   /** StringSelect option rows for the FULL model catalog (no truncation — pagination handles the 25-row
    *  cap), marking the channel's current pick (or the daemon default) as selected. */
@@ -187,9 +205,14 @@ export class DiscordAdapter {
         ] },
       ],
     };
-    const daemonCommands = this.chatCommands.map((c) => ({
-      name: c.name, description: c.description, type: 1,
-      ...(DISCORD_OPTIONS[c.name] ? { options: DISCORD_OPTIONS[c.name] } : {}),
+    // A plugin prompt-command (kind:'prompt') takes a single generic optional string option so a user can
+    // pass `$ARGUMENTS`; built-ins keep their bespoke DISCORD_OPTIONS (or none).
+    const PROMPT_ARGS = [{ name: 'args', description: 'arguments', type: 3, required: false }];
+    const daemonCommands = this.chatCommands().map((c) => ({
+      // Discord requires a 1–100 char description; a plugin command with an empty or over-long one would
+      // 400 the whole bulk registration and drop EVERY slash command. Clamp defensively (name as fallback).
+      name: c.name, description: (c.description || c.name).slice(0, 100), type: 1,
+      ...(DISCORD_OPTIONS[c.name] ? { options: DISCORD_OPTIONS[c.name] } : c.kind === 'prompt' ? { options: PROMPT_ARGS } : {}),
     }));
     const localCommands = [
       { name: 'voice', description: 'Toggle spoken audio replies in this channel', type: 1, options: [
@@ -471,6 +494,44 @@ export class DiscordAdapter {
     }
   }
 
+  /** Run a plugin prompt-command triggered by a slash INTERACTION (no triggering message): ACK the
+   *  interaction ephemerally, then run the turn and post the answer as a normal channel message — the SAME
+   *  brain path onMessage uses, with the ingress text the RAW `/name args` so PI expands the macro. */
+  async dispatchSlashPrompt(i, promptText) {
+    const channelId = i.channel_id;
+    const { roleIds, access } = this.accessFor({ member: i.member }, channelId);
+    if (!access) return this.respond(i, 4, { content: this.msg.controlForbidden, flags: 64 });
+    // ACK ephemerally so Discord resolves the interaction; the real answer posts into the channel.
+    await this.respond(i, 4, { content: this.msg.commandRunning(promptText), flags: 64 });
+    const meta = await this.channelInfo(channelId).catch(() => null);
+    const gen = this.state.get(channelId).gen ?? 0;
+    const convoKey = `${channelId}#${gen}`;
+    const author = i.member?.user ?? i.user ?? {};
+    const display = resolveDisplaySettings(this.cfg, this.state.get(channelId));
+    const observesLiveEvents = display.toolActivity !== 'off' || display.answerMode === 'live' || this.cfg.showReasoning === true;
+    const stream = observesLiveEvents ? new LiveMessage(this, channelId, undefined, author.id, display) : null;
+    const onEvent = stream
+      ? (e) => stream.onEvent(e)
+      : (e) => { if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(channelId, undefined, author.id, e.id, e.questions).catch(() => {}); };
+    const typing = setInterval(() => void this.rest('POST', `/channels/${channelId}/typing`, {}).catch(() => {}), 8000);
+    void this.rest('POST', `/channels/${channelId}/typing`, {}).catch(() => {});
+    try {
+      const reply = await this.handler(
+        { platform: 'discord', userId: author.id, userName: displayNameOf({ member: i.member, author }), roleIds, channelId: convoKey, access,
+          channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined },
+        promptText,
+        onEvent,
+      );
+      clearInterval(typing);
+      if (stream) await stream.finalize(reply);
+      else if (reply) await this.reply(channelId, reply);
+    } catch (e) {
+      clearInterval(typing);
+      if (stream) await stream.fail(e?.message ?? e);
+      await this.reply(channelId, `⚠️ ${e?.message ?? e}`).catch(() => {});
+    }
+  }
+
   react(channelId, messageId, emoji) {
     return this.rest('PUT', `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`, {});
   }
@@ -482,7 +543,13 @@ export class DiscordAdapter {
     // ACK-and-respond for slash commands (type 2) and component interactions (type 3).
     if (i.type === 2) {
       const name = i.data?.name;
-      if (name === 'help') return this.respond(i, 4, { content: this.msg.help(this.cfg.agentName || 'Elowen'), flags: 64 });
+      if (name === 'help') return this.respond(i, 4, { content: this.msg.help(this.cfg.agentName || 'Elowen', this.helpCommands()), flags: 64 });
+      // A plugin prompt-command (kind:'prompt', registered with a generic `args` option): route it RAW to
+      // the brain so PI expands the macro natively (it only expands a message that STARTS with the slash).
+      if (this.promptCommand(name)) {
+        const args = String((i.data?.options ?? []).find((o) => o.name === 'args')?.value ?? '').trim();
+        return this.dispatchSlashPrompt(i, `/${name}${args ? ` ${args}` : ''}`);
+      }
       // Control commands (new/fast/stop/status/compact/restart) share one transport-agnostic core. Discord
       // must ACK within 3s; /compact runs an LLM summary, so defer (type 5) and let the core edit the
       // deferred reply — everything else answers immediately (ephemeral type 4). The pickers below stay

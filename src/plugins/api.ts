@@ -3,6 +3,7 @@ import type { SubagentCompletionEmitter, SubagentEmitter, TurnIdentity, TurnMode
 import type { AskAnswer, AskQuestion, BrainCard } from '../brain/events.js';
 import type { ProcessRegistry } from '../brain/processRegistry.js';
 import type { NoninteractivePermissionBoundary } from '../brain/toolPermissions.js';
+import type { SlashCommandDef } from '../brain/slashCommands.js';
 
 /** A skill contributed by a plugin. Reuses pi's file-backed `Skill` (name/description/filePath…), so it
  *  feeds PI's native path unchanged (the session factory's `skillsOverride` → progressive disclosure in
@@ -290,8 +291,10 @@ export interface PluginContext {
    *  Refused (and warned) if the name is not kebab-case, shadows a built-in, or collides with another
    *  plugin's command. */
   registerCommand(command: PluginCommand): void;
-  /** Core chat command metadata for a platform. Adapters own presentation only; names/help live once. */
-  chatCommands(surface: 'discord' | 'whatsapp' | 'telegram'): { name: string; description: string; adminOnly?: boolean }[];
+  /** Core chat command metadata for a platform: built-ins + plugin prompt commands, each with its `kind`
+   *  (so an adapter can tell a native/control command from a plugin `prompt` macro it must route RAW).
+   *  Adapters own presentation only; names/help/kind live once in the canonical slash-command catalog. */
+  chatCommands(surface: 'discord' | 'whatsapp' | 'telegram'): { name: string; description: string; kind: SlashCommandDef['kind']; adminOnly?: boolean }[];
   /** Append a chunk of instructions to the brain's system prompt, after the Elowen persona. */
   registerSystemPromptFragment(fragment: string): void;
   registerHook(hook: PluginHook): void;

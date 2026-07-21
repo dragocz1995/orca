@@ -27,7 +27,7 @@ interface TestAdapter {
   handleTextReply(chatJid: string, senderJid: string, text: string, message: unknown): Promise<boolean>;
 }
 
-const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands = [{ name: 'fast' }]) => {
+const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands: { name: string; kind?: string }[] = [{ name: 'fast', kind: 'action' }]) => {
   const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as {
     WhatsAppAdapter: new (...args: unknown[]) => TestAdapter & { sendText: (jid: string, text: string) => Promise<void> };
   };
@@ -38,7 +38,7 @@ const makeAdapter = async (models: ModelOption[], initial: Record<string, unknow
   };
   const adapter = new WhatsAppAdapter(
     { language, senderPolicies: [{ roleId: CHAT, admin: true }] },
-    log, state, async () => models, [], '', '', () => false, commands,
+    log, state, async () => models, [], '', '', () => false, () => commands,
   );
   const sent: string[] = [];
   adapter.sendText = async (_jid: string, text: string) => { sent.push(text); };
@@ -189,6 +189,15 @@ describe('whatsapp /fast capability gate', () => {
     const { adapter, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' } }, 'en', []);
     expect(await adapter.handleCommand(CHAT, CHAT, '/fast')).toBe(false);
     expect(sent).toEqual([]);
+  });
+
+  it('joins ALL argument tokens, not just the first (the multi-arg parsing fix)', async () => {
+    const models = [{ provider: 'openai', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true }];
+    const { adapter, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' } });
+    // Pre-fix, `const [cmd, arg] = split()` captured only 'on' and silently turned Fast on, dropping 'extra'.
+    // Now the whole argument 'on extra' is passed, so the shared core rejects it as an invalid /fast value.
+    expect(await adapter.handleCommand(CHAT, CHAT, '/fast on extra')).toBe(true);
+    expect(sent.at(-1)).toContain('Usage');
   });
 });
 

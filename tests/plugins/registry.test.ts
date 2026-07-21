@@ -35,6 +35,41 @@ describe('PluginRegistry', () => {
     expect(lines).toEqual(['[plugin:skills] loaded']);
   });
 
+  describe('ctx.chatCommands (single source for chat surfaces)', () => {
+    // The many `undefined`s skip the optional wiring params; the last arg is the lazy plugin-command
+    // provider the loader normally closes over the merged registry (here a fixed list).
+    const U = undefined;
+    it('returns built-ins WITH their kind, then plugin prompt commands from the lazy provider', () => {
+      const reg = new PluginRegistry();
+      const ctx = reg.contextFor('ops', {}, noopLog, U, U, U, U, U, U, U, U, U, U, U, U, U,
+        () => [{ name: 'deploy', description: 'Ship it to $1', prompt: 'Deploy to $1', plugin: 'ops' }]);
+      const cmds = ctx.chatCommands('discord');
+      // built-ins carry their kind…
+      expect(cmds.find((c) => c.name === 'help')).toMatchObject({ kind: 'info' });
+      expect(cmds.find((c) => c.name === 'model')).toMatchObject({ kind: 'picker' });
+      // …and the plugin prompt command is merged in with kind:'prompt'.
+      expect(cmds.find((c) => c.name === 'deploy')).toMatchObject({ name: 'deploy', description: 'Ship it to $1', kind: 'prompt' });
+      // built-ins come before the plugin command
+      expect(cmds.findIndex((c) => c.name === 'help')).toBeLessThan(cmds.findIndex((c) => c.name === 'deploy'));
+    });
+
+    it('honours a plugin command\'s surface restriction', () => {
+      const reg = new PluginRegistry();
+      const ctx = reg.contextFor('ops', {}, noopLog, U, U, U, U, U, U, U, U, U, U, U, U, U,
+        () => [{ name: 'lint', description: 'Lint', prompt: 'lint it', surfaces: ['telegram'], plugin: 'ops' }]);
+      expect(ctx.chatCommands('telegram').some((c) => c.name === 'lint')).toBe(true);
+      expect(ctx.chatCommands('discord').some((c) => c.name === 'lint')).toBe(false);
+    });
+
+    it('with no provider wired (unit context) returns only built-ins', () => {
+      const reg = new PluginRegistry();
+      const ctx = reg.contextFor('ops', {}, noopLog);
+      const cmds = ctx.chatCommands('whatsapp');
+      expect(cmds.every((c) => typeof c.kind === 'string')).toBe(true);
+      expect(cmds.some((c) => c.name === 'help')).toBe(true);
+    });
+  });
+
   describe('registerTurnContext', () => {
     it('defaults to before-user and preserves an explicit after-user placement through merge()', () => {
       const staged = new PluginRegistry();
@@ -176,6 +211,19 @@ describe('PluginRegistry', () => {
       expect(reg.commands.get('ok-cmd')?.prompt).toBe('real');
       expect(reg.commandOwner.get('ok-cmd')).toBe('p');
       expect(warns.length).toBe(3);
+    });
+
+    it('refuses an adapter-local reserved name (voice/display) so it cannot collide with the native slash', () => {
+      // These are not in SLASH_COMMANDS but are owned by the Discord/Telegram adapters; a plugin macro of
+      // the same name would break Discord's bulk registration and shadow the built-in inconsistently.
+      const warns: string[] = [];
+      const reg = new PluginRegistry();
+      const ctx = reg.contextFor('p', {}, { info() {}, warn: (m: string) => warns.push(m), error() {} });
+      ctx.registerCommand({ name: 'voice', description: 'x', prompt: 'y' });
+      ctx.registerCommand({ name: 'display', description: 'x', prompt: 'y' });
+      expect(reg.commands.has('voice')).toBe(false);
+      expect(reg.commands.has('display')).toBe(false);
+      expect(warns.length).toBe(2);
     });
 
     it('accepts a single-character command name (regex allows 1–32 chars)', () => {

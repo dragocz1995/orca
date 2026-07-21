@@ -5,8 +5,8 @@
 import { SHARED_MESSAGES } from '../../_shared/messages.mjs';
 import { renderHelpLines } from '../../_shared/help.mjs';
 
-// The commands WhatsApp lists in /help, in display order. WhatsApp has no /voice or /display surface.
-const HELP_CMDS = ['model', 'context', 'reasoning', 'fast', 'new', 'stop', 'status', 'compact', 'restart', 'help'];
+// WhatsApp has no /voice or /display surface. The /help LIST is passed in at call time (the daemon's
+// chat-command catalog) so it never drifts from what is registered. Command tokens use inline code.
 const mono = (s) => '`' + s + '`';
 
 export const MESSAGES = {
@@ -32,11 +32,11 @@ export const MESSAGES = {
     submitHint: 'Reply *submit* when done, or send your own answer as text.',
     expired: '⏱ This prompt expired.',
     otherHint: 'Or just type your own answer.',
-    help: (name) => [
+    help: (name, commands) => [
       `*${name} on WhatsApp*`,
       'Write to me and I answer.',
       '',
-      ...renderHelpLines({ lang: 'en', commands: HELP_CMDS, mono, place: 'chat' }),
+      ...renderHelpLines({ lang: 'en', commands, mono, place: 'chat' }),
     ].join('\n'),
   },
   cs: {
@@ -61,11 +61,11 @@ export const MESSAGES = {
     submitHint: 'Až budeš hotov, napiš *submit*, nebo pošli vlastní odpověď textem.',
     expired: '⏱ Tento dotaz vypršel.',
     otherHint: 'Nebo napiš vlastní odpověď.',
-    help: (name) => [
+    help: (name, commands) => [
       `*${name} na WhatsAppu*`,
       'Napiš mi a odpovím.',
       '',
-      ...renderHelpLines({ lang: 'cs', commands: HELP_CMDS, mono, place: 'chat', placeLoc: 'chatu' }),
+      ...renderHelpLines({ lang: 'cs', commands, mono, place: 'chat', placeLoc: 'chatu' }),
     ].join('\n'),
   },
 };

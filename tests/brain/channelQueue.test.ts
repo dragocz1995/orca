@@ -14,12 +14,14 @@ import type { DelegatedExecutionScope } from '../../src/brain/delegatedScope.js'
  *  assistant message so reply extraction has something to read. isStreaming is flipped by the test to
  *  simulate a turn already in flight when the second message arrives. steer() stands in for PI's native
  *  mid-turn injection. */
-function fakeBrain(providerId = 'moonshot', model = 'kimi', onPrompt?: () => void, sessionId = '') {
+function fakeBrain(providerId = 'moonshot', model = 'kimi', onPrompt?: () => void, sessionId = '', templates: { name: string }[] = [], beforeUser = '') {
   const messages: { role?: string; content?: unknown }[] = [];
   const session = {
     isStreaming: false,
     getContextUsage: () => ({ tokens: 50, contextWindow: 8000, percent: 1 }),
     messages,
+    // Plugin prompt-command macros the session knows (drives isPromptCommand's RAW-routing gate).
+    promptTemplates: templates,
     prompt: vi.fn(async (t: string) => { onPrompt?.(); messages.push({ role: 'assistant', content: `re: ${t}` }); }),
     steer: vi.fn(async () => {}),
     dispose: vi.fn(() => {}),
@@ -33,12 +35,12 @@ function fakeBrain(providerId = 'moonshot', model = 'kimi', onPrompt?: () => voi
     requestProfile: { fast: false }, fastAvailable: false, thinkingLabels: {},
     pluginToolNames: new Set<string>(),
     turnSender: undefined as number | undefined, interactedAt: undefined as number | undefined,
-    listeners, replay: new LiveEventReplay(listeners), turnContext: () => ({ beforeUser: '', afterUser: '' }),
+    listeners, replay: new LiveEventReplay(listeners), turnContext: () => ({ beforeUser, afterUser: '' }),
   };
 }
 type Brain = ReturnType<typeof fakeBrain>;
 
-function setup(maxChannels?: number) {
+function setup(maxChannels?: number, templates: { name: string }[] = [], beforeUser = '') {
   const store = new BrainStore(openDb(':memory:'));
   const registry = new LiveSessionRegistry<Brain>();
   const spawn = vi.fn(async (o: { sessionId: string; ownerUserId: number; selection?: { provider?: string; model?: string }; parentSessionId?: string; delegatedAccess?: DelegatedExecutionScope }) => {
@@ -46,7 +48,7 @@ function setup(maxChannels?: number) {
       id: o.sessionId, userId: o.ownerUserId, model: o.selection?.model ?? 'kimi',
       parentSessionId: o.parentSessionId, delegatedAccess: o.delegatedAccess,
     });
-    return fakeBrain(o.selection?.provider ?? 'moonshot', o.selection?.model ?? 'kimi', undefined, o.sessionId);
+    return fakeBrain(o.selection?.provider ?? 'moonshot', o.selection?.model ?? 'kimi', undefined, o.sessionId, templates, beforeUser);
   });
   const svc = new ChannelSessionService({ registry, store, users: { get: () => ({ username: 'o' }) }, spawn, maxChannels } as never);
   const channelId = 'discord-c1';
@@ -525,5 +527,37 @@ describe('ChannelSessionService — mid-turn steering (Discord double-message)',
     expect(busy.session.dispose).not.toHaveBeenCalled();
     expect(registry.channelGet(busyId)).toBe(busy);
     expect(registry.channelGet('discord-new')).toBeDefined(); // busy entries make the cap temporarily soft
+  });
+});
+
+// The single-source slash feature (Part B): a plugin `/name` prompt-command must reach PI RAW (starting
+// with the slash, no context wrap, no sender prefix) so PI expands the macro, while every ordinary message
+// stays byte-identical to before — the sender prefix (identity line) applied AND the per-turn context wrap.
+describe('ChannelSessionService — plugin prompt-command RAW routing', () => {
+  const textOf = (store: BrainStore, sessionId: string) =>
+    store.getMessages(sessionId).map((r) => (JSON.parse(r.content) as { content: string }).content);
+
+  it('routes a known plugin /command RAW — no sender prefix, no context wrap', async () => {
+    const { svc, store, sessionId, registry, opts } = setup(undefined, [{ name: 'deploy' }], 'CTX ');
+    await svc.send({ ...opts(7), senderPrefix: '[V]\n' }, '/deploy prod now');
+    const live = registry.channelGet('discord-c1')!;
+    expect(live.session.prompt).toHaveBeenCalledWith('/deploy prod now'); // RAW: PI expands the macro itself
+    expect(textOf(store, sessionId)).toEqual(['/deploy prod now']);        // persisted RAW too
+  });
+
+  it('an ordinary message keeps the sender prefix AND the context wrap (behavior-identical)', async () => {
+    const { svc, store, sessionId, registry, opts } = setup(undefined, [{ name: 'deploy' }], 'CTX ');
+    await svc.send({ ...opts(7), senderPrefix: '[V]\n' }, '[Bob] hello there');
+    const live = registry.channelGet('discord-c1')!;
+    // Prefix applied at ingress, THEN context-wrapped — exactly the previous `verifiedPrefix + text` shape.
+    expect(live.session.prompt).toHaveBeenCalledWith('CTX [V]\n[Bob] hello there');
+    expect(textOf(store, sessionId)).toEqual(['[V]\n[Bob] hello there']); // persisted with the identity prefix
+  });
+
+  it('an unknown /slash is NOT treated as a macro (no adapter sends one, so it stays a normal turn)', async () => {
+    const { svc, registry, opts } = setup(undefined, [{ name: 'deploy' }], 'CTX ');
+    await svc.send({ ...opts(7), senderPrefix: '[V]\n' }, '/notacommand');
+    const live = registry.channelGet('discord-c1')!;
+    expect(live.session.prompt).toHaveBeenCalledWith('CTX /notacommand'); // gate found no template → wrapped
   });
 });

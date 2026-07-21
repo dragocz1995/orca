@@ -44,7 +44,7 @@ function chatTarget(v) {
 
 export class TelegramAdapter {
   name = 'telegram';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = []) {
+  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => []) {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
@@ -52,7 +52,7 @@ export class TelegramAdapter {
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
     this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
-    this.chatCommands = chatCommands; // core names/descriptions — presentation/dispatch remains local
+    this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
     this.handler = null;
     this.ctl = null; // host channel-control surface (stop/status/compact/restart), wired via control()
     this.bot = null;
@@ -72,6 +72,25 @@ export class TelegramAdapter {
   /** The chat conversation reference for commands: same identity onMessage reports (chat id folded with
    *  the /new generation), so a command targets the exact session a message would. */
   channelRef(chatId) { return { platform: 'telegram', channelId: `${chatId}#${this.state.get(String(chatId)).gen ?? 0}` }; }
+
+  /** The ordered command list for /help: the daemon's chat-command catalog (built-ins + plugin prompt
+   *  commands) plus this adapter's own voice/display. renderHelpLines localizes the built-ins/voice/display
+   *  and falls back to a plugin command's own English description. */
+  helpCommands() {
+    return [
+      ...this.chatCommands(),
+      { name: 'voice', description: 'toggle spoken audio replies here' },
+      { name: 'display', description: 'configure live tools and answer delivery here' },
+    ];
+  }
+
+  /** True when a `/slash` invocation names a plugin prompt macro (kind:'prompt') — the gate that routes it
+   *  RAW to the brain (so PI expands the macro; a control/picker/help command is handled locally instead). */
+  isPromptCommand(text) {
+    if (!text.startsWith('/')) return false;
+    const name = text.slice(1).trim().split(/\s+/)[0]?.split('@')[0].toLowerCase();
+    return !!name && this.chatCommands().some((c) => c.name === name && c.kind === 'prompt');
+  }
 
   /** One inline-keyboard button per model over the FULL catalog (callback `m:<absoluteIndex>`), marking the
    *  chat's current pick — pagination handles the row cap, so no model is dropped. */
@@ -142,12 +161,13 @@ export class TelegramAdapter {
   /** Publish the bot's slash-command menu (setMyCommands). Names/help come from the shared command
    *  catalog; presentation/dispatch stays local. */
   async publishCommands() {
-    const description = (name, fallback) => this.chatCommands.find((c) => c.name === name)?.description ?? fallback;
+    const catalog = this.chatCommands();
+    const description = (name, fallback) => catalog.find((c) => c.name === name)?.description ?? fallback;
     const names = [
       ['model', 'Pick the AI model for this chat'],
       ['context', 'Continue this chat in one of your conversations'],
       ['reasoning', 'Set reasoning effort for this chat'],
-      ...(this.chatCommands.some((c) => c.name === 'fast') ? [['fast', 'Toggle OpenAI OAuth priority processing']] : []),
+      ...(catalog.some((c) => c.name === 'fast') ? [['fast', 'Toggle OpenAI OAuth priority processing']] : []),
       ['voice', 'Toggle spoken audio replies in this chat'],
       ['display', 'Configure live tools and answer delivery'],
       ['new', 'Start a fresh conversation in this chat'],
@@ -260,6 +280,10 @@ export class TelegramAdapter {
 
     // A slash command targets the bot's controls, not the brain.
     if (text.startsWith('/') && await this.handleCommand(chatId, from, ids, text)) return;
+    // A recognized plugin prompt-command falls through handleCommand (it owns only control/picker/help):
+    // capture its RAW `/name args` so it reaches the brain starting with the slash (PI expands the macro),
+    // bypassing the `[sender]` prefix an ordinary message gets below.
+    const promptSlash = this.isPromptCommand(text) ? text : null;
 
     const { images, audio, notes } = await this.collectMedia(m);
     if (notes.length) text = [text, ...notes].filter(Boolean).join('\n');
@@ -316,7 +340,7 @@ export class TelegramAdapter {
           channelName: group ? (chat.title || undefined) : undefined,
           images: images.length ? images : undefined,
         },
-        prefixed,
+        promptSlash ?? prefixed,
         onEvent,
       );
       clearInterval(typing);
@@ -464,12 +488,12 @@ export class TelegramAdapter {
         msg: this.msg, reply: (t) => this.tgSend(chatId, t), isAdmin: admin, arg,
         state: this.state, stateId: String(chatId), ctl: this.ctl, ref: this.channelRef(chatId),
         activeModel: async () => this.modelForChannel(chatId, await this.listModels().catch(() => [])),
-        fastEnabled: this.chatCommands.some((c) => c.name === 'fast'),
+        fastEnabled: this.chatCommands().some((c) => c.name === 'fast'),
       });
     }
     switch (cmd) {
       case 'help':
-        await this.tgSend(chatId, this.msg.help(this.cfg.agentName || 'Elowen'));
+        await this.tgSend(chatId, this.msg.help(this.cfg.agentName || 'Elowen', this.helpCommands()));
         return true;
       case 'model': {
         if (!admin()) { await this.tgSend(chatId, this.msg.modelForbidden); return true; }

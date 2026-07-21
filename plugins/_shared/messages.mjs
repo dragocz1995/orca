@@ -19,6 +19,7 @@ export const SHARED_MESSAGES = {
     restarting: '🔄 Restarting the Elowen daemon…',
     restartForbidden: '🔒 Only an admin can restart the daemon.',
     restartUnavailable: '⚠️ Restart isn’t available on this deployment.',
+    commandRunning: (cmd) => `▶️ Running ${cmd}…`,
   },
   cs: {
     noModels: '❌ Zatím nejsou nastavené žádné modely (Nastavení → Elowen AI).',
@@ -36,5 +37,6 @@ export const SHARED_MESSAGES = {
     restarting: '🔄 Restartuji Elowen daemon…',
     restartForbidden: '🔒 Restartovat daemon může jen admin.',
     restartUnavailable: '⚠️ Restart není na tomto nasazení dostupný.',
+    commandRunning: (cmd) => `▶️ Spouštím ${cmd}…`,
   },
 };

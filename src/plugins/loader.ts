@@ -141,7 +141,10 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<PluginRegis
         // `toolNames` deliberately closes over the MERGED registry, not this plugin's staging one: a plugin
         // asks it at tool-execute time, long after every plugin has merged, and needs the whole live
         // toolset (the subagent plugin validates a caller's `tools` allow-list against it).
-        const ctx = staging.contextFor(name, opts.config?.[name] ?? {}, opts.logger, opts.dataRoot, opts.notify, opts.listModels, opts.resolveProvider, manifest.capabilities ?? {}, manifest.provides, opts.answerQuestion, opts.embeddings, opts.embeddingConfig, () => registry.tools.map((t) => t.name), opts.timezone, opts.subagentTypes, opts.requestReload);
+        const ctx = staging.contextFor(name, opts.config?.[name] ?? {}, opts.logger, opts.dataRoot, opts.notify, opts.listModels, opts.resolveProvider, manifest.capabilities ?? {}, manifest.provides, opts.answerQuestion, opts.embeddings, opts.embeddingConfig, () => registry.tools.map((t) => t.name), opts.timezone, opts.subagentTypes, opts.requestReload,
+          // Like `toolNames`, this closes over the MERGED registry (not the staging one): the adapter reads it
+          // long after every plugin has merged, so it must see the whole live set of plugin prompt commands.
+          () => [...registry.commands.values()].map((c) => ({ name: c.name, description: c.description, prompt: c.prompt, surfaces: c.surfaces, plugin: registry.commandOwner.get(c.name) })));
         await mod.register(ctx);
         registry.merge(staging, (m) => opts.logger.warn(`[plugin:${name}] ${m}`));
         // Capture the plugin's declared capabilities (deny-by-default `{}` when absent) — the manifest

@@ -62,6 +62,13 @@ export interface ChannelSendOpts {
    *  disable rollover entirely for a job that must keep continuity across runs. */
   idleRolloverMs?: number;
   identity?: TurnIdentity;
+  /** Identity line spliced ABOVE an ordinary message's text (the `[Verified: …]` prefix from
+   *  identity.forPlatformTurn, or empty). Kept out of the raw `text` so the prompt-command gate can see the
+   *  UN-prefixed message: a plugin `/name` macro arrives RAW (adapters send it without their `[sender]`
+   *  prefix) and must keep starting with the slash for PI to expand it, whereas every ordinary message is
+   *  `[sender]`-prefixed by its adapter and gets this identity prefix applied here — byte-identical to the
+   *  previous `verifiedPrefix + text` concatenation. */
+  senderPrefix?: string;
   /** The Elowen account the sender is verified as (linked platform id). When set, that user's memory is
    *  recalled under their message and post-turn facts are saved to it — each gated by their own
    *  Account → Memory toggles. Unset (unlinked sender) → no memory at all (shared-space privacy). */
@@ -192,6 +199,11 @@ export class ChannelSessionService {
    *  assistant text. Serialized per channel: two rapid messages must not prompt() one PI session
    *  concurrently (and must not both spawn it). */
   async send(opts: ChannelSendOpts, text: string): Promise<string> {
+    // Splice the sender-identity prefix onto ordinary messages exactly as the caller used to
+    // (`verifiedPrefix + text`). A plugin prompt-command reaches us RAW — the only message that starts with
+    // a slash, because adapters `[sender]`-prefix everything else — so it is left untouched and keeps
+    // starting with the slash, letting the prompt-command gate below hand it to PI for native expansion.
+    if (!text.startsWith('/')) text = (opts.senderPrefix ?? '') + text;
     const sessionId = channelSessionId(opts.channelId);
     const parentSessionId = opts.parentSessionId;
     if (opts.ownerSteer && !parentSessionId) throw new Error('invalid delegated access');

@@ -5,9 +5,8 @@
 import { SHARED_MESSAGES } from '../../_shared/messages.mjs';
 import { renderHelpLines } from '../../_shared/help.mjs';
 
-// The commands Telegram lists in /help, in display order. Telegram sends plain text — command tokens
-// carry no inline-code markers.
-const HELP_CMDS = ['model', 'context', 'reasoning', 'fast', 'voice', 'display', 'new', 'stop', 'status', 'compact', 'restart', 'help'];
+// Telegram sends plain text — command tokens carry no inline-code markers. The /help LIST is passed in at
+// call time (the daemon's chat-command catalog + adapter-local voice/display) so it never drifts.
 const mono = (s) => s;
 
 export const MESSAGES = {
@@ -33,11 +32,11 @@ export const MESSAGES = {
     askAnswered: (s) => `✅ Answered\n${s}`,
     askForSomeoneElse: 'This question is for someone else.',
     askTypeAnswer: '✏️ Type your answer in this chat.',
-    help: (name) => [
+    help: (name, commands) => [
       `${name} on Telegram`,
       'Write to me and I answer.',
       '',
-      ...renderHelpLines({ lang: 'en', commands: HELP_CMDS, mono, place: 'chat' }),
+      ...renderHelpLines({ lang: 'en', commands, mono, place: 'chat' }),
     ].join('\n'),
   },
   cs: {
@@ -62,11 +61,11 @@ export const MESSAGES = {
     askAnswered: (s) => `✅ Odpovězeno\n${s}`,
     askForSomeoneElse: 'Na tuhle otázku odpovídá někdo jiný.',
     askTypeAnswer: '✏️ Napiš odpověď do tohohle chatu.',
-    help: (name) => [
+    help: (name, commands) => [
       `${name} na Telegramu`,
       'Napište mi a odpovím.',
       '',
-      ...renderHelpLines({ lang: 'cs', commands: HELP_CMDS, mono, place: 'chat', placeLoc: 'chatu' }),
+      ...renderHelpLines({ lang: 'cs', commands, mono, place: 'chat', placeLoc: 'chatu' }),
     ].join('\n'),
   },
 };

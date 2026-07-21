@@ -69,7 +69,7 @@ function rolePrompt(policy) {
 
 export class WhatsAppAdapter {
   name = 'whatsapp';
-  constructor(cfg, logger, state, listModels, imageDirs, authDir, qrPngPath, answerQuestion, chatCommands = []) {
+  constructor(cfg, logger, state, listModels, imageDirs, authDir, qrPngPath, answerQuestion, chatCommands = () => []) {
     this.cfg = cfg;
     this.log = logger;
     this.plog = pinoShim(logger); // pino-shaped logger for Baileys internals
@@ -106,6 +106,14 @@ export class WhatsAppAdapter {
   /** The chat conversation reference for commands: same identity onMessage reports (chat id folded
    *  with the /new generation), so a command targets the exact session a message would. */
   chatRef(jid) { return { platform: 'whatsapp', channelId: `${jid}#${this.state.get(jid).gen ?? 0}` }; }
+
+  /** True when a `/slash` invocation names a plugin prompt macro (kind:'prompt') — the gate that routes it
+   *  RAW to the brain (so PI expands the macro; a control/picker/help command is handled locally instead). */
+  isPromptCommand(text) {
+    if (!text.startsWith('/')) return false;
+    const name = text.slice(1).trim().split(/\s+/)[0]?.toLowerCase();
+    return !!name && this.chatCommands().some((c) => c.name === name && c.kind === 'prompt');
+  }
 
   /** Resolve the model whose per-chat override will drive the next turn. Without an override use the
    *  exact daemon-resolved default marker; catalog ordering is presentation-only. */
@@ -330,6 +338,10 @@ export class WhatsAppAdapter {
 
     // A slash command targets the bot's controls, not the brain.
     if (text.startsWith('/') && await this.handleCommand(chatJid, senderJid, text)) return;
+    // A recognized plugin prompt-command falls through handleCommand (it owns only control/picker/help):
+    // capture its RAW `/name args` so it reaches the brain starting with the slash (PI expands the macro),
+    // bypassing the `[sender]` prefix an ordinary message gets below.
+    const promptSlash = this.isPromptCommand(text) ? text : null;
 
     const senderName = m.pushName || numberOf(senderJid);
     const replyCtx = buildReplyContext(this.quotedName(m), this.quotedText(m));
@@ -367,7 +379,7 @@ export class WhatsAppAdapter {
           channelName: group ? await this.groupSubject(chatJid) : undefined,
           images: images.length ? images : undefined,
         },
-        prefixed,
+        promptSlash ?? prefixed,
         onEvent,
       );
       clearInterval(typing);
@@ -625,8 +637,11 @@ export class WhatsAppAdapter {
 
   /** Handle a `/command`. Returns true when the text was a (recognized) command. */
   async handleCommand(chatJid, senderJid, text) {
-    const [cmd, arg] = text.slice(1).trim().split(/\s+/);
+    const [cmd, ...argParts] = text.slice(1).trim().split(/\s+/);
     const command = cmd.toLowerCase();
+    // Join the REST of the tokens, not just the first — mirrors Telegram, so `/fast on` (and any future
+    // multi-word command argument) is passed whole instead of silently truncated to one word.
+    const arg = argParts.join(' ');
     const admin = () => senderIsAdmin(this.senderIds(senderJid, chatJid), this.cfg.senderPolicies);
     // Control commands (new/fast/stop/status/compact/restart) share one transport-agnostic core; only the
     // pickers below stay local because their numbered-menu UI is WhatsApp-specific.
@@ -635,12 +650,12 @@ export class WhatsAppAdapter {
         msg: this.msg, reply: (t) => this.sendText(chatJid, t), isAdmin: admin, arg,
         state: this.state, stateId: chatJid, ctl: this.ctl, ref: this.chatRef(chatJid),
         activeModel: async () => (await this.modelForChat(chatJid)).active,
-        fastEnabled: this.chatCommands.some((c) => c.name === 'fast'),
+        fastEnabled: this.chatCommands().some((c) => c.name === 'fast'),
       });
     }
     switch (command) {
       case 'help':
-        await this.sendText(chatJid, this.msg.help('Elowen'));
+        await this.sendText(chatJid, this.msg.help('Elowen', this.chatCommands()));
         return true;
       case 'model': {
         if (!admin()) { await this.sendText(chatJid, this.msg.modelForbidden); return true; }

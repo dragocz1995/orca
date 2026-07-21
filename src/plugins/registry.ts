@@ -5,7 +5,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { KnownControls, PluginCapabilities, PluginCommand, PluginContext, PluginControl, PluginEmbeddings, PluginHook, PluginLogger, PluginModelOption, PluginSkill, PlatformAdapter, ProviderCredentials, TurnContextContribution } from './api.js';
 import { isEmbeddingConfigured } from '../embeddings/embeddingService.js';
 import type { EmbeddingConfig } from '../embeddings/embeddingService.js';
-import { commandsFor, isBuiltinCommand } from '../brain/slashCommands.js';
+import { commandsWithPlugins, isReservedCommandName, type PluginSlashCommand } from '../brain/slashCommands.js';
 import type { PluginManifest } from './manifest.js';
 import { assertPathAllowed, allowedRoots, defaultCwd, isAllAccess, currentAccess } from './pathGuard.js';
 import { currentIdentity, currentElicitor, currentCardEmitter, currentSubagentEmitter, currentSubagentCompletionEmitter, currentWorkflowEmitter, currentTurnModel, currentWorkDir, currentSessionId } from './policyContext.js';
@@ -165,7 +165,7 @@ export class PluginRegistry {
 
   /** Build the context passed to one plugin's `register()`. `config` is that plugin's own slice;
    *  `dataRoot` hosts per-plugin writable dirs (tests fall back to the OS tmpdir). */
-  contextFor(name: string, config: Record<string, unknown>, logger: PluginLogger, dataRoot?: string, notify?: (text: string, channelId?: string) => Promise<void>, listModels?: () => Promise<PluginModelOption[]>, resolveProvider?: (id: string) => ProviderCredentials | null, caps?: PluginCapabilities, provides?: PluginManifest['provides'], answerQuestion?: (id: string, answers: AskAnswer[]) => boolean, embedder?: PluginEmbedder, embeddingConfig?: () => EmbeddingConfig, allToolNames?: () => string[], timezone?: () => string, subagentTypes?: () => { name: string; description: string }[], requestReload?: () => void): PluginContext {
+  contextFor(name: string, config: Record<string, unknown>, logger: PluginLogger, dataRoot?: string, notify?: (text: string, channelId?: string) => Promise<void>, listModels?: () => Promise<PluginModelOption[]>, resolveProvider?: (id: string) => ProviderCredentials | null, caps?: PluginCapabilities, provides?: PluginManifest['provides'], answerQuestion?: (id: string, answers: AskAnswer[]) => boolean, embedder?: PluginEmbedder, embeddingConfig?: () => EmbeddingConfig, allToolNames?: () => string[], timezone?: () => string, subagentTypes?: () => { name: string; description: string }[], requestReload?: () => void, allChatCommands?: () => PluginSlashCommand[]): PluginContext {
     const scoped: PluginLogger = {
       info: (m) => logger.info(`[plugin:${name}] ${m}`),
       warn: (m) => logger.warn(`[plugin:${name}] ${m}`),
@@ -238,12 +238,19 @@ export class PluginRegistry {
         const clean = command.name?.trim() ?? '';
         // 1–32 chars, kebab-case. (The collision with another plugin's command is enforced at merge().)
         if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(clean)) { scoped.warn(`registerCommand refused: "${command.name}" is not kebab-case (a-z, 0-9, dashes)`); return; }
-        if (isBuiltinCommand(clean)) { scoped.warn(`registerCommand refused: "${clean}" shadows a built-in command`); return; }
+        if (isReservedCommandName(clean)) { scoped.warn(`registerCommand refused: "${clean}" shadows a built-in or reserved command`); return; }
         if (typeof command.prompt !== 'string' || !command.prompt.trim()) { scoped.warn(`registerCommand refused: "${clean}" has an empty prompt`); return; }
         this.commands.set(clean, { name: clean, description: command.description ?? '', prompt: command.prompt, surfaces: command.surfaces });
         this.commandOwner.set(clean, name);
       },
-      chatCommands: (surface) => commandsFor(surface, true).map(({ name: commandName, description, adminOnly }) => ({ name: commandName, description, ...(adminOnly ? { adminOnly } : {}) })),
+      // The SINGLE source for a chat surface's command menu: built-ins (surface-scoped, admin included so
+      // an operator-run adapter sees /restart) PLUS every plugin-contributed prompt command, each carrying
+      // its `kind` so the adapter can tell a native/control command from a plugin prompt macro. Reads the
+      // MERGED registry lazily (allChatCommands closes over it, like allToolNames) so a plugin registered
+      // later — or a reload — is reflected without a stale snapshot.
+      chatCommands: (surface) => commandsWithPlugins(surface, true, allChatCommands?.() ?? []).map(
+        ({ name: commandName, description, kind, adminOnly }) => ({ name: commandName, description, kind, ...(adminOnly ? { adminOnly } : {}) }),
+      ),
       registerSystemPromptFragment: (f) => { this.promptFragments.push(f); this.promptFragmentOwners.push(name); },
       registerHook: (h) => { this.hooks.push(h); this.hookOwners.push(name); },
       registerTurnContext: (render, options) => {

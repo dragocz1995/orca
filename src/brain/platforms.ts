@@ -218,7 +218,11 @@ export class PlatformOrchestrator {
             writerUserId: linkedUserId,
             history: src.history,
             onEvent,
-          }, verifiedPrefix + text);
+            // The identity prefix travels in opts (not concatenated) so channels.send can gate a RAW plugin
+            // prompt-command on the un-prefixed text; it is applied to every ordinary message there, exactly
+            // reproducing the previous `verifiedPrefix + text`.
+            senderPrefix: verifiedPrefix,
+          }, text);
         });
         // Out-of-band channel control for slash commands (stop/status/compact/restart). Optional: an
         // adapter that doesn't implement `control` simply keeps its message-only behaviour.

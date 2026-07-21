@@ -75,6 +75,19 @@ describe('slash command registry', () => {
       expect(isBuiltinCommand('deploy')).toBe(false);
     });
 
+    it('drops a plugin command that collides with an adapter-local reserved name (voice/display)', () => {
+      // voice/display are adapter-local (not in SLASH_COMMANDS) yet reserved: a plugin macro of that name
+      // would break Discord's bulk slash registration, so it must never reach a surface menu.
+      const merged = commandsWithPlugins('discord', true, [
+        { name: 'voice', description: 'x', prompt: 'y' },
+        { name: 'display', description: 'x', prompt: 'y' },
+        { name: 'deploy', description: 'x', prompt: 'y' },
+      ]);
+      expect(merged.some((c) => c.name === 'voice')).toBe(false);
+      expect(merged.some((c) => c.name === 'display')).toBe(false);
+      expect(merged.some((c) => c.name === 'deploy')).toBe(true); // an ordinary plugin command still passes
+    });
+
     it('respects a plugin command surface restriction', () => {
       const cliOnly = [{ name: 'lint', description: 'x', prompt: 'lint it', surfaces: ['cli' as const] }];
       expect(commandsWithPlugins('cli', true, cliOnly).some((c) => c.name === 'lint')).toBe(true);
