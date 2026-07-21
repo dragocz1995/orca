@@ -44,21 +44,23 @@ export interface TurnRenderOptions {
   expandedTools: ReadonlySet<string>;
 }
 
-function toolRowSpec(name: string, detail?: string): { glyph: string; title: string } {
+export function toolRowSpec(name: string, detail?: string): { glyph: string; title: string } {
   const safeName = terminalInlineText(name);
   const safeDetail = detail ? terminalInlineText(detail) : '';
-  const title = (label: string): string => (safeDetail ? `${label} ${safeDetail}` : label);
-  if (/(search|grep|glob)/i.test(safeName)) return { glyph: '✱', title: safeDetail ? `Search "${safeDetail}"` : 'Search' };
-  if (/(edit|patch|update|modify|replace)/i.test(safeName)) return { glyph: '←', title: title('Edit') };
-  if (/(write|create)/i.test(safeName)) return { glyph: '←', title: title('Write') };
-  if (/(read|open|cat)/i.test(safeName)) return { glyph: '→', title: title('Read') };
-  if (/list_?dir/i.test(safeName)) return { glyph: '→', title: title('List') };
-  if (/diff/i.test(safeName)) return { glyph: '←', title: title('Diff') };
-  if (/(lsp|diagnostic)/i.test(safeName)) return { glyph: '✱', title: title('Diagnostics') };
-  if (/(fetch|web|http|url)/i.test(safeName)) return { glyph: '%', title: title('Fetch') };
-  // Last resort: spell the name out as words. Separators cover a third-party snake/kebab tool; the hump
-  // split covers ours, which have none — without it "ProcessOutput" would render as one blob.
-  return { glyph: '⚙', title: title(safeName.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2')) };
+  // Title is the tool's literal name (+ detail); only the glyph is inferred from the name (a monochrome
+  // direction hint). Substring labels used to misname tools — `CreateSkill`/`TodoWrite` read as a file
+  // "Write" — so the real name is shown verbatim; a search detail is the query, hence quoted.
+  const isSearch = /(search|grep|glob)/i.test(safeName);
+  const title = !safeDetail ? safeName : isSearch ? `${safeName} "${safeDetail}"` : `${safeName} ${safeDetail}`;
+  if (isSearch) return { glyph: '✱', title };
+  if (/(edit|patch|update|modify|replace)/i.test(safeName)) return { glyph: '←', title };
+  if (/(write|create)/i.test(safeName)) return { glyph: '←', title };
+  if (/(read|open|cat)/i.test(safeName)) return { glyph: '→', title };
+  if (/list_?dir/i.test(safeName)) return { glyph: '→', title };
+  if (/diff/i.test(safeName)) return { glyph: '←', title };
+  if (/(lsp|diagnostic)/i.test(safeName)) return { glyph: '✱', title };
+  if (/(fetch|web|http|url)/i.test(safeName)) return { glyph: '%', title };
+  return { glyph: '⚙', title };
 }
 
 const blockFill = (text: string, width: number): string => paintRow(chatTheme().modalBg, text, width);
