@@ -168,7 +168,6 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
   }, [d.type, d.baseUrl, d.apiKey, d.id, isNew]);
   const selectedModels = d.models.split('\n').map((m) => m.trim()).filter(Boolean);
   const [modelsOpen, setModelsOpen] = useState(false);
-  const probedSelected = Array.isArray(probed) ? selectedModels.filter((m) => probed.includes(m)) : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
@@ -225,9 +224,9 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
           ) : Array.isArray(probed) ? (
             <>
               <SelectionSummary
-                countText={probedSelected.length === 0 ? t.brain.modelsAuto : t.managePicker.modelsSelected.replace('{n}', String(probedSelected.length))}
-                samples={probedSelected.slice(0, 3).map((m) => ({ label: m, icon: <ModelIcon name={m} size={13} /> }))}
-                moreCount={Math.max(0, probedSelected.length - 3)}
+                countText={selectedModels.length === 0 ? t.brain.modelsAuto : t.managePicker.modelsSelected.replace('{n}', String(selectedModels.length))}
+                samples={selectedModels.slice(0, 3).map((m) => ({ label: m, icon: <ModelIcon name={m} size={13} /> }))}
+                moreCount={Math.max(0, selectedModels.length - 3)}
                 onManage={() => setModelsOpen(true)}
                 manageLabel={t.managePicker.manage}
               />
@@ -235,8 +234,8 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
                 title={t.brain.models}
                 open={modelsOpen}
                 onClose={() => setModelsOpen(false)}
-                items={modelPickerItems(probed, probedSelected, t.brain.modelsUnavailable)}
-                selected={new Set(probedSelected)}
+                items={modelPickerItems(probed, selectedModels, t.brain.modelsUnavailable)}
+                selected={new Set(selectedModels)}
                 onSave={(next) => setD({ ...d, models: [...next].join('\n') })}
                 emptySelectionHint={t.brain.modelsAuto}
                 countLabel={(n) => t.managePicker.modelsSelected.replace('{n}', String(n))}
