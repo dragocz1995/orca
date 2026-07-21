@@ -1346,6 +1346,7 @@ export const cs = {
     pickModels: "Modely",
     pickModelsTitle: "Modely - {provider}",
     pickModelsHint: "Vyberte, které modely tohoto účtu bude Elowen nabízet. Žádný výběr = celý katalog.",
+    modelsUnavailable: 'Již není v katalogu',
     accounts: 'Připojené účty (OAuth)',
     hideAccount: 'Skrýt účet',
     addAccount: 'Přidat účet',

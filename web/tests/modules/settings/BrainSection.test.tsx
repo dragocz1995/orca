@@ -31,7 +31,7 @@ vi.mock('../../../lib/elowenClient', async (importOriginal) => {
   };
 });
 
-import { BrainSection } from '../../../modules/settings/BrainSection';
+import { BrainSection, modelPickerItems } from '../../../modules/settings/BrainSection';
 
 const renderSection = () => render(<ToastProvider><BrainSection /></ToastProvider>, { wrapper: createWrapper().wrapper });
 
@@ -63,6 +63,21 @@ describe('BrainSection — OAuth account model picker', () => {
     const payload = saveProviders.mock.calls.at(-1)![0] as { id: string; models: string[] }[];
     const entry = payload.find((p) => p.id === 'anthropic');
     expect(entry?.models).toEqual(['claude-opus']);
+  });
+
+  it('keeps a still-selected model that dropped out of the live catalog so it can be un-checked', () => {
+    // Regression: a model removed from the provider's API used to vanish from the picker while staying in
+    // the saved selection — active, listed in Models, with no way to turn it off. It must now appear under
+    // the "unavailable" group so the user can un-check it (after which it is gone from the selection).
+    const items = modelPickerItems(['claude-opus', 'claude-sonnet'], ['claude-opus', 'claude-gone'], 'No longer in the catalog');
+    const gone = items.find((i) => i.id === 'claude-gone');
+    expect(gone).toBeTruthy();
+    expect(gone!.group).toBe('unavailable');
+    expect(gone!.groupLabel).toBe('No longer in the catalog');
+    // A live model stays ungrouped at the top, listed once (no duplicate for a selected-and-live model).
+    expect(items.filter((i) => i.id === 'claude-opus')).toEqual([expect.objectContaining({ group: '' })]);
+    // A live but unselected model is still offered.
+    expect(items.some((i) => i.id === 'claude-sonnet')).toBe(true);
   });
 
   it('confirms before disconnecting an OAuth account', () => {

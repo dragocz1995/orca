@@ -1346,6 +1346,7 @@ export const en = {
     pickModels: "Models",
     pickModelsTitle: "Models - {provider}",
     pickModelsHint: "Pick which of this account's models Elowen offers. No selection = the full catalog.",
+    modelsUnavailable: 'No longer in the catalog',
     accounts: 'Connected accounts (OAuth)',
     hideAccount: 'Hide account',
     addAccount: 'Add account',

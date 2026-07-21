@@ -92,6 +92,18 @@ function OAuthConnectDialog({ flow: initial, onDone }: { flow: OAuthFlowState; o
   );
 }
 
+/** Picker rows = the live model list PLUS any still-selected model that has dropped out of it (a provider
+ *  that removed a model from its catalog / API). Without the second group a stale selection can never be
+ *  un-checked here — it stays active and keeps showing in the Models section with no way to turn it off. The
+ *  orphans go under an "unavailable" header so the user sees why they're there and that un-checking clears them. */
+export function modelPickerItems(available: string[], selected: string[], unavailableLabel: string): ManageSelectionItem[] {
+  const orphans = selected.filter((m) => !available.includes(m));
+  return [
+    ...available.map((m) => ({ id: m, label: m, group: '', icon: <ModelIcon name={m} size={14} /> })),
+    ...orphans.map((m) => ({ id: m, label: m, group: 'unavailable', groupLabel: unavailableLabel, icon: <ModelIcon name={m} size={14} /> })),
+  ];
+}
+
 /** Model picker for a connected OAuth account: loads the account's built-in catalog and hands it to the
  *  shared manage-selection modal (multi-select, each row carrying the model's brand icon). The selection
  *  is stored as an explicit provider entry's manual `models` list — empty selection = the whole catalog
@@ -110,7 +122,7 @@ function OAuthModelsModal({ type, initial, onSave, onClose }: {
   if (catalog === null) {
     return <Modal title={title} onClose={onClose} size="md"><ModalBody><LoadingState /></ModalBody></Modal>;
   }
-  const items: ManageSelectionItem[] = catalog.map((m) => ({ id: m, label: m, group: '', icon: <ModelIcon name={m} size={14} /> }));
+  const items = modelPickerItems(catalog, initial, t.brain.modelsUnavailable);
   return (
     <ManageSelectionModal
       title={title}
@@ -223,7 +235,7 @@ function ProviderModal({ draft: initial, existingIds, onSave, onClose }: {
                 title={t.brain.models}
                 open={modelsOpen}
                 onClose={() => setModelsOpen(false)}
-                items={probed.map((m) => ({ id: m, label: m, group: '', icon: <ModelIcon name={m} size={14} /> }))}
+                items={modelPickerItems(probed, probedSelected, t.brain.modelsUnavailable)}
                 selected={new Set(probedSelected)}
                 onSave={(next) => setD({ ...d, models: [...next].join('\n') })}
                 emptySelectionHint={t.brain.modelsAuto}
