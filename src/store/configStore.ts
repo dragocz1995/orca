@@ -293,6 +293,32 @@ interface Stored {
   categorization: CategorizationBlock;
 }
 
+/** The autopilot fields that merge by the plain "incoming value wins, else keep the fallback" rule shared
+ *  by hydrate (stored value over default) and update (patch value over current); a nullish (absent/null)
+ *  value keeps the fallback in both. pilotExec/overseerExec are listed so hydrate merges them, but update
+ *  overrides them afterwards with an allow-list-validated value. apiKey/ghToken are NOT here — they are
+ *  secrets merged separately. A membership list, not exhaustive: a Stored['autopilot'] field missing here
+ *  is simply never carried over. */
+const AUTOPILOT_FIELDS: readonly (keyof Stored['autopilot'])[] = [
+  'model', 'overseerModel', 'apiUrl', 'providerId', 'notes', 'prompt', 'pilotExec', 'overseerExec',
+  'reviewOnDone', 'tddMode', 'prEnabled', 'prBaseBranch', 'prAutoOpen', 'prVerifyCommand',
+];
+
+/** Merge autopilot fields onto `fallback`: for each field a non-nullish value in `src` wins, else the
+ *  fallback is kept — exactly the per-field `src?.x ?? fallback.x` the read/update paths used to spell out. */
+function mergeAutopilot(src: Partial<Stored['autopilot']> | undefined, fallback: Stored['autopilot']): Stored['autopilot'] {
+  const out = { ...fallback };
+  if (src) {
+    for (const k of AUTOPILOT_FIELDS) {
+      const v = src[k];
+      // Keyed write: `out` and `src` share the Stored['autopilot'] shape at the same key, so the narrowed
+      // `v` is out[k]'s type — TS can't prove it across the key union, hence the localized unknown cast.
+      if (v !== undefined && v !== null) (out as Record<keyof Stored['autopilot'], unknown>)[k] = v;
+    }
+  }
+  return out;
+}
+
 /** The plugins block for a settings row that predates the plugin system (or whose plugins block is
  *  malformed): NO plugins enabled. This is a DELIBERATE asymmetry with `defaultStored()`, which enables
  *  `DEFAULT_CONFIG.plugins.enabled` for FRESH installs — an existing install must never have new default
@@ -317,8 +343,8 @@ const defaultStored = (): Stored => ({
   webPush: null,
   plugins: { enabled: [...DEFAULT_CONFIG.plugins.enabled], removed: [], config: {} },
   brain: { providers: [], agentName: 'Elowen', maxSteps: DEFAULT_MAX_STEPS, modelContextWindows: {}, limits: { ...DEFAULT_BRAIN_LIMITS }, hiddenOauth: [] },
-  embedding: { providerId: '', model: '', baseUrl: '', dimensions: null },
-  categorization: { providerId: '', model: '', baseUrl: '' },
+  embedding: { ...DEFAULT_CONFIG.embedding },
+  categorization: { ...DEFAULT_CONFIG.categorization },
 });
 
 export interface ConfigPatch {
@@ -362,7 +388,7 @@ export class ConfigStore {
         // Seed built-in notes under any stored notes so known models always carry a description,
         // while user edits (including an explicit '' to clear one) take precedence.
         modelNotes: (p.modelNotes && typeof p.modelNotes === 'object' && !Array.isArray(p.modelNotes)) ? { ...d.modelNotes, ...(p.modelNotes as Record<string, string>) } : { ...d.modelNotes },
-        autopilot: { model: p.autopilot?.model ?? d.autopilot.model, overseerModel: p.autopilot?.overseerModel ?? d.autopilot.overseerModel, apiUrl: p.autopilot?.apiUrl ?? d.autopilot.apiUrl, providerId: p.autopilot?.providerId ?? d.autopilot.providerId, notes: p.autopilot?.notes ?? d.autopilot.notes, prompt: p.autopilot?.prompt ?? d.autopilot.prompt, pilotExec: p.autopilot?.pilotExec ?? d.autopilot.pilotExec, overseerExec: p.autopilot?.overseerExec ?? d.autopilot.overseerExec, reviewOnDone: p.autopilot?.reviewOnDone ?? d.autopilot.reviewOnDone, tddMode: p.autopilot?.tddMode ?? d.autopilot.tddMode, prEnabled: p.autopilot?.prEnabled ?? d.autopilot.prEnabled, prBaseBranch: p.autopilot?.prBaseBranch ?? d.autopilot.prBaseBranch, prAutoOpen: p.autopilot?.prAutoOpen ?? d.autopilot.prAutoOpen, prVerifyCommand: p.autopilot?.prVerifyCommand ?? d.autopilot.prVerifyCommand },
+        autopilot: mergeAutopilot(p.autopilot, d.autopilot),
         providers: { ...d.providers, ...sanitizeProviders(p.providers) },
         apiKey: typeof p.apiKey === 'string' ? p.apiKey : null,
         ghToken: typeof p.ghToken === 'string' ? p.ghToken : null,
@@ -491,7 +517,8 @@ export class ConfigStore {
       customModels: patch.customModels ?? cur.customModels,
       hiddenPresets: patch.hiddenPresets ?? cur.hiddenPresets,
       modelNotes: patch.modelNotes ?? cur.modelNotes,
-      autopilot: { model: patch.autopilot?.model ?? cur.autopilot.model, overseerModel: patch.autopilot?.overseerModel ?? cur.autopilot.overseerModel, apiUrl: patch.autopilot?.apiUrl ?? cur.autopilot.apiUrl, providerId: patch.autopilot?.providerId ?? cur.autopilot.providerId, notes: patch.autopilot?.notes ?? cur.autopilot.notes, prompt: patch.autopilot?.prompt ?? cur.autopilot.prompt, pilotExec, overseerExec, reviewOnDone: patch.autopilot?.reviewOnDone ?? cur.autopilot.reviewOnDone, tddMode: patch.autopilot?.tddMode ?? cur.autopilot.tddMode, prEnabled: patch.autopilot?.prEnabled ?? cur.autopilot.prEnabled, prBaseBranch: patch.autopilot?.prBaseBranch ?? cur.autopilot.prBaseBranch, prAutoOpen: patch.autopilot?.prAutoOpen ?? cur.autopilot.prAutoOpen, prVerifyCommand: patch.autopilot?.prVerifyCommand ?? cur.autopilot.prVerifyCommand },
+      // Merge the plain fields, then override the two exec fields with their allow-list-validated values.
+      autopilot: { ...mergeAutopilot(patch.autopilot, cur.autopilot), pilotExec, overseerExec },
       providers: patch.providers ? { ...cur.providers, ...sanitizeProviders(patch.providers) } : cur.providers,
       apiKey: (typeof newKey === 'string' && newKey.length > 0) ? newKey : cur.apiKey,
       ghToken: (typeof newGhToken === 'string' && newGhToken.length > 0) ? newGhToken : cur.ghToken,
