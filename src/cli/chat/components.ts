@@ -392,7 +392,10 @@ export class ProcessPanel implements Component {
    *  visible-string column maps directly to a screen column for hit-testing). */
   private killZones = new Map<number, { id: string; x0: number; x1: number }>();
   invalidate(): void { /* re-rendered on the next frame */ }
-  set(processes: ProcessInfo[]): void { this.entries = processes.filter((p) => p.running); }
+  /** The session-scoped snapshot includes the transient `foreground` handle of an in-flight Bash tool
+   *  call (the Ctrl+B detach gate needs it); this panel lists only managed BACKGROUND processes, so
+   *  drop it here — otherwise every plain `Bash` run would flash into the panel while it executes. */
+  set(processes: ProcessInfo[]): void { this.entries = processes.filter((p) => p.running && p.completionMode !== 'foreground'); }
   setMaxRows(rows: number): void { this.maxRows = Math.max(0, Math.floor(rows)); }
   /** The header (row 0) toggles the process list open/closed, mirroring the Todos card. */
   isHeaderRow(index: number): boolean { return index === 0 && this.entries.length > 0 && this.maxRows > 0; }

@@ -508,7 +508,7 @@ describe('SubagentPanel', () => {
 
 describe('ProcessPanel', () => {
   const now = 100_000;
-  const proc = (over: Partial<{ id: string; command: string; running: boolean; startedAt: string }> = {}) => ({
+  const proc = (over: Partial<{ id: string; command: string; running: boolean; startedAt: string; completionMode: 'job' | 'service' | 'foreground' }> = {}) => ({
     id: 'p1', command: 'npm run build', cwd: '/var/www/elowen', exitCode: null,
     startedAt: new Date(now - 8_000).toISOString(), running: true, ...over,
   });
@@ -516,6 +516,24 @@ describe('ProcessPanel', () => {
   it('renders nothing when no process is running (exited ones are dropped)', () => {
     const p = new ProcessPanel();
     p.set([proc({ running: false })]);
+    expect(p.render(80, now)).toEqual([]);
+  });
+
+  it('lists only BACKGROUND processes — an in-flight foreground Bash command never appears', () => {
+    const p = new ProcessPanel();
+    // The session snapshot carries the transient `foreground` handle of a running Bash tool call
+    // (kept for the Ctrl+B detach gate); the panel must show background jobs/services only.
+    p.set([
+      proc({ id: 'fg', command: 'git status', completionMode: 'foreground' }),
+      proc({ id: 'bg', command: 'npm run dev', completionMode: 'job' }),
+    ]);
+    const raw = p.render(80, now).map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''));
+    expect(raw[0]).toContain('1 running');
+    expect(raw.join('\n')).toContain('npm run dev');
+    expect(raw.join('\n')).not.toContain('git status');
+
+    // A snapshot with ONLY a foreground command renders nothing at all.
+    p.set([proc({ id: 'fg', command: 'git status', completionMode: 'foreground' })]);
     expect(p.render(80, now)).toEqual([]);
   });
 
