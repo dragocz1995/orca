@@ -158,6 +158,45 @@ describe('brain providers', () => {
     expect(m.compat?.supportsDeveloperRole).toBeUndefined();
   });
 
+  // Claude's OAuth / claude-code endpoint buffers a tool call's `input_json_delta`s into one burst at the
+  // END of the call unless the fine-grained-tool-streaming beta is on — and pi-ai only sends that beta
+  // when eager tool-input streaming is marked UNSUPPORTED on the model's compat. Without this pin the
+  // model-authored `reason` and the streamed file path reach the authoring spinner only after the tool
+  // already ran. These tests guard the pin itself; the delta→tool_authoring mapping is covered in
+  // events.test.ts and the reason-over-label precedence in cli/chat/composeLabels.test.ts.
+  describe('incremental tool-input streaming (live authoring spinner)', () => {
+    const eagerOf = (m: { compat?: unknown }): boolean | undefined =>
+      (m.compat as { supportsEagerToolInputStreaming?: boolean } | undefined)?.supportsEagerToolInputStreaming;
+
+    it('forces eager tool-input streaming OFF for a configured anthropic endpoint', () => {
+      const reg = buildBrainRegistry(cfg, runtime);
+      const route = resolveBrainModelRoute(reg, cfg, { provider: 'ant', model: 'claude-x' });
+      expect(route.model.api).toBe('anthropic-messages');
+      expect(eagerOf(route.model)).toBe(false);
+    });
+
+    it('applies the pin to the built-in Claude OAuth catalog without mutating the shared registry', () => {
+      const oauth: BrainRuntimeConfig = { providers: [{
+        id: 'claude', label: 'Claude', type: 'oauth-anthropic', baseUrl: '', models: ['claude-opus-4-8'], apiKey: null,
+      }] };
+      const reg = buildBrainRegistry(oauth, runtime);
+      const route = resolveBrainModelRoute(reg, oauth, { provider: 'claude', model: 'claude-opus-4-8' });
+      expect(route.model.api).toBe('anthropic-messages');
+      expect(eagerOf(route.model)).toBe(false);
+      // The route carries a CLONE: the registry copy other consumers resolve stays unpinned.
+      const shared = reg.find('anthropic', 'claude-opus-4-8');
+      expect(shared).toBeDefined();
+      expect(eagerOf(shared!)).toBeUndefined();
+    });
+
+    it('leaves non-anthropic APIs untouched', () => {
+      const reg = buildBrainRegistry(cfg, runtime);
+      const route = resolveBrainModelRoute(reg, cfg, { provider: 'relay', model: 'gpt-x' });
+      expect(route.model.api).toBe('openai-completions');
+      expect(eagerOf(route.model)).toBeUndefined();
+    });
+  });
+
   it('declares known OpenAI reasoning levels centrally and labels xhigh as ultra', () => {
     const known: BrainRuntimeConfig = {
       providers: [{ id: 'oa', label: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', models: ['gpt-5.4'], apiKey: 'k' }],
