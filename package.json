@@ -40,7 +40,7 @@
     "README.md"
   ],
   "scripts": {
-    "prebuild": "node scripts/dist-integrity.mjs clean",
+    "prebuild": "node scripts/dist-integrity.mjs clean && npm run languages-check --silent",
     "build": "tsc -p tsconfig.json && cp src/store/schema.sql dist/store/ && cp -r prompts dist/ && cp -r plugins dist/",
     "postbuild": "node scripts/dist-integrity.mjs chmod-bins && node scripts/dist-integrity.mjs verify",
     "check:dist": "node scripts/dist-integrity.mjs verify",
@@ -66,10 +66,11 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "languages-check": "node --experimental-strip-types --no-warnings scripts/check-languages.mjs",
     "depcruise": "depcruise src web --config .dependency-cruiser.cjs",
     "depgraph": "depcruise src web --config .dependency-cruiser.cjs --output-type dot | dot -T svg -o dependency-graph.svg",
     "deadcode": "knip",
-    "check": "npm run lint && npm run deadcode && npm run depcruise && npm run typecheck",
+    "check": "npm run lint && npm run deadcode && npm run depcruise && npm run typecheck && npm run languages-check",
     "serve": "node --experimental-strip-types src/daemon/index.ts"
   },
   "dependencies": {

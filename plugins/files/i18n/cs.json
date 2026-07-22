@@ -12,6 +12,10 @@
     "searchMaxMatches": {
       "label": "Maximální počet shod hledání",
       "hint": "Maximální počet shod, které Search vrátí před oříznutím."
+    },
+    "globMax": {
+      "label": "Glob max výsledků",
+      "hint": "Maximální počet souborů, které Glob vrátí, než výpis zkrátí."
     }
   }
 }

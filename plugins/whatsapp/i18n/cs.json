@@ -43,7 +43,8 @@
     },
     "language": {
       "label": "Jazyk služebních zpráv",
-      "hint": "Jazyk vlastních zpráv bota (/new, /model, zástupné texty): en (výchozí) nebo cs."
+      "hint": "Jazyk vlastních zpráv bota (/new, /model, zástupné texty): en (výchozí) nebo cs.",
+      "options": { "en": "Angličtina", "cs": "Čeština" }
     },
     "sec_conversation": {
       "label": "Konverzace",

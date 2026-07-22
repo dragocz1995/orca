@@ -30,6 +30,8 @@ jobs:
       - run: npm run lint
       - run: npm run deadcode
       - run: npm run depcruise
+      # cs/en dictionary parity + plugin i18n coverage (also runs as part of every build via prebuild).
+      - run: npm run languages-check
 
   daemon:
     name: Daemon (build + test)
