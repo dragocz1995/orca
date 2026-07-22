@@ -103,22 +103,21 @@ describe('AccountView', () => {
 
     await screen.findByText('@bob');
     fireEvent.click(screen.getByRole('radio', { name: 'Personality' }));
-    // Wait for the personality form to seed ('Concise' pill pressed) before changing a local control.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Concise' })).toHaveAttribute('aria-pressed', 'true'));
-    fireEvent.click(screen.getByRole('button', { name: 'Friendly' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Friendly' })).toHaveAttribute('aria-pressed', 'true'));
+    // PROTOTYPE(constellation): the style is a drawer-picked choice — wait for the seeded 'Concise'
+    // chip, then open the picker and switch to Friendly.
+    await waitFor(() => expect(screen.getByText('Concise')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Manage' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Friendly' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.getByText('Friendly')).toBeInTheDocument());
 
-    // Navigate away: the panel is kept mounted but hidden (React <Activity>), so it drops out of the
-    // accessibility tree — findable only with hidden:true, and not visible.
+    // Navigate away: the panel is kept mounted but hidden (React <Activity>), so the chip is no
+    // longer visible.
     fireEvent.click(screen.getByRole('radio', { name: 'Account' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Friendly', hidden: true })).not.toBeVisible());
+    await waitFor(() => expect(screen.getByText('Friendly')).not.toBeVisible());
     fireEvent.click(screen.getByRole('radio', { name: 'Personality' }));
     // The visited panel stayed mounted, so the local pick survives navigating away and back. The reveal
     // from <Activity> hidden→visible is deferred, so wait for it rather than asserting synchronously.
-    await waitFor(() => {
-      const friendly = screen.getByRole('button', { name: 'Friendly' });
-      expect(friendly).toHaveAttribute('aria-pressed', 'true');
-      expect(friendly).toBeVisible();
-    });
+    await waitFor(() => expect(screen.getByText('Friendly')).toBeVisible());
   });
 });

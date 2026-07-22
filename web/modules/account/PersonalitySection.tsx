@@ -12,6 +12,7 @@ import { SpatialGroup, SpatialRow } from '../../components/ui/SpatialPrimitives'
 import { useConstellation } from '../../components/ui/Constellation';
 import { SelectionSummary } from '../../components/ui/SelectionSummary';
 import { Modal, ModalFooter } from '../../components/ui/Modal';
+import { ChoiceField } from '../../components/ui/ChoiceField';
 import { AutoSaveStatus } from '../../components/ui/AutoSaveStatus';
 import { Button } from '../../components/ui/Button';
 import { Pill } from './pills';
@@ -69,11 +70,17 @@ export function PersonalitySection({ onSaveState }: { onSaveState?: (section: st
 
   const styleRow = (
     <SpatialRow title={t.personality.styleLabel} icon={Sparkles}>
-      <div className="flex flex-wrap justify-center gap-1.5" role="group" aria-label={t.personality.styleLabel}>
-        {styleOptions.map((o) => (
-          <Pill key={o.value} on={advisorStyle === o.value} onClick={() => setAdvisorStyle(o.value)}>{o.label}</Pill>
-        ))}
-      </div>
+      {/* PROTOTYPE(constellation): the pill strip reads noisy inside a pod — the pod shows the
+          current style as a chip and picks in the shared drawer picker instead. */}
+      {cosmos ? (
+        <ChoiceField title={t.personality.styleLabel} options={styleOptions} value={advisorStyle} onChange={setAdvisorStyle} />
+      ) : (
+        <div className="flex flex-wrap justify-center gap-1.5" role="group" aria-label={t.personality.styleLabel}>
+          {styleOptions.map((o) => (
+            <Pill key={o.value} on={advisorStyle === o.value} onClick={() => setAdvisorStyle(o.value)}>{o.label}</Pill>
+          ))}
+        </div>
+      )}
     </SpatialRow>
   );
 

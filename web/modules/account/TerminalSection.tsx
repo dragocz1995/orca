@@ -6,6 +6,7 @@ import { useConstellation } from '../../components/ui/Constellation';
 import { SelectionSummary } from '../../components/ui/SelectionSummary';
 import { WorkspaceDetailRail } from '../../components/ui/WorkspacePrimitives';
 import { Segmented } from '../../components/ui/Segmented';
+import { ChoiceField } from '../../components/ui/ChoiceField';
 import { Slider } from '../../components/ui/Slider';
 import { Toggle } from '../../components/ui/Toggle';
 import { LoadingState } from '../../components/ui/states';
@@ -123,7 +124,11 @@ export function TerminalSection({ onSaveState }: { onSaveState?: (section: strin
           </div>
           <div className="flex flex-col gap-1.5">
             <span className={label}>{t.terminal.fontFamily}</span>
-            <Segmented options={fontOpts} value={fontFamily} onChange={(v) => setFontFamily(v as TerminalFontFamily)} aria-label={t.terminal.fontFamily} />
+            {/* PROTOTYPE(constellation): four options don't fit a pod as a segmented strip — the pod
+                shows the current family as a chip and picks in the shared drawer picker. */}
+            {cosmos
+              ? <ChoiceField title={t.terminal.fontFamily} options={fontOpts} value={fontFamily} onChange={(v) => setFontFamily(v as TerminalFontFamily)} />
+              : <Segmented options={fontOpts} value={fontFamily} onChange={(v) => setFontFamily(v as TerminalFontFamily)} aria-label={t.terminal.fontFamily} />}
           </div>
         </div>
       </SpatialRow>
