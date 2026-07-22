@@ -486,3 +486,5 @@ html[data-effects='full'] .cosmos[data-mode='orbit'] .cosmos-pod:hover .cosmos-p
 
 /* sparse constellations (1–2 pods beside the core) need far less vertical room */
 .cosmos[data-mode='orbit'][data-density='sparse'] { height: clamp(26rem, calc(100dvh - 22rem), 34rem); }
+/* sparse pods may grow with their content (e.g. the four style pills on one line) */
+.cosmos[data-mode='orbit'][data-density='sparse'] .cosmos-pod { width: auto; min-width: 16.5rem; max-width: min(30rem, 38vw); }

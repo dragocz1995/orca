@@ -63,9 +63,13 @@ export function Modal({ title, onClose, children, size = 'lg', icon: Icon, descr
         tabIndex={-1}
         data-elowen-modal
         className={drawer
-          ? 'animate-drawer-in flex h-full w-[min(38rem,calc(100vw-3rem))] flex-col rounded-l-lg border-l border-border bg-surface'
+          ? 'animate-drawer-in flex h-full w-[min(38rem,calc(100vw-3rem))] flex-col rounded-l-lg border-l border-border'
           : `animate-pop-in flex flex-col rounded-lg bg-surface border border-border ${SIZES[size]}`}
-        style={{ boxShadow: drawer ? '-2rem 0 5rem rgb(0 0 0 / 0.72)' : 'var(--shadow-raised)' }}
+        // Drawers share the workspace detail rail's near-black document tone, not the lighter
+        // surface tone of centered windows.
+        style={drawer
+          ? { background: 'var(--color-document)', boxShadow: '-2rem 0 5rem rgb(0 0 0 / 0.72)' }
+          : { boxShadow: 'var(--shadow-raised)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-border px-5 py-3">
