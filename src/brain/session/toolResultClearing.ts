@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { AgentSession } from '@earendil-works/pi-coding-agent';
-import { dataDir } from '../../cli/paths.js';
+import { toolResultSpillDir } from '../../shared/paths.js';
 import { logger } from '../../shared/logger.js';
 import type { PiAgentMessage } from './historyImageStripping.js';
 
@@ -14,14 +14,18 @@ import type { PiAgentMessage } from './historyImageStripping.js';
  *  1. The gate opens only when the turn's first user message arrived MORE than the cache TTL after the
  *     previous message — i.e. the cached prefix had already expired and this provider call pays a full
  *     re-cache either way. Clearing here SHRINKS that rewrite instead of costing anything.
- *  2. A per-session latch (Set of cleared toolCallIds) guarantees a result once cleared stays cleared
- *     on every later request, so the prefix is byte-stable from then on. The latch lives in this
- *     closure; a respawn loses it, but a respawn is a cold cache anyway, and the gate re-clears on the
- *     next idle turn.
+ *  2. A per-session latch (Map of cleared toolCallIds → original bytes) guarantees a result once
+ *     cleared stays cleared on every later request, so the prefix is byte-stable from then on. The
+ *     latch lives in this closure; a respawn loses it. The cache is server-side, so a respawn WITHIN
+ *     the TTL is NOT cold — the first request then re-sends the full results and pays one full
+ *     re-cache of the restored (larger) prefix. Correct, just expensive; the gate re-clears on the
+ *     next idle turn. Rebuilding the latch from disk would also need the original byte counts
+ *     persisted (the placeholder embeds them), so we accept the one-off cost instead.
  *
  *  The full text is spilled to `<dataDir>/tool-results/<sessionId>/<toolCallId>.txt` BEFORE the
  *  placeholder replaces it (write-once, `wx`), so clearing loses nothing the model could not re-read
- *  with the Read tool. Persisted history in the store is untouched — this runs on PI's egress copy. */
+ *  with the Read tool — pathGuard lets every session read its OWN spill dir. Persisted history in
+ *  the store is untouched — this runs on PI's egress copy. */
 
 const log = logger('brain-tool-clearing');
 
@@ -34,10 +38,15 @@ export const CLEAR_MIN_BYTES = 4096;
 const KEEP_USER_TURNS = 2;
 
 /** pi-ai's short cache TTL is 5 minutes, long (PI_CACHE_RETENTION=long) is 1 hour; the daemon defaults
- *  to long. The gate needs the cache to be DEFINITELY cold, so the threshold is TTL + a 1-minute
- *  buffer. Resolved from the same env var pi-ai reads, so the two never disagree. */
+ *  to long. Resolved from the same env var pi-ai reads, so Elowen and pi-ai never disagree. */
+export function cacheTtlMs(env: NodeJS.ProcessEnv): number {
+  return env.PI_CACHE_RETENTION === 'long' ? 60 * 60_000 : 5 * 60_000;
+}
+
+/** The gate needs the cache to be DEFINITELY cold, so it rounds the TTL UP by a 1-minute buffer.
+ *  (cacheWatch rounds the same TTL DOWN instead — a drop near the boundary is expiry, not a break.) */
 export function idleThresholdMs(env: NodeJS.ProcessEnv): number {
-  return env.PI_CACHE_RETENTION === 'long' ? 61 * 60_000 : 6 * 60_000;
+  return cacheTtlMs(env) + 60_000;
 }
 
 /** Deterministic spill path — the placeholder builds it without any I/O, so the transform stays pure. */
@@ -150,11 +159,18 @@ export interface ToolResultClearingOptions {
   now?: () => number;
   /** Spill writer injection for tests. Receives the absolute path and the full text. */
   writeSpill?: (path: string, text: string) => Promise<void>;
+  /** Spill reader injection for tests; null = unreadable/missing. Used to verify an EEXIST survivor. */
+  readSpill?: (path: string) => Promise<string | null>;
 }
 
 async function defaultWriteSpill(path: string, text: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, text, { flag: 'wx' });
+}
+
+async function defaultReadSpill(path: string): Promise<string | null> {
+  try { return await readFile(path, 'utf8'); }
+  catch { return null; }
 }
 
 /** Compose the clearing pass onto the session's `transformContext`, after (inside) any previous hook —
@@ -167,33 +183,49 @@ export function installToolResultClearing(
 ): void {
   const agent = session.agent;
   if (!agent) return;
-  const spillDir = options.spillDir ?? join(dataDir(process.env), 'tool-results', sessionId);
+  const spillDir = options.spillDir ?? toolResultSpillDir(process.env, sessionId);
   const idleMs = options.idleMs ?? idleThresholdMs(process.env);
   const now = options.now ?? Date.now;
   const writeSpill = options.writeSpill ?? defaultWriteSpill;
+  const readSpill = options.readSpill ?? defaultReadSpill;
   /** Cleared toolCallId → its original text size in bytes. The latch is what makes the egress prefix
    *  byte-stable across requests: once inside, the placeholder never reverts to full content. */
   const latched = new Map<string, number>();
+  /** toolCallIds whose spill failed during THIS idle epoch. The gate stays open for a whole turn, so
+   *  retrying on the next pass would clear right after THIS pass paid a full re-cache — a warm-prefix
+   *  rewrite, the one thing this module must never do. Retries wait for the next gate OPENING. */
+  const failedSpills = new Set<string>();
+  let gateWasOpen = false;
   const previous = agent.transformContext;
   agent.transformContext = async (messages, signal) => {
     const base = previous ? await previous(messages, signal) : messages;
-    if (cacheColdAtTurnStart(base, idleMs, now())) {
+    const gateOpen = cacheColdAtTurnStart(base, idleMs, now());
+    if (gateOpen && !gateWasOpen) failedSpills.clear();
+    gateWasOpen = gateOpen;
+    if (gateOpen) {
       const fresh = selectClearableToolResults(base, new Set(latched.keys()));
       for (const item of fresh) {
+        if (failedSpills.has(item.toolCallId)) continue;
         const message = base[item.index] as ToolResultMessage;
         const text = (Array.isArray(message.content) ? message.content : [])
           .filter((block: ContentBlock): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
           .map((block) => block.text)
           .join('\n');
+        const spillPath = toolResultSpillPath(spillDir, item.toolCallId);
         try {
-          await writeSpill(toolResultSpillPath(spillDir, item.toolCallId), text);
+          await writeSpill(spillPath, text);
           latched.set(item.toolCallId, item.bytes);
         } catch (error) {
-          // EEXIST means a pre-respawn spill is already on disk — the content is safe, so latching is
-          // fine. Anything else (disk full, permissions) leaves the result in context and retries on
-          // the next pass instead of clearing content the model could never re-read.
-          if ((error as NodeJS.ErrnoException).code === 'EEXIST') latched.set(item.toolCallId, item.bytes);
-          else log.warn(`tool result spill failed for ${item.toolCallId}`, error);
+          // EEXIST means SOMETHING already sits at the path: a pre-respawn spill of this same output,
+          // or a file the session itself wrote (its own spill dir is inside its allowed paths). Latch
+          // only when the on-disk bytes are exactly what we would have written — otherwise the
+          // placeholder would point at text that was never the tool's output.
+          if ((error as NodeJS.ErrnoException).code === 'EEXIST' && (await readSpill(spillPath)) === text) {
+            latched.set(item.toolCallId, item.bytes);
+            continue;
+          }
+          failedSpills.add(item.toolCallId);
+          log.warn(`tool result spill failed for ${item.toolCallId}`, error);
         }
       }
     }

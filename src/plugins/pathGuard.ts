@@ -1,7 +1,8 @@
 import { realpathSync } from 'node:fs';
 import { resolve, sep, dirname, basename, join } from 'node:path';
-import { currentIdentity, currentPolicy, currentToolPolicy, currentTurnPermissions, currentWorkDir } from './policyContext.js';
+import { currentIdentity, currentPolicy, currentSessionId, currentToolPolicy, currentTurnPermissions, currentWorkDir } from './policyContext.js';
 import { noninteractivePermissionBoundary, type NoninteractivePermissionBoundary } from '../brain/toolPermissions.js';
+import { toolResultSpillDir } from '../shared/paths.js';
 
 /** The repo roots the current session may operate in. Empty for an admin (all-access) or outside a
  *  prompt turn. A tool uses this to default a working directory. */
@@ -69,10 +70,22 @@ export function realPathWithin(path: string, roots: string[]): string | null {
 
 /** Resolve `path` to its real absolute path and assert it is inside one of the current session's
  *  allowed repo roots (or that the session is admin all-access). Throws a clear Error otherwise.
- *  This is the single enforcement point the file/terminal tools call before touching disk. */
+ *  This is the single enforcement point the file/terminal tools call before touching disk.
+ *
+ *  One non-repo allowance: the session's OWN tool-result spill dir. Clearing swaps large historical
+ *  tool outputs for a placeholder that names the spill path and tells the model to Read it back —
+ *  that promise must hold for EVERY session class (shared channels, delegated workers), not just
+ *  admin all-access, or cleared content would be unrecoverable for them. Scoped per-session: no
+ *  session can ever reach another session's spills. Writes there can't corrupt clearing either —
+ *  an EEXIST survivor is latched only when its bytes match the output being spilled. */
 export function assertPathAllowed(path: string): string {
   if (isAllAccess()) return realAbs(path);
   const abs = realPathWithin(path, allowedRoots());
   if (abs) return abs;
+  const sessionId = currentSessionId();
+  if (sessionId) {
+    const spill = realPathWithin(path, [toolResultSpillDir(process.env, sessionId)]);
+    if (spill) return spill;
+  }
   throw new Error(`path not allowed: "${path}" is outside your accessible repositories`);
 }

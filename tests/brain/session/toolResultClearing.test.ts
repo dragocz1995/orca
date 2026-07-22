@@ -3,6 +3,7 @@ import {
   CLEAR_MIN_BYTES,
   applyToolResultClearing,
   cacheColdAtTurnStart,
+  cacheTtlMs,
   clearedToolResultPlaceholder,
   clearingCutIndex,
   idleThresholdMs,
@@ -43,13 +44,18 @@ interface Harness {
   writes: Map<string, string>;
 }
 
-function harness(options: { idleMs?: number; writeSpill?: (p: string, t: string) => Promise<void> } = {}): Harness {
+function harness(options: {
+  idleMs?: number;
+  writeSpill?: (p: string, t: string) => Promise<void>;
+  readSpill?: (p: string) => Promise<string | null>;
+} = {}): Harness {
   const writes = new Map<string, string>();
   const session: Harness['session'] = { agent: {} };
   installToolResultClearing(session, 'sess-1', {
     idleMs: options.idleMs ?? IDLE,
     spillDir: '/tmp/spill/sess-1',
     writeSpill: options.writeSpill ?? (async (p, t) => { writes.set(p, t); }),
+    readSpill: options.readSpill ?? (async () => null),
   });
   return { session, writes, transform: (m) => session.agent.transformContext!(m) };
 }
@@ -99,6 +105,15 @@ describe('cacheColdAtTurnStart', () => {
 
   it('is false for the very first user message (nothing to compare against)', () => {
     expect(cacheColdAtTurnStart([user('one', T0)], IDLE, T0)).toBe(false);
+  });
+
+  it('bounds a future-stamped prompt by now (clock skew can only close the gate, never open it)', () => {
+    // The prompt claims a huge idle gap, but the clock says only 1s has passed — the gap is capped
+    // by `now`, so the gate stays closed.
+    const skewed: PiAgentMessage[] = [user('one', T0), assistant('a', T0 + 1_000), user('two', T0 + 10 * IDLE)];
+    expect(cacheColdAtTurnStart(skewed, IDLE, T0 + 2_000)).toBe(false);
+    // With an honest clock the same timestamps open the gate.
+    expect(cacheColdAtTurnStart(skewed, IDLE, T0 + 10 * IDLE)).toBe(true);
   });
 });
 
@@ -188,34 +203,92 @@ describe('installToolResultClearing', () => {
     expect(JSON.stringify(cleared5.slice(0, cleared4.length))).toBe(JSON.stringify(cleared4));
   });
 
-  it('does not clear when the spill write fails (and retries on the next pass)', async () => {
+  it('does not clear when the spill write fails, and retries only at the NEXT idle epoch', async () => {
     let calls = 0;
     const h = harness({
       writeSpill: async () => { calls += 1; throw Object.assign(new Error('readonly'), { code: 'EACCES' }); },
     });
-    const messages: PiAgentMessage[] = [
+    const turn3: PiAgentMessage[] = [
       user('one', T0), toolResult('old-big', big, T0 + 1_000),
       user('two', T0 + 2_000),
       user('three', T0 + IDLE + 3_000),
     ];
-    const first = await h.transform(messages);
+    const first = await h.transform(turn3);
     expect(JSON.stringify(first[1])).toContain('xxxx'); // still full content
     expect(calls).toBe(1);
-    await h.transform(messages); // not latched → retried
+    // The gate stays open for the whole turn, but a mid-turn retry would rewrite the prefix this
+    // pass just paid to re-cache — so the failed id is skipped until the next gate OPENING.
+    await h.transform(turn3);
+    expect(calls).toBe(1);
+    // The conversation continues actively (gate closes on a fresh user message) and then idles again
+    // (gate re-opens): only NOW is the retry allowed.
+    const turn4: PiAgentMessage[] = [...turn3, assistant('ok', T0 + IDLE + 4_000), user('four', T0 + IDLE + 5_000)];
+    await h.transform(turn4);
+    expect(calls).toBe(1);
+    const turn5: PiAgentMessage[] = [
+      ...turn4, assistant('ok2', T0 + IDLE + 6_000), user('five', T0 + 2 * IDLE + 7_000),
+    ];
+    await h.transform(turn5);
     expect(calls).toBe(2);
   });
 
-  it('treats EEXIST as success: a pre-respawn spill on disk is good enough to clear', async () => {
-    const h = harness({
+  it('EEXIST latches only when the on-disk spill matches the output byte-for-byte', async () => {
+    const matching = harness({
       writeSpill: async () => { throw Object.assign(new Error('exists'), { code: 'EEXIST' }); },
+      readSpill: async () => big, // a genuine pre-respawn spill of this very output
     });
     const messages: PiAgentMessage[] = [
       user('one', T0), toolResult('old-big', big, T0 + 1_000),
       user('two', T0 + 2_000),
       user('three', T0 + IDLE + 3_000),
     ];
-    const result = await h.transform(messages);
+    const result = await matching.transform(messages);
     expect(JSON.stringify(result[1])).toContain('Older tool result cleared');
+
+    // A foreign file at the path (e.g. written by the session itself) must NOT be latched: the
+    // placeholder would point at text that was never the tool's output.
+    let calls = 0;
+    const foreign = harness({
+      writeSpill: async () => { calls += 1; throw Object.assign(new Error('exists'), { code: 'EEXIST' }); },
+      readSpill: async () => 'something else entirely',
+    });
+    const kept = await foreign.transform(messages);
+    expect(JSON.stringify(kept[1])).toContain('xxxx');
+    await foreign.transform(messages); // same epoch — no retry spin either
+    expect(calls).toBe(1);
+  });
+
+  it('clears nothing when the cut lands on the first message (exactly two user turns)', async () => {
+    const h = harness();
+    // Two user messages with the first at index 0 → cut = 0 → nothing is eligible, even when idle.
+    const messages: PiAgentMessage[] = [
+      user('one', T0), toolResult('old-big', big, T0 + 1_000),
+      user('two', T0 + IDLE + 2_000),
+    ];
+    const result = await h.transform(messages);
+    expect(result).toBe(messages);
+    expect(h.writes.size).toBe(0);
+  });
+
+  it('replaces image blocks too (image stripping already turned history images into text upstream)', async () => {
+    const h = harness();
+    const withImage: PiAgentMessage = {
+      role: 'toolResult', toolCallId: 'old-img', toolName: 'Read', isError: false, timestamp: T0 + 1_000,
+      content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }, { type: 'text', text: big }],
+    };
+    const messages: PiAgentMessage[] = [
+      user('one', T0), withImage,
+      user('two', T0 + 2_000),
+      user('three', T0 + IDLE + 3_000),
+    ];
+    const result = await h.transform(messages);
+    const content = (result[1] as { content: { type: string; text?: string }[] }).content;
+    expect(content).toHaveLength(1);
+    expect(content[0]?.type).toBe('text');
+    expect(content[0]?.text).toContain('Older tool result cleared');
+    // The spill carries the text blocks; image bytes never hit the spill file (they were stripped
+    // upstream in the real pipeline — the factory installs this hook after historyImageStripping).
+    expect(h.writes.get(toolResultSpillPath('/tmp/spill/sess-1', 'old-img'))).toBe(big);
   });
 
   it('composes with a pre-existing transformContext and survives a missing agent seam', async () => {
@@ -236,8 +309,13 @@ describe('installToolResultClearing', () => {
   });
 });
 
-describe('idleThresholdMs', () => {
-  it('tracks the cache TTL: 61 minutes for long retention, 6 otherwise', () => {
+describe('cacheTtlMs / idleThresholdMs', () => {
+  it('resolves the TTL from the same env var pi-ai reads: 60 min long, 5 min short', () => {
+    expect(cacheTtlMs({ PI_CACHE_RETENTION: 'long' } as NodeJS.ProcessEnv)).toBe(60 * 60_000);
+    expect(cacheTtlMs({} as NodeJS.ProcessEnv)).toBe(5 * 60_000);
+  });
+
+  it('the gate rounds the TTL UP by a minute: 61 minutes for long retention, 6 otherwise', () => {
     expect(idleThresholdMs({ PI_CACHE_RETENTION: 'long' } as NodeJS.ProcessEnv)).toBe(61 * 60_000);
     expect(idleThresholdMs({} as NodeJS.ProcessEnv)).toBe(6 * 60_000);
   });

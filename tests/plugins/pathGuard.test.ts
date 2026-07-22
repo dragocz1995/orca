@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { assertPathAllowed, allowedRoots, defaultCwd, isAllAccess } from '../../src/plugins/pathGuard.js';
 import { runWithPolicy } from '../../src/plugins/policyContext.js';
 import type { Policy } from '../../src/plugins/policy.js';
@@ -92,5 +92,43 @@ describe('symlink escape', () => {
       // a brand-new (not yet existing) file inside the repo passes too
       expect(assertPathAllowed(join(repo, 'new.txt'))).toContain('new.txt');
     });
+  });
+});
+
+describe('own tool-result spill dir', () => {
+  it('lets a non-admin session read its OWN spill dir (the placeholder promise must hold)', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const home = mkdtempSync(join(tmpdir(), 'elowen-spill-guard-'));
+    vi.stubEnv('HOME', home);
+    try {
+      const spill = join(home, '.config/elowen/tool-results/sess-a/out.txt');
+      runWithPolicy(userPolicy(['/repo/a']), () => {
+        expect(assertPathAllowed(spill)).toBe(spill);
+      }, { sessionId: 'sess-a' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('never lets a session into ANOTHER session\'s spill dir, and rejects spills with no session in scope', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const home = mkdtempSync(join(tmpdir(), 'elowen-spill-guard-'));
+    vi.stubEnv('HOME', home);
+    try {
+      const foreign = join(home, '.config/elowen/tool-results/sess-b/out.txt');
+      runWithPolicy(userPolicy(['/repo/a']), () => {
+        expect(() => assertPathAllowed(foreign)).toThrow(/not allowed/);
+      }, { sessionId: 'sess-a' });
+      // No session id in scope → no spill allowance at all.
+      runWithPolicy(userPolicy(['/repo/a']), () => {
+        expect(() => assertPathAllowed(join(home, '.config/elowen/tool-results/sess-a/out.txt'))).toThrow(/not allowed/);
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
