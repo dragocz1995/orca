@@ -1,0 +1,217 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import type { AgentSession } from '@earendil-works/pi-coding-agent';
+import { dataDir } from '../../cli/paths.js';
+import { logger } from '../../shared/logger.js';
+import type { PiAgentMessage } from './historyImageStripping.js';
+
+/** Egress-only clearing of large historical tool results — the transferable core of Claude Code's
+ *  time-based microcompact, adapted to Elowen's `transformContext` seam (the same hook
+ *  `historyImageStripping` composes onto). Anthropic's prompt cache is prefix-based, so the one rule
+ *  that matters is: NEVER rewrite history while the cache could still be warm. Two mechanisms enforce
+ *  it:
+ *
+ *  1. The gate opens only when the turn's first user message arrived MORE than the cache TTL after the
+ *     previous message — i.e. the cached prefix had already expired and this provider call pays a full
+ *     re-cache either way. Clearing here SHRINKS that rewrite instead of costing anything.
+ *  2. A per-session latch (Set of cleared toolCallIds) guarantees a result once cleared stays cleared
+ *     on every later request, so the prefix is byte-stable from then on. The latch lives in this
+ *     closure; a respawn loses it, but a respawn is a cold cache anyway, and the gate re-clears on the
+ *     next idle turn.
+ *
+ *  The full text is spilled to `<dataDir>/tool-results/<sessionId>/<toolCallId>.txt` BEFORE the
+ *  placeholder replaces it (write-once, `wx`), so clearing loses nothing the model could not re-read
+ *  with the Read tool. Persisted history in the store is untouched — this runs on PI's egress copy. */
+
+const log = logger('brain-tool-clearing');
+
+/** Results smaller than this stay in context: clearing them saves a handful of tokens while costing a
+ *  spill file and a placeholder. 4 KB ≈ 1k tokens. */
+export const CLEAR_MIN_BYTES = 4096;
+
+/** How many trailing user turns keep their tool results intact: the current run (after the last user
+ *  message) plus the whole previous turn. Everything older is eligible once the gate opens. */
+const KEEP_USER_TURNS = 2;
+
+/** pi-ai's short cache TTL is 5 minutes, long (PI_CACHE_RETENTION=long) is 1 hour; the daemon defaults
+ *  to long. The gate needs the cache to be DEFINITELY cold, so the threshold is TTL + a 1-minute
+ *  buffer. Resolved from the same env var pi-ai reads, so the two never disagree. */
+export function idleThresholdMs(env: NodeJS.ProcessEnv): number {
+  return env.PI_CACHE_RETENTION === 'long' ? 61 * 60_000 : 6 * 60_000;
+}
+
+/** Deterministic spill path — the placeholder builds it without any I/O, so the transform stays pure. */
+export function toolResultSpillPath(spillDir: string, toolCallId: string): string {
+  return join(spillDir, `${toolCallId}.txt`);
+}
+
+export function clearedToolResultPlaceholder(spillPath: string, originalBytes: number): string {
+  return `[Older tool result cleared to save context. Full output saved at: ${spillPath} — read it with the Read tool if needed. Original size: ${originalBytes} bytes.]`;
+}
+
+type ToolResultMessage = Extract<PiAgentMessage, { role: 'toolResult' }>;
+type ContentBlock = ToolResultMessage['content'][number];
+
+function textBytes(message: ToolResultMessage): number {
+  if (!Array.isArray(message.content)) return 0;
+  let total = 0;
+  for (const block of message.content) {
+    if (block.type === 'text') total += Buffer.byteLength(block.text, 'utf8');
+  }
+  return total;
+}
+
+/** Index of the user message that starts the KEEP_USER_TURNS-th turn from the end, or -1 when the
+ *  conversation is shorter. Messages before it are eligible for clearing. Exported for tests. */
+export function clearingCutIndex(messages: readonly PiAgentMessage[]): number {
+  let seen = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role !== 'user') continue;
+    seen += 1;
+    if (seen === KEEP_USER_TURNS) return index;
+  }
+  return -1;
+}
+
+export interface ClearableResult {
+  index: number;
+  toolCallId: string;
+  bytes: number;
+}
+
+/** Pure selection: which tool results may be cleared on this pass. Eligible = toolResult before the
+ *  cut, ≥ CLEAR_MIN_BYTES of text, with a toolCallId (no id → no spill path → never cleared), not
+ *  already latched. Exported for tests. */
+export function selectClearableToolResults(
+  messages: PiAgentMessage[],
+  alreadyCleared: ReadonlySet<string>,
+): ClearableResult[] {
+  const cut = clearingCutIndex(messages);
+  if (cut <= 0) return [];
+  const selection: ClearableResult[] = [];
+  for (let index = 0; index < cut; index += 1) {
+    const message = messages[index];
+    if (message?.role !== 'toolResult') continue;
+    if (!message.toolCallId || alreadyCleared.has(message.toolCallId)) continue;
+    const bytes = textBytes(message);
+    if (bytes < CLEAR_MIN_BYTES) continue;
+    selection.push({ index, toolCallId: message.toolCallId, bytes });
+  }
+  return selection;
+}
+
+/** Pure replacement: swap each selected message's content for the placeholder text block. Input is
+ *  never mutated and unselected messages keep their references (idempotence, same contract as
+ *  stripHistoricalImages). Exported for tests. */
+export function applyToolResultClearing(
+  messages: PiAgentMessage[],
+  cleared: ReadonlyMap<string, { index: number; placeholder: string }>,
+): PiAgentMessage[] {
+  let changed = false;
+  const next = messages.map((message, index): PiAgentMessage => {
+    if (message?.role !== 'toolResult') return message;
+    const entry = cleared.get(message.toolCallId);
+    if (!entry || entry.index !== index) return message;
+    const already = Array.isArray(message.content)
+      && message.content.length === 1
+      && message.content[0]?.type === 'text'
+      && message.content[0].text === entry.placeholder;
+    if (already) return message;
+    changed = true;
+    return { ...message, content: [{ type: 'text', text: entry.placeholder }] };
+  });
+  return changed ? next : messages;
+}
+
+/** Was the cache definitely cold when this turn started? Compare the last user message (the prompt
+ *  that opened the current turn) with the message right before it. During an active tool loop the gap
+ *  is seconds; after an idle longer than the TTL the gap proves the prefix had expired. Exported for
+ *  tests. */
+export function cacheColdAtTurnStart(messages: PiAgentMessage[], idleMs: number, now: number): boolean {
+  let lastUser = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') { lastUser = index; break; }
+  }
+  if (lastUser <= 0) return false;
+  const promptAt = messages[lastUser]?.timestamp;
+  const previousAt = messages[lastUser - 1]?.timestamp;
+  if (typeof promptAt !== 'number' || typeof previousAt !== 'number') return false;
+  // A rehydrated session's prompt is fresh while its history is old; `now` bounds a prompt stamped in
+  // the future (clock skew) so the gap can't be inflated beyond the real idle time.
+  return Math.min(promptAt, now) - previousAt > idleMs;
+}
+
+export interface ToolResultClearingOptions {
+  /** Directory the spill files land in; defaults to `<dataDir>/tool-results/<sessionId>`. */
+  spillDir?: string;
+  /** Idle gate in ms; defaults to idleThresholdMs(process.env). */
+  idleMs?: number;
+  /** Clock injection for tests. */
+  now?: () => number;
+  /** Spill writer injection for tests. Receives the absolute path and the full text. */
+  writeSpill?: (path: string, text: string) => Promise<void>;
+}
+
+async function defaultWriteSpill(path: string, text: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, text, { flag: 'wx' });
+}
+
+/** Compose the clearing pass onto the session's `transformContext`, after (inside) any previous hook —
+ *  installed after installHistoryImageStripping so it sees images already collapsed. Same wrap pattern
+ *  as the other installers; a session without the agent seam is a no-op. */
+export function installToolResultClearing(
+  session: { agent?: { transformContext?: NonNullable<AgentSession['agent']['transformContext']> } },
+  sessionId: string,
+  options: ToolResultClearingOptions = {},
+): void {
+  const agent = session.agent;
+  if (!agent) return;
+  const spillDir = options.spillDir ?? join(dataDir(process.env), 'tool-results', sessionId);
+  const idleMs = options.idleMs ?? idleThresholdMs(process.env);
+  const now = options.now ?? Date.now;
+  const writeSpill = options.writeSpill ?? defaultWriteSpill;
+  /** Cleared toolCallId → its original text size in bytes. The latch is what makes the egress prefix
+   *  byte-stable across requests: once inside, the placeholder never reverts to full content. */
+  const latched = new Map<string, number>();
+  const previous = agent.transformContext;
+  agent.transformContext = async (messages, signal) => {
+    const base = previous ? await previous(messages, signal) : messages;
+    if (cacheColdAtTurnStart(base, idleMs, now())) {
+      const fresh = selectClearableToolResults(base, new Set(latched.keys()));
+      for (const item of fresh) {
+        const message = base[item.index] as ToolResultMessage;
+        const text = (Array.isArray(message.content) ? message.content : [])
+          .filter((block: ContentBlock): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+          .map((block) => block.text)
+          .join('\n');
+        try {
+          await writeSpill(toolResultSpillPath(spillDir, item.toolCallId), text);
+          latched.set(item.toolCallId, item.bytes);
+        } catch (error) {
+          // EEXIST means a pre-respawn spill is already on disk — the content is safe, so latching is
+          // fine. Anything else (disk full, permissions) leaves the result in context and retries on
+          // the next pass instead of clearing content the model could never re-read.
+          if ((error as NodeJS.ErrnoException).code === 'EEXIST') latched.set(item.toolCallId, item.bytes);
+          else log.warn(`tool result spill failed for ${item.toolCallId}`, error);
+        }
+      }
+    }
+    if (latched.size === 0) return base;
+    const cleared = new Map<string, { index: number; placeholder: string }>();
+    for (let index = 0; index < base.length; index += 1) {
+      const message = base[index];
+      if (message?.role !== 'toolResult') continue;
+      const originalBytes = latched.get(message.toolCallId);
+      if (originalBytes === undefined) continue;
+      cleared.set(message.toolCallId, {
+        index,
+        placeholder: clearedToolResultPlaceholder(
+          toolResultSpillPath(spillDir, message.toolCallId),
+          originalBytes,
+        ),
+      });
+    }
+    return applyToolResultClearing(base, cleared);
+  };
+}
