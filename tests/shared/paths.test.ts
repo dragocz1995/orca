@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { dataDir, dbPath, logDir, runFile } from '../../src/cli/paths.js';
+import { dataDir, dbPath, logDir, runFile } from '../../src/shared/paths.js';
 
-describe('cli/paths', () => {
+describe('shared/paths', () => {
   const env = { HOME: '/h' } as NodeJS.ProcessEnv;
 
   it('defaults the data dir to ~/.config/elowen', () => {

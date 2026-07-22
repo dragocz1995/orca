@@ -1,6 +1,6 @@
 import { openDb } from '../store/db.js';
 import { MissionStore } from '../store/missionStore.js';
-import { dbPath } from './paths.js';
+import { dbPath } from '../shared/paths.js';
 
 /** Whether any mission is currently live (active or stalled), read FRESH from the daemon's DB — WAL lets
  *  a separate process read alongside the running daemon. The self-update path checks this TWICE: up front

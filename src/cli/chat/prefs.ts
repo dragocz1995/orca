@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { dataDir } from '../paths.js';
+import { dataDir } from '../../shared/paths.js';
 import type { ComposeLocale } from './composeLabels.js';
 
 /** Local (per-machine) chat-TUI preferences. The terminal theme is a property of THIS terminal — dark

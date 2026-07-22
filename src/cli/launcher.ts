@@ -2,7 +2,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dataDir, dbPath, logDir, runFile } from './paths.js';
+import { dataDir, dbPath, logDir, runFile } from '../shared/paths.js';
 
 interface Svc { pid: number; port: number }
 export interface RunState { daemon: Svc; web: Svc; version: string; startedAt: string }

@@ -1,6 +1,6 @@
 import { openDb } from '../store/db.js';
 import { ConfigStore } from '../store/configStore.js';
-import { dbPath } from './paths.js';
+import { dbPath } from '../shared/paths.js';
 import { hasLiveMission } from './missionGate.js';
 import { update, type UpdateResult } from './update.js';
 

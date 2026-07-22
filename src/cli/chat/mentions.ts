@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
-import { dataDir } from '../paths.js';
+import { dataDir } from '../../shared/paths.js';
 
 /** `@` file mentions for the chat TUI (opencode-style): a fuzzy+frecency file suggester over the
  *  project, token parsing on submit, and attachment expansion — text files ride inside the prompt as

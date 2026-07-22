@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { dataDir } from '../paths.js';
+import { dataDir } from '../../shared/paths.js';
 
 /** Thrown by resolveToken when no token is available anywhere — the caller runs an interactive login. */
 export class NeedsLogin extends Error {

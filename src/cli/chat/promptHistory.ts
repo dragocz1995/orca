@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { dataDir } from '../paths.js';
+import { dataDir } from '../../shared/paths.js';
 
 /** Persisted ↑-recall prompt history for the chat TUI, keyed by project (workDir) like the todo
  *  checklist — recalling another project's prompts in this one would just be noise. The file lives

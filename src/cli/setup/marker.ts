@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { dataDir } from '../paths.js';
+import { dataDir } from '../../shared/paths.js';
 import type { WizardAnswers } from './types.js';
 
 /** Records that the CLI onboarding wizard has run (so the launcher doesn't re-nag every start) and holds
