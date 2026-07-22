@@ -66,8 +66,8 @@ export function CosmosGroup({ core, children }: { core: string; children: ReactN
       const height = root.clientHeight;
       const cx = width / 2;
       const cy = height / 2;
-      const rx = Math.min(width * 0.38, 30 * 16);
-      const ry = height * 0.33;
+      const rx = Math.min(width * 0.42, 34 * 16);
+      const ry = height * 0.35;
       ring.style.width = `${rx * 2 + 140}px`;
       ring.style.height = `${Math.min(ry * 2 + 110, height - 16)}px`;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);

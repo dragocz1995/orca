@@ -103,8 +103,8 @@ export function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
   );
 }
 
-function SpatialContentSurface({ children }: { children: ReactNode }) {
-  return <section data-testid="spatial-content-surface" className="spatial-content-surface">{children}</section>;
+function SpatialContentSurface({ bare = false, children }: { bare?: boolean; children: ReactNode }) {
+  return <section data-testid="spatial-content-surface" className={`spatial-content-surface ${bare ? 'spatial-content-surface--bare' : ''}`}>{children}</section>;
 }
 
 export function SpatialControlDeck({ eyebrow, sections, value, onChange, ariaLabel, status = 'idle', onRetry, hero, compact = false, children }: {
@@ -136,7 +136,7 @@ export function SpatialControlDeck({ eyebrow, sections, value, onChange, ariaLab
       </header>
       {compact ? null : <SpatialSectionHero status={status} onRetry={onRetry}>{hero}</SpatialSectionHero>}
       <SpatialSectionRail sections={sections} value={active.id} onChange={onChange} ariaLabel={ariaLabel} />
-      <SpatialContentSurface>{children}</SpatialContentSurface>
+      <SpatialContentSurface bare={compact}>{children}</SpatialContentSurface>
     </div>
   );
 }

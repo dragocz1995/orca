@@ -60,7 +60,9 @@ function AccountPanel({ id, active, visited, children }: {
   if (id !== active && !visited.has(id)) return null;
   return (
     <Activity mode={id === active ? 'visible' : 'hidden'}>
-      <MotionReveal data-account-panel={id}>{children}</MotionReveal>
+      {/* PROTOTYPE(constellation): data-constellation drops the card frame so sections float on the
+          page background. */}
+      <MotionReveal data-account-panel={id} data-constellation={ACCOUNT_CONSTELLATION ? '' : undefined}>{children}</MotionReveal>
     </Activity>
   );
 }
