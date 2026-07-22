@@ -11,10 +11,19 @@ import {
   type PendingCompactionMessage,
 } from './turnBoundaryCompaction.js';
 import { installHistoryImageStripping } from './historyImageStripping.js';
-import type { ToolSearchHandle } from '../toolSearch/toolSearchTool.js';
+import { seedActivatedFromHistory, type ToolSearchHandle } from '../toolSearch/toolSearchTool.js';
 import { logger } from '../../shared/logger.js';
 
 let missingBoundaryCompactionWarned = false;
+
+/** The INITIAL active tool slice: every registered tool name MINUS the deferred ones. Deferred tools stay
+ *  in the registry (customTools) so ToolSearch can activate them later; they are simply withheld from the
+ *  prompt at spawn. No deferral (undefined/empty) → every tool starts active, byte-identical to before.
+ *  Extracted as a pure function so the split is unit-testable without constructing a whole session. */
+export function initialActiveToolNames(tools: readonly ToolDefinition[], deferred?: ReadonlySet<string>): string[] {
+  const names = tools.map((t) => t.name);
+  return deferred && deferred.size > 0 ? names.filter((n) => !deferred.has(n)) : names;
+}
 
 /** Everything one PI brain session needs, composed by the caller: the chat brain renders the Elowen
  *  persona and gates Elowen* tools by session kind; the task worker bakes in its close tool and the
@@ -275,7 +284,7 @@ export class BrainSessionFactory {
       // The registry is the FULL set (customTools); the INITIAL active slice omits deferred tools so their
       // schemas stay out of the prompt until ToolSearch fetches them. They remain in the registry, so
       // setActiveToolsByName can add them back. No deferral → every tool starts active, exactly as before.
-      tools: spec.tools.map((t) => t.name).filter((n) => !spec.toolSearch?.deferred.has(n)),
+      tools: initialActiveToolNames(spec.tools, spec.toolSearch?.deferred),
       noTools: 'builtin',
       ...(thinkingLevel ? { thinkingLevel } : {}),
     });
@@ -286,8 +295,13 @@ export class BrainSessionFactory {
     // Wire the live session onto the deferred-tool handle so ToolSearch (which closes over the handle) can
     // read the registry and change the active slice. AgentSession structurally satisfies the handle's
     // ToolActivationTarget (getAllTools/getActiveToolNames/setActiveToolsByName). No-op when nothing is
-    // deferred (handle undefined).
-    if (spec.toolSearch) spec.toolSearch.session = session;
+    // deferred (handle undefined). Then re-seed `activated` from rehydrated history so a respawn (model
+    // switch, LRU revival, restart) does not forget tools the model already fetched — the next visibility
+    // pass turns them back on.
+    if (spec.toolSearch) {
+      spec.toolSearch.session = session;
+      seedActivatedFromHistory(spec.toolSearch, session.messages);
+    }
     // Egress-only: image blocks that have scrolled into history (a newer user turn exists) become text
     // placeholders in every provider request, for ANY image source — Read images, MCP screenshots,
     // future plugins. The current run's fresh image is still seen; persisted history is untouched.

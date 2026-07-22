@@ -1,6 +1,7 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { currentToolPolicy, currentTurnPermissions, toolPermitted, type ToolPolicy } from '../../plugins/policyContext.js';
 import { BASH_PERMISSION_TOOLS, bashAlwaysPattern, resolveToolPermission, type ApprovalDecision } from '../toolPermissions.js';
+import type { ToolActivationTarget } from '../toolSearch/toolSearchTool.js';
 
 /** What kind of session the tools are composed for — the explicit form of the security invariant that
  *  used to hide behind a `channel: !trusted` double negation. Every kind here is actually produced:
@@ -178,13 +179,10 @@ export function visibleToolNames(all: string[], pluginNames: Set<string>, tp: To
   return all.filter((name) => (pluginNames.has(name) ? toolPermitted(name, tp) : !tp.deny?.has(name)));
 }
 
-/** The minimal PI-session surface tool visibility needs — typed structurally so the logic stays unit-testable
- *  without a real AgentSession. */
-export interface ToolVisibilityTarget {
-  getAllTools(): { name: string }[];
-  getActiveToolNames(): string[];
-  setActiveToolsByName(names: string[]): void;
-}
+/** The minimal PI-session surface tool visibility needs — the SAME structural target ToolSearch uses to
+ *  read the registry and change the active slice (one shared type, not two near-identical copies). Typed
+ *  structurally so the logic stays unit-testable without a real AgentSession. */
+export type ToolVisibilityTarget = ToolActivationTarget;
 
 /** Deferred-tool state consulted by {@link applyToolVisibility}: `deferred` are registered tools withheld
  *  from the prompt until fetched; `activated` are the ones ToolSearch has already fetched. Structurally a

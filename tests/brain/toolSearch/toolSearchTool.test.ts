@@ -3,9 +3,13 @@ import {
   resolveToolSearch,
   formatDeferredToolsBlock,
   createToolSearchHandle,
+  seedActivatedFromHistory,
   toolSearchTool,
   type ToolActivationTarget,
 } from '../../../src/brain/toolSearch/toolSearchTool.js';
+import { runWithPolicy } from '../../../src/plugins/policyContext.js';
+
+const POLICY = { allowedProjectIds: 'all' as const, allowedPaths: () => [] };
 
 const CANDIDATES = [
   { name: 'mcp__github__create_issue', description: 'Create a new GitHub issue in a repo' },
@@ -46,6 +50,11 @@ describe('resolveToolSearch', () => {
     expect(resolveToolSearch('github', CANDIDATES, 1)).toEqual(['mcp__github__create_issue']);
   });
 
+  it('select: also respects max_results (cannot bypass the activation cap)', () => {
+    const got = resolveToolSearch('select:mcp__github__create_issue,mcp__github__list_issues,mcp__slack__post_message', CANDIDATES, 2);
+    expect(got).toHaveLength(2);
+  });
+
   it('empty / non-matching query yields nothing', () => {
     expect(resolveToolSearch('   ', CANDIDATES, 5)).toEqual([]);
     expect(resolveToolSearch('zzzznomatch', CANDIDATES, 5)).toEqual([]);
@@ -64,6 +73,57 @@ describe('formatDeferredToolsBlock', () => {
 
   it('is empty when nothing is deferred', () => {
     expect(formatDeferredToolsBlock(CANDIDATES, new Set())).toBe('');
+  });
+
+  it('caps the number of listed tools and points at keyword search for the rest', () => {
+    const many = Array.from({ length: 250 }, (_, i) => ({ name: `mcp__srv__op_${i}`, description: `op ${i}` }));
+    const deferred = new Set(many.map((t) => t.name));
+    const block = formatDeferredToolsBlock(many, deferred);
+    const listed = block.split('\n').filter((l) => l.startsWith('- mcp__')).length;
+    expect(listed).toBe(200); // MAX_AWARENESS_LINES
+    expect(block).toMatch(/…and 50 more deferred tool\(s\)/);
+  });
+
+  it('truncates descriptions on a code-point boundary (no split surrogate pair)', () => {
+    // A long run of astral emoji: naive String.slice(140) could cut mid-surrogate.
+    const desc = '😀'.repeat(200);
+    const tool = [{ name: 'mcp__x__y', description: desc }];
+    const block = formatDeferredToolsBlock(tool, new Set(['mcp__x__y']));
+    const line = block.split('\n').find((l) => l.startsWith('- mcp__x__y'))!;
+    // Every emoji in the output must be intact (no lone surrogate → no U+FFFD when re-encoded).
+    expect(line).not.toContain('\uFFFD');
+    expect([...line].every((ch) => ch === '😀' || !/[\uD800-\uDFFF]/.test(ch))).toBe(true);
+  });
+});
+
+describe('seedActivatedFromHistory', () => {
+  const handleFor = () => createToolSearchHandle(new Set(['mcp__gh__a', 'mcp__gh__b', 'mcp__gh__c']));
+
+  it('re-seeds activated from past ToolSearch results in history', () => {
+    const handle = handleFor();
+    seedActivatedFromHistory(handle, [
+      { role: 'user', content: 'hi' },
+      { role: 'toolResult', toolName: 'ToolSearch', isError: false, details: { matched: ['mcp__gh__a', 'mcp__gh__b'] } },
+      { role: 'assistant', content: 'ok' },
+    ]);
+    expect([...handle.activated].sort()).toEqual(['mcp__gh__a', 'mcp__gh__b']);
+  });
+
+  it('ignores non-ToolSearch results, errored results, and tools no longer deferred', () => {
+    const handle = handleFor();
+    seedActivatedFromHistory(handle, [
+      { role: 'toolResult', toolName: 'Read', isError: false, details: { matched: ['mcp__gh__a'] } }, // not ToolSearch
+      { role: 'toolResult', toolName: 'ToolSearch', isError: true, details: { matched: ['mcp__gh__b'] } }, // errored
+      { role: 'toolResult', toolName: 'ToolSearch', isError: false, details: { matched: ['mcp__gone__x'] } }, // not deferred here
+      { role: 'toolResult', toolName: 'ToolSearch', isError: false, details: { matched: ['mcp__gh__c'] } }, // valid
+    ]);
+    expect([...handle.activated]).toEqual(['mcp__gh__c']);
+  });
+
+  it('is inert when nothing is deferred', () => {
+    const handle = createToolSearchHandle(new Set());
+    seedActivatedFromHistory(handle, [{ role: 'toolResult', toolName: 'ToolSearch', isError: false, details: { matched: ['x'] } }]);
+    expect(handle.activated.size).toBe(0);
   });
 });
 
@@ -111,6 +171,24 @@ describe('toolSearchTool.execute', () => {
     handle.session = fakeSession(['Read']);
     const res = await run(toolSearchTool(handle), 'zzzznomatch');
     expect((handle.session as ReturnType<typeof fakeSession>).calls).toHaveLength(0);
-    expect(res.content[0].text).toMatch(/no deferred tools matched/i);
+    expect(res.content[0].text).toMatch(/matched nothing/i);
+  });
+
+  it('never activates a matched tool the acting sender is forbidden (policy filter)', async () => {
+    const deferred = new Set(CANDIDATES.map((c) => c.name));
+    const handle = createToolSearchHandle(deferred);
+    handle.session = fakeSession(['Read', 'ToolSearch']);
+    const tool = toolSearchTool(handle);
+    // Sender denies the create tool; the search matches both github tools but only the allowed one activates.
+    const res = await runWithPolicy(
+      POLICY,
+      () => tool.execute('id', { query: 'github' }, undefined, undefined, {} as never),
+      { toolPolicy: { deny: new Set(['mcp__github__create_issue']) } },
+    );
+    expect(handle.activated.has('mcp__github__create_issue')).toBe(false);
+    expect(handle.activated.has('mcp__github__list_issues')).toBe(true);
+    const target = handle.session as ReturnType<typeof fakeSession>;
+    expect(target.getActiveToolNames()).not.toContain('mcp__github__create_issue');
+    expect((res.details as { matched: string[] }).matched).toEqual(['mcp__github__list_issues']);
   });
 });

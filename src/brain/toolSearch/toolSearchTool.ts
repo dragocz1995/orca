@@ -1,6 +1,7 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
+import { currentToolPolicy, toolPermitted } from '../../plugins/policyContext.js';
 
 /** The minimal live-session surface the tool needs to read the registry and change the active slice —
  *  typed structurally (a subset of both PI's `AgentSession` and `ExtensionAPI`) so the search/activation
@@ -29,8 +30,43 @@ export function createToolSearchHandle(deferred: Set<string>): ToolSearchHandle 
   return { deferred, activated: new Set(), session: undefined };
 }
 
+/** The subset of a rehydrated `ToolResultMessage` this module reads. Kept structural (not the PI import)
+ *  so the seed logic is unit-testable with plain objects. */
+interface ToolResultLike { role?: string; toolName?: string; isError?: boolean; details?: unknown }
+
+/** Re-seed `handle.activated` from rehydrated history so a RESPAWN (model switch, LRU revival, daemon
+ *  restart) does not silently forget which deferred tools the model already fetched — otherwise the model,
+ *  seeing its own past "Activated …" result, would call a tool that is back in the withheld state and get an
+ *  unknown-tool error. Scans past ToolSearch results for their recorded `details.matched`, re-adding only
+ *  names that are still deferred in THIS session (a tool no longer registered/deferred is simply dropped).
+ *  Idempotent; the next visibility pass turns the re-seeded names back on. */
+export function seedActivatedFromHistory(handle: ToolSearchHandle, messages: readonly unknown[]): void {
+  if (handle.deferred.size === 0) return;
+  for (const raw of messages) {
+    const m = raw as ToolResultLike;
+    if (m?.role !== 'toolResult' || m.toolName !== 'ToolSearch' || m.isError) continue;
+    const matched = (m.details as { matched?: unknown } | undefined)?.matched;
+    if (!Array.isArray(matched)) continue;
+    for (const name of matched) {
+      if (typeof name === 'string' && handle.deferred.has(name)) handle.activated.add(name);
+    }
+  }
+}
+
 const DEFAULT_MAX_RESULTS = 5;
 const MAX_MAX_RESULTS = 25;
+/** Hard cap on how many deferred tools the awareness block lists in the system prompt. Beyond this, a
+ *  "…and N more" line points the model at keyword search — an unbounded block would defeat the whole point
+ *  of deferral (a light prompt) exactly when it matters most (a huge MCP surface). */
+const MAX_AWARENESS_LINES = 200;
+const MAX_DESC_CHARS = 140;
+
+/** Truncate to at most `max` Unicode code points (never splitting a surrogate pair, unlike String.slice,
+ *  which counts UTF-16 code units and can leave a lone surrogate in the prompt). */
+function clampCodePoints(s: string, max: number): string {
+  const cps = Array.from(s);
+  return cps.length <= max ? s : cps.slice(0, max).join('');
+}
 
 /** Split a bridged MCP tool name (`mcp__server__tool`) into lowercase search parts. Double and single
  *  underscores both separate — a server or tool fragment may itself contain `_`. */
@@ -68,11 +104,12 @@ export function resolveToolSearch(
 ): string[] {
   const trimmed = query.trim();
 
-  // `select:A,B,C` — activate these exact deferred tools by name (case-insensitive).
+  // `select:A,B,C` — activate these exact deferred tools by name (case-insensitive). Capped at maxResults
+  // like the keyword branch, so `select:` with a huge list cannot bypass the activation limit.
   const select = /^select:(.+)$/i.exec(trimmed);
   if (select) {
     const wanted = (select[1] ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-    return candidates.filter((c) => wanted.includes(c.name.toLowerCase())).map((c) => c.name);
+    return candidates.filter((c) => wanted.includes(c.name.toLowerCase())).map((c) => c.name).slice(0, maxResults);
   }
 
   const rawTerms = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
@@ -104,13 +141,18 @@ export function formatDeferredToolsBlock(
   all: readonly { name: string; description?: string }[],
   deferred: Set<string>,
 ): string {
-  const lines = all
-    .filter((t) => deferred.has(t.name))
-    .map((t) => {
-      const desc = (t.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
-      return `- ${t.name}${desc ? `: ${desc}` : ''}`;
-    });
-  if (lines.length === 0) return '';
+  const deferredTools = all.filter((t) => deferred.has(t.name));
+  if (deferredTools.length === 0) return '';
+  const shown = deferredTools.slice(0, MAX_AWARENESS_LINES);
+  const lines = shown.map((t) => {
+    const desc = clampCodePoints((t.description ?? '').replace(/\s+/g, ' ').trim(), MAX_DESC_CHARS);
+    return `- ${t.name}${desc ? `: ${desc}` : ''}`;
+  });
+  const overflow = deferredTools.length - shown.length;
+  if (overflow > 0) {
+    // Never list the whole set — the point is a light prompt. Keyword search still reaches the rest.
+    lines.push(`- …and ${overflow} more deferred tool(s); use a ToolSearch keyword query to find them.`);
+  }
   return [
     '<available_tools_deferred>',
     'These tools exist in this session but are advertised by NAME ONLY to keep the prompt light — their full',
@@ -154,12 +196,24 @@ export function toolSearchTool(handle: ToolSearchHandle): ToolDefinition {
       const candidates: Candidate[] = session.getAllTools()
         .filter((t) => handle.deferred.has(t.name))
         .map((t) => ({ name: t.name, description: t.description ?? '' }));
-      const matched = resolveToolSearch(p.query, candidates, max);
+      const found = resolveToolSearch(p.query, candidates, max);
+      // Defense in depth: only activate tools the ACTING sender is allowed to use. The execute-time gate
+      // already refuses a forbidden call, and the per-turn visibility pass hides a forbidden tool again on
+      // the next turn — but filtering here stops a forbidden tool's schema from being advertised at all and
+      // stops a foreign/read-only caller from writing it into the shared `activated` set. Deferred tools are
+      // bridged MCP (plugin) tools, so `toolPermitted` is the right predicate. No turn policy (tests) → allow.
+      const tp = currentToolPolicy();
+      const matched = tp ? found.filter((name) => toolPermitted(name, tp)) : found;
       if (matched.length === 0) {
-        return ok(`No deferred tools matched "${p.query}". ${handle.deferred.size} tool(s) are deferred; try different keywords or "select:<exact-name>".`, { matched: [] });
+        const why = found.length > 0
+          ? `matched ${found.length} tool(s) but your permissions allow none of them`
+          : `matched nothing`;
+        return ok(`ToolSearch ${why} for "${p.query}". ${handle.deferred.size} tool(s) are deferred; try different keywords or "select:<exact-name>".`, { matched: [] });
       }
-      // Record for future turns and activate now (union with the current active set). Effect lands next
-      // turn (PI rebuilds the prompt on the boundary); the per-turn visibility pass keeps them advertised.
+      // Record for future turns, then activate now. `activated` is the authoritative record the per-turn
+      // applyToolVisibility reconciles against (it recomputes desired = visible ∩ (¬deferred ∪ activated)
+      // each turn); the setActiveToolsByName here makes the tool self-contained — it takes effect on the
+      // next agent turn (PI rebuilds the prompt on the boundary), which is why the result says so.
       for (const name of matched) handle.activated.add(name);
       const active = new Set(session.getActiveToolNames());
       for (const name of matched) active.add(name);

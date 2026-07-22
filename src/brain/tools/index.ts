@@ -39,6 +39,10 @@ export const BUILTIN_TOOL_PLAN_SAFE: string[] = [
   'ElowenListTasks', 'ElowenListMissions', 'ElowenListSessions',
   'MemorySearch', 'MemoryListRecent', 'MemoryCategories',
   'LspDiagnostics', 'LspGoToDefinition', 'LspFindReferences', 'LspHover', 'LspDocumentSymbol', 'LspWorkspaceSymbol',
+  // NOTE: ToolSearch is deliberately NOT plan-safe. In plan mode the deferred tools it would fetch are
+  // external MCP tools — presumed mutating and already withheld by the plan-safe boundary — so activating
+  // them buys nothing, and withholding ToolSearch itself keeps plan mode's tool surface minimal. Deferred
+  // MCP tools being unreachable while planning is the correct, safe behaviour.
 ];
 
 /** The brain's Elowen capability toolset. Every tool wraps callElowenApi (single source of truth), so a

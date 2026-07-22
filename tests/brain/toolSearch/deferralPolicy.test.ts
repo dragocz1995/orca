@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   computeDeferredToolNames,
   isDeferrable,
   isNeverDeferred,
+  MCP_TOOL_PREFIX,
   DEFAULT_DEFER_THRESHOLD,
 } from '../../../src/brain/toolSearch/deferralPolicy.js';
+import { builtinToolMetas, BUILTIN_TOOL_PLAN_SAFE } from '../../../src/brain/tools/index.js';
 
 /** N bridged MCP tools named mcp__srv__tool_<i>. */
 const mcpTools = (n: number, server = 'srv') =>
@@ -66,5 +70,25 @@ describe('computeDeferredToolNames', () => {
     const all = [...NATIVE, ...mcpTools(5)];
     expect(computeDeferredToolNames(all, { threshold: 3 }).size).toBe(5);
     expect(computeDeferredToolNames(all, { threshold: 5 }).size).toBe(0);
+  });
+});
+
+describe('deferral safety invariants', () => {
+  it('every built-in brain tool is pinned by NEVER_DEFER (a new built-in cannot be silently deferred)', () => {
+    for (const { name } of builtinToolMetas()) {
+      expect(isNeverDeferred(name)).toBe(true);
+    }
+  });
+
+  it('ToolSearch is deliberately NOT plan-safe (deferred MCP tools stay unreachable while planning)', () => {
+    expect(BUILTIN_TOOL_PLAN_SAFE).not.toContain('ToolSearch');
+  });
+
+  it('MCP_TOOL_PREFIX still matches the mcp plugin\'s bridged-tool naming (SSOT guard)', () => {
+    // The plugin lives outside the TS graph, so the prefix cannot be imported — assert the literal it
+    // builds names with instead. A drift here would silently stop ToolSearch from deferring MCP tools.
+    const src = readFileSync(join(__dirname, '../../../plugins/mcp/index.mjs'), 'utf-8');
+    expect(MCP_TOOL_PREFIX).toBe('mcp__');
+    expect(src).toContain('`mcp__${sanitize(serverName)}__${sanitize(tool.name)}`');
   });
 });

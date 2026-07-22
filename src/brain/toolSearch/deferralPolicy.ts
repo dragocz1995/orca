@@ -37,6 +37,10 @@ export const NEVER_DEFER: readonly string[] = [
  *  large MCP surface — the case ToolSearch exists for — engages. */
 export const DEFAULT_DEFER_THRESHOLD = 10;
 
+/** The policy's tuning surface. Prod calls {@link computeDeferredToolNames} with the defaults today; these
+ *  are the deliberate seam a future settings knob (a global kill switch / per-account threshold) wires into,
+ *  and the lever the tests drive the threshold logic through. Kept even without a UI caller ON PURPOSE — a
+ *  kill switch is a prod-safety affordance, and defining the seam now is cheaper than retrofitting it. */
 export interface DeferralOptions {
   /** Global kill switch. `false` → nothing is ever deferred (the session behaves as before). Default true. */
   enabled?: boolean;

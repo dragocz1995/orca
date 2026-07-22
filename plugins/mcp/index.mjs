@@ -134,7 +134,10 @@ function mapResult(res) {
 
 /** Register one remote MCP tool as a native brain tool (namespaced `mcp__<server>__<tool>`).
  *  Double separators on purpose: a sanitized server or tool name may itself contain `_`, so the old
- *  single-underscore form could not be split back apart unambiguously. */
+ *  single-underscore form could not be split back apart unambiguously.
+ *  NOTE: the `mcp__` prefix is the deferred-tool-loading contract — src/brain/toolSearch/deferralPolicy.ts
+ *  (`MCP_TOOL_PREFIX`) keys deferral off exactly this literal. Keep the two in sync; a drift would silently
+ *  stop ToolSearch from ever deferring MCP tools. A test guards the prefix (deferralPolicy.test.ts). */
 function registerBridgedTool(ctx, client, serverName, tool) {
   const name = `mcp__${sanitize(serverName)}__${sanitize(tool.name)}`;
   const params = tool.inputSchema && typeof tool.inputSchema === 'object' ? Type.Unsafe(tool.inputSchema) : Type.Object({});
