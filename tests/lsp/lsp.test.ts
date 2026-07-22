@@ -3,11 +3,11 @@ import { describe, it, expect } from 'vitest';
 import { encodeMessage, MessageDecoder } from '../../src/lsp/protocol.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { detectLanguage, serverForLanguage, commandExists, listServers, resolveServerCommand } from '../../src/lsp/servers.js';
 import { parsePublishDiagnostics, LspClient, type LspTransport, type JsonRpcMessage } from '../../src/lsp/client.js';
 import { LspManager, formatCheckResult, projectRootForFile } from '../../src/lsp/manager.js';
-import { buildLspTools, toggleLsp, lspManager } from '../../src/brain/tools/lspTools.js';
+import { buildLspTools, toggleLsp, lspManager, formatDocumentSymbols, formatLocations, formatHover, formatWorkspaceSymbols } from '../../src/brain/tools/lspTools.js';
 
 describe('LSP protocol codec', () => {
   it('encodes with a byte-accurate Content-Length header', () => {
@@ -895,5 +895,133 @@ describe('lsp tool + /lsp toggle', () => {
     const on = toggleLsp();
     expect(on.enabled).toBe(before);
     expect(lspManager().isEnabled()).toBe(before);
+  });
+});
+
+/** A server that answers workspace/symbol with a fixed symbol set (and publishes an empty verdict on
+ *  didOpen so checkFile can spawn/warm it). */
+function symbolServer(symbols: unknown[]): LspTransport {
+  let onMsg: (m: JsonRpcMessage) => void = () => {};
+  return {
+    send: (framed) => {
+      const msg = JSON.parse(framed.split('\r\n\r\n')[1]!) as JsonRpcMessage;
+      if (msg.method === 'initialize' && typeof msg.id === 'number') {
+        queueMicrotask(() => onMsg({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } }));
+      } else if (msg.method === 'workspace/symbol' && typeof msg.id === 'number') {
+        queueMicrotask(() => onMsg({ jsonrpc: '2.0', id: msg.id, result: symbols }));
+      } else if (msg.method === 'textDocument/didOpen') {
+        const uri = (msg.params as { textDocument: { uri: string } }).textDocument.uri;
+        queueMicrotask(() => onMsg({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { uri, diagnostics: [] } }));
+      }
+    },
+    onMessage: (cb) => { onMsg = cb; }, onExit: () => {}, dispose: () => {},
+  };
+}
+
+/** A server that answers textDocument/definition with one location. */
+function definitionServer(loc: unknown): LspTransport {
+  let onMsg: (m: JsonRpcMessage) => void = () => {};
+  return {
+    send: (framed) => {
+      const msg = JSON.parse(framed.split('\r\n\r\n')[1]!) as JsonRpcMessage;
+      if (msg.method === 'initialize' && typeof msg.id === 'number') queueMicrotask(() => onMsg({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } }));
+      else if (msg.method === 'textDocument/definition' && typeof msg.id === 'number') queueMicrotask(() => onMsg({ jsonrpc: '2.0', id: msg.id, result: [loc] }));
+    },
+    onMessage: (cb) => { onMsg = cb; }, onExit: () => {}, dispose: () => {},
+  };
+}
+
+describe('LspManager.workspaceSymbol scoping (cross-tenant leak regression)', () => {
+  it('returns only symbols from clients within the boundary, never another root\'s', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'elowen-ws-'));
+    try {
+      const repoA = join(dir, 'a');
+      const repoB = join(dir, 'b');
+      mkdirSync(join(repoA, 'src'), { recursive: true });
+      mkdirSync(join(repoB, 'src'), { recursive: true });
+      writeFileSync(join(repoA, 'package.json'), '{}');
+      writeFileSync(join(repoB, 'package.json'), '{}');
+      const mgr = new LspManager({
+        root: dir, readFile: () => 'code', settleMs: 5,
+        spawn: (_spec, root) => symbolServer([{ name: `sym-${basename(root)}`, kind: 12, location: { uri: `file://${root}/x.ts`, range: { start: { line: 0, character: 0 } } } }]),
+      });
+      await mgr.checkFile(join(repoA, 'src', 'a.ts')); // spawns a client rooted at repoA
+      await mgr.checkFile(join(repoB, 'src', 'b.ts')); // spawns a client rooted at repoB
+      const scoped = await mgr.workspaceSymbol('sym', repoA);
+      expect(scoped.ok).toBe(true);
+      if (scoped.ok) {
+        const names = scoped.result.map((s) => (s as { name: string }).name);
+        expect(names).toContain('sym-a');
+        expect(names).not.toContain('sym-b'); // the whole point: repoB's symbols must never leak into repoA's scope
+      }
+      mgr.disposeAll();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('spawns a server for the boundary root on a cold session (no live client yet)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'elowen-ws-cold-'));
+    try {
+      writeFileSync(join(dir, 'package.json'), '{}');
+      let spawns = 0;
+      const mgr = new LspManager({
+        root: dir, readFile: () => 'code', settleMs: 5,
+        spawn: (_spec, root) => { spawns += 1; return symbolServer([{ name: `cold-${basename(root)}`, kind: 5, location: { uri: `file://${root}/x.ts`, range: { start: { line: 0, character: 0 } } } }]); },
+      });
+      const res = await mgr.workspaceSymbol('cold', dir);
+      expect(spawns).toBeGreaterThan(0); // it spawned rather than returning nothing
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.result.map((s) => (s as { name: string }).name)).toContain(`cold-${basename(dir)}`);
+      mgr.disposeAll();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('LspManager code-intelligence discriminated results', () => {
+  it('reports disabled without spawning', async () => {
+    const mgr = new LspManager({ root: '/proj', spawn: () => fakeServer({}) });
+    mgr.setEnabled(false);
+    expect(await mgr.definition('/proj/a.ts', 1, 1)).toEqual({ ok: false, reason: 'disabled' });
+  });
+
+  it('reports no-server-installed when spawn yields null', async () => {
+    const mgr = new LspManager({ root: '/proj', readFile: () => 'x', spawn: () => null });
+    expect(await mgr.hover('/proj/a.ts', 1, 1)).toMatchObject({ ok: false, reason: 'no-server-installed' });
+  });
+
+  it('reports not-a-known-language for a non-code file', async () => {
+    const mgr = new LspManager({ root: '/proj', readFile: () => 'x', spawn: () => fakeServer({}) });
+    expect(await mgr.documentSymbol('/proj/readme.md')).toEqual({ ok: false, reason: 'not-a-known-language' });
+  });
+
+  it('returns ok with the raw LSP result on success', async () => {
+    const mgr = new LspManager({ root: '/proj', readFile: () => 'code', settleMs: 5, spawn: () => definitionServer({ uri: 'file:///proj/def.ts', range: { start: { line: 0, character: 0 } } }) });
+    const out = await mgr.definition('/proj/a.ts', 2, 3);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(Array.isArray(out.result)).toBe(true);
+  });
+});
+
+describe('LSP result formatters', () => {
+  it('formats a hierarchical DocumentSymbol[] outline', () => {
+    const out = formatDocumentSymbols([{ name: 'Foo', kind: 5, range: { start: { line: 4 } }, children: [{ name: 'bar', kind: 6, range: { start: { line: 6 } } }] }]);
+    expect(out).toContain('Foo (class) :5');
+    expect(out).toContain('bar (method) :7');
+  });
+
+  it('formats a FLAT SymbolInformation[] documentSymbol result (location, not range)', () => {
+    // The bug: servers that return SymbolInformation[] (a `location`, no top-level `range`) used to yield
+    // "No symbols found." This asserts the flat branch is handled.
+    const out = formatDocumentSymbols([{ name: 'Baz', kind: 12, location: { uri: 'file:///x.ts', range: { start: { line: 9 } } } }]);
+    expect(out).toContain('Baz (function) :10');
+  });
+
+  it('formats locations, hover contents and workspace symbols', () => {
+    expect(formatLocations([{ uri: 'file:///proj/a.ts', range: { start: { line: 2, character: 4 } } }])).toContain('/proj/a.ts:3:5');
+    expect(formatHover({ contents: { value: 'const x: number' } })).toBe('const x: number');
+    expect(formatWorkspaceSymbols([{ name: 'Thing', kind: 5, location: { uri: 'file:///proj/t.ts', range: { start: { line: 0 } } } }])).toContain('Thing (class) /proj/t.ts:1');
   });
 });

@@ -196,6 +196,19 @@ export function registerTaskRoutes(app: ElowenApp, ctx: RouteContext): void {
       if (Object.keys(b).some((k) => !allowed.has(k))) return c.json({ error: 'forbidden' }, 403);
     }
     if (b.status) {
+      // Reverting a RUNNING task to open/cancelled must stop its live agent FIRST. Otherwise the
+      // orphaned session keeps editing the shared checkout while the scheduler — which counts only
+      // in_progress tasks as busy (checkoutBusy) — treats the checkout as free and can spawn a SECOND
+      // concurrent agent into it. Mirror the sessions DELETE kill path: embedded brain worker → abort,
+      // tmux pane → kill. Best-effort; a missing session is already gone.
+      if (existing.status === 'in_progress' && (b.status === 'open' || b.status === 'cancelled')) {
+        const agent = existing.labels.find((l) => l.startsWith('agent:'))?.slice('agent:'.length);
+        if (agent) {
+          const session = `elowen-${agent}`;
+          if (d.brainWorkers?.isLive(session)) await d.brainWorkers.abort(session).catch(() => { /* already gone */ });
+          else await d.tmux.kill(session).catch(() => { /* already gone */ });
+        }
+      }
       if (b.status === 'closed') d.tasks.close(id, { summary: b.result_summary, outcome: b.outcome });
       else d.tasks.setStatus(id, b.status);
       d.bus.publish({ type: 'task', taskId: id, status: b.status });

@@ -31,6 +31,15 @@ const state = {
   servers: new Map(),
 };
 
+/** Whether an MCP error means the server simply doesn't implement the method (no `resources` capability),
+ *  as opposed to a real failure (timeout, transport error) we must not swallow. JSON-RPC code -32601. */
+function isMethodNotFound(e) {
+  const code = e && typeof e === 'object' ? e.code : undefined;
+  if (code === -32601 || code === -32602) return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  return /method not found|not supported|not implemented|-32601/i.test(msg);
+}
+
 /** Sanitize a name fragment into a tool-name-safe token. */
 const sanitize = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'x';
 
@@ -235,21 +244,38 @@ export async function register(ctx) {
   // Let the model discover and read resources exposed by connected MCP servers (prompts, docs, data).
   ctx.registerTool(defineTool({
     name: 'ListMcpResources', label: 'List MCP resources',
-    description: 'List available resources from all connected MCP servers. Each resource has a server name, URI, name and description. Use ReadMcpResource to read a specific resource by its server and URI.',
-    parameters: Type.Object({}),
-    execute: async () => {
+    description: 'List available resources from connected MCP servers (optionally one server via `server`). Each resource has a server name, URI, name and description. Use ReadMcpResource to read a specific resource by its server and URI.',
+    parameters: Type.Object({
+      server: Type.Optional(Type.String({ description: 'Only list resources from this MCP server (by name).' })),
+    }),
+    execute: async (_id, p) => {
+      const targets = p?.server ? live.filter((e) => e.name === p.server) : live;
+      if (p?.server && targets.length === 0) return fail(new Error(`MCP server "${p.server}" is not connected. Use ListMcpResources with no server to see connected servers.`));
       const results = [];
-      for (const entry of live) {
+      const errors = [];
+      for (const entry of targets) {
         try {
-          const { resources } = await withTimeout(entry.client.listResources(), 10_000, `mcp listResources ${entry.name}`);
-          for (const r of resources ?? []) {
-            results.push({ server: entry.name, uri: r.uri, name: r.name, description: r.description ?? '', mimeType: r.mimeType ?? '' });
-          }
-        } catch { /* skip servers that don't support resources */ }
+          // Page through the whole resource list — the SDK returns a `nextCursor` when there is more.
+          let cursor;
+          do {
+            const res = await withTimeout(entry.client.listResources(cursor ? { cursor } : undefined), 10_000, `mcp listResources ${entry.name}`);
+            for (const r of res?.resources ?? []) {
+              results.push({ server: entry.name, uri: r.uri, name: r.name, description: r.description ?? '', mimeType: r.mimeType ?? '' });
+            }
+            cursor = res?.nextCursor;
+          } while (cursor);
+        } catch (e) {
+          // A "method not found" just means the server exposes no resources — skip it quietly. A real
+          // failure (timeout, transport error) is surfaced instead of being silently swallowed.
+          if (isMethodNotFound(e)) continue;
+          errors.push(`${entry.name}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
-      if (results.length === 0) return ok('No MCP resources available. Either no servers are connected or they expose no resources.');
-      const text = results.map((r) => `[${r.server}] ${r.name} (${r.uri})${r.description ? ` — ${r.description}` : ''}`).join('\n');
-      return ok(text, { count: results.length });
+      if (results.length === 0 && errors.length === 0) return ok('No MCP resources available. Either no servers are connected or they expose no resources.');
+      const parts = [];
+      if (results.length) parts.push(results.map((r) => `[${r.server}] ${r.name} (${r.uri})${r.description ? ` — ${r.description}` : ''}`).join('\n'));
+      if (errors.length) parts.push(`Errors:\n${errors.map((e) => `- ${e}`).join('\n')}`);
+      return ok(parts.join('\n\n'), { count: results.length, errors: errors.length });
     },
   }));
 
@@ -268,7 +294,8 @@ export async function register(ctx) {
         const parts = Array.isArray(result?.contents) ? result.contents : [];
         const text = parts.map((c) => {
           if (c?.text != null) return String(c.text);
-          if (c?.blob != null) return `[binary content: ${c.mimeType ?? 'unknown'}, ${c.blob.length} bytes base64]`;
+          // `blob` is base64; its string length is ~4/3 the real size. Report the DECODED byte count.
+          if (c?.blob != null) return `[binary content: ${c.mimeType ?? 'unknown'}, ${Buffer.from(String(c.blob), 'base64').length} bytes]`;
           return '[empty content]';
         }).join('\n\n');
         return ok(text || '(no content)', { server: p.server, uri: p.uri });

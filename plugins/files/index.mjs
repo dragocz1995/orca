@@ -517,6 +517,51 @@ function safeRegexSource(query) {
   catch { return String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 }
 
+/** Case-SENSITIVE compiled regex for the Grep JS fallback. The rg path searches case-sensitively (no
+ *  `-i`), so the fallback must too — otherwise results would differ purely by whether rg is installed. */
+function safeRegexCaseSensitive(query) {
+  try { return new RegExp(query); }
+  catch { return new RegExp(String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); }
+}
+
+/** Whether the resolved default base is the filesystem root — the daemon's cwd is `/` under systemd, so
+ *  a no-path Glob/Grep from an all-access turn would otherwise walk the whole disk. */
+const isFsRoot = (dir) => dirname(dir) === dir;
+
+/** File mtime in ms, or 0 when it can't be stat'd (deleted between listing and stat). */
+const mtimeOf = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+
+/** Whether `p` is an existing regular file — used to disambiguate rg's path prefix from a `:n:`/`-n-`
+ *  line-number separator when a directory is named like `x-12-y`. */
+function isExistingFile(p) {
+  try { return statSync(p).isFile(); } catch { return false; }
+}
+
+/** Relativize an rg content-mode line to `root`. Handles match lines (`/abs:12:text`), context lines
+ *  (`/abs-12-text`, dash-separated with -A/-B/-C) and the `--` group separator. The longest prefix that
+ *  is a real file wins, so a directory named `x-12-y` can't be mistaken for a line-number boundary. */
+function relativizeContentLine(line, root) {
+  if (line === '--' || !line.startsWith('/')) return line;
+  const re = /([:-])(\d+)\1/g;
+  let m;
+  while ((m = re.exec(line)) !== null) {
+    const candidate = line.slice(0, m.index);
+    if (candidate && isExistingFile(candidate)) return `${relative(root, candidate) || candidate}${line.slice(candidate.length)}`;
+  }
+  const first = /[:-]\d+[:-]/.exec(line);
+  if (first) { const c = line.slice(0, first.index); return `${relative(root, c) || c}${line.slice(c.length)}`; }
+  return line;
+}
+
+/** Relativize an rg `--count` line (`/abs:count`). */
+function relativizeCountLine(line, root) {
+  if (!line.startsWith('/')) return line;
+  const idx = line.lastIndexOf(':');
+  if (idx < 0) return line;
+  const p = line.slice(0, idx);
+  return `${relative(root, p) || p}${line.slice(idx)}`;
+}
+
 function globRegex(glob) {
   if (!glob) return null;
   const source = String(glob);
@@ -524,8 +569,16 @@ function globRegex(glob) {
   for (let i = 0; i < source.length; i += 1) {
     const ch = source[i];
     if (ch === '*') {
-      if (source[i + 1] === '*') { escaped += '.*'; i += 1; }
-      else escaped += '[^/]*';
+      if (source[i + 1] === '*') {
+        // Standard glob `**/` = zero-or-more directories (so `src/**/*.ts` also matches `src/a.ts` and
+        // `**/*.js` matches a top-level `foo.js`). A bare `**` matches anything, path separators included.
+        if (source[i + 2] === '/') { escaped += '(?:[^/]*/)*'; i += 2; }
+        else { escaped += '.*'; i += 1; }
+      } else {
+        escaped += '[^/]*';
+      }
+    } else if (ch === '?') {
+      escaped += '[^/]'; // single non-separator character
     } else if (ch === '{') {
       const close = source.indexOf('}', i + 1);
       if (close > i + 1) {
@@ -606,8 +659,10 @@ async function rgSearch(abs, root, queryText, include, mode, maxMatches) {
 }
 
 /** ripgrep wrapper for the Grep tool: supports output modes, context lines, multiline and head_limit.
- *  Returns an array of formatted result lines (paths made relative to `root`). */
-async function rgGrep(abs, root, pattern, opts = {}) {
+ *  `target` is the rg PATH — a directory OR a single file (rg accepts both); `root` relativizes output.
+ *  Returns `{ lines, truncated }`, where `truncated` is computed BEFORE the head_limit slice so the
+ *  caller can tell the model results were cut. `head_limit: 0` means unlimited (reference semantics). */
+async function rgGrep(target, root, pattern, opts = {}) {
   const { include, outputMode = 'content', beforeContext, afterContext, contextLines, multiline, headLimit, maxMatches } = opts;
   const ignoreGlobs = [...SKIP_DIRS].map((d) => `!${d}/**`);
   const args = ['--color', 'never', '--no-heading'];
@@ -621,26 +676,34 @@ async function rgGrep(abs, root, pattern, opts = {}) {
     if (afterContext != null) args.push('-A', String(afterContext));
     if (contextLines != null) args.push('-C', String(contextLines));
   }
-  if (multiline) args.push('--multiline');
+  // `--multiline-dotall` makes `.` cross newlines, which is what the tool description promises multiline
+  // does — `--multiline` alone only lets an explicit `\n` in the pattern span lines.
+  if (multiline) args.push('--multiline', '--multiline-dotall');
   args.push(...ignoreGlobs.flatMap((g) => ['--glob', g]));
   if (include) args.push('--glob', include);
-  args.push('--', pattern, abs);
+  args.push('--', pattern, target);
+  let stdout;
   try {
-    const { stdout } = await execFileP('rg', args, { cwd: root, encoding: 'utf8', timeout: SEARCH_TIMEOUT_MS, maxBuffer: 2_000_000 });
-    let lines = stdout.split('\n').filter(Boolean);
-    const cap = Math.min(headLimit ?? Infinity, maxMatches ?? Infinity);
-    if (lines.length > cap) lines = lines.slice(0, cap);
-    return lines.map((line) => {
-      if (!line.startsWith('/')) return line;
-      const first = line.indexOf(':');
-      const second = first >= 0 ? line.indexOf(':', first + 1) : -1;
-      if (second < 0) return line;
-      return `${relative(root, line.slice(0, first))}${line.slice(first)}`;
-    });
+    ({ stdout } = await execFileP('rg', args, { cwd: root, encoding: 'utf8', timeout: SEARCH_TIMEOUT_MS, maxBuffer: 2_000_000 }));
   } catch (e) {
-    if (e && typeof e === 'object' && 'code' in e && e.code === 1) return [];
+    // rg exits 1 on "no matches" (same as content mode) — a real empty result, not an rg-missing signal.
+    if (e && typeof e === 'object' && 'code' in e && e.code === 1) return { lines: [], truncated: false };
     throw e;
   }
+  const raw = stdout.split('\n').filter(Boolean);
+  const effHead = headLimit === 0 ? Infinity : (headLimit ?? Infinity); // 0 → unlimited
+  const cap = Math.min(effHead, maxMatches ?? Infinity);
+
+  if (outputMode === 'files_with_matches') {
+    // Sort by mtime (newest first) and relativize — matches Glob and the Claude reference.
+    const files = raw.map((abs) => ({ abs, mtime: mtimeOf(abs) })).sort((a, b) => b.mtime - a.mtime);
+    const truncated = files.length > cap;
+    return { lines: files.slice(0, cap).map((f) => relative(root, f.abs) || f.abs), truncated };
+  }
+  const truncated = raw.length > cap;
+  const kept = raw.slice(0, cap);
+  const lines = kept.map((line) => outputMode === 'count' ? relativizeCountLine(line, root) : relativizeContentLine(line, root));
+  return { lines, truncated };
 }
 
 export function register(ctx) {
@@ -976,23 +1039,26 @@ export function register(ctx) {
       try {
         const searchRoot = p.path ? ctx.assertPathAllowed(p.path) : ctx.defaultCwd();
         const abs = statSync(searchRoot).isDirectory() ? searchRoot : dirname(searchRoot);
+        if (!p.path && isFsRoot(abs)) return ok('Glob', 'Error: no path given and no project root is set — pass an explicit path.', { ok: false });
         const regex = globRegex(p.pattern);
         if (!regex) return ok('Glob', 'Error: invalid glob pattern.', { ok: false });
         const globMax = Math.min(Math.max(Number(ctx.config.globMax) || DEFAULT_GLOB_MAX, 10), 500);
-        const files = walkFiles(abs, 10_000);
+        const WALK_CAP = 10_000;
+        const files = walkFiles(abs, WALK_CAP);
+        // "newest first" must hold across the WHOLE match set, so collect EVERY match (matching is cheap),
+        // then sort by mtime and trim — never stop the walk in traversal order and sort only that subset,
+        // which would drop a newer file that happened to sit past the cap.
         const matched = [];
         for (const file of files) {
           const rel = relative(abs, file) || file;
-          if (regex.test(rel) || regex.test(rel.split('/').at(-1) ?? rel)) {
-            try { matched.push({ path: rel, mtime: statSync(file).mtimeMs }); } catch { /* skip unreadable */ }
-          }
-          if (matched.length >= globMax * 2) break; // collect extra for sorting, then trim
+          if (regex.test(rel) || regex.test(rel.split('/').at(-1) ?? rel)) matched.push({ path: rel, mtime: mtimeOf(file) });
         }
         matched.sort((a, b) => b.mtime - a.mtime);
         const results = matched.slice(0, globMax).map((m) => m.path);
         const truncated = matched.length > globMax;
+        const walkTruncated = files.length >= WALK_CAP; // the traversal itself hit the file cap
         return ok('Glob', results.join('\n') || 'No files matched.', {
-          path: abs, pattern: p.pattern, matches: results.length, truncated,
+          path: abs, pattern: p.pattern, matches: results.length, truncated, walkTruncated,
         });
       } catch (e) { return fail('Glob', e); }
     },
@@ -1020,20 +1086,24 @@ export function register(ctx) {
       '-B': Type.Optional(Type.Number({ description: 'Lines to show before each match (content mode only).' })),
       '-C': Type.Optional(Type.Number({ description: 'Lines to show before and after each match (content mode only).' })),
       multiline: Type.Optional(Type.Boolean({ description: 'Enable multiline matching for patterns crossing line boundaries.' })),
-      head_limit: Type.Optional(Type.Number({ description: 'Max number of result lines to return.' })),
+      head_limit: Type.Optional(Type.Number({ description: 'Max number of result lines to return (0 = unlimited).' })),
     }),
     execute: async (_id, p) => {
       try {
-        const searchRoot = p.path ? ctx.assertPathAllowed(p.path) : ctx.defaultCwd();
-        const abs = statSync(searchRoot).isDirectory() ? searchRoot : dirname(searchRoot);
-        const root = statSync(abs).isDirectory() ? abs : dirname(abs);
+        // rg accepts a single FILE as its search path — pass it through so `path` pointing at a file
+        // searches that file, not its whole parent directory. `root` (its dirname) only relativizes output.
+        const target = p.path ? ctx.assertPathAllowed(p.path) : ctx.defaultCwd();
+        const isDir = statSync(target).isDirectory();
+        const root = isDir ? target : dirname(target);
+        if (!p.path && isFsRoot(root)) return ok('Grep', 'Error: no path given and no project root is set — pass an explicit path.', { ok: false });
         if (!String(p.pattern ?? '').trim()) return ok('Grep', 'Error: pattern is required.', { ok: false });
         const outputMode = p.output_mode ?? 'content';
         const grepMax = Math.min(Math.max(Number(ctx.config.searchMaxMatches) || DEFAULT_GREP_MAX_MATCHES, 50), 1000);
         let lines;
+        let truncated = false;
         let rgOk = false;
         try {
-          lines = await rgGrep(abs, root, p.pattern, {
+          const r = await rgGrep(target, root, p.pattern, {
             include: p.glob,
             outputMode,
             beforeContext: p['-B'],
@@ -1043,34 +1113,42 @@ export function register(ctx) {
             headLimit: p.head_limit,
             maxMatches: grepMax,
           });
+          lines = r.lines;
+          truncated = r.truncated;
           rgOk = true;
         } catch { /* rg unavailable — fall back below */ }
         if (!rgOk) {
-          // Fallback: bounded JS walk for content mode only (files_with_matches/count need rg).
+          // Fallback: bounded JS walk for content mode only (files_with_matches/count need rg). Match rg's
+          // case-SENSITIVE semantics so results don't hinge on whether rg is installed.
           if (outputMode !== 'content') {
             return ok('Grep', `Error: ripgrep (rg) is required for output_mode "${outputMode}" but is not installed.`, { ok: false });
           }
-          const query = safeRegex(p.pattern);
+          const query = safeRegexCaseSensitive(p.pattern);
           const include = globRegex(p.glob);
-          lines = [];
-          for (const file of walkFiles(abs)) {
+          const walkTarget = isDir ? target : dirname(target);
+          const found = [];
+          for (const file of isDir ? walkFiles(walkTarget) : [target]) {
             const rel = relative(root, file) || file;
             if (include && !include.test(rel) && !include.test(rel.split('/').at(-1) ?? rel)) continue;
             let body = '';
             try { body = readFileSync(file, 'utf-8'); } catch { continue; }
             const fileLines = body.split('\n');
             for (let i = 0; i < fileLines.length; i++) {
-              if (!query.test(fileLines[i])) continue;
-              lines.push(`${rel}:${i + 1}: ${fileLines[i]}`);
-              if (lines.length >= grepMax) break;
+              if (query.test(fileLines[i])) found.push(`${rel}:${i + 1}:${fileLines[i]}`);
             }
-            if (lines.length >= grepMax) break;
           }
+          const effHead = p.head_limit === 0 ? Infinity : (p.head_limit ?? Infinity);
+          const cap = Math.min(effHead, grepMax);
+          truncated = found.length > cap;
+          lines = found.slice(0, cap);
         }
         const formatted = lines.map((l) => truncateLine(l, RESULT_LINE_MAX).text).join('\n');
-        const truncated = lines.length >= grepMax;
-        return ok('Grep', formatted || 'No matches found.', {
-          path: abs, pattern: p.pattern, outputMode, matches: lines.length, truncated,
+        let text = formatted || 'No matches found.';
+        // Surface the head_limit/max-matches cut so the model knows there may be more (the old code sliced
+        // silently). Wording mirrors the Claude reference's pagination note.
+        if (truncated && lines.length) text += `\n\n[Showing results with pagination — output truncated at ${lines.length} results; narrow the pattern or raise head_limit for more.]`;
+        return ok('Grep', text, {
+          path: root, pattern: p.pattern, outputMode, matches: lines.length, truncated,
         });
       } catch (e) { return fail('Grep', e); }
     },

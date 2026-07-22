@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -338,5 +338,140 @@ describe('files plugin — configurable searchMaxMatches', () => {
     const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg, 'Search', { path: dir, query: 'needle' }));
     expect((res as { details?: { matches?: number } }).details?.matches).toBe(200);
     expect((res as { details?: { truncated?: boolean } }).details?.truncated).toBe(true);
+  });
+});
+
+// Shared registry for the Glob/Grep suites (globMax pinned low so truncation is observable).
+let reg2: PluginRegistry;
+// Helper: read the joined text of a tool result.
+const textOf = (res: { content: { text: string }[] }) => res.content[0].text;
+const detailsOf = (res: unknown) => (res as { details?: Record<string, unknown> }).details ?? {};
+
+describe('files plugin — Glob', () => {
+  let dir: string;
+  beforeAll(async () => {
+    reg2 = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log, config: { files: { globMax: 2 } } });
+    dir = mkdtempSync(join(tmpdir(), 'elowen-glob-'));
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    // Top-level and nested .ts files, so `**/` zero-depth behaviour is observable.
+    writeFileSync(join(dir, 'root.ts'), 'export const root = 1;');
+    writeFileSync(join(dir, 'src', 'nested.ts'), 'export const nested = 1;');
+  });
+
+  it('matches **/*.ts at zero directory depth (top-level file) and deeper', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg2, 'Glob', { path: dir, pattern: '**/*.ts' }));
+    const out = textOf(res);
+    expect(out).toContain('root.ts');       // zero-depth: **/ must match nothing before root.ts
+    expect(out).toContain('src/nested.ts');
+  });
+
+  it('matches src/**/*.ts against a file directly under src (zero intermediate dirs)', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg2, 'Glob', { path: dir, pattern: 'src/**/*.ts' }));
+    expect(textOf(res)).toContain('src/nested.ts');
+  });
+
+  it('collects ALL matches then sorts by mtime (newest first), not a traversal-order subset', async () => {
+    const d2 = mkdtempSync(join(tmpdir(), 'elowen-glob-mtime-'));
+    // 25 matching files created in order; strictly increasing mtimes so f24 is newest, f00 oldest.
+    // globMax clamps to a floor of 10, so 25 files > globMax*2 (20): the old code stopped the walk at
+    // 20 matches IN TRAVERSAL ORDER and sorted only those, dropping the newest files (f20..f24, created
+    // last). Collecting every match first and THEN sorting must surface f24/f23 at the top.
+    for (let i = 0; i < 25; i += 1) {
+      const f = join(d2, `f${String(i).padStart(2, '0')}.ts`);
+      writeFileSync(f, 'x');
+      const t = new Date(Date.now() + i * 1000);
+      utimesSync(f, t, t);
+    }
+    const res = await runWithPolicy(userPolicy([d2]), () => runTool(reg2, 'Glob', { path: d2, pattern: '*.ts' }));
+    const lines = textOf(res).split('\n');
+    expect(lines[0]).toBe('f24.ts');
+    expect(lines[1]).toBe('f23.ts');
+    expect(detailsOf(res).matches).toBe(10);
+    expect(detailsOf(res).truncated).toBe(true);
+  });
+});
+
+describe('files plugin — Grep', () => {
+  let dir: string;
+  beforeAll(async () => {
+    reg2 = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['files'], logger: log, config: { files: { globMax: 2 } } });
+    dir = mkdtempSync(join(tmpdir(), 'elowen-grep-'));
+    mkdirSync(join(dir, 'sub'), { recursive: true });
+    writeFileSync(join(dir, 'a.ts'), 'const needle = 1;\nconst other = 2;\n');
+    writeFileSync(join(dir, 'sub', 'b.ts'), 'function needleFn() {}\nreturn needle;\n');
+  });
+
+  it('content mode returns relative path:line:content', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg2, 'Grep', { path: dir, pattern: 'needle' }));
+    const out = textOf(res);
+    expect(out).toContain('a.ts:1:');
+    expect(out.split('\n').every((l) => !l.startsWith('/'))).toBe(true); // relativized, never absolute
+    expect(detailsOf(res).outputMode).toBe('content');
+  });
+
+  it('files_with_matches mode returns relative file paths', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg2, 'Grep', { path: dir, pattern: 'needle', output_mode: 'files_with_matches' }));
+    const out = textOf(res);
+    expect(out).toContain('a.ts');
+    expect(out).toContain('sub/b.ts');
+    expect(out.split('\n').every((l) => !l.startsWith('/'))).toBe(true);
+  });
+
+  it('count mode returns per-file match counts, relativized', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg2, 'Grep', { path: dir, pattern: 'needle', output_mode: 'count' }));
+    const out = textOf(res);
+    expect(out).toMatch(/a\.ts:\d+/);
+    expect(out.split('\n').every((l) => !l.startsWith('/'))).toBe(true);
+  });
+
+  it('searches a single FILE when path points at a file (not its whole directory)', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg2, 'Grep', { path: join(dir, 'a.ts'), pattern: 'needle', output_mode: 'files_with_matches' }));
+    const out = textOf(res);
+    expect(out).toContain('a.ts');
+    expect(out).not.toContain('b.ts'); // sub/b.ts is NOT searched — the file arg is respected
+  });
+
+  it('context lines (-C) are relativized, not left absolute or mangled', async () => {
+    const res = await runWithPolicy(userPolicy([dir]), () => runTool(reg2, 'Grep', { path: join(dir, 'a.ts'), pattern: 'needle', '-C': 1 }));
+    const out = textOf(res);
+    // The context line ("const other = 2;") comes back as a dash-form rg row; it must be relativized.
+    expect(out).toContain('other');
+    expect(out.split('\n').every((l) => !l.startsWith('/'))).toBe(true);
+  });
+
+  it('head_limit truncates and appends a pagination note; head_limit 0 means unlimited', async () => {
+    const many = mkdtempSync(join(tmpdir(), 'elowen-grep-head-'));
+    writeFileSync(join(many, 'many.txt'), Array.from({ length: 20 }, (_, i) => `needle ${i}`).join('\n'));
+    const limited = await runWithPolicy(userPolicy([many]), () => runTool(reg2, 'Grep', { path: many, pattern: 'needle', head_limit: 5 }));
+    expect(detailsOf(limited).matches).toBe(5);
+    expect(detailsOf(limited).truncated).toBe(true);
+    expect(textOf(limited)).toContain('pagination');
+    const unlimited = await runWithPolicy(userPolicy([many]), () => runTool(reg2, 'Grep', { path: many, pattern: 'needle', head_limit: 0 }));
+    expect(detailsOf(unlimited).matches).toBe(20); // 0 = unlimited, NOT "return nothing"
+    expect(detailsOf(unlimited).truncated).toBe(false);
+  });
+
+  it('multiline: true makes . cross newlines (multiline-dotall)', async () => {
+    const ml = mkdtempSync(join(tmpdir(), 'elowen-grep-ml-'));
+    writeFileSync(join(ml, 'm.txt'), 'foo\nbar\nbaz\n');
+    const withMl = await runWithPolicy(userPolicy([ml]), () => runTool(reg2, 'Grep', { path: ml, pattern: 'foo.*bar', multiline: true }));
+    expect(detailsOf(withMl).matches).toBeGreaterThan(0);
+    const withoutMl = await runWithPolicy(userPolicy([ml]), () => runTool(reg2, 'Grep', { path: ml, pattern: 'foo.*bar' }));
+    expect(detailsOf(withoutMl).matches).toBe(0); // single-line by default
+  });
+
+  it('JS fallback (rg unavailable) still searches content, case-sensitively like rg', async () => {
+    const fb = mkdtempSync(join(tmpdir(), 'elowen-grep-fb-'));
+    writeFileSync(join(fb, 'c.txt'), 'Needle here\nneedle there\n');
+    const prevPath = process.env.PATH;
+    process.env.PATH = ''; // hide rg → the tool falls back to the bounded JS walk
+    try {
+      const res = await runWithPolicy(userPolicy([fb]), () => runTool(reg2, 'Grep', { path: fb, pattern: 'needle' }));
+      const out = textOf(res);
+      expect(out).toContain('needle there');
+      expect(out).not.toContain('Needle here'); // case-SENSITIVE, matching the rg path
+    } finally {
+      process.env.PATH = prevPath;
+    }
   });
 });

@@ -122,7 +122,7 @@ export function elowenGetTask(ctx: ElowenToolCtx) {
 export function elowenStopTask(ctx: ElowenToolCtx) {
   return defineTool({
     name: 'ElowenStopTask', label: 'Stop task',
-    description: 'Stop a running task: revert its status to open (so it can be re-spawned) or cancel it entirely. If the task has a live agent session, the session is killed. Use this when a task is stuck, producing wrong results, or no longer needed.',
+    description: 'Stop a running task: revert its status to open (so it can be re-spawned) or cancel it entirely. If the task has a live agent session, that session is stopped first so a second agent cannot spawn alongside it. Use this when a task is stuck, producing wrong results, or no longer needed.',
     parameters: Type.Object({
       task_id: Type.String({ description: 'Id of the task to stop' }),
       cancel: Type.Optional(Type.Boolean({ description: 'Cancel the task permanently (default: revert to open for re-spawn)' })),
@@ -137,11 +137,28 @@ export function elowenStopTask(ctx: ElowenToolCtx) {
 export function elowenTaskOutput(ctx: ElowenToolCtx) {
   return defineTool({
     name: 'ElowenTaskOutput', label: 'Task output',
-    description: 'Read a task\'s agent-reported result summary, outcome and token/cost usage. Returns the result_summary and outcome the agent recorded when it closed the task, plus usage statistics. Use it to review what a completed task actually did.',
+    description: 'Read a task\'s agent-reported result summary, outcome and token/cost usage. Returns the result_summary and outcome the agent recorded when it closed the task, plus usage statistics (or "no usage recorded" when none exists). Use it to review what a completed task actually did.',
     parameters: Type.Object({
       task_id: Type.String({ description: 'Id of the task to read output from' }),
     }),
-    execute: async (_id, p: { task_id: string }) =>
-      call(ctx, 'GET', `/tasks/${encodeURIComponent(p.task_id)}/usage`),
+    execute: async (_id, p: { task_id: string }) => {
+      const id = encodeURIComponent(p.task_id);
+      const opts = { url: ctx.url, token: ctx.token, fetchImpl: ctx.fetchImpl };
+      // Compose the answer: the outcome/summary live on the task record, usage on a separate endpoint.
+      // The old code queried ONLY /usage, so it never returned outcome/summary and handed the model the
+      // literal text "null" whenever no usage was recorded.
+      const task = await callElowenApi('GET', `/tasks/${id}`, undefined, opts);
+      if (!task.ok) return { content: [{ type: 'text' as const, text: `Elowen API error HTTP ${task.status}: ${task.text}` }], details: {} };
+      const usage = await callElowenApi('GET', `/tasks/${id}/usage`, undefined, opts);
+      const parse = (t: string): unknown => { try { return JSON.parse(t); } catch { return null; } };
+      const taskObj = (parse(task.text) ?? {}) as { result_summary?: unknown; outcome?: unknown };
+      const usageObj = usage.ok ? parse(usage.text) : null;
+      const composed = {
+        result_summary: taskObj.result_summary ?? null,
+        outcome: taskObj.outcome ?? null,
+        usage: usageObj ?? 'no usage recorded',
+      };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(composed, null, 2) }], details: {} };
+    },
   });
 }

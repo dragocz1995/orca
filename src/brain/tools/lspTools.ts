@@ -1,6 +1,6 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { LspManager, formatCheckResult } from '../../lsp/manager.js';
+import { LspManager, formatCheckResult, formatLspFailure, type LspOpFailure } from '../../lsp/manager.js';
 import { allowedRoots, assertPathAllowed, realPathWithin } from '../../plugins/pathGuard.js';
 import { currentWorkDir } from '../../plugins/policyContext.js';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,35 @@ function lspBoundary(path: string): string | undefined {
   if (permitted) return permitted;
   const workDir = currentWorkDir();
   return workDir && realPathWithin(path, [workDir]) !== null ? workDir : undefined;
+}
+
+/** The workspace boundary for a symbol search. Unlike {@link lspBoundary} there is NO file to anchor on
+ *  — the query is a symbol name, never a path — so the boundary is the caller's own scope: their
+ *  most-specific allowed repo root, else the turn's bound work dir. Passing the query string to
+ *  realPathWithin (the original bug) always yielded null, so the tool always found nothing. */
+function workspaceBoundary(): string | undefined {
+  const permitted = allowedRoots().slice().sort((a, b) => b.length - a.length)[0];
+  return permitted ?? currentWorkDir();
+}
+
+/** A tool-result text block (tools report, they never throw). */
+function lspText(text: string) {
+  return { content: [{ type: 'text' as const, text }], details: {} };
+}
+
+/** Reject a non-positive or non-integer LSP position before it reaches the server (0 → -1 line/char). */
+function badPosition(line: number, character: number): string | null {
+  if (!Number.isInteger(line) || line < 1 || !Number.isInteger(character) || character < 1) {
+    return 'LSP: line and character must be 1-based positive integers.';
+  }
+  return null;
+}
+
+/** Render a code-intelligence outcome: the formatter's text on success (or `empty` when it found
+ *  nothing), else the honest failure explanation. */
+function renderOp(out: { ok: true; result: unknown } | LspOpFailure, format: (r: unknown) => string | null, empty: string): string {
+  if (out.ok) return format(out.result) ?? empty;
+  return formatLspFailure(out) ?? empty;
 }
 
 /** The `/lsp` toggle: flip live diagnostics on/off and report the new state. Off frees every spawned
@@ -72,11 +101,13 @@ export function buildLspTools() {
         character: Type.Number({ description: 'Character offset (1-based) of the symbol' }),
       }),
       execute: async (_id: string, p: { path: string; line: number; character: number }) => {
+        const bad = badPosition(p.line, p.character);
+        if (bad) return lspText(bad);
         let path: string;
         try { path = assertPathAllowed(p.path); }
-        catch (e) { return { content: [{ type: 'text' as const, text: `LSP: ${(e as Error).message}` }], details: {} }; }
-        const result = await lspManager().definition(path, p.line, p.character, lspBoundary(path));
-        return { content: [{ type: 'text' as const, text: formatLocations(result) ?? 'No definition found.' }], details: {} };
+        catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
+        const out = await lspManager().definition(path, p.line, p.character, lspBoundary(path));
+        return lspText(renderOp(out, formatLocations, 'No definition found.'));
       },
     }),
     defineTool({
@@ -88,11 +119,13 @@ export function buildLspTools() {
         character: Type.Number({ description: 'Character offset (1-based) of the symbol' }),
       }),
       execute: async (_id: string, p: { path: string; line: number; character: number }) => {
+        const bad = badPosition(p.line, p.character);
+        if (bad) return lspText(bad);
         let path: string;
         try { path = assertPathAllowed(p.path); }
-        catch (e) { return { content: [{ type: 'text' as const, text: `LSP: ${(e as Error).message}` }], details: {} }; }
-        const result = await lspManager().references(path, p.line, p.character, lspBoundary(path));
-        return { content: [{ type: 'text' as const, text: formatLocations(result) ?? 'No references found.' }], details: {} };
+        catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
+        const out = await lspManager().references(path, p.line, p.character, lspBoundary(path));
+        return lspText(renderOp(out, formatLocations, 'No references found.'));
       },
     }),
     defineTool({
@@ -104,11 +137,13 @@ export function buildLspTools() {
         character: Type.Number({ description: 'Character offset (1-based) of the symbol' }),
       }),
       execute: async (_id: string, p: { path: string; line: number; character: number }) => {
+        const bad = badPosition(p.line, p.character);
+        if (bad) return lspText(bad);
         let path: string;
         try { path = assertPathAllowed(p.path); }
-        catch (e) { return { content: [{ type: 'text' as const, text: `LSP: ${(e as Error).message}` }], details: {} }; }
-        const result = await lspManager().hover(path, p.line, p.character, lspBoundary(path));
-        return { content: [{ type: 'text' as const, text: formatHover(result) ?? 'No hover information available.' }], details: {} };
+        catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
+        const out = await lspManager().hover(path, p.line, p.character, lspBoundary(path));
+        return lspText(renderOp(out, formatHover, 'No hover information available.'));
       },
     }),
     defineTool({
@@ -120,9 +155,9 @@ export function buildLspTools() {
       execute: async (_id: string, p: { path: string }) => {
         let path: string;
         try { path = assertPathAllowed(p.path); }
-        catch (e) { return { content: [{ type: 'text' as const, text: `LSP: ${(e as Error).message}` }], details: {} }; }
-        const result = await lspManager().documentSymbol(path, lspBoundary(path));
-        return { content: [{ type: 'text' as const, text: formatDocumentSymbols(result) ?? 'No symbols found.' }], details: {} };
+        catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
+        const out = await lspManager().documentSymbol(path, lspBoundary(path));
+        return lspText(renderOp(out, (r) => formatDocumentSymbols(r), 'No symbols found.'));
       },
     }),
     defineTool({
@@ -132,8 +167,8 @@ export function buildLspTools() {
         query: Type.String({ description: 'Symbol name to search for (fuzzy match)' }),
       }),
       execute: async (_id: string, p: { query: string }) => {
-        const result = await lspManager().workspaceSymbol(p.query, lspBoundary(p.query));
-        return { content: [{ type: 'text' as const, text: formatWorkspaceSymbols(result) ?? 'No symbols found.' }], details: {} };
+        const out = await lspManager().workspaceSymbol(p.query, workspaceBoundary());
+        return lspText(renderOp(out, formatWorkspaceSymbols, 'No symbols found.'));
       },
     }),
   ];
@@ -146,8 +181,9 @@ function uriToPath(uri: string): string {
   try { return fileURLToPath(uri); } catch { return uri; }
 }
 
-/** Format a Location or Location[] or LocationLink[] result from definition/references. */
-function formatLocations(result: unknown): string | null {
+/** Format a Location or Location[] or LocationLink[] result from definition/references. Exported for
+ *  the formatter unit tests. */
+export function formatLocations(result: unknown): string | null {
   if (!result) return null;
   const items = Array.isArray(result) ? result : [result];
   if (items.length === 0) return null;
@@ -167,7 +203,7 @@ function formatLocations(result: unknown): string | null {
 }
 
 /** Format a Hover result. */
-function formatHover(result: unknown): string | null {
+export function formatHover(result: unknown): string | null {
   if (!result || typeof result !== 'object') return null;
   const hover = result as { contents?: unknown };
   const contents = hover.contents;
@@ -184,9 +220,15 @@ function formatHover(result: unknown): string | null {
   return null;
 }
 
-/** Format a DocumentSymbol[] result (hierarchical outline). */
-function formatDocumentSymbols(result: unknown, indent = 0): string | null {
+/** Format a documentSymbol result. Servers return EITHER a hierarchical `DocumentSymbol[]` (each has a
+ *  `range` and optional `children`) OR a flat `SymbolInformation[]` (each has a `location`, no `range`).
+ *  Detect which and handle both — the old code silently returned "No symbols found." for the flat shape. */
+export function formatDocumentSymbols(result: unknown, indent = 0): string | null {
   if (!Array.isArray(result) || result.length === 0) return null;
+  const first = result[0];
+  if (indent === 0 && first && typeof first === 'object' && !('range' in first) && 'location' in first) {
+    return formatFlatSymbols(result);
+  }
   const lines: string[] = [];
   const pad = '  '.repeat(indent);
   for (const sym of result.slice(0, 50)) {
@@ -203,8 +245,21 @@ function formatDocumentSymbols(result: unknown, indent = 0): string | null {
   return lines.join('\n') || null;
 }
 
+/** Format a flat SymbolInformation[] documentSymbol result (a `location`, not a hierarchical range). */
+function formatFlatSymbols(result: unknown[]): string | null {
+  const lines: string[] = [];
+  for (const sym of result.slice(0, 50)) {
+    const s = sym as { name?: string; kind?: number; location?: { range?: { start?: { line?: number } } } };
+    const kindName = SYMBOL_KINDS[s.kind ?? 0] ?? 'symbol';
+    const line = (s.location?.range?.start?.line ?? 0) + 1;
+    lines.push(`${s.name ?? '?'} (${kindName}) :${line}`);
+  }
+  if (result.length > 50) lines.push(`… +${result.length - 50} more`);
+  return lines.join('\n') || null;
+}
+
 /** Format a SymbolInformation[] result from workspace/symbol. */
-function formatWorkspaceSymbols(result: unknown): string | null {
+export function formatWorkspaceSymbols(result: unknown): string | null {
   if (!Array.isArray(result) || result.length === 0) return null;
   const lines: string[] = [];
   for (const sym of result.slice(0, 30)) {

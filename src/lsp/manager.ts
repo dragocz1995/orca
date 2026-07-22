@@ -20,6 +20,18 @@ export interface CheckResult {
   skipped?: 'not-a-known-language' | 'unsupported-language' | 'no-server-installed' | 'server-error' | 'no-response' | 'unreadable' | 'disabled';
 }
 
+/** Why a code-intelligence operation (definition/references/hover/symbols) produced nothing — kept
+ *  distinct so the tool reports the ACTUAL cause (LSP off / not code / no server installed / crash)
+ *  instead of a misleading "not found". `ok:true` carries the raw LSP result (which may itself be an
+ *  empty/`null` answer the caller renders as "none found"). */
+export interface LspOpFailure {
+  ok: false;
+  reason: 'disabled' | 'not-a-known-language' | 'unsupported-language' | 'no-server-installed' | 'server-error' | 'unreadable';
+  language?: string;
+  server?: string;
+}
+export type LspOpResult<T> = { ok: true; result: T } | LspOpFailure;
+
 /** One registry server as the status surfaces see it: whether its binary is on PATH, whether a live
  *  client for it is currently running, whether Elowen can install it itself (npm), and the human install
  *  command to show otherwise. */
@@ -86,6 +98,9 @@ export function projectRootForFile(path: string, boundary?: string): string {
 interface ManagedClient {
   key: string;
   command: string;
+  /** The project root this client is spawned against — the scoping key for workspace/symbol so a
+   *  daemon-wide singleton never hands one caller symbols from another tenant's project. */
+  root: string;
   client: LspClient;
   activeChecks: number;
   retired: boolean;
@@ -200,58 +215,90 @@ export class LspManager {
   // client's corresponding method. Returns the raw LSP result (or null on any failure) — the caller
   // (lspTools) formats it for the model.
 
-  /** Resolve the server + client for a file and run an operation against it. Returns null when the
-   *  language is unknown, no server is installed, or the operation fails. */
-  private async withClient<T>(path: string, boundary: string | undefined, op: (client: LspClient, text: string, language: string) => Promise<T>): Promise<T | null> {
-    if (!this.enabled) return null;
+  /** Resolve the server + client for a file and run an operation against it. Returns a discriminated
+   *  outcome so the tool can report WHY nothing came back (LSP off / not code / no server installed /
+   *  server crashed) instead of collapsing every failure into a misleading "not found". */
+  private async withClient<T>(path: string, boundary: string | undefined, op: (client: LspClient, text: string, language: string) => Promise<T>): Promise<LspOpResult<T>> {
+    if (!this.enabled) return { ok: false, reason: 'disabled' };
     const language = detectLanguage(path);
-    if (!language) return null;
+    if (!language) return { ok: false, reason: 'not-a-known-language' };
     const spec = serverForLanguage(language);
-    if (!spec) return null;
+    if (!spec) return { ok: false, reason: 'unsupported-language', language };
     let text: string;
-    try { text = this.readFile(path); } catch { return null; }
+    try { text = this.readFile(path); } catch { return { ok: false, reason: 'unreadable', language }; }
     const root = projectRootForFile(path, boundary ?? this.root);
     const entry = this.clientFor(spec, root);
-    if (!entry) return null;
+    if (!entry) return { ok: false, reason: 'no-server-installed', language, server: spec.label };
     entry.activeChecks++;
     try {
-      return await op(entry.client, text, language);
+      return { ok: true, result: await op(entry.client, text, language) };
     } catch {
       this.retire(entry);
-      return null;
+      return { ok: false, reason: 'server-error', language, server: spec.label };
     } finally {
       this.release(entry);
     }
   }
 
-  async definition(path: string, line: number, character: number, boundary?: string): Promise<unknown> {
+  async definition(path: string, line: number, character: number, boundary?: string): Promise<LspOpResult<unknown>> {
     return this.withClient(path, boundary, (c, text, lang) => c.definition(path, text, lang, line, character));
   }
 
-  async references(path: string, line: number, character: number, boundary?: string): Promise<unknown> {
+  async references(path: string, line: number, character: number, boundary?: string): Promise<LspOpResult<unknown>> {
     return this.withClient(path, boundary, (c, text, lang) => c.references(path, text, lang, line, character));
   }
 
-  async hover(path: string, line: number, character: number, boundary?: string): Promise<unknown> {
+  async hover(path: string, line: number, character: number, boundary?: string): Promise<LspOpResult<unknown>> {
     return this.withClient(path, boundary, (c, text, lang) => c.hover(path, text, lang, line, character));
   }
 
-  async documentSymbol(path: string, boundary?: string): Promise<unknown> {
+  async documentSymbol(path: string, boundary?: string): Promise<LspOpResult<unknown>> {
     return this.withClient(path, boundary, (c, text, lang) => c.documentSymbol(path, text, lang));
   }
 
-  async workspaceSymbol(query: string, boundary?: string): Promise<unknown> {
-    if (!this.enabled) return null;
-    // workspace/symbol needs ANY running client for the project. Pick the first available one.
-    const root = boundary ?? this.root;
-    if (!root) return null;
-    // Find any live client whose root matches, or spawn one for the first known server.
-    for (const entry of this.clients.values()) {
-      if (entry.client.isDisposed()) continue;
+  /** workspace/symbol across the caller's project(s). SECURITY: the manager is a daemon-wide singleton
+   *  shared by every user, so results are taken ONLY from clients whose root is inside `boundary` (the
+   *  caller's allowed scope) — never a client rooted in another tenant's project. When nothing in scope
+   *  is live yet, a server is spawned for the boundary root so the tool works on a cold session. */
+  async workspaceSymbol(query: string, boundary?: string): Promise<LspOpResult<unknown[]>> {
+    if (!this.enabled) return { ok: false, reason: 'disabled' };
+    const boundaryRoot = boundary ?? this.root;
+    const within = (root: string): boolean => {
+      if (!boundaryRoot) return true; // all-access (no boundary) — every live client is in scope
+      const base = canonical(boundaryRoot);
+      const candidate = canonical(root);
+      return candidate === base || pathWithin(candidate, base);
+    };
+    let inScope = [...this.clients.values()].filter((e) => !e.client.isDisposed() && within(e.root));
+    if (inScope.length === 0) {
+      if (!boundaryRoot) return { ok: false, reason: 'no-server-installed' };
+      // Cold session: spawn the first installed server for the boundary's nearest project root.
+      const root = projectRootForFile(join(boundaryRoot, '_probe'), boundaryRoot);
+      const entry = this.spawnAnyClientFor(root);
+      if (!entry) return { ok: false, reason: 'no-server-installed' };
+      inScope = [entry];
+    }
+    const merged: unknown[] = [];
+    for (const entry of inScope) {
       entry.activeChecks++;
-      try { return await entry.client.workspaceSymbol(query); }
-      catch { this.retire(entry); return null; }
-      finally { this.release(entry); }
+      try {
+        const res = await entry.client.workspaceSymbol(query);
+        if (Array.isArray(res)) merged.push(...res);
+      } catch {
+        this.retire(entry);
+      } finally {
+        this.release(entry);
+      }
+    }
+    return { ok: true, result: merged };
+  }
+
+  /** Spawn (or reuse) any installed language server for `root` — used by workspace/symbol on a cold
+   *  session, where there is no file to pick a language from. First registered server that spawns wins. */
+  private spawnAnyClientFor(root: string): ManagedClient | null {
+    for (const spec of listServers()) {
+      const entry = this.clientFor(spec, root);
+      if (entry) return entry;
     }
     return null;
   }
@@ -280,7 +327,7 @@ export class LspManager {
     if (!transport) return null;
     this.makeRoomForClient();
     const client = new LspClient(transport, root);
-    const entry: ManagedClient = { key, command: spec.command, client, activeChecks: 0, retired: false, warmed: false };
+    const entry: ManagedClient = { key, command: spec.command, root, client, activeChecks: 0, retired: false, warmed: false };
     this.clients.set(key, entry);
     return entry;
   }
@@ -335,6 +382,20 @@ export class LspManager {
       entry.retired = true;
       entry.client.dispose();
     }
+  }
+}
+
+/** Explain a failed code-intelligence operation to the agent — mirrors formatCheckResult's honest,
+ *  actionable wording (off / not code / install-would-help / server error). Returns null when there is
+ *  no useful explanation (the caller then renders its own "No X found."). */
+export function formatLspFailure(f: LspOpFailure): string | null {
+  switch (f.reason) {
+    case 'disabled': return 'LSP is off (/lsp to enable).';
+    case 'not-a-known-language': return null;
+    case 'unsupported-language': return `LSP doesn't cover ${f.language} (no language server registered for it).`;
+    case 'no-server-installed': return `The ${f.server ?? f.language ?? 'required'} language server isn't installed — install it to use this.`;
+    case 'server-error': return `The ${f.server ?? f.language} language server errored or timed out — no result this time (it will be retried).`;
+    case 'unreadable': return 'Could not read the file.';
   }
 }
 
