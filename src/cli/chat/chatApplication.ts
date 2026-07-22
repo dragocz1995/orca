@@ -67,6 +67,8 @@ export class ChatApplication {
   private launchPendingAsk: (() => void) | null = null;
   private stopped = false;
   private localStop: Promise<void> | null = null;
+  /** Last title pushed to the terminal window/tab via OSC, so an unchanged status refresh is a no-op. */
+  private lastTerminalTitle: string | null = null;
 
   constructor(options: ChatLaunchOptions) {
     this.launch = options;
@@ -101,6 +103,7 @@ export class ChatApplication {
       await this.bootstrap(this.launch);
       if (this.stopped) return;
       this.start();
+      this.syncTerminalTitle(this.state.conversationTitle);
       this.coordinator!.openStream(this.state.streamAc);
       this.launchPendingAsk?.();
       this.launchPendingAsk = null;
@@ -134,6 +137,7 @@ export class ChatApplication {
   private stopLocal(): Promise<void> {
     if (this.localStop) return this.localStop;
     this.stopped = true;
+    if (this.lastTerminalTitle) this.syncTerminalTitle('');
     this.localStop = this.lifetime.stop();
     this.stopRateLimitsPoll();
     this.coordinator?.stop();
@@ -359,6 +363,20 @@ export class ChatApplication {
     state.queued = status.queued ?? [];
     state.lspEnabled = status.lspEnabled ?? null;
     state.yoloOn = status.yolo ?? state.yoloOn;
+    this.syncTerminalTitle(state.conversationTitle);
+  }
+
+  /** Mirror the conversation title into the terminal window/tab title via OSC 0 — what claude-code does in
+   *  VSCode and terminal emulators, so a rename by the agent renames the tab too. Deduped so a status
+   *  refresh with an unchanged title is a no-op; control chars are replaced so a crafted title cannot
+   *  inject further escape sequences, and the length is capped. OSC 0 sets terminal state, not the screen,
+   *  so writing it around the pi-tui frame is safe; an empty title clears it (used on shutdown). */
+  private syncTerminalTitle(title: string): void {
+    if (!process.stdout.isTTY) return;
+    const clean = title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256);
+    if (clean === this.lastTerminalTitle) return;
+    this.lastTerminalTitle = clean;
+    process.stdout.write(`\x1b]0;${clean}\x07`);
   }
 
   private pauseRendering(): void {
