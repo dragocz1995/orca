@@ -66,6 +66,10 @@ function capture() {
   return tmux(['capture-pane', '-p', '-t', session]);
 }
 
+// The pending-queue strip renders as a grouped header (`⏸ N queued`) over indented muted items —
+// see QueuedMessages in src/cli/chat/components.ts (the calm redesign replaced the per-row QUEUED pill).
+const QUEUE_STRIP_HEADER = /^\s*⏸ \d+ queued\b/mu;
+
 function captureAnsi() {
   if (!hasSession()) return '';
   return tmux(['capture-pane', '-p', '-e', '-t', session]);
@@ -367,7 +371,7 @@ try {
   sendKey('Enter');
   await waitFor('queued message strip + compaction status', () => {
     const pane = capture();
-    return /^\s+QUEUED\s/mu.test(pane) && pane.includes('E2E QUEUED LINE') && pane.includes('compacting');
+    return QUEUE_STRIP_HEADER.test(pane) && pane.includes('E2E QUEUED LINE') && pane.includes('compacting');
   });
   const queuedCompacting = saveCapture('03-streaming-queued');
   assert.equal((queuedCompacting.match(/E2E QUEUED LINE 1/gu) ?? []).length, 1,
@@ -383,7 +387,7 @@ try {
 
   await waitFor('queued delivery after compaction', () => {
     const pane = capture();
-    return !/^\s+QUEUED\s/mu.test(pane) && !pane.includes('compacting')
+    return !QUEUE_STRIP_HEADER.test(pane) && !pane.includes('compacting')
       && pane.includes('E2E QUEUED LINE 1') && pane.includes('E2E INTERRUPTED QUEUE REPLY');
   });
   const deliveredQueue = saveCapture('03b-queued-delivered');
@@ -439,7 +443,7 @@ try {
 
   sendKey('Escape');
   await waitFor('exactly one abort request', () => requests('/brain/abort').length === 1);
-  await waitFor('queued strip cleared by abort', () => !/^\s+QUEUED\s/mu.test(capture()));
+  await waitFor('queued strip cleared by abort', () => !QUEUE_STRIP_HEADER.test(capture()));
   assert.equal(requests('/brain/abort').length, 1, 'the second Esc must send exactly one abort');
 
   sendLiteral('E2E SECOND USER');
