@@ -11,6 +11,8 @@ import {
   type PendingCompactionMessage,
 } from './turnBoundaryCompaction.js';
 import { installHistoryImageStripping } from './historyImageStripping.js';
+import { installToolResultClearing } from './toolResultClearing.js';
+import { installCacheWatch } from './cacheWatch.js';
 import { seedActivatedFromHistory, type ToolSearchHandle } from '../toolSearch/toolSearchTool.js';
 import { logger } from '../../shared/logger.js';
 
@@ -306,6 +308,13 @@ export class BrainSessionFactory {
     // placeholders in every provider request, for ANY image source — Read images, MCP screenshots,
     // future plugins. The current run's fresh image is still seen; persisted history is untouched.
     installHistoryImageStripping(session);
+    // Same egress seam: large tool results that have scrolled two user turns back are swapped for a
+    // placeholder + spill-file path, but only once the prompt cache has provably expired (idle gate) —
+    // history is never rewritten while a request could still cache-hit, and the per-session latch keeps
+    // a cleared result cleared so the prefix stays byte-stable afterwards. cacheWatch is the tripwire
+    // that would log if this (or anything else) ever did break a warm prefix.
+    installToolResultClearing(session, spec.sessionId);
+    installCacheWatch(session);
     // Compaction is PI-native: our per-user % maps to PI's absolute reserveTokens (shouldCompact fires
     // once contextTokens > contextWindow − reserveTokens). Applied AFTER create — createAgentSession reads
     // compaction lazily (getCompactionSettings at each check), so an in-memory override here takes effect;
