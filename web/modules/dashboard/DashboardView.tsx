@@ -7,7 +7,6 @@ import { MotionReveal } from '../../components/ui/Motion';
 import { motionTransition } from '../../lib/motion';
 import { useEffects } from '../../lib/useEffects';
 import { HeroNowTile } from './HeroNowTile';
-import { AttentionRail } from './SignalTiles';
 import { ActivityTile } from './ActivityTile';
 import { TodayTasksTile } from './TodayTasksTile';
 import { WorkspacePage } from '../../components/ui/WorkspacePrimitives';
@@ -45,15 +44,12 @@ export function DashboardView() {
         <HeroNowTile now={nowMs} />
       </m.div>
 
-      {/* One continuous journal below the hero. Activity and today's work form the story; compact
-          signals sit in a narrow attention rail instead of competing as a grid of equal cards. */}
+      {/* One continuous journal below the hero. Activity and today's work form the story; the
+          operational signals orbit the mascot in the hero cosmos above. */}
       <MotionReveal delay={0.06} className="@container">
-        <div className="overflow-hidden border-y border-border/80 @3xl:grid @3xl:grid-cols-[minmax(0,1fr)_18rem]">
-          <div className="min-w-0 divide-y divide-border/80">
-            <ActivityTile />
-            <TodayTasksTile now={nowMs} />
-          </div>
-          <AttentionRail now={nowMs} />
+        <div className="divide-y divide-border/80 overflow-hidden border-y border-border/80">
+          <ActivityTile />
+          <TodayTasksTile now={nowMs} />
         </div>
       </MotionReveal>
     </WorkspacePage>

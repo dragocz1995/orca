@@ -485,3 +485,46 @@ html[data-effects='full'] .cosmos[data-mode='orbit'] .cosmos-pod:hover .cosmos-p
 /* sparse pods may grow with their content (e.g. the four style pills on one line) */
 .cosmos[data-mode='orbit'][data-density='sparse'] .cosmos-pod { width: auto; min-width: 16.5rem; max-width: min(30rem, 38vw); }
 .cosmos-pod__status { display: flex; justify-content: center; margin-top: -0.2rem; }
+
+/* ══════ Hero cosmos (dashboard) ══════
+   The dashboard hero's mini orbital field: the ElowenPresence mascot as the core, four compact
+   signal-link pods on fixed corner angles. Reuses the constellation filament classes and entrance
+   keyframes above (cosmos-fil--*, cosmos-pod-in, cosmos-fil-in, cosmos-fil-appear,
+   cosmos-pod-in-stack); positions come from HeroCosmos.tsx. */
+.hero-cosmos { position: relative; width: 100%; }
+.hero-cosmos[data-mode='orbit'] { flex: 1 1 auto; min-height: 25rem; }
+.hero-cosmos__filaments { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+/* Core capped below the presence's native 25rem so the pods orbit OUTSIDE its aura and rings. */
+.hero-cosmos[data-mode='orbit'] .hero-cosmos__core { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: min(58%, 17rem); pointer-events: none; }
+.hero-cosmos__pods { position: absolute; inset: 0; }
+.hero-cosmos__pod { position: absolute; translate: -50% -50%; display: flex; align-items: flex-start; gap: 0.6rem; width: 11.5rem; padding: 0.55rem 0.6rem; border-radius: 1rem; transition: transform var(--motion-base) var(--ease-out); }
+.hero-cosmos__pod:hover, .hero-cosmos__pod:focus-visible { transform: translateY(-3px); }
+.hero-cosmos__orb { display: grid; place-items: center; flex: none; width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 1px solid rgb(255 82 54 / 0.32); background: radial-gradient(circle at 38% 32%, rgb(255 82 54 / 0.06), #060606 70%); color: var(--color-text-muted); box-shadow: 0 0 0 4px #040404, 0 0 14px rgb(255 82 54 / 0.18); transition: border-color var(--motion-base) var(--ease-out), color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out); }
+.hero-cosmos__pod:hover .hero-cosmos__orb, .hero-cosmos__pod:focus-visible .hero-cosmos__orb { border-color: rgb(255 82 54 / 0.75); color: var(--color-accent); box-shadow: 0 0 0 4px #040404, 0 0 24px rgb(255 82 54 / 0.45); }
+.hero-cosmos__body { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 0.1rem; }
+.hero-cosmos__label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
+.hero-cosmos__value { min-width: 3ch; font-family: var(--font-mono); font-size: 0.9rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.hero-cosmos__detail { overflow: hidden; font-size: 11px; color: var(--color-text-muted); text-overflow: ellipsis; white-space: nowrap; }
+/* alert tone: unresolved decisions, and the needs_input filament matching the presence aura */
+.hero-cosmos__pod--alert .hero-cosmos__orb { border-color: rgb(245 158 11 / 0.5); color: var(--color-warning); }
+.hero-cosmos__pod--alert .hero-cosmos__value { color: var(--color-warning); }
+.cosmos-fil--base.hero-fil--alert { stroke: rgb(245 158 11 / 0.5); }
+.cosmos-fil--flow.hero-fil--alert { stroke: rgb(245 158 11 / 0.9); }
+/* stack fallback — the "satellites on the left beam" idiom at hero scale */
+.hero-cosmos[data-mode='stack'] { display: flex; flex-direction: column; gap: 0.75rem; }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__filaments { display: none; }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__core { margin: 0 auto; width: min(100%, 20rem); }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__pods { position: relative; inset: auto; display: flex; flex-direction: column; gap: 0.25rem; }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__pods::before { content: ''; position: absolute; top: 0.3rem; bottom: 0.3rem; left: 1.35rem; width: 2px; translate: -50% 0; background: linear-gradient(180deg, transparent, rgb(255 82 54 / 0.26) 7%, rgb(255 82 54 / 0.26) 90%, transparent); filter: blur(1px); }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__pod { position: relative; translate: none; width: 100%; align-items: center; padding: 0.45rem 0.25rem; }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__pod:hover { transform: none; }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__orb { width: 2.2rem; height: 2.2rem; }
+.hero-cosmos[data-mode='stack'] .hero-cosmos__body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 0.6rem; }
+/* entrance — same reduced-motion gate as the constellation block above */
+@media (prefers-reduced-motion: no-preference) {
+  .hero-cosmos--enter[data-mode='orbit'] .hero-cosmos__pod { opacity: 0; animation: cosmos-pod-in 0.75s var(--ease-out) forwards; animation-delay: calc(var(--i) * 90ms + 100ms); }
+  .hero-cosmos--enter[data-mode='orbit'] .cosmos-fil--base { stroke-dashoffset: var(--len); animation: cosmos-fil-in 0.9s var(--ease-out) forwards; animation-delay: calc(var(--i) * 90ms + 250ms); }
+  .hero-cosmos--enter[data-mode='orbit'] .cosmos-fil--flow { opacity: 0; animation: cosmos-fil-appear 0.4s linear forwards; animation-delay: calc(var(--i) * 90ms + 900ms); }
+  html[data-effects='full'] .hero-cosmos--enter[data-mode='orbit'] .cosmos-fil--flow { animation: cosmos-fil-flow 3.2s linear infinite, cosmos-fil-appear 0.4s linear forwards; animation-delay: calc(var(--i) * -0.9s), calc(var(--i) * 90ms + 900ms); }
+  .hero-cosmos--enter[data-mode='stack'] .hero-cosmos__pod { opacity: 0; animation: cosmos-pod-in-stack 0.55s var(--ease-out) forwards; animation-delay: calc(var(--i) * 70ms); }
+}

@@ -4,7 +4,7 @@ import { ArrowRight, Clock3, Sparkles, WifiOff } from 'lucide-react';
 import { useTasks } from '../../lib/queries';
 import { taskForSession, agentDisplayName } from '../../lib/agentUtils';
 import { useTranslation } from '../../lib/i18n';
-import { ElowenPresence } from './ElowenPresence';
+import { HeroCosmos } from './HeroCosmos';
 import { HomeComposer } from './HomeComposer';
 import { useAgentPresence, type AgentPresenceState } from './useAgentPresence';
 
@@ -33,7 +33,7 @@ export function HeroNowTile({ now }: { now: number }) {
   return (
     <section className="dashboard-hero relative isolate overflow-hidden border-b border-border/80 px-1 py-5 @container sm:px-3 sm:py-7">
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_78%_40%,rgb(255_82_54_/_0.1),transparent_35%),linear-gradient(140deg,rgb(255_82_54_/_0.022),transparent_52%)]" aria-hidden />
-      <div className="grid min-h-[29rem] items-center gap-7 @3xl:grid-cols-[minmax(0,1.08fr)_minmax(21rem,.92fr)]">
+      <div className="grid min-h-[29rem] items-center gap-7 @3xl:grid-cols-[minmax(0,1fr)_minmax(26rem,1fr)]">
         <div className="flex min-w-0 flex-col gap-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex flex-col gap-1.5">
@@ -77,8 +77,8 @@ export function HeroNowTile({ now }: { now: number }) {
           <HomeComposer placeholder={t.dashboard.composerPlaceholder} actionLabel={t.dashboard.composerAction} />
         </div>
 
-        <div className="flex min-h-72 items-center justify-center @3xl:min-h-[25rem]">
-          <ElowenPresence state={presence.state} label={`${t.common.appName}: ${stateLabel}`} />
+        <div className="flex min-h-72 flex-col justify-center @3xl:min-h-[25rem] @3xl:self-stretch">
+          <HeroCosmos now={now} state={presence.state} presenceLabel={`${t.common.appName}: ${stateLabel}`} />
         </div>
       </div>
     </section>
