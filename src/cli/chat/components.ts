@@ -634,14 +634,14 @@ export function cardBlock(card: BrainCard, maxRows = 12, collapsed = false): str
   return lines;
 }
 
-// Diff colours matched to Claude Code's DEFAULT (Ink fallback) diff renderer, dark theme — the vivid,
-// saturated line tints most Claude users actually see (the native color-diff's near-black tints only apply
-// under CLAUDE_CODE_SYNTAX_HIGHLIGHT). Reference src/utils/theme.ts:466-471: diffAdded/diffRemoved as the
-// line background, diffAddedWord/diffRemovedWord as the brighter changed-span colour (used here for the fg).
-const GIT_ADD_BG = ansi.bg(34, 92, 43);
-const GIT_ADD_FG = ansi.fg(56, 166, 96);
-const GIT_DEL_BG = ansi.bg(122, 41, 54);
-const GIT_DEL_FG = ansi.fg(179, 89, 107);
+// Diff colours tuned to match Claude Code's live look: a VIVID, saturated line background (Claude's is
+// bright neon-ish green / red, not the muted olive/maroon of the raw theme tokens) with a LIGHT foreground
+// so the gutter and the plain (grammar-not-yet-loaded) row read with high contrast on top of it — instead
+// of green-on-green mud. When a grammar is loaded the body carries its own syntax colours over this bg.
+const GIT_ADD_BG = ansi.bg(46, 160, 67);
+const GIT_ADD_FG = ansi.fg(220, 255, 224);
+const GIT_DEL_BG = ansi.bg(164, 48, 62);
+const GIT_DEL_FG = ansi.fg(255, 223, 227);
 const GIT_ADD = `${GIT_ADD_BG};${GIT_ADD_FG}`;
 const GIT_DEL = `${GIT_DEL_BG};${GIT_DEL_FG}`;
 const CODE_BG = ansi.bg(13, 13, 16);
