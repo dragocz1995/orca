@@ -113,7 +113,8 @@ describe('PluginDetail workspace', () => {
     expect(screen.getByTestId('plugin-preview-rail')).toHaveClass('@4xl:sticky');
     expect(within(layout).getByRole('region', { name: en.pluginDetail.livePreview })).toBeInTheDocument();
     expect(within(layout).getByRole('textbox')).toBeInTheDocument();
-    expect(screen.queryByText(en.pluginDetail.overviewStatus)).not.toBeInTheDocument();
+    // The old overview "Status" block stays gone from the editor layout.
+    expect(screen.queryByText('Status')).not.toBeInTheDocument();
   });
 
   it('opens Setup first when a required secret is missing', () => {

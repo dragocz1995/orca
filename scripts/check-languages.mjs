@@ -97,6 +97,61 @@ for (const lang of webLocales) {
 }
 
 // ---------------------------------------------------------------------------
+// Dead keys — dictionary leaves no web source ever references.
+// A leaf counts as used when its NAME appears anywhere in the web sources (conservative: a name
+// shared between namespaces marks all of them used — zero false positives over completeness).
+// Namespaces indexed with computed keys (`t.ns[value]`) can't be seen by a name scan; list them
+// here WITH the access site so the exemption stays verifiable.
+// ---------------------------------------------------------------------------
+const DYNAMIC_NAMESPACES = [
+  'activity',          // TaskContextLine: t.activity[activity]
+  'agent',             // AgentStatusDot: t.agent[state]
+  'agents',            // AgentsTable: t.agents[a.status]
+  'brain.limits',      // BrainLimitsModal: t.brain.limits[f.key] + t.brain.limits[`${f.key}Hint`]
+  'brain.types',       // BrainSection: t.brain.types[type] — daemon-driven provider type set
+  'kanban',            // KanbanBoard: t.kanban[col.labelKey]
+  'nav',               // useShellNavigation/TopBar: t.nav[world.id] / t.nav[module.id]
+  'page',              // CommandPalette: t.page[m.id]
+  'plugins',           // PluginsSection: t.plugins[CATEGORY_META[c].key]
+  'providers',         // settings/page + pickers: t.providers[p.id]
+  'settings',          // settings/page deck sections: t.settings[id] per category
+  'terminal.fonts',    // TerminalSection: t.terminal.fonts[id]
+  'terminal.palette',  // TerminalSection: t.terminal.palette[key] — 21 palette slot labels
+];
+
+function collectLeaves(dict, path = '', out = []) {
+  for (const [key, value] of Object.entries(dict)) {
+    const keyPath = path ? `${path}.${key}` : key;
+    if (value !== null && typeof value === 'object') collectLeaves(value, keyPath, out);
+    else out.push({ path: keyPath, name: key });
+  }
+  return out;
+}
+
+const webDir = join(root, 'web');
+const sourceRoots = ['app', 'components', 'modules', 'lib'].map((dir) => join(webDir, dir));
+const dictionariesDir = fileURLToPath(dictDirUrl);
+let sourceBlob = '';
+function readTree(dir) {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (full.startsWith(dictionariesDir.replace(/\/$/, ''))) continue; // the dictionaries themselves
+    const stats = statSync(full);
+    if (stats.isDirectory()) readTree(full);
+    else if (/\.(tsx?|mjs)$/.test(entry)) sourceBlob += readFileSync(full, 'utf-8') + '\n';
+  }
+}
+for (const dir of sourceRoots) readTree(dir);
+const sourceIdentifiers = new Set(sourceBlob.match(/[A-Za-z0-9_]+/g));
+
+for (const leaf of collectLeaves(dictionaries.en)) {
+  if (DYNAMIC_NAMESPACES.some((ns) => leaf.path.startsWith(`${ns}.`))) continue;
+  if (!sourceIdentifiers.has(leaf.name)) {
+    errors.push(`web: ${leaf.path} is never referenced by any web source (dead key — delete it from every locale, or add its namespace to DYNAMIC_NAMESPACES if it is accessed with a computed key)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Plugin manifests + i18n overrides
 // ---------------------------------------------------------------------------
 const pluginsDir = join(root, 'plugins');
