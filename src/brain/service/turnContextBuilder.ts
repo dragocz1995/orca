@@ -237,7 +237,7 @@ export class TurnContextBuilder {
       }
     }
     const policy = denied.size ? { deny: denied } : undefined;
-    applyToolVisibility(live.session, live.pluginToolNames, policy);
+    applyToolVisibility(live.session, live.pluginToolNames, policy, live.toolSearch);
     return policy;
   }
 }

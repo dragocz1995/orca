@@ -42,6 +42,10 @@ export interface CapabilitySpec {
    *  keys on a resolved elowenUserId, so a caller only ever reaches their OWN memory and an unlinked/
    *  anonymous sender (no elowenUserId) or a task-worker (no identity) gets a locked no-op. */
   memoryTools?: () => ToolDefinition[];
+  /** The `ToolSearch` built-in, composed for every INTERACTIVE session that actually defers tools (empty
+   *  otherwise). Built lazily like `elowenTools` so it is only constructed when deferral is engaged. It is
+   *  a built-in (permission-gated, not plugin-hook-gated), so it rides with the elowen/memory group. */
+  toolSearch?: () => ToolDefinition[];
   pluginTools: ToolDefinition[];
   /** Observer fired after a PERMITTED plugin tool's execute resolves (never for a policy-denied call or
    *  a throwing execute). The caller typically forwards it to the plugin hook bus as `tools.call.after`.
@@ -155,8 +159,12 @@ export function composeSessionTools(spec: CapabilitySpec): ToolDefinition[] {
   // sender gets a locked no-op and no one can reach another user's memory. Task-workers (no identity)
   // never compose them.
   const memoryTools = spec.kind !== 'task-worker' ? (spec.memoryTools?.() ?? []) : [];
+  // ToolSearch is a built-in fetch mechanism, not a plugin tool — it takes the permission gate (so a
+  // user's own deny can still hide it) but never the plugin hook wrapper. Only present when the session
+  // actually defers tools; otherwise the list is empty and the composed set is byte-identical to before.
+  const toolSearchTools = spec.kind !== 'task-worker' ? (spec.toolSearch?.() ?? []) : [];
   const pluginTools = spec.pluginTools.map((t) => gateToolAccess(t, spec.onToolResult));
-  return [...elowenTools, ...memoryTools, ...pluginTools].map(gatePermissions);
+  return [...elowenTools, ...memoryTools, ...toolSearchTools, ...pluginTools].map(gatePermissions);
 }
 
 /** The names a turn's ToolPolicy is allowed to HIDE from the model, given the full tool set and which of
@@ -178,13 +186,34 @@ export interface ToolVisibilityTarget {
   setActiveToolsByName(names: string[]): void;
 }
 
+/** Deferred-tool state consulted by {@link applyToolVisibility}: `deferred` are registered tools withheld
+ *  from the prompt until fetched; `activated` are the ones ToolSearch has already fetched. Structurally a
+ *  subset of the tool-search handle, so the live's handle is passed straight through. */
+export interface ToolDeferralState {
+  deferred: Set<string>;
+  activated: Set<string>;
+}
+
 /** Narrow which tools the model SEES this turn to those the acting sender may use, so a shared channel
  *  advertises each sender only their own toolset — not just blocks a disallowed call after the fact. PI
  *  rebuilds the system prompt on a change, so we skip the call when the desired set already matches the
  *  active one: consecutive same-sender turns keep the prompt cache warm, and it only re-slices when the
- *  sender (hence their ToolPolicy) actually changes. The execute-time gate stays as defense-in-depth. */
-export function applyToolVisibility(session: ToolVisibilityTarget, pluginNames: Set<string>, tp: ToolPolicy | undefined): void {
-  const desired = visibleToolNames(session.getAllTools().map((t) => t.name), pluginNames, tp);
+ *  sender (hence their ToolPolicy) actually changes. The execute-time gate stays as defense-in-depth.
+ *
+ *  Deferred tools (external MCP tools withheld to keep the prompt light) are excluded UNLESS ToolSearch
+ *  has already fetched them (`deferral.activated`) — so a deferred tool the model has not asked for stays
+ *  out of the prompt, and one it has fetched stays in across every subsequent turn. The sender-visibility
+ *  filter still applies on top, so a deferred tool the acting sender may not use can never be advertised. */
+export function applyToolVisibility(
+  session: ToolVisibilityTarget,
+  pluginNames: Set<string>,
+  tp: ToolPolicy | undefined,
+  deferral?: ToolDeferralState,
+): void {
+  let desired = visibleToolNames(session.getAllTools().map((t) => t.name), pluginNames, tp);
+  if (deferral && deferral.deferred.size > 0) {
+    desired = desired.filter((n) => !deferral.deferred.has(n) || deferral.activated.has(n));
+  }
   const current = session.getActiveToolNames();
   if (desired.length === current.length && desired.every((n) => current.includes(n))) return;
   session.setActiveToolsByName(desired);

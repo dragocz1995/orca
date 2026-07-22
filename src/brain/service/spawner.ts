@@ -6,6 +6,8 @@ import { buildBrainRegistry, resolveBrainModelRoute } from '../providers.js';
 import { buildElowenTools, buildMemoryTools, BUILTIN_TOOL_ICONS, BUILTIN_TOOL_PLAN_SAFE } from '../tools/index.js';
 import { makeToolIconResolver } from '../toolIcons.js';
 import { composeSessionTools } from '../session/capabilities.js';
+import { computeDeferredToolNames } from '../toolSearch/deferralPolicy.js';
+import { createToolSearchHandle, toolSearchTool, formatDeferredToolsBlock, type ToolSearchHandle } from '../toolSearch/toolSearchTool.js';
 import { buildPromptTemplates } from '../slashCommands.js';
 import { formatSkillsForPrompt } from '@earendil-works/pi-coding-agent';
 import { personalityText } from '../personality.js';
@@ -119,12 +121,22 @@ export class LiveSessionSpawner {
     const toolHookBus = plugins && plugins.hooks.length > 0
       ? new PluginHookBus({ hooks: plugins.hooks, hookOwners: plugins.hookOwners, capabilities: plugins.pluginCapabilities, logger: logger('plugin-hooks') })
       : undefined;
+    // Deferred-tool policy: which registered tools (bridged external MCP tools, above the threshold) are
+    // withheld from the initial prompt and fetched on demand via ToolSearch. Computed from the RAW plugin
+    // tools — gating preserves names, and only `mcp__*` names are ever deferrable — so it is stable whether
+    // read before or after composition. Empty (the common case) → no ToolSearch tool, no awareness block,
+    // no change from before this existed.
+    const deferred = computeDeferredToolNames(pluginTools);
+    const toolSearchHandle: ToolSearchHandle | undefined = deferred.size > 0 ? createToolSearchHandle(deferred) : undefined;
     const allTools = composeSessionTools({
       kind: opts.channel ? (opts.trustedChannel ? 'trusted-channel' : 'foreign-channel') : 'owner-chat',
       elowenTools: () => buildElowenTools({ url: this.d.url, token: this.d.users.ensureAdvisorToken(ownerUserId) }),
       memoryTools: memStore && memService && memCats && memCategorizer
         ? () => buildMemoryTools({ store: memStore, service: memService, categories: memCats, categorizer: memCategorizer })
         : undefined,
+      // ToolSearch rides the built-in group (permission-gated, not plugin-hook-gated); present only when
+      // the session actually defers tools.
+      toolSearch: toolSearchHandle ? () => [toolSearchTool(toolSearchHandle)] : undefined,
       pluginTools,
       // Plugin tools are gated at EXECUTE time from the turn's ToolPolicy (set in runWithPolicy), not
       // filtered at compose — one shared mechanism for owner chat and shared channels alike.
@@ -147,7 +159,11 @@ export class LiveSessionSpawner {
     // exist; `skills` still flows to the factory's `skillsOverride` so PI expands `/skill:name` natively.
     // `formatSkillsForPrompt` already drops disable-model-invocation skills, so the toggle is honoured.
     const skillsBlock = skills.length ? formatSkillsForPrompt(skills) : '';
-    const append = [skillsBlock, ...fragments, ...(opts.extraAppend ?? []), persoAppend ?? ''].filter((s) => s.length > 0);
+    // Deferred-tools awareness: names (+ short descriptions) of the withheld MCP tools so the model knows
+    // what it can fetch via ToolSearch. Stable for the session (the MCP set is fixed at spawn) → sits in the
+    // cache-friendly append region, not the per-turn context. Empty string when nothing is deferred.
+    const deferredBlock = toolSearchHandle ? formatDeferredToolsBlock(allTools, toolSearchHandle.deferred) : '';
+    const append = [skillsBlock, deferredBlock, ...fragments, ...(opts.extraAppend ?? []), persoAppend ?? ''].filter((s) => s.length > 0);
 
     // Elowen identity: the editable `elowen` prompt (per-user override aware) becomes the system prompt,
     // so the brain knows it is Elowen — not the underlying model's default persona.
@@ -182,7 +198,7 @@ export class LiveSessionSpawner {
       sessionId, ownerUserId, parentSessionId: opts.parentSessionId, delegatedAccess: opts.delegatedAccess,
       runtime: this.d.runtime, model, compactionFallbackModel: route.compactionFallback, cwd,
       systemPrompt: persona, appendSystemPrompt: append, skills, promptTemplates,
-      tools: allTools, thinkingLevel: opts.thinkingLevel, requestProfile,
+      tools: allTools, toolSearch: toolSearchHandle, thinkingLevel: opts.thinkingLevel, requestProfile,
       autoCompact: opts.autoCompact, autoCompactAtPct,
       pendingCompactionMessages,
       // Project AGENTS.md/CLAUDE.md ride the system prompt for an ADMIN's own chat only. Two guards,
@@ -252,6 +268,9 @@ export class LiveSessionSpawner {
       thinkingLabels: Object.fromEntries(capabilities.levels.map((level) => [level, capabilities.labels[level] ?? level])),
       policy: opts.policy, listeners, replay, turnContext,
       pluginToolNames: new Set(pluginTools.map((t) => t.name)),
+      // The deferred-tool handle (undefined when nothing is deferred). Carried on the live so each turn's
+      // visibility pass keeps already-fetched tools advertised and withheld ones hidden.
+      toolSearch: toolSearchHandle,
       // Read-only-ness is declared with the tool, exactly like its icon above: the core co-locates its
       // own, a plugin states its own in the manifest. Assembled once per session so a plugin toggle
       // applies on the next spawn without a daemon restart.

@@ -4,6 +4,7 @@ import type { BrainEvent } from '../events.js';
 import type { ProviderRequestProfile } from '../modelCapabilities.js';
 import type { LiveEventReplay } from './liveEventReplay.js';
 import type { DelegatedExecutionScope } from '../delegatedScope.js';
+import type { ToolSearchHandle } from '../toolSearch/toolSearchTool.js';
 
 /** A queued mid-turn message's image attachments, in PI's ImageContent shape. */
 export type QueuedImage = { type: 'image'; data: string; mimeType: string };
@@ -68,6 +69,10 @@ export interface LiveBrain {
    *  may hide (the built-in elowen_ and memory_ tools stay visible). Used by applyToolVisibility to slice
    *  the model's advertised tools to what the current sender may use. */
   pluginToolNames: Set<string>;
+  /** Deferred-tool state for this session, or undefined when nothing is deferred (the common case). Holds
+   *  the withheld MCP tool names and the subset ToolSearch has fetched; consulted by applyToolVisibility so
+   *  each turn advertises only the core plus already-fetched tools. */
+  toolSearch?: ToolSearchHandle;
   /** Names of the tools composed into this session that only READ. Assembled at spawn from the same two
    *  declarations icons come from — the core's `BUILTIN_TOOL_PLAN_SAFE` and each plugin manifest's
    *  `planSafe` — so a tool's plan-safety is stated once, by whoever owns the tool. Plan mode composes

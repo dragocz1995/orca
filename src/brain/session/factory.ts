@@ -11,6 +11,7 @@ import {
   type PendingCompactionMessage,
 } from './turnBoundaryCompaction.js';
 import { installHistoryImageStripping } from './historyImageStripping.js';
+import type { ToolSearchHandle } from '../toolSearch/toolSearchTool.js';
 import { logger } from '../../shared/logger.js';
 
 let missingBoundaryCompactionWarned = false;
@@ -45,6 +46,10 @@ export interface SessionSpec {
    *  workers (no user typing slashes) leave it empty. */
   promptTemplates?: PromptTemplate[];
   tools: ToolDefinition[];
+  /** Deferred-tool handle: when present, its `deferred` names are withheld from the INITIAL active set
+   *  (they stay in the registry so ToolSearch can activate them), and the live session is wired onto it
+   *  after creation so ToolSearch can change the active slice. Undefined → every tool starts active. */
+  toolSearch?: ToolSearchHandle;
   /** Reasoning effort for extended-thinking models (empty/undefined = the model default). */
   thinkingLevel?: string;
   /** Mutable provider switches (currently ChatGPT OAuth Fast) read before every request. */
@@ -267,7 +272,10 @@ export class BrainSessionFactory {
       resourceLoader,
       settingsManager,
       customTools: spec.tools,
-      tools: spec.tools.map((t) => t.name),
+      // The registry is the FULL set (customTools); the INITIAL active slice omits deferred tools so their
+      // schemas stay out of the prompt until ToolSearch fetches them. They remain in the registry, so
+      // setActiveToolsByName can add them back. No deferral → every tool starts active, exactly as before.
+      tools: spec.tools.map((t) => t.name).filter((n) => !spec.toolSearch?.deferred.has(n)),
       noTools: 'builtin',
       ...(thinkingLevel ? { thinkingLevel } : {}),
     });
@@ -275,6 +283,11 @@ export class BrainSessionFactory {
     // pipeline created for this session. The extension above has already been loaded and only marks
     // PI's own compaction signal; it never executes or returns a custom compaction.
     compactionModelRoute?.install(session);
+    // Wire the live session onto the deferred-tool handle so ToolSearch (which closes over the handle) can
+    // read the registry and change the active slice. AgentSession structurally satisfies the handle's
+    // ToolActivationTarget (getAllTools/getActiveToolNames/setActiveToolsByName). No-op when nothing is
+    // deferred (handle undefined).
+    if (spec.toolSearch) spec.toolSearch.session = session;
     // Egress-only: image blocks that have scrolled into history (a newer user turn exists) become text
     // placeholders in every provider request, for ANY image source — Read images, MCP screenshots,
     // future plugins. The current run's fresh image is still seen; persisted history is untouched.

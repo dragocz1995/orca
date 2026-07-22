@@ -363,7 +363,7 @@ export class ChannelSessionService {
         const assistantBefore = [...(ch.session.messages as { role?: string }[])].reverse()
           .find((message) => message.role === 'assistant');
         try {
-          applyToolVisibility(ch.session, ch.pluginToolNames, effectiveToolPolicy);
+          applyToolVisibility(ch.session, ch.pluginToolNames, effectiveToolPolicy, ch.toolSearch);
           // Granular permissions without an approval channel: ordinary platform turns read the verified
           // sender (else their channel owner) fresh, but a delegated child MUST use its immutable captured
           // boundary. Resolving `writerUserId ?? ownerUserId` here would let an idle child inherit the

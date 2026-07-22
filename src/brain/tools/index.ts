@@ -13,6 +13,7 @@ export const BUILTIN_TOOL_ICONS: Record<string, string> = {
   'Elowen*': '🔥',
   'Memory*': '🧠',
   'Lsp*': '🔎',
+  'ToolSearch': '🧭',
   // Not a real tool: the display name a skill-file Read is RENAMED to on the `tool` event (see
   // toolDisplay in messageView.ts), so the stamped icon matches what clients render.
   'Skill': '📚',

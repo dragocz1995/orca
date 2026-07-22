@@ -55,3 +55,48 @@ describe('applyToolVisibility', () => {
     expect(s.calls[1]).toEqual(ALL);
   });
 });
+
+// Deferred-tool integration: MCP tools withheld until ToolSearch fetches them.
+const DALL = ['Read', 'ToolSearch', 'mcp__gh__create', 'mcp__gh__list'];
+const DPLUG = new Set(['Read', 'mcp__gh__create', 'mcp__gh__list']);
+const DEFERRED = new Set(['mcp__gh__create', 'mcp__gh__list']);
+
+function deferralSession(active: string[]): ToolVisibilityTarget & { calls: string[][] } {
+  const state = { active: [...active], calls: [] as string[][] };
+  return {
+    calls: state.calls,
+    getAllTools: () => DALL.map((name) => ({ name })),
+    getActiveToolNames: () => state.active,
+    setActiveToolsByName: (names: string[]) => { state.active = [...names]; state.calls.push(names); },
+  };
+}
+
+describe('applyToolVisibility with deferral', () => {
+  it('keeps deferred tools hidden until fetched (initial active already excludes them → no-op)', () => {
+    const s = deferralSession(['Read', 'ToolSearch']);
+    applyToolVisibility(s, DPLUG, undefined, { deferred: DEFERRED, activated: new Set() });
+    expect(s.calls).toHaveLength(0);
+  });
+
+  it('advertises a deferred tool once ToolSearch has activated it', () => {
+    const s = deferralSession(['Read', 'ToolSearch']);
+    applyToolVisibility(s, DPLUG, undefined, { deferred: DEFERRED, activated: new Set(['mcp__gh__create']) });
+    expect(s.calls).toHaveLength(1);
+    expect(s.calls[0]).toEqual(['Read', 'ToolSearch', 'mcp__gh__create']);
+  });
+
+  it('never advertises a fetched deferred tool the sender may not use', () => {
+    const s = deferralSession(['Read', 'ToolSearch']);
+    // Sender denies the tool; even though it is "activated", the visibility filter removes it first, so
+    // the desired set stays [Read, ToolSearch] === current → no rebuild.
+    applyToolVisibility(s, DPLUG, { deny: new Set(['mcp__gh__create']) }, { deferred: DEFERRED, activated: new Set(['mcp__gh__create']) });
+    expect(s.calls).toHaveLength(0);
+  });
+
+  it('an empty deferred set behaves exactly like the non-deferral path', () => {
+    const s = deferralSession(['Read']); // active missing ToolSearch etc → will widen to full
+    applyToolVisibility(s, DPLUG, undefined, { deferred: new Set(), activated: new Set() });
+    expect(s.calls).toHaveLength(1);
+    expect(s.calls[0]).toEqual(DALL);
+  });
+});
