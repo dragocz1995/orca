@@ -295,6 +295,14 @@ describe('toolOutputView — single-source show policy', () => {
     expect(shown?.status).toBeUndefined();
   });
 
+  it('titles LSP output as "LSP diagnostics"/"LSP result" so a check reads as LSP, not a generic result', () => {
+    setToolOutputPolicy(makeToolOutputPolicy(() => ['Lsp*']));
+    const diag = toolOutputView('LspDiagnostics', {}, { content: [{ type: 'text', text: 'no problems' }] });
+    expect(diag?.title).toBe('LSP diagnostics');
+    const nav = toolOutputView('LspGoToDefinition', {}, { content: [{ type: 'text', text: 'src/x.ts:10:2' }] });
+    expect(nav?.title).toBe('LSP result');
+  });
+
   it('hides output by default — a tool on NO show list stays hidden (regression: default is hide)', () => {
     // Only Bash is allowlisted. CronList (structured control data) declares nothing → hidden.
     // Under the old hide-list default-show, CronList dumped its raw JSON into the transcript.

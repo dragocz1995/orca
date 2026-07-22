@@ -106,6 +106,9 @@ function outputKind(toolName: string): ToolOutputView['kind'] {
 function outputTitle(toolName: string, kind: ToolOutputView['kind']): string {
   if (kind === 'console') return 'console output';
   if (/(browser|playwright|chrome|page|web)/i.test(toolName)) return 'browser observation';
+  // LSP tools carry their own identity in the output header so a check reads as LSP, not a generic result:
+  // the diagnostics tool says "LSP diagnostics", the navigation/symbol ones "LSP result".
+  if (/^lsp/i.test(toolName)) return /diagnostic/i.test(toolName) ? 'LSP diagnostics' : 'LSP result';
   if (/(grep|search|find|rg)/i.test(toolName)) return 'search result';
   return 'tool result';
 }

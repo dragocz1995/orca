@@ -19,9 +19,17 @@ describe('toolRowSpec', () => {
     expect(toolRowSpec('Read').glyph).toBe('→');
     expect(toolRowSpec('ListDir').glyph).toBe('→');
     expect(toolRowSpec('Search').glyph).toBe('✱');
-    expect(toolRowSpec('LspDiagnostics').glyph).toBe('✱');
     expect(toolRowSpec('WebFetch').glyph).toBe('%');
     expect(toolRowSpec('Bash').glyph).toBe('⚙');
+  });
+
+  it('gives LSP the universal monochrome glyph, distinct from search (never a colored icon)', () => {
+    // An LSP check is not a search: it must not share the ✱ glyph. It uses the universal ⚙ — the CLI never
+    // renders the colored per-tool icon.
+    for (const name of ['LspDiagnostics', 'LspGoToDefinition', 'LspFindReferences', 'LspHover', 'LspWorkspaceSymbol']) {
+      expect(toolRowSpec(name).glyph).toBe('⚙');
+      expect(toolRowSpec(name).glyph).not.toBe(toolRowSpec('Search').glyph);
+    }
   });
 
   it('quotes a search detail (the query) but not other details', () => {

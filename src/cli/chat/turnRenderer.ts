@@ -58,7 +58,11 @@ export function toolRowSpec(name: string, detail?: string): { glyph: string; tit
   if (/(read|open|cat)/i.test(safeName)) return { glyph: '→', title };
   if (/list_?dir/i.test(safeName)) return { glyph: '→', title };
   if (/diff/i.test(safeName)) return { glyph: '←', title };
-  if (/(lsp|diagnostic)/i.test(safeName)) return { glyph: '✱', title };
+  // LSP (diagnostics / definitions / references / symbols) uses the universal monochrome glyph — the CLI
+  // never renders the colored per-tool icon (that 🔎 is for the web/Discord clients). Deliberately NOT the
+  // search ✱: an LSP check is not a search, and sharing the glyph made the two indistinguishable. LSP's
+  // identity is carried by the row's tool name and the "LSP …" title on its output block.
+  if (/(lsp|diagnostic)/i.test(safeName)) return { glyph: '⚙', title };
   if (/(fetch|web|http|url)/i.test(safeName)) return { glyph: '%', title };
   return { glyph: '⚙', title };
 }
