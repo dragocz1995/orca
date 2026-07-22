@@ -12,7 +12,9 @@ export function AccountDeckHero({ section, user, adminLabel }: {
   adminLabel: string;
 }) {
   if (section.id !== 'profile') {
-    return <SectionHeroSummary icon={section.icon} title={section.label} description={section.description} />;
+    // The control-deck header already prints the section label + description; the hero stays an
+    // identity block (icon + label) so it complements the heading instead of echoing its subtitle.
+    return <SectionHeroSummary icon={section.icon} title={section.label} />;
   }
 
   return (
