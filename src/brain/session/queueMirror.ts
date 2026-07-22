@@ -9,7 +9,7 @@ import type { LiveBrain, QueuedMsg, QueuedImage, QueuedUserEcho } from './liveBr
  *  mirror is absent (never enqueued through enqueueMirrored) it falls back to PI's text-only accessors on
  *  the passed session. The spawner projects straight from its always-present mirrors and passes no session.
  *  Ordered to match queueItems([...steering, ...followUp]) so a client's positional id maps straight in. */
-export function queueDisplayItems(
+function queueDisplayItems(
   steerMirror: QueuedMsg[] | undefined,
   followUpMirror: QueuedMsg[] | undefined,
   session?: AgentSession,

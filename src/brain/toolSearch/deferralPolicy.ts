@@ -24,7 +24,7 @@ export const MCP_TOOL_PREFIX = 'mcp__';
  *  are the hot-path core whose latency/cache cost of deferral would never be worth it. Matching is exact
  *  or `prefix*` (a trailing `*`). MCP tools never collide with these, so today this is belt-and-suspenders
  *  — it earns its keep only if the deferrable predicate is ever broadened past `mcp__*`. */
-export const NEVER_DEFER: readonly string[] = [
+const NEVER_DEFER: readonly string[] = [
   'ToolSearch',
   'Read', 'Edit', 'Write', 'Search', 'Grep', 'Glob', 'ListDir', 'FileInfo', 'GitStatus',
   'Bash', 'ListProcesses', 'ProcessOutput', 'KillProcess',
