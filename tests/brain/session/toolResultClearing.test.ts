@@ -331,6 +331,14 @@ describe('installToolResultClearing', () => {
   });
 });
 
+describe('toolResultSpillPath', () => {
+  it('fs-encodes the toolCallId so a hostile id cannot escape the spill dir', () => {
+    expect(toolResultSpillPath('/s', 'call-1')).toBe('/s/call-1.txt');
+    expect(toolResultSpillPath('/s', 'a/b')).toBe('/s/a%2Fb.txt');
+    expect(toolResultSpillPath('/s', '..')).toBe('/s/%...txt');
+  });
+});
+
 describe('cacheTtlMs / idleThresholdMs', () => {
   it('resolves the TTL from the same env var pi-ai reads: 60 min long, 5 min short', () => {
     expect(cacheTtlMs({ PI_CACHE_RETENTION: 'long' } as NodeJS.ProcessEnv)).toBe(60 * 60_000);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dataDir, dbPath, logDir, runFile, toolResultSpillDir } from '../../src/shared/paths.js';
+import { dataDir, dbPath, fsSafeSegment, logDir, runFile, toolResultSpillDir } from '../../src/shared/paths.js';
 
 describe('shared/paths', () => {
   const env = { HOME: '/h' } as NodeJS.ProcessEnv;
@@ -24,7 +24,17 @@ describe('shared/paths', () => {
     expect(toolResultSpillDir(env, 'sess-1')).toBe('/h/.config/elowen/tool-results/sess-1');
     // Separators and dot segments in a minted id must never escape tool-results/.
     expect(toolResultSpillDir(env, 'a/b')).toBe('/h/.config/elowen/tool-results/a%2Fb');
-    expect(toolResultSpillDir(env, '..')).toBe('/h/.config/elowen/tool-results/_..');
+    expect(toolResultSpillDir(env, '..')).toBe('/h/.config/elowen/tool-results/%..');
     expect(toolResultSpillDir(env, 'x%y')).toBe('/h/.config/elowen/tool-results/x%25y');
+  });
+
+  it('fsSafeSegment is injective even at the guard boundary', () => {
+    // '.'/'..' get a '%' prefix no legitimate encoding can produce ('%' itself encodes to '%25'),
+    // so a literal id like '_..' or '%..' can never collide with the guarded form.
+    const ids = ['', '.', '..', '...', '_..', '%..', 'a', 'a/b', '%', 'a b'];
+    const encoded = new Set(ids.map(fsSafeSegment));
+    expect(encoded.size).toBe(ids.length);
+    expect(fsSafeSegment('..')).toBe('%..');
+    expect(fsSafeSegment('_..')).toBe('_..');
   });
 });

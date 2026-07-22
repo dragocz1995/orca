@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { AgentSession } from '@earendil-works/pi-coding-agent';
-import { toolResultSpillDir } from '../../shared/paths.js';
+import { fsSafeSegment, toolResultSpillDir } from '../../shared/paths.js';
 import { logger } from '../../shared/logger.js';
 import type { PiAgentMessage } from './historyImageStripping.js';
 
@@ -49,9 +49,12 @@ export function idleThresholdMs(env: NodeJS.ProcessEnv): number {
   return cacheTtlMs(env) + 60_000;
 }
 
-/** Deterministic spill path — the placeholder builds it without any I/O, so the transform stays pure. */
+/** Deterministic spill path — the placeholder builds it without any I/O, so the transform stays pure.
+ *  The id is fs-encoded like the session id: a provider/plugin-minted toolCallId containing `/` or
+ *  `..` must not escape the spill dir (pathGuard would refuse the escaped path and the cleared
+ *  content would be unreadable). */
 export function toolResultSpillPath(spillDir: string, toolCallId: string): string {
-  return join(spillDir, `${toolCallId}.txt`);
+  return join(spillDir, `${fsSafeSegment(toolCallId)}.txt`);
 }
 
 export function clearedToolResultPlaceholder(spillPath: string, originalBytes: number): string {
