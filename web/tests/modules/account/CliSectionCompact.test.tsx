@@ -19,7 +19,7 @@ const CLI: CliSettings = {
 };
 const PERMISSIONS: PermissionSettings = { tools: {}, bash: {}, yolo: false, unattendedAsks: 'allow' };
 const MODELS: BrainModelOption[] = [
-  { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-opus', exec: 'elowen:anthropic/claude-opus', source: 'oauth', contextWindow: 200000, contextWindowSet: false },
+  { provider: 'kimi-coding', providerLabel: 'Kimi', model: 'k3', exec: 'elowen:kimi-coding/k3', source: 'oauth', contextWindow: 200000, contextWindowSet: false },
 ];
 vi.mock('../../../lib/queries', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -34,27 +34,23 @@ const renderSection = () => render(<ToastProvider><CliSection /></ToastProvider>
 
 beforeEach(() => { saveCli.mockClear(); savePermissions.mockClear(); });
 
-describe('CliSection — vision fallback model picker', () => {
-  it('seeds on "No fallback model" and offers the manage summary', () => {
+describe('CliSection — compaction model picker', () => {
+  it('renders even with auto-compact off (manual /compact uses it too) and seeds on the default label', () => {
     renderSection();
-    expect(screen.getByText(en.cli.visionModelLabel)).toBeTruthy();
-    // The vision summary chip shows the default (off) label until a model is picked.
-    expect(screen.getByText(en.cli.visionModelDefault)).toBeTruthy();
-    expect(screen.getByRole('button', { name: `${en.managePicker.manage}: ${en.cli.visionModelLabel}` })).toBeTruthy();
+    expect(screen.getByText(en.cli.compactModelLabel)).toBeTruthy();
+    // The compaction summary chip shows "Conversation model" until a distinct model is picked.
+    expect(screen.getByText(en.cli.compactModelDefault)).toBeTruthy();
   });
 
-  it('picking a model in the modal groups by provider (with icons) and autosaves provider::model', async () => {
+  it('picking a model autosaves compactModel/compactModelProvider as provider::model', async () => {
     renderSection();
-    fireEvent.click(screen.getByRole('button', { name: `${en.managePicker.manage}: ${en.cli.visionModelLabel}` }));
-    // Provider group header carries its brand logo; the model row its own model icon.
-    const heading = await screen.findByRole('heading', { name: 'Anthropic' });
-    expect(heading.querySelector('img')).toBeTruthy();
-    const row = screen.getByRole('button', { name: 'claude-opus' });
-    expect(row.querySelector('img')).toBeTruthy();
+    // Its own Manage button (distinct from the vision picker's) opens the compaction-model modal.
+    fireEvent.click(screen.getByRole('button', { name: `${en.managePicker.manage}: ${en.cli.compactModelLabel}` }));
+    const row = await screen.findByRole('button', { name: 'k3' });
     fireEvent.click(row);
     fireEvent.click(screen.getByRole('button', { name: en.managePicker.saveChanges }));
 
     await waitFor(() => expect(saveCli).toHaveBeenCalled(), { timeout: 1500 });
-    expect(saveCli.mock.calls[0]![0]).toMatchObject({ visionModel: 'claude-opus', visionModelProvider: 'anthropic' });
+    expect(saveCli.mock.calls[0]![0]).toMatchObject({ compactModel: 'k3', compactModelProvider: 'kimi-coding' });
   });
 });

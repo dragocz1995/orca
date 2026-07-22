@@ -90,7 +90,7 @@ describe('AccountView', () => {
       http.get('*/api/config', () => HttpResponse.json({ allowedExecs: ['sonnet'], customModels: [], hiddenPresets: [], autopilot: {}, providers: {}, defaults: {} })),
       http.get('*/api/brain/models', () => HttpResponse.json([])),
       http.get('*/api/auth/me/cli-settings', () => HttpResponse.json({
-        model: '', modelProvider: '', visionModel: '', visionModelProvider: '', thinkingLevel: '',
+        model: '', modelProvider: '', visionModel: '', visionModelProvider: '', compactModel: '', compactModelProvider: '', thinkingLevel: '',
         autoCompact: false, autoCompactAt: 80, advisorStyle: 'concise', personalityBody: '',
         discordUserId: '', whatsappNumber: '', autoRecall: true, autoSave: true,
       })),

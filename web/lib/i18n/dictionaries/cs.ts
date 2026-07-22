@@ -1795,6 +1795,8 @@ export const cs = {
   cli: {
     visionModelLabel: 'Záložní vision model',
     visionModelDefault: 'Bez záložního modelu',
+    compactModelLabel: 'Model pro zhuštění',
+    compactModelDefault: 'Model konverzace',
     thinkingLabel: 'Úroveň uvažování',
     thinkingDefault: 'Výchozí',
     autoCompact: 'Automatické zhuštění kontextu',
@@ -1948,6 +1950,7 @@ export const cs = {
     cliAutoCompact: "Když se konverzace blíží limitu kontextu modelu, shrne ji a uvolní místo.",
     cliThinking: "Kolik úsilí model věnuje přemýšlení, než odpoví. Vyšší úroveň znamená důkladnější, ale pomalejší odpovědi; Výchozí ponechá volbu na modelu.",
     cliVisionModel: "Použije se pro zprávy s obrázky, když váš zvolený model neumí vision. Prázdné = žádný záskok.",
+    cliCompactModel: "Model, který provádí shrnutí konverzace — automatické i ruční příkazem /compact. Může běžet i u jiného poskytovatele než model konverzace (např. levnějšího). Prázdné = shrnutí provede model konverzace.",
     cliUnattendedAsks: "Schvalovací výzvy existují jen v interaktivním chatu (web nebo CLI). V bězích bez dohledu — plánované úlohy, kanály platforem, sub-agenti — je nemá kdo zodpovědět, takže pravidla „ask“ se tam buď automaticky povolí (výchozí), nebo rovnou zablokují (přísný režim). Explicitní pravidla allow/deny platí beze změny; YOLO přísné blokování nepřebije.",
     cliPermissions: "Pravidla pro shellové příkazy, které asistent spouští; * zastupuje cokoli. Příklady: „git status*“ → Povolit se spustí bez dotazu, „rm *“ → Zakázat se vždy zablokuje. Pozdější pravidla mají přednost před dřívějšími (vyhrává poslední shoda) — nové pravidlo se přidá na konec a opětovné přidání existujícího vzoru ho tam přesune. Vestavěná výchozí pravidla platí i nadále pod vašimi. Objeví se zde i příkazy schválené v chatu volbou „Always allow“.",
     pushEnable: "Upozorníme vás, když mise potřebuje pozornost — i bez otevřené aplikace. Schválit můžete přímo z notifikace.",

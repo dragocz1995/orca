@@ -35,7 +35,7 @@ vi.mock('../../../lib/queries', async (importOriginal) => ({
 import { CliSection } from '../../../modules/account/CliSection';
 
 const CLI: CliSettings = {
-  model: '', modelProvider: '', visionModel: '', visionModelProvider: '', thinkingLevel: '',
+  model: '', modelProvider: '', visionModel: '', visionModelProvider: '', compactModel: '', compactModelProvider: '', thinkingLevel: '',
   autoCompact: false, autoCompactAt: 80, advisorStyle: 'professional', personalityBody: '', discordUserId: '', whatsappNumber: '',
   autoRecall: true, autoSave: true,
 };

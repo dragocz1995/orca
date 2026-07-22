@@ -1795,6 +1795,8 @@ export const en = {
   cli: {
     visionModelLabel: 'Vision fallback model',
     visionModelDefault: 'No fallback model',
+    compactModelLabel: 'Compaction model',
+    compactModelDefault: 'Conversation model',
     thinkingLabel: 'Reasoning effort',
     thinkingDefault: 'Default',
     autoCompact: 'Auto-compact context',
@@ -1948,6 +1950,7 @@ export const en = {
     cliAutoCompact: "When the conversation nears the model’s context limit, summarize it to free up room.",
     cliThinking: "How much effort the model puts into thinking before it answers. Higher levels mean more thorough but slower replies; Default leaves the choice to the model.",
     cliVisionModel: "Used for turns that carry images when your chosen model lacks vision. Empty = no fallback.",
+    cliCompactModel: "The model that summarizes the conversation — both automatically and via the manual /compact command. It can run on a different provider than the chat model (e.g. a cheaper one). Empty = the conversation's own model summarizes.",
     cliUnattendedAsks: "Approval prompts only exist in the interactive chat (web or CLI). Unattended runs — scheduled jobs, platform channels, sub-agents — have nobody to answer them, so \"ask\" rules there are either auto-allowed (default) or blocked outright (strict mode). Explicit allow/deny rules apply as usual; YOLO does not override the strict block.",
     cliPermissions: "Rules for shell commands the assistant runs; * matches anything. Examples: “git status*” → Allow runs it without asking, “rm *” → Deny always blocks it. Later rules override earlier ones (last match wins) — a new rule is added to the end, and re-adding an existing pattern moves it there. Built-in defaults still apply underneath your rules. Commands approved with “Always allow” in chat appear here too.",
     pushEnable: "We will notify you when a mission needs attention — even with the app closed. Approve right from the notification.",

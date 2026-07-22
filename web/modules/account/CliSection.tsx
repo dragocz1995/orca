@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Eye, Gauge, MoonStar, SlidersHorizontal, Zap } from 'lucide-react';
+import { Eye, Gauge, MoonStar, Shrink, SlidersHorizontal, Zap } from 'lucide-react';
 import { BrainModelField } from '../../components/ui/BrainModelField';
 import { Segmented } from '../../components/ui/Segmented';
 import { SpatialGroup, SpatialRow } from '../../components/ui/SpatialPrimitives';
@@ -30,6 +30,7 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
 
   // The picker value pairs provider + model; '' = the server default. '::' never appears in ids.
   const [visionSelection, setVisionSelection] = useState('');
+  const [compactSelection, setCompactSelection] = useState('');
   const [thinkingLevel, setThinkingLevel] = useState('');
   const [autoCompact, setAutoCompact] = useState(false);
   const [autoCompactAt, setAutoCompactAt] = useState(80);
@@ -42,6 +43,7 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
   useEffect(() => {
     if (data && !seeded) {
       setVisionSelection(data.visionModel ? `${data.visionModelProvider ?? ''}::${data.visionModel}` : '');
+      setCompactSelection(data.compactModel ? `${data.compactModelProvider ?? ''}::${data.compactModel}` : '');
       setThinkingLevel(data.thinkingLevel ?? '');
       setAutoCompact(data.autoCompact);
       setAutoCompactAt(data.autoCompactAt);
@@ -104,11 +106,13 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
 
   // Auto-persist shortly after any change. Sends only the fields this section owns — the PATCH merges,
   // so the Personality/default-model picks stay untouched.
-  const { status: settingsStatus, retry: retrySettings } = useAutoSaveStatus([visionSelection, thinkingLevel, autoCompact, autoCompactAt], async () => {
+  const { status: settingsStatus, retry: retrySettings } = useAutoSaveStatus([visionSelection, compactSelection, thinkingLevel, autoCompact, autoCompactAt], async () => {
     const [vProvider, ...vRest] = visionSelection.split('::');
+    const [cProvider, ...cRest] = compactSelection.split('::');
     try {
       await save.mutateAsync({
         visionModel: visionSelection ? vRest.join('::') : '', visionModelProvider: visionSelection ? (vProvider ?? '') : '',
+        compactModel: compactSelection ? cRest.join('::') : '', compactModelProvider: compactSelection ? (cProvider ?? '') : '',
         thinkingLevel, autoCompact, autoCompactAt,
       });
     } catch (error) {
@@ -159,6 +163,7 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
           subtitle={t.help.cliVisionModel}
           defaultLabel={t.cli.visionModelDefault}
           keyOf={(m) => `${m.provider}::${m.model}`}
+          manageAriaLabel={`${t.managePicker.manage}: ${t.cli.visionModelLabel}`}
         />
       </SpatialRow>
 
@@ -176,6 +181,19 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
             </div>
           ) : null}
         </div>
+      </SpatialRow>
+
+      <SpatialRow title={t.cli.compactModelLabel} icon={Shrink} description={t.help.cliCompactModel}>
+        <BrainModelField
+          value={compactSelection}
+          onChange={setCompactSelection}
+          models={models.data ?? []}
+          title={t.cli.compactModelLabel}
+          subtitle={t.help.cliCompactModel}
+          defaultLabel={t.cli.compactModelDefault}
+          keyOf={(m) => `${m.provider}::${m.model}`}
+          manageAriaLabel={`${t.managePicker.manage}: ${t.cli.compactModelLabel}`}
+        />
       </SpatialRow>
 
       <SpatialRow title={t.cli.yoloTitle} icon={Zap} description={t.cli.yoloWarning}>
