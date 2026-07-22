@@ -134,8 +134,9 @@ export function PermissionRulesCard() {
     </li>
   );
 
+  // variant="classic": the rules list is not label/control rows, so it opts out of the constellation.
   return (
-    <SpatialGroup title={t.cli.permTitle} icon={Shield} description={t.help.cliPermissions}>
+    <SpatialGroup title={t.cli.permTitle} icon={Shield} description={t.help.cliPermissions} variant="classic">
       <div className="flex flex-col gap-4 py-4">
         {bashRules.length === 0 ? (
           <p className="text-xs text-text-muted">{t.cli.permEmpty}</p>

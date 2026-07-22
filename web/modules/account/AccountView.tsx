@@ -30,6 +30,7 @@ import { isPushSupported, enablePush, disablePush } from '../../lib/pushClient';
 import { ChoiceField } from '../../components/ui/ChoiceField';
 import { SpatialControlDeck } from '../../components/ui/SpatialControlDeck';
 import { SpatialGroup, SpatialIdentity, SpatialRow } from '../../components/ui/SpatialPrimitives';
+import { ConstellationScope } from '../../components/ui/Constellation';
 import { MotionReveal } from '../../components/ui/Motion';
 import { useEffects, type EffectsMode } from '../../lib/useEffects';
 import { PersonalitySection } from './PersonalitySection';
@@ -37,6 +38,14 @@ import { CliSection } from './CliSection';
 import { TerminalSection } from './TerminalSection';
 import { AccountMemorySection } from './AccountMemorySection';
 import { AccountDeckHero } from './AccountDeckHero';
+
+/** PROTOTYPE(constellation): the AI-centric account sections (Elowen AI, Memory) render as an
+ *  orbital constellation instead of stacked rows. Flip to false to restore the classic layout —
+ *  no other change needed. */
+const ACCOUNT_CONSTELLATION = true;
+function ConstellationMaybe({ core, children }: { core: string; children: ReactNode }) {
+  return ACCOUNT_CONSTELLATION ? <ConstellationScope core={core}>{children}</ConstellationScope> : <>{children}</>;
+}
 
 type AccountSection = 'profile' | 'security' | 'notifications' | 'personality' | 'cli' | 'terminal' | 'memory';
 
@@ -330,14 +339,16 @@ export function AccountView() {
         onRetry={activeFeedback.retry}
         hero={<AccountDeckHero section={activeSection} user={u} adminLabel={t.users.admin} />}
       >
-      <AccountPanel id="memory" active={section} visited={visitedSections}><AccountMemorySection onSaveState={reportSaveState} /></AccountPanel>
+      <AccountPanel id="memory" active={section} visited={visitedSections}>
+        <ConstellationMaybe core={t.account.tabMemory}><AccountMemorySection onSaveState={reportSaveState} /></ConstellationMaybe>
+      </AccountPanel>
       <AccountPanel id="personality" active={section} visited={visitedSections}><PersonalitySection onSaveState={reportSaveState} /></AccountPanel>
       <AccountPanel id="terminal" active={section} visited={visitedSections}><TerminalSection onSaveState={reportSaveState} /></AccountPanel>
 
       {/* Elowen AI runtime controls. Default models live at the top of the profile workspace, where
           users see their most consequential personal preference immediately. */}
       <AccountPanel id="cli" active={section} visited={visitedSections}>
-        <CliSection onSaveState={reportSaveState} />
+        <ConstellationMaybe core={t.account.tabCli}><CliSection onSaveState={reportSaveState} /></ConstellationMaybe>
       </AccountPanel>
 
       <AccountPanel id="profile" active={section} visited={visitedSections}>

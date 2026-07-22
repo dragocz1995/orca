@@ -1,6 +1,8 @@
+'use client';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { HelpTip } from './HelpTip';
+import { CosmosGroup, useConstellation } from './Constellation';
 
 function SpatialLabel({ title, description, icon: Icon }: { title: string; description?: string; icon?: LucideIcon }) {
   return (
@@ -20,14 +22,21 @@ function SpatialLabel({ title, description, icon: Icon }: { title: string; descr
   );
 }
 
-/** Open document section used by spatial control surfaces. It deliberately has no card shell. */
-export function SpatialGroup({ title, description, icon, children, className = '' }: {
+/** Open document section used by spatial control surfaces. It deliberately has no card shell.
+ *  PROTOTYPE(constellation): inside a ConstellationScope the group renders as an orbital cosmos
+ *  instead — `variant="classic"` opts a group out (for non-row content like the permission rules). */
+export function SpatialGroup({ title, description, icon, children, className = '', variant }: {
   title?: string;
   description?: string;
   icon?: LucideIcon;
   children: ReactNode;
   className?: string;
+  variant?: 'classic';
 }) {
+  const cosmos = useConstellation();
+  if (cosmos && variant !== 'classic') {
+    return <CosmosGroup core={title ?? cosmos.core}>{children}</CosmosGroup>;
+  }
   return (
     <section className={`spatial-form-group ${className}`}>
       {title ? (
@@ -40,17 +49,33 @@ export function SpatialGroup({ title, description, icon, children, className = '
   );
 }
 
-/** A responsive label/control row. Controls become horizontal only when the document has room. */
-export function SpatialRow({ title, description, icon, children, className = '' }: {
+/** A responsive label/control row. Controls become horizontal only when the document has room.
+ *  PROTOTYPE(constellation): inside a ConstellationScope the row renders as a floating pod. */
+export function SpatialRow({ title, description, icon: Icon, children, className = '' }: {
   title: string;
   description?: string;
   icon?: LucideIcon;
   children: ReactNode;
   className?: string;
 }) {
+  const cosmos = useConstellation();
+  if (cosmos) {
+    return (
+      <div className="cosmos-pod">
+        <div className="cosmos-pod__inner">
+          {Icon ? <span className="cosmos-pod__orb" aria-hidden><Icon size={17} strokeWidth={1.6} /></span> : null}
+          <span className="cosmos-pod__title">
+            {title}
+            {description ? <HelpTip align="left">{description}</HelpTip> : null}
+          </span>
+          <div className="cosmos-pod__control">{children}</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`spatial-form-row ${className}`}>
-      <SpatialLabel title={title} description={description} icon={icon} />
+      <SpatialLabel title={title} description={description} icon={Icon} />
       <div className="spatial-form-row__control">{children}</div>
     </div>
   );
