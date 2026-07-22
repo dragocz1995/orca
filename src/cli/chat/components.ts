@@ -634,13 +634,14 @@ export function cardBlock(card: BrainCard, maxRows = 12, collapsed = false): str
   return lines;
 }
 
-// Diff colours matched to Claude Code's native color-diff renderer (dark theme): a deep line-background
-// tint plus a brighter foreground for the +/- gutter decoration. (src/native-ts/color-diff/index.ts:302-330
-// in the reference — addLine/deleteLine backgrounds, addDecoration/deleteDecoration foregrounds.)
-const GIT_ADD_BG = ansi.bg(2, 40, 0);
-const GIT_ADD_FG = ansi.fg(80, 200, 80);
-const GIT_DEL_BG = ansi.bg(61, 1, 0);
-const GIT_DEL_FG = ansi.fg(220, 90, 90);
+// Diff colours matched to Claude Code's DEFAULT (Ink fallback) diff renderer, dark theme — the vivid,
+// saturated line tints most Claude users actually see (the native color-diff's near-black tints only apply
+// under CLAUDE_CODE_SYNTAX_HIGHLIGHT). Reference src/utils/theme.ts:466-471: diffAdded/diffRemoved as the
+// line background, diffAddedWord/diffRemovedWord as the brighter changed-span colour (used here for the fg).
+const GIT_ADD_BG = ansi.bg(34, 92, 43);
+const GIT_ADD_FG = ansi.fg(56, 166, 96);
+const GIT_DEL_BG = ansi.bg(122, 41, 54);
+const GIT_DEL_FG = ansi.fg(179, 89, 107);
 const GIT_ADD = `${GIT_ADD_BG};${GIT_ADD_FG}`;
 const GIT_DEL = `${GIT_DEL_BG};${GIT_DEL_FG}`;
 const CODE_BG = ansi.bg(13, 13, 16);
