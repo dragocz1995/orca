@@ -20,7 +20,7 @@ import {
   type Model,
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
-import { createCodexCompactionModelRoute } from '../../src/brain/session/codexCompaction.js';
+import { createCompactionModelRoute } from '../../src/brain/session/compactionModelRoute.js';
 import { installTurnBoundaryAutoCompaction } from '../../src/brain/session/turnBoundaryCompaction.js';
 
 interface ProviderCall {
@@ -145,7 +145,7 @@ async function fixture(o: FixtureOptions = {}): Promise<{
   });
   const selected = registry.find(provider, selectedId)!;
   const fallback = fallbackId ? registry.find(provider, fallbackId) : undefined;
-  const route = createCodexCompactionModelRoute(fallback);
+  const route = createCompactionModelRoute(fallback);
   const compactions: { fromExtension: boolean; reason: string }[] = [];
   const observer = (pi: ExtensionAPI) => {
     pi.on('session_compact', (event) => {
@@ -190,7 +190,7 @@ async function fixture(o: FixtureOptions = {}): Promise<{
   return { session, sessionManager, calls, compactions, selected };
 }
 
-describe('Codex compaction model routing', () => {
+describe('Compaction model routing', () => {
   it('keeps repeated manual compaction PI-native and preserves native stream options + file details', async () => {
     const f = await fixture({ fallbackId: 'gpt-5.5' });
 
@@ -466,6 +466,70 @@ describe('Codex compaction model routing', () => {
     expect(f.calls).toHaveLength(1);
     expect(f.calls[0]?.model).toBe(f.selected);
     expect(f.compactions).toEqual([{ fromExtension: false, reason: 'manual' }]);
+  });
+
+  it('routes cross-provider compaction to the fallback provider with its own auth', async () => {
+    const runtime = await inMemoryModelRuntime();
+    const registry = new ModelRegistry(runtime);
+    const calls: ProviderCall[] = [];
+    const chatApi = `elowen-test-chat-${++apiSequence}` as Api;
+    const compactApi = `elowen-test-compact-${++apiSequence}` as Api;
+    const descriptor = (id: string) => ({
+      id, name: id, reasoning: true, input: ['text'] as ('text' | 'image')[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1_000, maxTokens: 512,
+    });
+    registry.registerProvider('elowen-chat', {
+      name: 'Chat provider', api: chatApi, baseUrl: 'https://chat.example.test',
+      apiKey: 'chat-oauth-token', headers: { 'x-chat-route': 'chat-only' },
+      streamSimple: (model, context, options) => {
+        calls.push({ model, context, options });
+        const summarizing = context.systemPrompt?.includes('context summarization assistant') === true;
+        return responseStream(model, summarizing ? 'chat-side summary' : 'chat answer', summarizing ? 10 : 20);
+      },
+      models: [descriptor('chat-model')],
+    });
+    registry.registerProvider('elowen-compact', {
+      name: 'Compaction provider', api: compactApi, baseUrl: 'https://compact.example.test',
+      apiKey: 'compact-key', headers: { 'x-compact-route': 'compact-only' },
+      streamSimple: (model, context, options) => {
+        calls.push({ model, context, options });
+        return responseStream(model, 'cheap summary', 10);
+      },
+      models: [descriptor('compact-model')],
+    });
+    const selected = registry.find('elowen-chat', 'chat-model')!;
+    const fallback = registry.find('elowen-compact', 'compact-model')!;
+    const route = createCompactionModelRoute(fallback)!;
+    const settingsManager = SettingsManager.inMemory({
+      compaction: { enabled: true, reserveTokens: 500, keepRecentTokens: 4 },
+    }, { projectTrusted: true });
+    const cwd = process.cwd();
+    const sessionManager = SessionManager.inMemory(cwd);
+    appendToolHistory(sessionManager, selected, 'one');
+    const resourceLoader = new DefaultResourceLoader({
+      cwd, agentDir: cwd, settingsManager,
+      noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+      extensionFactories: [route.extension],
+    });
+    await resourceLoader.reload();
+    const { session } = await createAgentSession({
+      cwd, sessionManager, settingsManager, modelRuntime: runtime, model: selected,
+      resourceLoader, customTools: [], tools: [], noTools: 'builtin',
+    });
+    route.install(session);
+
+    await session.compact();
+
+    const summaryCall = calls.find((call) => call.model.id === 'compact-model');
+    expect(summaryCall).toBeDefined();
+    // The summary ran on the fallback provider's model, not the chat model…
+    expect(summaryCall?.model.provider).toBe('elowen-compact');
+    // …resolving the fallback provider's OWN credentials — the chat provider's pre-resolved OAuth token
+    // and route header were stripped so they never leak onto (and 401 against) the fallback endpoint.
+    expect(summaryCall?.options?.apiKey).toBe('compact-key');
+    expect(summaryCall?.options?.headers ?? {}).not.toHaveProperty('x-chat-route');
+    // The chat/session model itself is untouched.
+    expect(session.model).toBe(selected);
   });
 
   it('binds the fallback independently for respawned Luna and switched Sol sessions', async () => {

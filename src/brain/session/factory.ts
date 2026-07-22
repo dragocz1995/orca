@@ -5,7 +5,7 @@ import type { BrainStore } from '../../store/brainStore.js';
 import { createSessionPersistenceProjector, rehydrate, settlePartialTurn } from '../persistence.js';
 import { applyProviderRequestProfile, isCanonicalThinkingLevel, type ProviderRequestProfile } from '../modelCapabilities.js';
 import type { DelegatedExecutionScope } from '../delegatedScope.js';
-import { createCodexCompactionModelRoute, type CodexCompactionModelRoute } from './codexCompaction.js';
+import { createCompactionModelRoute, type CompactionModelRoute } from './compactionModelRoute.js';
 import {
   installTurnBoundaryAutoCompaction,
   type PendingCompactionMessage,
@@ -28,7 +28,8 @@ export interface SessionSpec {
   delegatedAccess?: DelegatedExecutionScope;
   runtime: ModelRuntime;
   model: Model<Api>;
-  /** Same-provider configured default used deterministically for PI-owned Codex compaction requests. */
+  /** Distinct model (any provider) used deterministically for PI-owned compaction requests — the user's
+   *  chosen compaction model or a provider's stable default. Undefined → compact on the session model. */
   compactionFallbackModel?: Model<Api>;
   cwd: string;
   systemPrompt: string;
@@ -90,7 +91,7 @@ export interface BrainResourceLoaderOptions {
    *  signal (the CLI rail already renders one for ChatGPT). A measurement step, not a feature. */
   kimiHeaderProbe?: boolean;
   /** Marker hook for PI-owned compaction requests. The actual stream route is installed on AgentSession. */
-  compactionModelRouteExtension?: CodexCompactionModelRoute['extension'];
+  compactionModelRouteExtension?: CompactionModelRoute['extension'];
   requestProfile?: ProviderRequestProfile;
   settingsManager: SettingsManager;
 }
@@ -230,7 +231,7 @@ export class BrainSessionFactory {
     // compaction override below (and any session-local PI setting) lives here, dying with the session.
     // `projectTrusted` lets those session-local writes land in the in-memory store instead of erroring.
     const settingsManager = SettingsManager.inMemory(undefined, { projectTrusted: true });
-    const compactionModelRoute = createCodexCompactionModelRoute(spec.compactionFallbackModel);
+    const compactionModelRoute = createCompactionModelRoute(spec.compactionFallbackModel);
     const resourceLoader = (this.d.resourceLoaderFactory ?? defaultResourceLoaderFactory)({
       cwd: spec.cwd, systemPrompt: spec.systemPrompt, appendSystemPrompt: spec.appendSystemPrompt,
       skills: spec.skills, prompts: spec.promptTemplates, contextFiles: spec.contextFiles,
