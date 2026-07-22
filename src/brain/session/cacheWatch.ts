@@ -15,7 +15,7 @@ const log = logger('brain-cache');
 
 /** Below BOTH thresholds a drop is noise: small absolute swings happen with thinking-block variance. */
 export const CACHE_DROP_MIN_TOKENS = 2000;
-export const CACHE_DROP_MIN_RATIO = 0.05;
+const CACHE_DROP_MIN_RATIO = 0.05;
 
 type SessionEvent = { type?: string; message?: { role?: string; timestamp?: number; usage?: { cacheRead?: number } }; aborted?: boolean; result?: unknown };
 type Subscribable = { subscribe?: (listener: (event: SessionEvent) => void) => unknown };
