@@ -14,18 +14,29 @@ import type { BrainModelOption } from '../../lib/types';
  *  row without an override shows the global default (greyed); dragging the slider sets an override, ↺ clears
  *  it. Overrides are keyed `provider/model` — the same convention the daemon resolves and the context-window
  *  map uses. */
-export function CompactThresholdsDrawer({ models, thresholds, defaultPct, onChange, onClose }: {
+export function CompactThresholdsDrawer({ models, thresholds, defaultPct, onDefaultChange, onChange, onClose }: {
   models: BrainModelOption[];
   /** The global threshold a model inherits when it has no override. */
   defaultPct: number;
+  /** When provided, the drawer also edits the global threshold (constellation pods keep it here). */
+  onDefaultChange?: (pct: number) => void;
   thresholds: Record<string, number>;
   onChange: (key: string, pct: number | null) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   return (
-    <WorkspaceDetailRail label={t.cli.compactByModelTitle} closeLabel={t.common.close} onClose={onClose}>
+    <WorkspaceDetailRail label={onDefaultChange ? t.cli.autoCompact : t.cli.compactByModelTitle} closeLabel={t.common.close} onClose={onClose}>
       <p className="mb-4 text-xs leading-relaxed text-text-muted">{t.help.cliCompactByModel}</p>
+      {onDefaultChange ? (
+        <div className="mb-5 border-b border-border pb-5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-text">{t.cli.autoCompactAt}</span>
+            <span className="font-mono text-sm tabular-nums text-accent">{defaultPct}%</span>
+          </div>
+          <Slider value={defaultPct} min={30} max={95} step={5} onChange={onDefaultChange} aria-label={t.cli.autoCompactAt} className="mt-3" />
+        </div>
+      ) : null}
       <div className="flex flex-col divide-y divide-border">
         {models.map((m) => {
           const key = `${m.provider}/${m.model}`;

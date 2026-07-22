@@ -379,7 +379,7 @@ html[data-effects='full'] .spatial-section-node--active .spatial-section-node__i
    purpose — delete this whole block together with Constellation.tsx and the cosmos branches in
    SpatialPrimitives.tsx to fully remove the experiment. */
 .cosmos { position: relative; }
-.cosmos[data-mode='orbit'] { height: clamp(38rem, calc(100dvh - 15rem), 56rem); }
+.cosmos[data-mode='orbit'] { height: clamp(40rem, calc(100dvh - 13rem), 60rem); }
 .cosmos-filaments { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .cosmos-fil--base { stroke: rgb(255 82 54 / 0.2); transition: opacity var(--motion-base) var(--ease-out), stroke var(--motion-base) var(--ease-out); }
 .cosmos-fil--flow { stroke: rgb(255 154 98 / 0.5); stroke-dasharray: 3 34; transition: opacity var(--motion-base) var(--ease-out); }
@@ -394,12 +394,12 @@ html[data-effects='full'] .cosmos-fil--flow { animation: cosmos-fil-flow 3.2s li
 .cosmos-ring { position: absolute; left: 50%; top: 50%; translate: -50% -50%; border: 1px dashed rgb(255 82 54 / 0.09); border-radius: 50%; pointer-events: none; }
 html[data-effects='full'] .cosmos-ring { animation: cosmos-spin 90s linear infinite; }
 
-.cosmos-core { position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6rem; width: 18rem; height: 18rem; text-align: center; pointer-events: none; }
+.cosmos-core { position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.7rem; width: 21rem; height: 21rem; text-align: center; pointer-events: none; }
 .cosmos-core::before { content: ''; position: absolute; inset: 8%; border-radius: 50%; background: radial-gradient(circle at 42% 38%, rgb(255 154 98 / 0.28), rgb(255 82 54 / 0.14) 45%, rgb(255 82 54 / 0.03) 72%, transparent); filter: blur(6px); }
 .cosmos-core::after { content: ''; position: absolute; inset: 0; border: 1px solid rgb(255 82 54 / 0.28); border-radius: 50%; mask: conic-gradient(from 0deg, #000 0 62%, transparent 66% 100%); }
 html[data-effects='full'] .cosmos-core::before { animation: cosmos-breathe 3.4s ease-in-out infinite; }
 html[data-effects='full'] .cosmos-core::after { animation: cosmos-spin 12s linear infinite; }
-.cosmos-core__mascot { position: relative; z-index: 1; width: 11rem; height: auto; filter: drop-shadow(0 0.9rem 2.2rem rgb(255 65 35 / 0.3)); }
+.cosmos-core__mascot { position: relative; z-index: 1; width: 13rem; height: auto; filter: drop-shadow(0 0.9rem 2.4rem rgb(255 65 35 / 0.32)); }
 html[data-effects='full'] .cosmos-core__mascot { animation: cosmos-mascot-float 6.5s ease-in-out infinite; }
 @keyframes cosmos-mascot-float { 50% { transform: translateY(-6px); } }
 .cosmos-core__label { position: relative; z-index: 1; max-width: 12rem; font-family: var(--font-mono); font-size: 0.68rem; font-weight: 650; letter-spacing: 0.24em; text-transform: uppercase; color: var(--color-ember); text-shadow: 0 0 12px rgb(255 82 54 / 0.6); }
@@ -410,7 +410,7 @@ html[data-effects='full'] .cosmos-core__mascot { animation: cosmos-mascot-float 
 .cosmos-pod__inner::before { content: ''; position: absolute; inset: -6% -2%; z-index: -1; border-radius: 50%; background: radial-gradient(ellipse at 50% 30%, rgb(255 82 54 / 0.09), rgb(255 255 255 / 0.015) 45%, transparent 75%); opacity: 0; filter: blur(6px); transition: opacity var(--motion-base) var(--ease-out); }
 .cosmos-pod:hover .cosmos-pod__inner, .cosmos-pod:focus-within .cosmos-pod__inner { transform: translateY(-3px); }
 .cosmos-pod:hover .cosmos-pod__inner::before, .cosmos-pod:focus-within .cosmos-pod__inner::before { opacity: 1; }
-.cosmos-pod__orb { position: relative; display: grid; place-items: center; width: 3.4rem; height: 3.4rem; flex: none; border-radius: 50%; border: 1px solid var(--color-border-strong); background: radial-gradient(circle at 38% 32%, rgb(255 255 255 / 0.05), #060606 70%); color: var(--color-text-muted); box-shadow: 0 0 0 6px #040404; transition: border-color var(--motion-base) var(--ease-out), color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out); }
+.cosmos-pod__orb { position: relative; display: grid; place-items: center; width: 3.4rem; height: 3.4rem; flex: none; border-radius: 50%; border: 1px solid var(--color-border-strong); background: radial-gradient(circle at 38% 32%, rgb(255 255 255 / 0.05), #060606 70%); color: var(--color-text-muted); box-shadow: 0 0 0 6px #040404; transition: border-color var(--motion-base) var(--ease-out), color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
 .cosmos-pod__orb::before { content: ''; position: absolute; inset: -0.55rem; border: 1px solid rgb(255 82 54 / 0.14); border-radius: 50%; mask: conic-gradient(from 180deg, #000 0 40%, transparent 45% 100%); }
 .cosmos-pod:hover .cosmos-pod__orb, .cosmos-pod:focus-within .cosmos-pod__orb { border-color: rgb(255 82 54 / 0.65); color: var(--color-accent); box-shadow: 0 0 0 6px #040404, 0 0 22px rgb(255 82 54 / 0.35), inset 0 0 12px rgb(255 82 54 / 0.12); }
 html[data-effects='full'] .cosmos-pod:hover .cosmos-pod__orb::before { animation: cosmos-spin 5s linear infinite; }
@@ -453,9 +453,10 @@ html[data-effects='full'] .cosmos[data-mode='orbit'] .cosmos-pod:hover .cosmos-p
 /* ambient ember drizzle behind the whole app (rendered only in effects mode 'full') */
 .ember-fall { position: fixed; inset: 0; z-index: 1; pointer-events: none; }  /* z:1 — above page surfaces (some are opaque), below overlays/toasts */
 
-/* switches inside pods: bigger, glowing when on, with a warm knob that reads on OLED black */
+/* switches inside pods: bigger, glowing when on, with a warm knob that reads on OLED black.
+   Function descriptions stay out of pods — the control speaks for itself. */
 .cosmos-pod__control label { justify-content: center; }
-.cosmos-pod__control label > span:last-child { max-width: 10.5rem; font-size: 0.72rem; color: var(--color-text-muted); text-align: left; }
+.cosmos-pod__control label > span:last-child { display: none; }
 .cosmos-pod [role='switch'] { transform: scale(1.15); transform-origin: center; }
 .cosmos-pod [role='switch'][aria-checked='true'] { border-color: rgb(255 82 54 / 0.6); box-shadow: 0 0 14px rgb(255 82 54 / 0.4), inset 0 0 6px rgb(0 0 0 / 0.3); }
 .cosmos-pod [role='switch'][aria-checked='true'] > span { background: #ffe0d0; box-shadow: 0 0 6px rgb(255 154 98 / 0.8); }
@@ -471,3 +472,13 @@ html[data-effects='full'] .cosmos[data-mode='orbit'] .cosmos-pod:hover .cosmos-p
 
 /* bare content surface (compact deck): no hairlines, no sheet gradient — pure page background */
 .spatial-content-surface--bare { border-block: 0; background: none; }
+
+/* pods: the orb is the manage trigger — the inline "Spravovat" button hides, model chips sit bare
+   side by side without the summary card chrome */
+.cosmos-pod [data-selection-manage] { display: none; }
+.cosmos-pod [data-selection-summary] { border: 0; background: none; box-shadow: none !important; padding: 0; justify-content: center; }
+.cosmos-pod [data-selection-summary] > div { flex: none; align-items: center; }
+.cosmos-pod__orb:not(:disabled) { pointer-events: auto; }
+.cosmos-pod:has([data-selection-manage]) .cosmos-pod__orb { cursor: pointer; }
+.cosmos-pod:has([data-selection-manage]) .cosmos-pod__orb:hover { transform: scale(1.06); }
+.cosmos-pod__orb:focus-visible { outline: 2px solid var(--color-text); outline-offset: 4px; }

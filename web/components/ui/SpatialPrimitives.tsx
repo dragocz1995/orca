@@ -1,5 +1,5 @@
 'use client';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { HelpTip } from './HelpTip';
 import { CosmosGroup, useConstellation } from './Constellation';
@@ -59,15 +59,24 @@ export function SpatialRow({ title, description, icon: Icon, children, className
   className?: string;
 }) {
   const cosmos = useConstellation();
+  const podRef = useRef<HTMLDivElement>(null);
   if (cosmos) {
+    // Descriptions and inline "manage" buttons stay out of the pod — the orb itself is the manage
+    // trigger (it forwards to the control's hidden [data-selection-manage] button when one exists).
     return (
-      <div className="cosmos-pod">
+      <div className="cosmos-pod" ref={podRef}>
         <div className="cosmos-pod__inner">
-          {Icon ? <span className="cosmos-pod__orb" aria-hidden><Icon size={17} strokeWidth={1.6} /></span> : null}
-          <span className="cosmos-pod__title">
-            {title}
-            {description ? <HelpTip align="left">{description}</HelpTip> : null}
-          </span>
+          {Icon ? (
+            <button
+              type="button"
+              className="cosmos-pod__orb"
+              aria-label={title}
+              onClick={() => podRef.current?.querySelector<HTMLButtonElement>('[data-selection-manage]')?.click()}
+            >
+              <Icon size={17} strokeWidth={1.6} aria-hidden />
+            </button>
+          ) : null}
+          <span className="cosmos-pod__title">{title}</span>
           <div className="cosmos-pod__control">{children}</div>
         </div>
       </div>

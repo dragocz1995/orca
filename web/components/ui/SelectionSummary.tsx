@@ -23,6 +23,7 @@ export function SelectionSummary({ countText, samples, moreCount, onManage, mana
   const line = variant === 'line';
   return (
     <div
+      data-selection-summary
       className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${line ? 'border-b border-border/80 py-2.5' : 'rounded-xl border border-border bg-surface px-3.5 py-3'}`}
       style={line ? undefined : { boxShadow: 'var(--shadow-card)' }}
     >
@@ -44,6 +45,7 @@ export function SelectionSummary({ countText, samples, moreCount, onManage, mana
       </div>
       <button
         type="button"
+        data-selection-manage
         onClick={onManage}
         aria-label={manageAriaLabel}
         className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-elevated hover:text-text ${line ? '' : 'border border-border bg-transparent'}`}

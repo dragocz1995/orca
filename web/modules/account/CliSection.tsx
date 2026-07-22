@@ -7,6 +7,7 @@ import { ModelIcon } from '../../components/ui/ModelIcon';
 import { CompactThresholdsDrawer } from './CompactThresholdsDrawer';
 import { Segmented } from '../../components/ui/Segmented';
 import { SpatialGroup, SpatialRow } from '../../components/ui/SpatialPrimitives';
+import { useConstellation } from '../../components/ui/Constellation';
 import { Toggle } from '../../components/ui/Toggle';
 import { Slider } from '../../components/ui/Slider';
 import { ReasoningScale } from '../../components/ui/ReasoningScale';
@@ -26,6 +27,9 @@ const NO_REASONING_LEVELS: string[] = [];
  *  section in AccountView. Communication style lives in Personality. Its own load/save + autosave. */
 export function CliSection({ onSaveState }: { onSaveState?: (section: string, status: SaveStatus, retry?: () => void) => void }) {
   const { data, isLoading } = useMyCliSettings();
+  // PROTOTYPE(constellation): inside the orbital layout the auto-compact pod stays minimal (toggle +
+  // current threshold) and the full controls live in the side drawer, opened via the pod's orb.
+  const cosmos = useConstellation();
   const models = useBrainModels();
   const save = useSaveMyCliSettings();
   const { toast } = useToast();
@@ -175,6 +179,14 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
       </SpatialRow>
 
       <SpatialRow title={t.cli.autoCompact} icon={SlidersHorizontal} description={t.help.cliAutoCompact}>
+        {cosmos ? (
+          <div className="flex items-center gap-3">
+            <Toggle checked={autoCompact} onChange={setAutoCompact} label={t.cli.autoCompactToggle} />
+            {autoCompact ? <span className="font-mono text-sm tabular-nums text-text">{autoCompactAt}%</span> : null}
+            {/* Hidden manage trigger — the pod's orb forwards its click here to open the drawer. */}
+            <button type="button" data-selection-manage className="hidden" aria-label={t.cli.compactByModelTitle} onClick={() => setThresholdsOpen(true)} />
+          </div>
+        ) : (
         <div className="flex flex-col gap-4">
           <label className="flex items-center gap-3 text-sm text-text">
             <Toggle checked={autoCompact} onChange={setAutoCompact} label={t.cli.autoCompactToggle} />
@@ -206,6 +218,7 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
             </>
           ) : null}
         </div>
+        )}
       </SpatialRow>
 
       <SpatialRow title={t.cli.compactModelLabel} icon={Shrink} description={t.help.cliCompactModel}>
@@ -255,6 +268,7 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
           models={models.data ?? []}
           thresholds={compactByModel}
           defaultPct={autoCompactAt}
+          onDefaultChange={cosmos ? setAutoCompactAt : undefined}
           onChange={(key, pct) => setCompactByModel((prev) => {
             const next = { ...prev };
             if (pct == null) delete next[key];
