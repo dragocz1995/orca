@@ -574,13 +574,17 @@ export class QueuedMessages implements Component {
   }
   render(width: number): string[] {
     if (this.items.length === 0 || this.maxRows <= 0) return [];
-    const pill = color.selected(' QUEUED ');
-    const room = Math.max(8, width - 2 - visibleWidth(pill) - 2);
-    const lines = this.items.map((it) => `  ${pill} ${DIM(truncateToWidth(inlineText(it.text), room, '…'))}`);
-    if (this.removeHint) lines.push(`  ${FAINTC(inlineText(this.removeHint))}`);
+    // A soft grouped header (quiet accent glyph + count) over an indented list — the accent stays a marker,
+    // not a filled label on every row, so the strip reads calmly and breathes instead of looking crammed.
+    const room = Math.max(8, width - 7);
+    const lines = [`  ${color.accentDim('⏸')} ${DIM(`${this.items.length} queued`)}`];
+    for (const it of this.items) lines.push(`     ${FAINTC('›')} ${DIM(truncateToWidth(inlineText(it.text), room, '…'))}`);
+    if (this.removeHint) lines.push(`     ${FAINTC(inlineText(this.removeHint))}`);
     if (lines.length <= this.maxRows) return lines;
+    // Keep the header; the last visible row counts the items hidden by the budget (header + this note = 2).
     const clipped = lines.slice(0, this.maxRows);
-    clipped[this.maxRows - 1] = `  ${FAINTC(`… +${Math.max(1, this.items.length - Math.max(0, this.maxRows - 1))} more queued`)}`;
+    const shownItems = Math.max(0, this.maxRows - 2);
+    clipped[this.maxRows - 1] = `     ${FAINTC(`… +${Math.max(1, this.items.length - shownItems)} more queued`)}`;
     return clipped;
   }
 }

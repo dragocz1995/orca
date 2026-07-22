@@ -87,32 +87,32 @@ describe('chat components', () => {
     expect(panel.page()).toBe(false);
   });
 
-  it('QueuedMessages renders nothing while empty, then a QUEUED pill line per pending item + a hint', () => {
+  it('QueuedMessages renders nothing while empty, then a grouped count header + one line per item + a hint', () => {
     const q = new QueuedMessages();
     expect(q.render(40)).toEqual([]); // empty → zero rows at rest
     q.set([{ id: 'a', text: 'check the logs' }, { id: 'b', text: 'and the metrics' }], 'ctrl+x x removes the last queued message');
     const lines = q.render(60);
-    expect(lines).toHaveLength(3); // two pending lines + the remove hint
-    expect(lines[0]).toContain('QUEUED');
-    expect(lines[0]).toContain('check the logs');
-    expect(lines[1]).toContain('and the metrics');
-    expect(lines[2]).toContain('removes the last');
+    expect(lines).toHaveLength(4); // count header + two pending lines + the remove hint
+    expect(lines[0]).toContain('2 queued'); // soft header with the count, not a pill on every row
+    expect(lines[1]).toContain('check the logs');
+    expect(lines[2]).toContain('and the metrics');
+    expect(lines[3]).toContain('removes the last');
   });
 
   it('QueuedMessages truncates a long pending message to the width and drops the hint when unset', () => {
     const q = new QueuedMessages();
     q.set([{ id: 'a', text: 'x'.repeat(400) }]); // no hint
     const lines = q.render(30);
-    expect(lines).toHaveLength(1); // just the one line, no hint row
-    expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(30);
-    expect(lines[0]).toContain('…'); // truncated
+    expect(lines).toHaveLength(2); // count header + the one item line, no hint row
+    expect(visibleWidth(lines[1]!)).toBeLessThanOrEqual(30);
+    expect(lines[1]).toContain('…'); // item truncated to width
   });
 
   it('QueuedMessages reports its uncapped desired rows until the central layout assigns a cap', () => {
     const q = new QueuedMessages();
     q.set(Array.from({ length: 9 }, (_, i) => ({ id: String(i), text: `msg ${i}` })));
     const lines = q.render(40);
-    expect(lines).toHaveLength(9);
+    expect(lines).toHaveLength(10); // count header + nine item lines
     expect(lines.at(-1)).toContain('msg 8');
   });
 

@@ -12,7 +12,7 @@ export interface SuggestionItem {
 
 export type SuggestionKind = 'commands' | 'files' | 'args';
 
-const bgFill = (text: string, width: number): string => paintRow(chatTheme().inputBg, text, width);
+const bgFill = (text: string, width: number): string => paintRow(chatTheme().modalBg, text, width);
 
 /** Shared non-capturing suggestion viewport used by both slash commands and file mentions. Filtering and
  * row formatting vary by kind; selection, clipping, scroll window and chrome have one implementation. */
@@ -60,9 +60,11 @@ export class SuggestionOverlay implements Component {
 
   render(width: number): string[] {
     const innerWidth = Math.max(1, width - 2);
-    const top = `${color.accent('╭')}${color.faint('─'.repeat(innerWidth))}${color.accent('╮')}`;
-    const bottom = `${color.accent('╰')}${color.faint('─'.repeat(innerWidth))}${color.accent('╯')}`;
-    const row = (content: string): string => `${color.accent('│')}${bgFill(content, innerWidth)}${color.accent('│')}`;
+    // A quiet faint frame (not the bright accent) over the darker modalBg — the accent is reserved for the
+    // selected row, so the menu reads as a calm dark panel that is only lightly outlined.
+    const top = `${color.faint('╭')}${color.faint('─'.repeat(innerWidth))}${color.faint('╮')}`;
+    const bottom = `${color.faint('╰')}${color.faint('─'.repeat(innerWidth))}${color.faint('╯')}`;
+    const row = (content: string): string => `${color.faint('│')}${bgFill(content, innerWidth)}${color.faint('│')}`;
     const items = this.visibleItems();
     if (this.selectedIndex >= items.length) this.selectedIndex = Math.max(0, items.length - 1);
 
@@ -130,7 +132,7 @@ export class SuggestionOverlay implements Component {
       content = `  ${label}${description}`;
     }
     if (selected) {
-      return `${color.accent('│')}${ansi.sgr(`${chatTheme().selectedBg};30;1`, padAnsi(content, innerWidth))}${color.accent('│')}`;
+      return `${color.faint('│')}${ansi.sgr(`${chatTheme().selectedBg};30;1`, padAnsi(content, innerWidth))}${color.faint('│')}`;
     }
     if (this.kind === 'commands') {
       const label = padAnsi(item.label, 14);
