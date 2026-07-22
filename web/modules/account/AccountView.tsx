@@ -286,14 +286,16 @@ export function AccountView() {
   };
   const canSubmitPassword = currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword;
 
+  // Ordered by settings importance: account basics first, then the Elowen AI runtime and what shapes it
+  // (memory, personality), then operational (notifications, security), with the cosmetic terminal last.
   const sections: { id: AccountSection; icon: LucideIcon; label: string }[] = [
     { id: 'profile', icon: UserCog, label: t.account.tabProfile },
-    { id: 'security', icon: KeyRound, label: t.account.tabSecurity },
-    { id: 'notifications', icon: Bell, label: t.account.tabNotifications },
-    { id: 'personality', icon: Sparkles, label: t.account.tabPersonality },
-    { id: 'memory', icon: Brain, label: t.account.tabMemory },
-    { id: 'terminal', icon: SquareTerminal, label: t.account.tabTerminal },
     { id: 'cli', icon: Cpu, label: t.account.tabCli },
+    { id: 'memory', icon: Brain, label: t.account.tabMemory },
+    { id: 'personality', icon: Sparkles, label: t.account.tabPersonality },
+    { id: 'notifications', icon: Bell, label: t.account.tabNotifications },
+    { id: 'security', icon: KeyRound, label: t.account.tabSecurity },
+    { id: 'terminal', icon: SquareTerminal, label: t.account.tabTerminal },
   ];
   const spatialSections = sections.map((item) => ({
     ...item,

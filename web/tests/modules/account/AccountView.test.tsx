@@ -36,7 +36,7 @@ describe('AccountView', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Account' })).toBeInTheDocument();
     const rail = screen.getByRole('radiogroup', { name: 'Account sections' });
     expect(Array.from(rail.querySelectorAll('[role="radio"]')).map((node) => node.textContent)).toEqual([
-      'Account', 'Security', 'Notifications', 'Personality', 'Memory', 'Terminal', 'Elowen AI',
+      'Account', 'Elowen AI', 'Memory', 'Personality', 'Notifications', 'Security', 'Terminal',
     ]);
     expect(screen.getAllByRole('img', { name: 'Elowen' })).toHaveLength(1);
     expect(screen.getByTestId('spatial-content-surface')).toContainElement(screen.getByText('@bob'));
