@@ -2,6 +2,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { currentToolPolicy, currentTurnPermissions, toolPermitted, type ToolPolicy } from '../../plugins/policyContext.js';
 import { BASH_PERMISSION_TOOLS, bashAlwaysPattern, resolveToolPermission, type ApprovalDecision } from '../toolPermissions.js';
 import type { ToolActivationTarget } from '../toolSearch/toolSearchTool.js';
+import { withReason, stripReason } from '../toolReason.js';
 
 /** What kind of session the tools are composed for — the explicit form of the security invariant that
  *  used to hide behind a `channel: !trusted` double negation. Every kind here is actually produced:
@@ -165,7 +166,11 @@ export function composeSessionTools(spec: CapabilitySpec): ToolDefinition[] {
   // actually defers tools; otherwise the list is empty and the composed set is byte-identical to before.
   const toolSearchTools = spec.kind !== 'task-worker' ? (spec.toolSearch?.() ?? []) : [];
   const pluginTools = spec.pluginTools.map((t) => gateToolAccess(t, spec.onToolResult));
-  return [...elowenTools, ...memoryTools, ...toolSearchTools, ...pluginTools].map(gatePermissions);
+  // Every composed tool gains an optional leading `reason` (withReason augments the schema; excluded tools
+  // — ToolSearch, mcp__* — pass through), then the whole set takes the permission gate, then stripReason
+  // wraps OUTERMOST so `reason` is removed from the arguments before any inner wrapper or handler sees it.
+  return [...elowenTools, ...memoryTools, ...toolSearchTools, ...pluginTools]
+    .map(withReason).map(gatePermissions).map(stripReason);
 }
 
 /** The names a turn's ToolPolicy is allowed to HIDE from the model, given the full tool set and which of

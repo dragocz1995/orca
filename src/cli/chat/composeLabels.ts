@@ -126,3 +126,15 @@ export function composeLabel(name: string | undefined, detail: string | undefine
   const reduced = clampDetail(phrase.reduce ? phrase.reduce(raw) : raw);
   return reduced ? loc.withDetail(reduced) : loc.nameOnly;
 }
+
+/** The spinner label for a tool being authored, in precedence order: the model's own streamed `reason`
+ *  (verbatim, already in the user's language) → the canned localized {@link composeLabel} → undefined (the
+ *  caller then falls back to the tool name / a neutral hint). This is the ONE place the `reason`-over-label
+ *  choice lives, so the renderer stays a thin call. */
+export function composingLabel(
+  reason: string | undefined, name: string | undefined, detail: string | undefined, locale: ComposeLocale,
+): string | undefined {
+  const r = reason?.trim();
+  if (r) return r;
+  return composeLabel(name, detail, locale);
+}

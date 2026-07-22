@@ -1,11 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { composeLabel, LONG_COMPOSE_TOOLS } from '../../../src/cli/chat/composeLabels.js';
+import { composeLabel, composingLabel, LONG_COMPOSE_TOOLS } from '../../../src/cli/chat/composeLabels.js';
 
 /** Every label is at most four whitespace-separated words and ends with the ellipsis char. */
 const wellFormed = (label: string): void => {
   expect(label.endsWith('…')).toBe(true);
   expect(label.trim().split(/\s+/).length).toBeLessThanOrEqual(4);
 };
+
+describe('composingLabel', () => {
+  it('shows the model-authored reason verbatim when present, in any language', () => {
+    expect(composingLabel('Čtu konfiguraci', 'Bash', 'cat cfg', 'en')).toBe('Čtu konfiguraci');
+    expect(composingLabel('  Reading config  ', 'Read', 'cfg', 'cs')).toBe('Reading config');
+  });
+
+  it('falls back to the localized composeLabel when there is no reason', () => {
+    expect(composingLabel(undefined, 'Write', 'readme.md', 'cs')).toBe('Píšu soubor readme.md…');
+    expect(composingLabel('   ', 'Write', 'readme.md', 'en')).toBe('Writing file readme.md…');
+  });
+
+  it('returns undefined when neither a reason nor a long-tool label applies (caller then uses a neutral hint)', () => {
+    expect(composingLabel(undefined, 'Read', 'a.ts', 'en')).toBeUndefined();
+    expect(composingLabel(undefined, undefined, undefined, 'en')).toBeUndefined();
+  });
+});
 
 describe('composeLabel', () => {
   it('localizes a file write with its target in en and cs', () => {

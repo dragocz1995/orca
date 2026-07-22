@@ -8,7 +8,7 @@ import { ensureLang, langForPath } from './codeHighlight.js';
 import { chatTheme, color, paintRow } from './theme.js';
 import { prettyCwd } from './projectDir.js';
 import { activeKeymap } from './keys.js';
-import { composeLabel, type ComposeLocale } from './composeLabels.js';
+import { composingLabel, type ComposeLocale } from './composeLabels.js';
 
 export const TOOL_INDENT = '    ';
 const TOOL_OUTPUT_INDENT = '      ';
@@ -250,9 +250,10 @@ export class TurnRenderer {
     // falls back to a neutral label.
     if (turn.streaming && turn.composing && options.composingMarkerReady) {
       const spin = SPINNER[((options.spinnerFrame % SPINNER.length) + SPINNER.length) % SPINNER.length]!;
-      // A long-duration tool upgrades the generic hint to a localized action label with its salient
-      // argument; every other tool keeps today's exact output (the tool title, or a neutral 'working').
-      const label = composeLabel(turn.composingTool, turn.composingDetail, options.locale ?? 'en')
+      // The model's own streamed `reason` (in the user's language) wins; else a long-duration tool upgrades
+      // the generic hint to a localized action label with its salient argument; else the tool title / a
+      // neutral 'working'.
+      const label = composingLabel(turn.composingReason, turn.composingTool, turn.composingDetail, options.locale ?? 'en')
         ?? (turn.composingTool ? toolRowSpec(turn.composingTool).title : 'working');
       // A slow, low-amplitude pulse (muted ↔ fainter, one step per ~2 frames) reads the label as LIVE
       // without touching the spinner. It rides the tail turn's existing ~4fps repaint, so it costs nothing.

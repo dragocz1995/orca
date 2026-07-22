@@ -3,6 +3,7 @@ import { isContextOverflow } from '@earendil-works/pi-ai';
 import { toolCommand, toolDetail, toolDisplay, toolOutputView } from './messageView.js';
 import type { ToolOutputView } from './messageView.js';
 import type { ProcessInfo } from './processRegistry.js';
+import { extractReason } from './toolReason.js';
 
 /** Durable state of one autonomous goal. This is the shared HTTP/SSE contract; the store row and every
  * client view use the same shape so lifecycle transitions cannot drift between polling and live streams. */
@@ -37,8 +38,10 @@ export type BrainEvent =
    *  a client may ignore it. Authoring is atomic per turn (PI writes every call, then executes), so this
    *  needs no id — the first `tool` of the turn clears it. `detail` is the call's salient argument as it
    *  streams in (file path, command, query…), so a long-duration tool can show a localized action label
-   *  instead of the generic hint; absent until the arguments have streamed far enough to derive one. */
-  | { type: 'tool_authoring'; name?: string; detail?: string }
+   *  instead of the generic hint; absent until the arguments have streamed far enough to derive one.
+   *  `reason` is the model-authored status note (the tool's leading `reason` arg) as it streams — when
+   *  present it supersedes the localized label; the CLI shows it verbatim next to the spinner. */
+  | { type: 'tool_authoring'; name?: string; detail?: string; reason?: string }
   /** A tool call starting. `icon` is resolved daemon-side from the core map + plugin manifest `icons`
    *  (single source; clients render it, falling back to a generic glyph when absent). */
   | { type: 'tool'; name: string; detail?: string; icon?: string; id?: string; command?: string }
@@ -317,7 +320,7 @@ const AUTHORING_THROTTLE_MS = 250;
 /** Per-authoring-call last emitted detail + timestamp, for the change-detection + throttle in the
  *  `toolcall_delta` mapping. Entries are dropped when the tool actually starts/ends executing (its
  *  authoring window is over), so the map never outgrows the set of in-flight calls. */
-const lastAuthoringAt = new Map<string, { detail: string | undefined; at: number }>();
+const lastAuthoringAt = new Map<string, { detail: string | undefined; reason: string | undefined; at: number }>();
 
 /** Hard cap on the throttle maps above. They are normally released on `tool_execution_start`/`_end`, but a
  *  call the model only *drafts* — an aborted turn / Esc mid-authoring — never reaches those events, so its
@@ -389,13 +392,17 @@ export function toBrainEvent(e: AgentSessionEvent, now: number = Date.now()): Br
       if (block?.type !== 'toolCall') return null;
       const name = typeof block.name === 'string' ? block.name : undefined;
       const detail = toolDetail(block.arguments, name);
+      // The model-authored `reason` (the tool's leading arg) as it streams — it supersedes the derived
+      // label in the CLI. Grows character-by-character; `toolDetail` never reads `reason`, so detail is
+      // unaffected. A reason-only change must still emit, so it joins the dedup key below.
+      const reason = extractReason(block.arguments);
       const id = typeof block.id === 'string' ? block.id : undefined;
-      if (!id) return detail ? { type: 'tool_authoring', ...(name ? { name } : {}), detail } : null;
+      if (!id) return (detail || reason) ? { type: 'tool_authoring', ...(name ? { name } : {}), detail, ...(reason ? { reason } : {}) } : null;
       const last = lastAuthoringAt.get(id);
-      if (last && last.detail === detail) return null;               // unchanged → nothing new to render
-      if (last && now - last.at < AUTHORING_THROTTLE_MS) return null; // changed but within the window → drop
-      capSet(lastAuthoringAt, id, { detail, at: now });
-      return { type: 'tool_authoring', ...(name ? { name } : {}), detail };
+      if (last && last.detail === detail && last.reason === reason) return null; // unchanged → nothing new
+      if (last && now - last.at < AUTHORING_THROTTLE_MS) return null;            // changed but within window → drop
+      capSet(lastAuthoringAt, id, { detail, reason, at: now });
+      return { type: 'tool_authoring', ...(name ? { name } : {}), detail, ...(reason ? { reason } : {}) };
     }
     return null;
   }

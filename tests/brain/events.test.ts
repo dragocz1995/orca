@@ -114,6 +114,24 @@ describe('message_update → assistant stream events', () => {
     expect(delta('a.ts', 3_010)).toEqual({ type: 'tool_authoring', name: 'Write', detail: 'a.ts' });
   });
 
+  it('carries the model-authored reason on the authoring hint; a reason-only change still emits', () => {
+    const delta = (args: Record<string, unknown>, now: number) => toBrainEvent({
+      type: 'message_update',
+      assistantMessageEvent: {
+        type: 'toolcall_delta', contentIndex: 0,
+        partial: { content: [{ type: 'toolCall', id: 'r1', name: 'Write', arguments: args }] },
+      },
+    } as unknown as AgentSessionEvent, now);
+    // Reason streams first (before any path); it rides the hint verbatim, in the user's language.
+    expect(delta({ reason: 'Píšu ' }, 5_000)).toEqual({ type: 'tool_authoring', name: 'Write', reason: 'Píšu ' });
+    // Reason grew while the derived detail is unchanged (still none) → must NOT be deduped away, past window.
+    expect(delta({ reason: 'Píšu soubor' }, 5_300)).toEqual({ type: 'tool_authoring', name: 'Write', reason: 'Píšu soubor' });
+    // Nothing changed → dropped.
+    expect(delta({ reason: 'Píšu soubor' }, 5_600)).toBeNull();
+    // Reason plus a real path: both ride the hint.
+    expect(delta({ reason: 'Píšu soubor', path: 'a.ts' }, 5_900)).toEqual({ type: 'tool_authoring', name: 'Write', detail: 'a.ts', reason: 'Píšu soubor' });
+  });
+
   it('still maps text and thinking deltas as before', () => {
     expect(ev({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'hi' } }))
       .toEqual({ type: 'text', delta: 'hi' });

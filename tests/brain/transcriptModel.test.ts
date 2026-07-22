@@ -327,6 +327,22 @@ describe('TranscriptModel', () => {
     expect(turn().composingDetail).toBe('docs/readme.md');
   });
 
+  it('tracks the model-authored reason as it streams, repaints on a reason-only change, and clears on the marker', () => {
+    const model = new TranscriptModel([]);
+    const turn = () => { const t = model.turnAt(0); if (t?.role !== 'elowen') throw new Error('expected assistant turn'); return t; };
+
+    expect(model.apply({ type: 'tool_authoring', name: 'Write', reason: 'Píšu ' })).toBe(true);
+    expect(turn().composingReason).toBe('Píšu ');
+    // Reason grew while name/detail are unchanged → still a visible change.
+    expect(model.apply({ type: 'tool_authoring', name: 'Write', reason: 'Píšu soubor' })).toBe(true);
+    expect(turn().composingReason).toBe('Píšu soubor');
+    // Nothing moved → no repaint.
+    expect(model.apply({ type: 'tool_authoring', name: 'Write', reason: 'Píšu soubor' })).toBe(false);
+    // The marker lands → the reason is forgotten with the rest of the authoring window.
+    model.apply({ type: 'tool', name: 'Write', id: 't9' });
+    expect(turn().composingReason).toBeUndefined();
+  });
+
   it('clears the composing detail when the tool marker lands and when the turn settles', () => {
     const model = new TranscriptModel([]);
     const turn = () => { const t = model.turnAt(0); if (t?.role !== 'elowen') throw new Error('expected assistant turn'); return t; };
