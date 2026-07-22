@@ -634,10 +634,13 @@ export function cardBlock(card: BrainCard, maxRows = 12, collapsed = false): str
   return lines;
 }
 
-const GIT_ADD_BG = ansi.bg(3, 58, 22);
-const GIT_ADD_FG = ansi.fg(63, 185, 80);
-const GIT_DEL_BG = ansi.bg(103, 6, 12);
-const GIT_DEL_FG = ansi.fg(248, 81, 73);
+// Diff colours matched to Claude Code's native color-diff renderer (dark theme): a deep line-background
+// tint plus a brighter foreground for the +/- gutter decoration. (src/native-ts/color-diff/index.ts:302-330
+// in the reference — addLine/deleteLine backgrounds, addDecoration/deleteDecoration foregrounds.)
+const GIT_ADD_BG = ansi.bg(2, 40, 0);
+const GIT_ADD_FG = ansi.fg(80, 200, 80);
+const GIT_DEL_BG = ansi.bg(61, 1, 0);
+const GIT_DEL_FG = ansi.fg(220, 90, 90);
 const GIT_ADD = `${GIT_ADD_BG};${GIT_ADD_FG}`;
 const GIT_DEL = `${GIT_DEL_BG};${GIT_DEL_FG}`;
 const CODE_BG = ansi.bg(13, 13, 16);
@@ -735,7 +738,10 @@ function simpleBlock(title: string, lines: string[], width: number, footer?: str
   // The header connector is the tool's own marker glyph (← edit, → read, ✱ search, ⚙ other) when the caller
   // supplies one, so a block header reads exactly like the marker rows of tools we don't expand — one visual
   // language. Defaults to `<` for a bare/unlabelled block. An empty title renders just the connector.
-  const out = [`${BLOCK_HEADER_INDENT}${title ? `${color.faint(connector)} ${color.text(title)}` : color.faint(connector)}`];
+  // Truncate the header like the body rows (and the marker rows) do — a long tool name + detail must not
+  // overflow the block width; the connector and a space sit before it, so budget `inner - 2`.
+  const headerTitle = title && visibleWidth(title) > inner - 2 ? truncateToWidth(title, inner - 2, '…') : title;
+  const out = [`${BLOCK_HEADER_INDENT}${headerTitle ? `${color.faint(connector)} ${color.text(headerTitle)}` : color.faint(connector)}`];
   for (const line of lines) {
     // diffBlock/toolOutputBlock already allocate and pad nested rows. Re-running ANSI-aware truncation on
     // every exact row dominated burst frames; retain it only as the defensive overflow path.

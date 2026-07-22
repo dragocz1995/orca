@@ -44,6 +44,11 @@ export interface TurnRenderOptions {
   expandedTools: ReadonlySet<string>;
 }
 
+/** The connector every SHOWN-OUTPUT tool leads with — a diff block, an output block, or a silent command
+ *  row. One arrow across all of them (the tool name carries identity); tools we DON'T expand keep their
+ *  per-tool marker glyph instead. This is the split the user asked for: output → arrow, no output → icon. */
+const SHOWN_OUTPUT_CONNECTOR = '←';
+
 export function toolRowSpec(name: string, detail?: string): { glyph: string; title: string } {
   const safeName = terminalInlineText(name);
   const safeDetail = detail ? terminalInlineText(detail) : '';
@@ -60,8 +65,9 @@ export function toolRowSpec(name: string, detail?: string): { glyph: string; tit
   if (/diff/i.test(safeName)) return { glyph: '←', title };
   // LSP (diagnostics / definitions / references / symbols) uses the universal monochrome glyph — the CLI
   // never renders the colored per-tool icon (that 🔎 is for the web/Discord clients). Deliberately NOT the
-  // search ✱: an LSP check is not a search, and sharing the glyph made the two indistinguishable. LSP's
-  // identity is carried by the row's tool name and the "LSP …" title on its output block.
+  // search ✱: an LSP check is not a search. Kept as an explicit branch (the default is also ⚙) so the intent
+  // survives. This ⚙ shows on LSP's compact marker row (empty result); the usual case — a result block —
+  // leads with the shared ← connector like every other shown-output tool.
   if (/(lsp|diagnostic)/i.test(safeName)) return { glyph: '⚙', title };
   if (/(fetch|web|http|url)/i.test(safeName)) return { glyph: '%', title };
   return { glyph: '⚙', title };
@@ -140,10 +146,9 @@ export class TurnRenderer {
             // ensureLang kicks the async grammar load so the NEXT render highlights this language.
             const diffLang = langForPath(item.detail);
             if (diffLang) ensureLang(diffLang);
-            const diffSpec = toolRowSpec(item.name, item.detail);
             const { lines: block, expandable } = framedDiffBlock(
-              item.diff, width, diffSpec.title,
-              options.expandedTools.has(diffKey), diffLang, diffSpec.glyph,
+              item.diff, width, toolRowSpec(item.name, item.detail).title,
+              options.expandedTools.has(diffKey), diffLang, SHOWN_OUTPUT_CONNECTOR,
             );
             for (const [index, line] of block.entries()) {
               const toggle = expandable && index === block.length - 1;
@@ -185,9 +190,10 @@ export class TurnRenderer {
             // Header the output block with the tool's own name, like the diff block — the unified look for
             // every shown-output tool. Console tools pass the name ONLY: their `$ command` echo already
             // carries the detail, so folding it into the header too would just repeat it.
-            const outSpec = toolRowSpec(item.name, item.detail);
-            const outHeading = item.output.kind === 'console' ? toolRowSpec(item.name).title : outSpec.title;
-            for (const line of toolOutputBlock(item.output, width, options.expandedTools.has(key), outHeading, outSpec.glyph)) add(line);
+            const outHeading = item.output.kind === 'console'
+              ? toolRowSpec(item.name).title
+              : toolRowSpec(item.name, item.detail).title;
+            for (const line of toolOutputBlock(item.output, width, options.expandedTools.has(key), outHeading, SHOWN_OUTPUT_CONNECTOR)) add(line);
             if (item.output.fullText && item.output.fullText !== item.output.text) {
               for (let index = before; index < rows.length; index++) {
                 rows[index] = { ...rows[index]!, kind: 'expandable', key, turnIndex };
@@ -196,7 +202,9 @@ export class TurnRenderer {
           } else if (!item.diff && !item.sub && !item.wf) {
             if (item.command) {
               const command = terminalInlineText(item.command);
-              add(`${TOOL_INDENT}${color.faint('$')} ${color.dim(truncateToWidth(command, Math.max(12, width - 12), '…'))} ${color.faint(turn.streaming && item === lastToolItem ? '· running…' : '· done')}`);
+              // A silent shell command is shown-output work, so it leads with the same arrow as the blocks —
+              // then its `$ cmd · done` shell affordance follows.
+              add(`${TOOL_INDENT}${color.faint(SHOWN_OUTPUT_CONNECTOR)} ${color.faint('$')} ${color.dim(truncateToWidth(command, Math.max(12, width - 14), '…'))} ${color.faint(turn.streaming && item === lastToolItem ? '· running…' : '· done')}`);
               if (item.progress) {
                 for (const line of terminalPlainText(item.progress).split('\n').slice(-PROGRESS_TAIL_ROWS)) {
                   add(`${TOOL_OUTPUT_INDENT}${color.faint(truncateToWidth(line, Math.max(12, width - 14), '…'))}`);
