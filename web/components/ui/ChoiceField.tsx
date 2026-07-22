@@ -6,12 +6,15 @@ import { SelectionSummary } from './SelectionSummary';
 import { useTranslation } from '../../lib/i18n';
 
 /** Canonical single-choice field: two or three choices stay inline; larger catalogs use the shared
- *  searchable picker. Unknown persisted values remain selectable so opening the UI never drops data. */
-export function ChoiceField({ title, options, value, onChange }: {
+ *  searchable picker. Unknown persisted values remain selectable so opening the UI never drops data.
+ *  `picker="always"` skips the inline form even for short lists (constellation pods pick in the
+ *  drawer regardless of count). */
+export function ChoiceField({ title, options, value, onChange, picker = 'auto' }: {
   title: string;
   options: { value: string; label: string }[];
   value: string;
   onChange: (value: string) => void;
+  picker?: 'auto' | 'always';
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -22,7 +25,7 @@ export function ChoiceField({ title, options, value, onChange }: {
       ...options.map((option) => ({ id: option.value, label: option.label, group: '' })),
     ];
   }, [options, value]);
-  if (items.length <= 3) {
+  if (picker === 'auto' && items.length <= 3) {
     return (
       <Segmented
         aria-label={title}

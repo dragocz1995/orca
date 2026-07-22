@@ -116,3 +116,6 @@
   .settings-system-topology { display: none; }
   .settings-model-row, .settings-agent-row { padding-inline: 1rem; }
 }
+
+/* PROTOTYPE(constellation): orbital categories float on the page background — no document card. */
+[data-module="settings"] [data-constellation] [data-settings-document] { border: 0; border-radius: 0; background: none; box-shadow: none; overflow: visible; }

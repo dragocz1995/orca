@@ -234,13 +234,16 @@ describe('SettingsPage', () => {
     render(<Wrapper><ToastProvider><SettingsPage /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByText('Verify command')).toBeTruthy());
 
-    // The PR fields live in their own GitHub section now; the default toggle starts off.
-    expect(screen.getByLabelText(/PR workflow/)).not.toBeChecked();
+    // The PR fields live in their own GitHub section now; the default toggle starts off. The pod's
+    // orb shares the row's accessible name, so target the switch role explicitly.
+    expect(screen.getByRole('switch', { name: /PR workflow/ })).not.toBeChecked();
     expect(screen.getByText('Verify command')).toBeTruthy();
 
     putBody = null;
-    fireEvent.click(screen.getByLabelText(/PR workflow/));
-    fireEvent.change(screen.getByPlaceholderText('e.g. npm test'), { target: { value: 'npm test' } });
+    fireEvent.click(screen.getByRole('switch', { name: /PR workflow/ }));
+    // The verify command edits in the shared GitHub drawer — open it via the pod's orb first.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Verify command' })[0]);
+    fireEvent.change(await screen.findByPlaceholderText('e.g. npm test'), { target: { value: 'npm test' } });
     await waitFor(() => {
       const ap = (putBody as { autopilot: { prEnabled: boolean; prVerifyCommand: string } }).autopilot;
       expect(ap.prEnabled).toBe(true);

@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react';
+'use client';
+import { useRef, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { HelpTip } from '../../components/ui/HelpTip';
+import { CosmosGroup, useConstellation } from '../../components/ui/Constellation';
 
 type SettingsTone = 'default' | 'danger';
 type SettingsDensity = 'comfortable' | 'compact';
@@ -9,7 +11,9 @@ export function SettingsDocument({ children, className = '' }: { children: React
   return <div data-control-surface data-settings-document className={`control-surface-document settings-document ${className}`}>{children}</div>;
 }
 
-export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', children, className = '' }: {
+/** PROTOTYPE(constellation): inside a ConstellationScope the group renders as an orbital cosmos
+ *  (mirroring SpatialGroup); `variant="classic"` opts non-row content out. */
+export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', children, className = '', variant }: {
   title?: string;
   description?: string;
   icon?: LucideIcon;
@@ -18,7 +22,12 @@ export function SettingsGroup({ title, description, icon: Icon, actions, tone = 
   density?: SettingsDensity;
   children: ReactNode;
   className?: string;
+  variant?: 'classic';
 }) {
+  const cosmos = useConstellation();
+  if (cosmos && variant !== 'classic') {
+    return <CosmosGroup core={title ?? cosmos.core}>{children}</CosmosGroup>;
+  }
   return (
     <section data-settings-group data-tone={tone} data-density={density} className={`settings-group ${className}`}>
       {title || description || actions ? (
@@ -47,6 +56,34 @@ export function SettingsRow({ label, description, icon: Icon, status, actions, c
   children?: ReactNode;
   className?: string;
 }) {
+  const cosmos = useConstellation();
+  const podRef = useRef<HTMLDivElement>(null);
+  if (cosmos) {
+    // PROTOTYPE(constellation): the row renders as a floating pod — the orb is the manage trigger
+    // (it forwards to the control's hidden [data-selection-manage] button when one exists).
+    return (
+      <div className="cosmos-pod" ref={podRef}>
+        <div className="cosmos-pod__inner">
+          {Icon ? (
+            <button
+              type="button"
+              className="cosmos-pod__orb"
+              aria-label={label}
+              onClick={() => podRef.current?.querySelector<HTMLButtonElement>('[data-selection-manage]')?.click()}
+            >
+              <Icon size={17} strokeWidth={1.6} aria-hidden />
+            </button>
+          ) : null}
+          <span className="cosmos-pod__title">
+            {label}
+            {description ? <HelpTip align="left">{description}</HelpTip> : null}
+          </span>
+          {status ? <div className="cosmos-pod__status">{status}</div> : null}
+          <div className="cosmos-pod__control">{children}{actions}</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`settings-row ${className}`}>
       <div className="settings-row__label">

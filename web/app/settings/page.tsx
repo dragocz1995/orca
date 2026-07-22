@@ -37,6 +37,8 @@ import { Segmented } from '../../components/ui/Segmented';
 import { SpatialControlDeck } from '../../components/ui/SpatialControlDeck';
 import { SettingsDocument, SettingsGroup, SettingsRow, SettingsToolbar, SettingsState } from '../../modules/settings/SettingsSurface';
 import { MotionReveal } from '../../components/ui/Motion';
+import { ConstellationScope } from '../../components/ui/Constellation';
+import { WorkspaceDetailRail } from '../../components/ui/WorkspacePrimitives';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { HelpTip } from '../../components/ui/HelpTip';
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/states';
@@ -74,6 +76,12 @@ function ModelInput({ value, onChange, placeholder }: { value: string; onChange:
 const CATEGORY_VALUES = SETTINGS_CATEGORY_VALUES;
 type Category = SettingsCategory;
 
+/** PROTOTYPE(constellation): per-category rollout of the orbital layout (mirrors
+ *  ACCOUNT_CONSTELLATION in the account view). A category set to true renders its rows as an
+ *  orbital field with drawers and drops the document card frame; flip to false to restore the
+ *  classic layout — no other change needed. The deck hero stays (it carries update/restart). */
+const SETTINGS_CONSTELLATION: Partial<Record<Category, boolean>> = { memory: true, github: true };
+
 /** Keep a settings document alive after its first visit without eagerly mounting every category's
  *  data hooks. React Activity retains form/search state and pauses effects while a panel is hidden. */
 function SettingsPanel({ id, active, visited, children }: {
@@ -85,9 +93,16 @@ function SettingsPanel({ id, active, visited, children }: {
   if (id !== active && !visited.has(id)) return null;
   return (
     <Activity mode={id === active ? 'visible' : 'hidden'}>
-      <MotionReveal data-settings-panel={id}><SettingsDocument>{children}</SettingsDocument></MotionReveal>
+      <MotionReveal data-settings-panel={id} data-constellation={SETTINGS_CONSTELLATION[id] ? '' : undefined}>
+        <SettingsDocument>{children}</SettingsDocument>
+      </MotionReveal>
     </Activity>
   );
+}
+
+/** Wraps a category's content in a ConstellationScope when its flag is on. */
+function SettingsScope({ id, core, children }: { id: Category; core: string; children: ReactNode }) {
+  return SETTINGS_CONSTELLATION[id] ? <ConstellationScope core={core}>{children}</ConstellationScope> : <>{children}</>;
 }
 
 export default function SettingsPage() {
@@ -172,6 +187,8 @@ export default function SettingsPage() {
   const [prAutoOpen, setPrAutoOpen] = useState(false);
   const [prVerifyCommand, setPrVerifyCommand] = useState('');
   const [ghToken, setGhToken] = useState('');
+  // PROTOTYPE(constellation): the GitHub text fields edit in one side drawer opened via pod orbs.
+  const [githubOpen, setGithubOpen] = useState(false);
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   // When set, the planner/overseer/curator reuse this brain provider's endpoint+key instead of a
@@ -729,26 +746,68 @@ export default function SettingsPage() {
         </SettingsPanel>
 
         <SettingsPanel id="github" active={category} visited={visitedCategories}>
-          <>
-            <SettingsGroup><GithubStatusBanner /></SettingsGroup>
+          <SettingsScope id="github" core={t.settings.github}>
+            {/* variant="classic": the status banner is not a label/control row. */}
+            <SettingsGroup variant="classic"><GithubStatusBanner /></SettingsGroup>
             <SettingsGroup>
+            {/* PROTOTYPE(constellation): the three text fields show as chips in the orbit and edit
+                together in one side drawer (opened via any of their pod orbs); toggles stay inline. */}
             <SettingsRow label={t.settings.ghToken} description={ghTokenSet ? t.help.ghToken : t.help.ghTokenNotSet} icon={KeyRound}>
-              <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={ghTokenSet ? t.settings.apiKeySetPlaceholder : t.settings.ghTokenPlaceholder} className={inputClass} />
+              {SETTINGS_CONSTELLATION.github ? (
+                <>
+                  <span className="font-mono text-sm tracking-widest text-text-muted">{ghTokenSet || ghToken ? '••••••••' : '—'}</span>
+                  <button type="button" data-selection-manage className="hidden" aria-label={t.settings.ghToken} onClick={() => setGithubOpen(true)} />
+                </>
+              ) : (
+                <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={ghTokenSet ? t.settings.apiKeySetPlaceholder : t.settings.ghTokenPlaceholder} className={inputClass} />
+              )}
             </SettingsRow>
             <SettingsRow label={t.settings.prEnabled} description={t.help.prEnabled} icon={GitPullRequest}>
               <Toggle checked={prEnabled} onChange={setPrEnabled} label={t.settings.prEnabled} />
             </SettingsRow>
             <SettingsRow label={t.settings.prBaseBranch} description={t.help.prBaseBranch} icon={GitBranch}>
-              <input value={prBaseBranch} onChange={(e) => setPrBaseBranch(e.target.value)} placeholder={t.settings.prBaseBranchPlaceholder} className={inputClass} />
+              {SETTINGS_CONSTELLATION.github ? (
+                <>
+                  <span className="max-w-full truncate font-mono text-sm text-text-muted">{prBaseBranch || t.settings.prBaseBranchPlaceholder}</span>
+                  <button type="button" data-selection-manage className="hidden" aria-label={t.settings.prBaseBranch} onClick={() => setGithubOpen(true)} />
+                </>
+              ) : (
+                <input value={prBaseBranch} onChange={(e) => setPrBaseBranch(e.target.value)} placeholder={t.settings.prBaseBranchPlaceholder} className={inputClass} />
+              )}
             </SettingsRow>
             <SettingsRow label={t.settings.prAutoOpen} description={t.help.prAutoOpen} icon={GitPullRequest}>
               <Toggle checked={prAutoOpen} onChange={setPrAutoOpen} label={t.settings.prAutoOpen} />
             </SettingsRow>
             <SettingsRow label={t.settings.prVerifyCommand} description={t.help.prVerifyCommand} icon={TerminalSquare}>
-              <input value={prVerifyCommand} onChange={(e) => setPrVerifyCommand(e.target.value)} placeholder={t.settings.prVerifyCommandPlaceholder} className={`${inputClass} font-mono text-xs`} />
+              {SETTINGS_CONSTELLATION.github ? (
+                <>
+                  <span className="max-w-full truncate font-mono text-sm text-text-muted">{prVerifyCommand || '—'}</span>
+                  <button type="button" data-selection-manage className="hidden" aria-label={t.settings.prVerifyCommand} onClick={() => setGithubOpen(true)} />
+                </>
+              ) : (
+                <input value={prVerifyCommand} onChange={(e) => setPrVerifyCommand(e.target.value)} placeholder={t.settings.prVerifyCommandPlaceholder} className={`${inputClass} font-mono text-xs`} />
+              )}
             </SettingsRow>
             </SettingsGroup>
-          </>
+            {SETTINGS_CONSTELLATION.github && githubOpen ? (
+              <WorkspaceDetailRail label={t.settings.github} closeLabel={t.common.close} onClose={() => setGithubOpen(false)}>
+                <div className="flex flex-col gap-5 py-2">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-tiny font-semibold uppercase tracking-wide text-text-muted">{t.settings.ghToken}</span>
+                    <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={ghTokenSet ? t.settings.apiKeySetPlaceholder : t.settings.ghTokenPlaceholder} className={inputClass} aria-label={t.settings.ghToken} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-tiny font-semibold uppercase tracking-wide text-text-muted">{t.settings.prBaseBranch}</span>
+                    <input value={prBaseBranch} onChange={(e) => setPrBaseBranch(e.target.value)} placeholder={t.settings.prBaseBranchPlaceholder} className={inputClass} aria-label={t.settings.prBaseBranch} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-tiny font-semibold uppercase tracking-wide text-text-muted">{t.settings.prVerifyCommand}</span>
+                    <input value={prVerifyCommand} onChange={(e) => setPrVerifyCommand(e.target.value)} placeholder={t.settings.prVerifyCommandPlaceholder} className={`${inputClass} font-mono text-xs`} aria-label={t.settings.prVerifyCommand} />
+                  </div>
+                </div>
+              </WorkspaceDetailRail>
+            ) : null}
+          </SettingsScope>
         </SettingsPanel>
 
         <SettingsPanel id="providers" active={category} visited={visitedCategories}>
@@ -928,7 +987,9 @@ export default function SettingsPage() {
           </>
         </SettingsPanel>
 
-        <SettingsPanel id="memory" active={category} visited={visitedCategories}><MemorySection onSaveState={reportSaveState} /></SettingsPanel>
+        <SettingsPanel id="memory" active={category} visited={visitedCategories}>
+          <SettingsScope id="memory" core={t.settings.memory}><MemorySection onSaveState={reportSaveState} /></SettingsScope>
+        </SettingsPanel>
 
         <SettingsPanel id="plugins" active={category} visited={visitedCategories}><PluginsSection /></SettingsPanel>
 

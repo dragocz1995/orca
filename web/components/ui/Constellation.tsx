@@ -116,7 +116,7 @@ export function CosmosGroup({ core, children }: { core: string; children: ReactN
         }
       };
       clampAll();
-      for (let iter = 0; iter < 4; iter++) {
+      for (let iter = 0; iter < 10; iter++) {
         let moved = false;
         for (let a = 0; a < placed.length; a++) {
           for (let b = a + 1; b < placed.length; b++) {
@@ -170,6 +170,9 @@ export function CosmosGroup({ core, children }: { core: string; children: ReactN
     layout();
     const resize = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(layout) : null;
     resize?.observe(root);
+    // Content above the cosmos can load in later (e.g. an async status banner) and push it down —
+    // watching the parent catches that and re-fits the orbit to the shifted offset.
+    if (root.parentElement) resize?.observe(root.parentElement);
     // Conditional row content (e.g. the auto-compact slider appearing) changes pod geometry.
     const mutation = typeof MutationObserver !== 'undefined' ? new MutationObserver(layout) : null;
     mutation?.observe(podsLayer, { childList: true, subtree: true });
