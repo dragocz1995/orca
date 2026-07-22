@@ -175,41 +175,12 @@ export function CosmosGroup({ core, children }: { core: string; children: ReactN
     podsLayer.addEventListener('pointerover', onOver);
     podsLayer.addEventListener('pointerleave', onOut);
 
-    // Depth parallax — layers drift at different rates under a fine pointer.
-    const fine = matchMedia('(pointer: fine)').matches;
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let raf = 0;
-    const onMove = (event: PointerEvent) => {
-      if (root.dataset.mode !== 'orbit') return;
-      const rect = root.getBoundingClientRect();
-      const dx = (event.clientX - rect.left) / rect.width - 0.5;
-      const dy = (event.clientY - rect.top) / rect.height - 0.5;
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        podsLayer.style.transform = `translate3d(${dx * -14}px, ${dy * -10}px, 0)`;
-        svg.style.transform = `translate3d(${dx * -8}px, ${dy * -6}px, 0)`;
-        ring.style.transform = `translate3d(${dx * -4}px, ${dy * -3}px, 0)`;
-        coreEl.style.transform = `translate3d(${dx * -3}px, ${dy * -2}px, 0)`;
-      });
-    };
-    const onLeave = () => {
-      cancelAnimationFrame(raf);
-      podsLayer.style.transform = svg.style.transform = ring.style.transform = coreEl.style.transform = '';
-    };
-    if (fine && !reduced) {
-      root.addEventListener('pointermove', onMove);
-      root.addEventListener('pointerleave', onLeave);
-    }
-
     return () => {
       resize?.disconnect();
       mutation?.disconnect();
       intersection?.disconnect();
-      cancelAnimationFrame(raf);
       podsLayer.removeEventListener('pointerover', onOver);
       podsLayer.removeEventListener('pointerleave', onOut);
-      root.removeEventListener('pointermove', onMove);
-      root.removeEventListener('pointerleave', onLeave);
     };
   }, []);
 
