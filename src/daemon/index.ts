@@ -7,6 +7,13 @@ import { logger, LOG_DIR } from '../shared/logger.js';
 
 const log = logger('daemon');
 
+// Default Anthropic prompt-cache retention to 1h (pi-ai's PI_CACHE_RETENTION knob, read per request at
+// stream time). Long sessions keep cache-read hits across thinking pauses instead of re-caching the whole
+// prefix every 5 idle minutes; the tool-result clearing gate (brain/session/toolResultClearing) reads the
+// same variable so its idle threshold always tracks the real TTL. `??=` keeps an operator override
+// (systemd unit) winning over the default.
+process.env.PI_CACHE_RETENTION ??= 'long';
+
 // A long-running daemon must survive a stray rejection/exception from one of its many fire-and-forget
 // loops (deriver/scheduler/janitor/reconcile/relay). Node's default would exit the process and drop
 // every live mission's orchestrator; log and keep running instead.
