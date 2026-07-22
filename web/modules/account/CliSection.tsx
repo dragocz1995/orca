@@ -1,7 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Eye, Gauge, MoonStar, Shrink, SlidersHorizontal, SlidersVertical, Zap } from 'lucide-react';
+import { Eye, Gauge, MoonStar, Shrink, SlidersHorizontal, Zap } from 'lucide-react';
 import { BrainModelField } from '../../components/ui/BrainModelField';
+import { SelectionSummary } from '../../components/ui/SelectionSummary';
+import { ModelIcon } from '../../components/ui/ModelIcon';
 import { CompactThresholdsDrawer } from './CompactThresholdsDrawer';
 import { Segmented } from '../../components/ui/Segmented';
 import { SpatialGroup, SpatialRow } from '../../components/ui/SpatialPrimitives';
@@ -185,17 +187,22 @@ export function CliSection({ onSaveState }: { onSaveState?: (section: string, st
                 <Slider value={autoCompactAt} min={30} max={95} step={5} onChange={setAutoCompactAt} aria-label={t.cli.autoCompactAt} />
                 <span className="w-12 shrink-0 text-right font-mono text-sm tabular-nums text-text">{autoCompactAt}%</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setThresholdsOpen(true)}
-                className="inline-flex w-fit items-center gap-1.5 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-elevated hover:text-text"
-              >
-                <SlidersVertical size={13} aria-hidden />
-                {t.cli.compactByModelManage}
-                {Object.keys(compactByModel).length ? (
-                  <span className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-accent">{Object.keys(compactByModel).length}</span>
-                ) : null}
-              </button>
+              {(() => {
+                const tuned = (models.data ?? []).filter((m) => compactByModel[`${m.provider}/${m.model}`] != null);
+                return (
+                  <SelectionSummary
+                    countText={t.cli.compactByModelManage}
+                    samples={tuned.slice(0, 3).map((m) => ({
+                      label: `${m.model} · ${compactByModel[`${m.provider}/${m.model}`]}%`,
+                      icon: <ModelIcon name={m.model} size={13} />,
+                    }))}
+                    moreCount={Math.max(0, tuned.length - 3)}
+                    onManage={() => setThresholdsOpen(true)}
+                    manageLabel={t.managePicker.manage}
+                    manageAriaLabel={t.cli.compactByModelTitle}
+                  />
+                );
+              })()}
             </>
           ) : null}
         </div>

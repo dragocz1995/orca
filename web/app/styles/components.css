@@ -254,6 +254,9 @@ html[data-effects='full'] .spatial-section-node--active .spatial-section-node__i
 .workspace-detail-rail__close { display: grid; width: 1.8rem; height: 1.8rem; place-items: center; color: var(--color-text-muted); font-size: 1.15rem; }
 .workspace-detail-rail__close:hover { color: var(--color-text); }
 .workspace-detail-rail__body { max-height: calc(100dvh - 3rem); overflow-y: auto; padding: 1rem; overscroll-behavior: contain; }
+/* Fit-to-content variant: unpin the bottom edge so the rail hugs a short list (no dead space) yet the
+   body still caps + scrolls for a long one. Opt-in per instance; the users detail rail stays full-height. */
+.workspace-detail-rail.workspace-detail-rail--fit { inset-block-end: auto; }
 .tasks-control-surface { width: min(100%, var(--content-max)); margin-inline: auto; }
 /* Fills the height its page hands it (measured — see useFillHeight), so the editor ends where the window
    does. The min-height is the floor for a very short window, and the pre-measurement height on the server. */
