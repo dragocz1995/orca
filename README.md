@@ -112,7 +112,7 @@ elowen up | down                    # manage local services
 <td width="50%"><img src="docs/site/images/web-ui-tasks.png" alt="Task workspace"><br><sub><b>Tasks &amp; missions</b></sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/site/images/projects-editor.png" alt="Project editor"><br><sub><b>In-app project editor</b></sub></td>
+<td width="50%"><img src="docs/site/images/settings-overview.png" alt="Settings constellation"><br><sub><b>Settings — every section orbits the agent</b></sub></td>
 <td width="50%"><img src="docs/screenshots/cli/05-diff.png" alt="CLI diff review"><br><sub><b>Terminal — diff &amp; approval</b></sub></td>
 </tr>
 </table>
@@ -124,6 +124,10 @@ elowen up | down                    # manage local services
 <tr>
 <td width="50%"><img src="docs/screenshots/cli/02-tool-calls.png" alt="Tool calls"><br><sub>Terminal — streamed tool calls</sub></td>
 <td width="50%"><img src="docs/screenshots/cli/11-subagent.png" alt="Sub-agent"><br><sub>Terminal — sub-agent delegation</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/site/images/account-settings.png" alt="Account constellation"><br><sub>Web UI — account, your preferences in orbit</sub></td>
+<td width="50%"><img src="docs/site/images/projects-editor.png" alt="Project editor"><br><sub>Web UI — in-app project editor</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/site/images/web-ui-kanban.png" alt="Kanban"><br><sub>Web UI — kanban</sub></td>
