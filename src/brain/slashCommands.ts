@@ -31,11 +31,11 @@ export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   // Move (not fork) one of the caller's own conversations INTO this channel/thread so the bot continues in
   // it. A `picker` (not `action`), so it is never server-dispatched through POST /brain/command — its
   // dedicated endpoint is POST /brain/context. Absent from the CLI: there is no shared channel to re-key.
-  { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', surfaces: ['discord', 'whatsapp', 'telegram', 'web'] },
-  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', surfaces: ['cli', 'discord', 'whatsapp', 'telegram', 'web'] },
+  { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', surfaces: ['discord', 'whatsapp', 'telegram', 'msteams', 'web'] },
+  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', surfaces: ['cli', 'discord', 'whatsapp', 'telegram', 'msteams', 'web'] },
   // The reasoning-effort picker is wired in the CLI TUI and as a native /reasoning command on Discord,
-  // WhatsApp and Telegram; only the web dock has no picker for it yet (would show a dead menu entry).
-  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli', 'discord', 'whatsapp', 'telegram'] },
+  // WhatsApp, Telegram and Teams; only the web dock has no picker for it yet (would show a dead menu entry).
+  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', surfaces: ['cli', 'discord', 'whatsapp', 'telegram', 'msteams'] },
   { name: 'theme', description: 'Switch the terminal colour theme', kind: 'picker', surfaces: ['cli'] },
   // CLI-local: opens the keybinds modal in the TUI (parseCommand dispatches it before any server call).
   // Lives in the catalog so the CLI command menu lists it from the single roster, not a synthetic inject.

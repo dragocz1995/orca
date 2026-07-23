@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { KnownControls, PluginCapabilities, PluginCommand, PluginContext, PluginControl, PluginEmbeddings, PluginHook, PluginLogger, PluginModelOption, PluginSkill, PlatformAdapter, ProviderCredentials, TurnContextContribution } from './api.js';
+import type { KnownControls, PluginCapabilities, PluginCommand, PluginContext, PluginControl, PluginEmbeddings, PluginHook, PluginHttpRoute, PluginLogger, PluginModelOption, PluginSkill, PlatformAdapter, ProviderCredentials, TurnContextContribution } from './api.js';
 import { isEmbeddingConfigured } from '../embeddings/embeddingService.js';
 import type { EmbeddingConfig } from '../embeddings/embeddingService.js';
 import { commandsWithPlugins, isReservedCommandName, type PluginSlashCommand } from '../brain/slashCommands.js';
@@ -52,6 +52,9 @@ export class PluginRegistry {
   readonly hooks: PluginHook[] = [];
   readonly turnContexts: TurnContextContribution[] = [];
   readonly platforms: PlatformAdapter[] = [];
+  /** Inbound webhook mounts, keyed `<plugin>/<path>` — dispatched by the daemon's `/hooks` router. The
+   *  key embeds the owning plugin's name, so two plugins can never contest one mount by construction. */
+  readonly httpRoutes = new Map<string, { plugin: string; handler: PluginHttpRoute['handler'] }>();
   readonly controls = new Map<string, PluginControl>();
   /** Plugin-contributed chat slash commands (prompt macros), keyed by command name (unique). */
   readonly commands = new Map<string, PluginCommand>();
@@ -108,12 +111,33 @@ export class PluginRegistry {
       if (prior && prior !== owner) { warn?.(`command "/${k}" from "${owner}" ignored — already registered by "${prior}"`); continue; }
       this.commands.set(k, v); this.commandOwner.set(k, owner);
     }
+    for (const [k, v] of other.httpRoutes) {
+      const prior = this.httpRoutes.get(k);
+      if (prior && prior.plugin !== v.plugin) { warn?.(`http route "/hooks/${k}" from "${v.plugin}" ignored — already registered by "${prior.plugin}"`); continue; }
+      this.httpRoutes.set(k, v);
+    }
     this.skillOwners.push(...other.skillOwners);
     this.promptFragmentOwners.push(...other.promptFragmentOwners);
     this.hookOwners.push(...other.hookOwners);
     this.turnContextOwners.push(...other.turnContextOwners);
     this.platformOwners.push(...other.platformOwners);
     for (const [k, v] of other.pluginCapabilities) this.pluginCapabilities.set(k, v);
+  }
+
+  /** Resolve the handler for a `/hooks/…` request path (everything after `/hooks/`): exact mount first,
+   *  then the longest declared prefix on a `/` boundary — the remainder reaches the handler as
+   *  `PluginHttpRequest.path`. Undefined when nothing matches (the router 404s). */
+  httpRoute(pathAfterHooks: string): { handler: PluginHttpRoute['handler']; remainder: string } | undefined {
+    const clean = pathAfterHooks.replace(/^\/+|\/+$/g, '');
+    const exact = this.httpRoutes.get(clean);
+    if (exact) return { handler: exact.handler, remainder: '' };
+    let at = clean.lastIndexOf('/');
+    while (at > 0) {
+      const hit = this.httpRoutes.get(clean.slice(0, at));
+      if (hit) return { handler: hit.handler, remainder: clean.slice(at + 1) };
+      at = clean.lastIndexOf('/', at - 1);
+    }
+    return undefined;
   }
 
   /** Record a plugin's declared capabilities (from its parsed manifest). Called by the loader after a
@@ -265,6 +289,20 @@ export class PluginRegistry {
           return;
         }
         this.platforms.push(p); this.platformOwners.push(name);
+      },
+      // Stricter than platforms — STRICT deny-by-default: a webhook mount is a public HTTP surface, so it
+      // must be explicitly declared in `provides.httpRoutes` (no unconstrained legacy fallback).
+      registerHttpRoute: (route) => {
+        const clean = route.path?.trim().replace(/^\/+|\/+$/g, '') ?? '';
+        if (!/^[a-z0-9][a-z0-9\-/]*$/.test(clean) || clean.split('/').some((seg) => !seg)) {
+          scoped.warn(`registerHttpRoute('${route.path}') refused: path must be lowercase slash-separated segments`);
+          return;
+        }
+        if (!provides?.httpRoutes?.includes(clean)) {
+          scoped.warn(`registerHttpRoute('${clean}') refused: not declared in manifest provides.httpRoutes`);
+          return;
+        }
+        this.httpRoutes.set(`${name}/${clean}`, { plugin: name, handler: route.handler });
       },
       assertPathAllowed,
       allowedRoots,

@@ -76,7 +76,7 @@ export interface BrainMessageView { id?: string; role: string; text: string; seg
 
 /** Which chat surface exposes a slash command. Part of the wire contract because `GET /brain/commands`
  *  serves the filtered list to every surface (CLI, web dock, platform bots). */
-export type SlashSurface = 'cli' | 'discord' | 'whatsapp' | 'telegram' | 'web';
+export type SlashSurface = 'cli' | 'discord' | 'whatsapp' | 'telegram' | 'msteams' | 'web';
 
 /** How a surface handles a command once picked: `action` (server effect), `info` (fetch+render),
  *  `picker` (surface-local chooser), `mode` (local work-mode switch), `prompt` (plugin prompt macro). */

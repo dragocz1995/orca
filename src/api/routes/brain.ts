@@ -445,7 +445,7 @@ export function registerBrainRoutes(app: ElowenApp, ctx: RouteContext): void {
   app.get('/brain/commands', async c => {
     if (forbidden(c)) return c.json({ error: 'forbidden' }, 403);
     const q = c.req.query('surface');
-    const surface: SlashSurface = q === 'cli' || q === 'discord' || q === 'whatsapp' || q === 'telegram' ? q : 'web';
+    const surface: SlashSurface = q === 'cli' || q === 'discord' || q === 'whatsapp' || q === 'telegram' || q === 'msteams' ? q : 'web';
     // Built-ins + any plugin-contributed prompt commands from the live registry (surface-scoped; a plugin
     // can never shadow a built-in — enforced both at registration and in commandsWithPlugins).
     const registry = await d.plugins?.get().catch(() => null);

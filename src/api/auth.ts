@@ -17,6 +17,9 @@ function isPublic(method: string, path: string, hasAvatarSig: boolean): boolean 
   // so it doesn't need a session token — that's the whole point of finding W2's fix (no token in the
   // <img> URL). Only the signed form is open; the unsigned form still requires a bearer/token.
   if (method === 'GET' && hasAvatarSig && /^\/users\/[^/]+\/avatar$/.test(path)) return true;
+  // Plugin webhook mounts (external services POST here — a Teams bot callback carries Microsoft's JWT,
+  // never an Elowen bearer). Each hook handler owns its authentication; the router 404s unknown mounts.
+  if (path.startsWith('/hooks/')) return true;
   return false;
 }
 

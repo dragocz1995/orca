@@ -142,6 +142,36 @@ export interface PlatformAdapter {
   control?(api: PlatformControlApi): void;
 }
 
+/** A minimal, framework-agnostic inbound HTTP request handed to a plugin webhook handler. The daemon's
+ *  hooks router builds it from the raw request; `body` is memoized so a handler may call it repeatedly. */
+export interface PluginHttpRequest {
+  method: string;
+  /** Remainder AFTER the registered mount (no leading slash) — '' for an exact-mount hit. */
+  path: string;
+  query: Record<string, string>;
+  /** Lower-cased header names. */
+  headers: Record<string, string>;
+  /** Raw request bytes — what a signature/JWT check must run over. */
+  body: () => Promise<Buffer>;
+  /** JSON.parse over `body()`; throws on invalid JSON. */
+  json: <T = unknown>() => Promise<T>;
+}
+export interface PluginHttpResponse {
+  /** Defaults to 200. */
+  status?: number;
+  headers?: Record<string, string>;
+  /** An object body is JSON-serialized with a json content-type; string/bytes pass through. */
+  body?: string | Uint8Array | object;
+}
+/** An inbound webhook mount a plugin exposes on the daemon at `/hooks/<plugin>/<path>`. The mount is
+ *  public at the bearer layer (an external service — a Teams bot callback — carries no Elowen token), so
+ *  the handler OWNS its authentication (signature/JWT validation) and must reject anything unproven. */
+export interface PluginHttpRoute {
+  /** Mount path RELATIVE to `/hooks/<plugin>/` — lowercase segments, e.g. 'messages'. */
+  path: string;
+  handler: (req: PluginHttpRequest) => Promise<PluginHttpResponse>;
+}
+
 /** A channel-scoped conversation reference — the SAME identity an adapter reports to `listen` (so a slash
  *  command targets the exact session a message from that channel would). */
 export interface ChannelRef { platform: string; channelId: string; threadId?: string }
@@ -257,7 +287,7 @@ export interface PluginCommand {
   /** The prompt sent to the agent; PI substitutes `$ARGUMENTS`/`$@`, `$1`..`$9`, `${N:-default}`. */
   prompt: string;
   /** Which surfaces expose it (default: all). */
-  surfaces?: ('cli' | 'discord' | 'whatsapp' | 'telegram' | 'web')[];
+  surfaces?: ('cli' | 'discord' | 'whatsapp' | 'telegram' | 'msteams' | 'web')[];
 }
 
 /** Placement of volatile plugin context relative to the user's own text. Context is always ephemeral:
@@ -294,7 +324,7 @@ export interface PluginContext {
   /** Core chat command metadata for a platform: built-ins + plugin prompt commands, each with its `kind`
    *  (so an adapter can tell a native/control command from a plugin `prompt` macro it must route RAW).
    *  Adapters own presentation only; names/help/kind live once in the canonical slash-command catalog. */
-  chatCommands(surface: 'discord' | 'whatsapp' | 'telegram'): { name: string; description: string; kind: SlashCommandDef['kind']; adminOnly?: boolean }[];
+  chatCommands(surface: 'discord' | 'whatsapp' | 'telegram' | 'msteams'): { name: string; description: string; kind: SlashCommandDef['kind']; adminOnly?: boolean }[];
   /** Append a chunk of instructions to the brain's system prompt, after the Elowen persona. */
   registerSystemPromptFragment(fragment: string): void;
   registerHook(hook: PluginHook): void;
@@ -305,6 +335,10 @@ export interface PluginContext {
   registerTurnContext(fn: () => string, options?: TurnContextOptions): void;
   /** STUB: record a platform adapter (not started by the foundation). */
   registerPlatform(adapter: PlatformAdapter): void;
+  /** Expose an inbound webhook on the daemon at `/hooks/<plugin>/<path>`. Deny-by-default: the path must
+   *  be declared in the manifest's `provides.httpRoutes`. The mount skips bearer auth — the handler owns
+   *  its own authentication (see {@link PluginHttpRoute}). */
+  registerHttpRoute(route: PluginHttpRoute): void;
   /** Resolve + assert a filesystem path is inside the current user's accessible repos, returning the
    *  absolute path (throws otherwise). File/terminal tools call this before any disk access. Evaluated at
    *  tool-call time against the per-session Policy carried on AsyncLocalStorage. */
