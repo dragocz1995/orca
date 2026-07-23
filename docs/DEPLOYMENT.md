@@ -181,6 +181,14 @@ server {
         proxy_set_header x-real-ip $remote_addr;
     }
 
+    # Plugin webhooks (e.g. the Microsoft Teams bot endpoint /hooks/msteams/messages —
+    # only needed when a plugin with an inbound webhook is enabled)
+    location /hooks/ {
+        proxy_pass http://127.0.0.1:4400;
+        proxy_http_version 1.1;
+        proxy_set_header x-real-ip $remote_addr;
+    }
+
     # Service worker — must never be cached
     location = /sw.js {
         proxy_pass http://127.0.0.1:4500;
@@ -193,6 +201,9 @@ Notes:
 - SSE requires `proxy_buffering off` and `proxy_read_timeout 86400s`
 - The `/ws/` location is required for real-PTY terminal streaming; without it,
   terminals fall back to snapshot mirror
+- The `/hooks/` location exposes plugin webhooks (the msteams plugin's Bot Framework
+  messaging endpoint lives there); requests are authenticated by the plugin itself
+  (e.g. Microsoft's JWT), not by the daemon's bearer token
 - Set `x-real-ip` for correct login rate limiting
 
 ## Monitoring

@@ -124,7 +124,7 @@ your `provides.tools`, so a manifest can only vouch for its own tools.
 | Field | Meaning |
 | --- | --- |
 | `requires.env`, `requires.config` | Declared runtime prerequisites |
-| `provides` | Tools, skills, hooks, and platforms the plugin may register |
+| `provides` | Tools, skills, hooks, platforms, and HTTP routes the plugin may register |
 | `icons` | Per-tool display icons |
 | `icon` | Optional relative SVG path; defaults to `icon.svg` when present |
 | `showOutput` | Exact tool names or `prefix*` patterns whose successful output appears in chat |
@@ -156,6 +156,7 @@ description, field labels/hints, and enum option labels.
 | API | Use |
 | --- | --- |
 | `registerTool`, `registerSkill`, `registerPlatform` | Register declared runtime contributions |
+| `registerHttpRoute` | Mount a declared inbound webhook under `/hooks/<plugin>/<path>` |
 | `registerCommand` | Add a validated prompt-macro slash command to selected surfaces |
 | `registerSystemPromptFragment` | Append stable plugin instructions to the system prompt |
 | `registerTurnContext` | Add ephemeral per-turn context before or after the user message |
@@ -198,6 +199,35 @@ durable system-prompt mutation.
 prompt macro. Names must be unique kebab-case and cannot shadow a built-in
 command. The prompt supports PI argument substitutions such as `$ARGUMENTS`,
 `$1`, and `$@`.
+
+### Inbound HTTP routes (webhooks)
+
+A plugin that needs to RECEIVE HTTP callbacks (e.g. a chat platform that
+delivers messages by webhook, like the bundled `msteams` plugin) declares the
+route path in the manifest and registers a handler:
+
+```json
+{ "provides": { "httpRoutes": ["messages"] } }
+```
+
+```javascript
+ctx.registerHttpRoute({
+  path: 'messages', // mounted at /hooks/<plugin-name>/messages
+  handler: async (req) => {
+    // req: { method, path, query, headers (lower-cased), body(): Promise<Buffer>, json() }
+    const payload = await req.json();
+    return { status: 200, body: { ok: true } }; // body: object | string | Uint8Array
+  },
+});
+```
+
+Routes mount under `/hooks/<plugin-name>/<path>` on the daemon. The path must
+match the manifest declaration (deny-by-default, like platforms), use only
+lowercase letters, digits, `-` and `/`, and requests are capped at 1 MiB. The
+daemon's bearer auth is SKIPPED for `/hooks/*` — the handler must authenticate
+the caller itself (the msteams plugin validates Microsoft's JWT signature).
+When deploying behind nginx, proxy `/hooks/` to the daemon port (see
+DEPLOYMENT.md).
 
 ## Capabilities and hooks
 
