@@ -13,15 +13,20 @@ const CREDS = { appId: 'app-guid', appPassword: 's3cret', tenantId: 'tenant-guid
 type AdapterModule = {
   MsTeamsAdapter: new (
     cfg: Record<string, unknown>, logger: typeof log, state: unknown, listModels: () => Promise<unknown[]>,
+    imageDirs?: string[], resolveProvider?: () => null, answerQuestion?: (id: string, answers: unknown[]) => boolean,
+    chatCommands?: () => { name: string; description: string; kind: string }[],
   ) => {
     handleWebhook: (req: { method: string; headers: Record<string, string>; json: () => Promise<unknown> }) => Promise<{ status?: number }>;
     onActivity: (m: unknown) => Promise<void>;
-    listen: (h: (src: Record<string, unknown>, text: string) => Promise<string | undefined>) => void;
+    onCardAction: (m: unknown) => Promise<void>;
+    postAsk: (convId: string, replyToId: string, askerId: string, id: string, questions: unknown[]) => Promise<void>;
+    listen: (h: (src: Record<string, unknown>, text: string, onEvent?: (e: Record<string, unknown>) => void) => Promise<string | undefined>) => void;
     stripMention: (t: string) => string;
     isForMe: (m: unknown) => boolean;
     accessFor: (ids: string[], convId: string) => { access?: Record<string, unknown> };
     verifyToken: (h: string | undefined, a: unknown) => Promise<boolean>;
     connector: Record<string, unknown>;
+    pendingAsks: Map<string, Record<string, unknown>>;
   };
 };
 
@@ -32,16 +37,26 @@ class MemoryState {
   patch(id: string, fields: Record<string, unknown>) { this.data[id] = { ...this.data[id], ...fields }; }
 }
 
-async function makeAdapter(cfg: Record<string, unknown> = {}) {
+async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
+  answers?: { id: string; answers: unknown[] }[];
+  models?: unknown[];
+} = {}) {
   const { MsTeamsAdapter } = await import(join(repoRoot, 'plugins/msteams/lib/adapter.mjs')) as AdapterModule;
   const state = new MemoryState();
-  const adapter = new MsTeamsAdapter({ ...CREDS, ...cfg }, log, state, async () => []);
+  const adapter = new MsTeamsAdapter(
+    { ...CREDS, ...cfg }, log, state, async () => opts.models ?? [], [], () => null,
+    (id, answers) => { (opts.answers ??= []).push({ id, answers }); return true; },
+    () => [],
+  );
   // Quiet transport for unit tests: no network, capture the outbound calls.
   const calls: { kind: string; args: unknown[] }[] = [];
+  let sendSeq = 0;
   Object.assign(adapter.connector, {
     typing: async (...args: unknown[]) => { calls.push({ kind: 'typing', args }); },
-    reply: async (...args: unknown[]) => { calls.push({ kind: 'reply', args }); return 'act-1'; },
-    send: async (...args: unknown[]) => { calls.push({ kind: 'send', args }); return 'act-2'; },
+    reply: async (...args: unknown[]) => { calls.push({ kind: 'reply', args }); return `act-r${++sendSeq}`; },
+    send: async (...args: unknown[]) => { calls.push({ kind: 'send', args }); return `act-s${++sendSeq}`; },
+    update: async (...args: unknown[]) => { calls.push({ kind: 'update', args }); },
+    remove: async (...args: unknown[]) => { calls.push({ kind: 'remove', args }); },
     member: async () => ({ userPrincipalName: 'alex@contoso.com' }),
     download: async () => Buffer.from('img'),
     token: async () => 'tok',
@@ -133,6 +148,91 @@ describe('msteams identity + role mapping', () => {
       entities: [{ type: 'mention', mentioned: { id: '28:bot', name: 'Elowen' } }],
     }));
     expect(seen).toEqual(['[Alex Rivera] do the thing']);
+  });
+});
+
+describe('msteams live trace + cards + commands', () => {
+  it('streams tool progress into an edited message when toolActivity is on', async () => {
+    const { adapter, calls } = await makeAdapter({ toolActivity: 'status', rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    adapter.listen(async (_src, _text, onEvent) => {
+      onEvent?.({ type: 'tool', name: 'Write', id: 't1', detail: 'a.ts', icon: '📝' });
+      onEvent?.({ type: 'tool_end', id: 't1' });
+      return 'all done';
+    });
+    await adapter.onActivity(activity());
+    // A progress bubble was created and the final answer settled — both through the connector.
+    const sends = calls.filter((c) => c.kind === 'send' || c.kind === 'reply');
+    expect(sends.length).toBeGreaterThanOrEqual(2);
+    const texts = sends.map((c) => (c.args[3] ?? c.args[2]) as { text?: string }).map((a) => a?.text ?? '');
+    expect(texts.some((t) => t.includes('Write'))).toBe(true);
+    expect(texts.some((t) => t.includes('all done'))).toBe(true);
+  });
+
+  it('renders an ask card, applies a single-select tap as the answer and settles the card', async () => {
+    const answers: { id: string; answers: unknown[] }[] = [];
+    const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { answers });
+    // An ask always fires mid-turn, after the inbound activity stored the conversation route.
+    state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test/emea' } });
+    await adapter.postAsk('a:conv1', 'in-1', 'aad-1', 'ask-9', [
+      { header: 'Approach', question: 'Which way?', multiSelect: false, options: [{ label: 'Fast' }, { label: 'Safe' }] },
+    ]);
+    const posted = calls.find((c) => c.kind === 'reply');
+    const attachment = (posted?.args[3] as { attachments?: { content?: { actions?: unknown[]; body?: unknown[] } }[] })?.attachments?.[0];
+    expect(attachment?.content?.body?.length).toBeGreaterThan(0);
+    const token = [...adapter.pendingAsks.keys()][0]!;
+    await adapter.onCardAction(activity({ value: { ea: token, q: 0, o: 1 } }));
+    expect(answers).toEqual([{ id: 'ask-9', answers: [{ header: 'Approach', selected: ['Safe'] }] }]);
+    expect(adapter.pendingAsks.size).toBe(0);
+    expect(calls.some((c) => c.kind === 'update')).toBe(true); // the card settled to a summary
+  });
+
+  it('rejects an ask answer from someone else and expires stale asks', async () => {
+    const answers: { id: string; answers: unknown[] }[] = [];
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { answers });
+    await adapter.postAsk('a:conv1', 'in-1', 'aad-OWNER', 'ask-1', [
+      { header: 'Q', question: '?', options: [{ label: 'A' }] },
+    ]);
+    const token = [...adapter.pendingAsks.keys()][0]!;
+    // aad-1 is neither the asker nor an admin → the pick is refused and the ask stays pending.
+    await adapter.onCardAction(activity({ value: { ea: token, q: 0, o: 0 } }));
+    expect(answers).toHaveLength(0);
+    expect(adapter.pendingAsks.size).toBe(1);
+  });
+
+  it('handles /new and /status via the shared control core and /help locally', async () => {
+    const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/new' }));
+    expect((state.get('a:conv1') as { gen?: number }).gen).toBe(1);
+    await adapter.onActivity(activity({ text: '/status' }));
+    await adapter.onActivity(activity({ text: '/help' }));
+    const texts = calls.filter((c) => c.kind === 'reply').map((c) => (c.args[3] as { text?: string })?.text ?? '');
+    expect(texts.some((t) => t.includes('Fresh conversation'))).toBe(true);
+    expect(texts.some((t) => t.includes('No active conversation'))).toBe(true);
+    expect(texts.some((t) => t.includes('Microsoft Teams'))).toBe(true);
+  });
+
+  it('posts the /model picker for an admin and applies the picked model', async () => {
+    const models = [
+      { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-opus-4-8', default: true },
+      { provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.5' },
+    ];
+    const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] }, { models });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/model' }));
+    const card = calls.find((c) => c.kind === 'reply' && (c.args[3] as { attachments?: unknown[] })?.attachments);
+    expect(card).toBeDefined();
+    await adapter.onCardAction(activity({ value: { ep: 'model', v: 'openai gpt-5.5' } }));
+    expect((state.get('a:conv1') as { model?: { provider: string; model: string } }).model)
+      .toEqual({ provider: 'openai', model: 'gpt-5.5' });
+  });
+
+  it('refuses the /model picker for a non-admin sender', async () => {
+    const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { models: [{ provider: 'a', providerLabel: 'A', model: 'm' }] });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/model' }));
+    const texts = calls.filter((c) => c.kind === 'reply').map((c) => (c.args[3] as { text?: string })?.text ?? '');
+    expect(texts.some((t) => t.includes('operator'))).toBe(true);
   });
 });
 
