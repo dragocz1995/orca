@@ -67,16 +67,27 @@ The same readiness data powers the setup wizard's finish screen and `GET /system
 
 ## Platform bot is silent
 
-**Symptom:** you message the Discord or WhatsApp bot and get no reply.
+**Symptom:** you message the Discord, Telegram, Microsoft Teams, or WhatsApp bot and get no reply.
 
 1. `elowen doctor` — the **Platforms** check lists active messaging platforms.
-2. **Sender not mapped** — the most common cause. The bot ignores unmapped senders by design. Add a role policy (Discord) or sender policy (WhatsApp) for your account. See [Channels](channels).
+2. **Sender not mapped** — the most common cause. The bot ignores unmapped senders by design. Add a role policy (Discord, Telegram) or sender policy (WhatsApp) for your account. See [Channels](channels).
 3. **Discord specifics:**
    - Message Content Intent not enabled in the Developer Portal.
    - `guildId` set to a different server.
    - `threadIds` set and you're posting outside those threads.
    - `respondWithoutMention` is off and you didn't @mention the bot.
-4. **WhatsApp specifics:**
+4. **Telegram specifics:**
+   - Invalid or wrong bot token from @BotFather.
+   - Group Privacy enabled in **BotFather → Bot Settings → Group Privacy** — the bot can't see group messages.
+   - The chat isn't in `allowedChatIds`.
+   - No role policy mapped for the sender — unmapped senders are ignored by design.
+5. **Microsoft Teams specifics:**
+   - The webhook endpoint `https://<domain>/hooks/msteams/messages` isn't reachable from the internet.
+   - `/hooks/` isn't proxied in a hand-written vhost — see [Deployment guide](../DEPLOYMENT.md).
+   - Missing or invalid TLS certificate.
+   - The bot isn't installed from the app package — Teams only talks to installed bots.
+   - Typo in the credentials — the plugin validates them immediately, so the error shows in the plugin log.
+6. **WhatsApp specifics:**
    - Pairing expired — re-pair via QR or pairing code in the plugin logs.
    - `groupIds` restricts the bot to specific groups.
    - `respondWithoutMention` is off in a group and you didn't mention or reply to the bot.

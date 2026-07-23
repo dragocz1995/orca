@@ -10,8 +10,8 @@ group: Start here
 
 **Elowen is a personal AI agent you talk to.** You chat with it and it acts: it
 reasons, calls tools, edits files, runs shell commands, manages your tasks, and
-reaches you wherever you are — the web dock, the `elowen` CLI, Discord, or
-WhatsApp. It sits in the same category as coding agents like Claude Code or
+reaches you wherever you are — the web dock, the `elowen` CLI, Discord, Telegram,
+Microsoft Teams, or WhatsApp. It sits in the same category as coding agents like Claude Code or
 OpenCode, but it's self-hosted and it's yours.
 
 Because Elowen can run real work for you, it also gives you rich surfaces to
@@ -166,6 +166,6 @@ The full depth lives in [Account & Security](account-security).
 - [Install](install) — detailed installation options, Docker, and build-from-source
 - [Brain & Chat](brain-chat) — the agent core you talk to
 - [Web UI](web-ui) — a tour of the surfaces that let you observe and steer the agent
-- [Plugins](plugins) — extend Elowen with Discord, WhatsApp, cron, skills, and more
+- [Plugins](plugins) — extend Elowen with Discord, Telegram, Microsoft Teams, WhatsApp, cron, skills, and more
 
 [Next: Install](install)

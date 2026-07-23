@@ -76,7 +76,7 @@ The mission engine coordinates an epic and phase tasks. It handles readiness, de
 
 At startup and reload, the loader reads each enabled `elowen-plugin.json`, validates it against the current API version, and calls its ESM entry's `register(ctx)`. Contributions flow into one shared `PluginRegistry` used to build a brain turn.
 
-Plugins can offer tools, skills, commands, hooks, platform adapters, configuration, and presentation metadata. Their context is scoped. Capability declarations are deny-by-default for runtime mutations and protected reads such as shared embeddings. Observational hooks remain isolated from mutating hooks; a plugin failure does not become permission to rewrite another plugin's behavior.
+Plugins can offer tools, skills, commands, hooks, inbound webhooks (HTTP routes), platform adapters, configuration, and presentation metadata. Their context is scoped. Capability declarations are deny-by-default for runtime mutations and protected reads such as shared embeddings. Observational hooks remain isolated from mutating hooks; a plugin failure does not become permission to rewrite another plugin's behavior.
 
 ## Data and events
 

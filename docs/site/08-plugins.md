@@ -8,7 +8,7 @@ group: Extending
 
 # Plugins
 
-Plugins extend Elowen without turning the daemon into a monolith. They can contribute tools, skills, prompt commands, hooks, dynamic turn context, platform adapters, icons, and configuration. The registry loads enabled plugins into the shared runtime; each plugin receives a scoped context rather than unrestricted daemon internals.
+Plugins extend Elowen without turning the daemon into a monolith. They can contribute tools, skills, prompt commands, hooks, inbound webhooks (HTTP routes), dynamic turn context, platform adapters, icons, and configuration. The registry loads enabled plugins into the shared runtime; each plugin receives a scoped context rather than unrestricted daemon internals.
 
 ![Plugins in Settings](images/plugins-overview.png)
 

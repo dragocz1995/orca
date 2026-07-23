@@ -222,7 +222,7 @@ collaborator. It's empty by default and autosaves as you type.
 
 There's no per-platform split and no named or activatable profiles — a single
 personality body applies identically everywhere your brain runs: web chat,
-`elowen chat`, Discord, WhatsApp, and scheduled cron turns. Runtime knobs (models,
+`elowen chat`, Discord, Telegram, Microsoft Teams, WhatsApp, and scheduled cron turns. Runtime knobs (models,
 thinking level) stay in the Elowen AI section, so personality and mechanics never
 tangle.
 

@@ -14,7 +14,7 @@ The brain is Elowen's embedded, in-process agent runtime. It is what you talk to
 
 ## One conversation model across surfaces
 
-The Web UI chat dock, terminal chat, Discord, and WhatsApp all call the same daemon service. They differ only in how they identify and present a conversation:
+The Web UI chat dock, terminal chat, Discord, Telegram, Microsoft Teams, and WhatsApp all call the same daemon service. They differ only in how they identify and present a conversation:
 
 - **The Web UI** follows the user's active conversation and exposes chat alongside the current workspace.
 - **The CLI** binds to a resolved session, so using a second terminal does not unexpectedly move another surface.

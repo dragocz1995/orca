@@ -8,7 +8,7 @@ group: Extending
 
 # Channels
 
-Channels let you talk to the same Elowen agent from Discord, Microsoft Teams, or WhatsApp. They are platform plugins that adapt inbound messages into the same brain-turn pipeline the Web UI and CLI use — one runtime, one memory, one policy behind every surface.
+Channels let you talk to the same Elowen agent from Discord, Telegram, Microsoft Teams, or WhatsApp. They are platform plugins that adapt inbound messages into the same brain-turn pipeline the Web UI and CLI use — one runtime, one memory, one policy behind every surface.
 
 A sender must be mapped to an Elowen role policy before the bot answers. Unmapped senders are silently ignored. This is deny-by-default: nobody gets agent access until you grant it.
 
@@ -72,9 +72,66 @@ Attach images to a message and the bot sends them to a vision-capable model. Con
 
 Set `notifyChannelId` to a channel ID and the bot posts cron/tick results, escalations, and restart notices there. Empty = no proactive pushes.
 
+## Telegram
+
+Telegram runs over **long-polling** (grammY): the bot fetches updates from Telegram itself, so — unlike Teams — it needs no webhook and no `/hooks/` proxy. Nothing has to be reachable from the internet; the daemon simply opens an outbound connection.
+
+### Setup
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) → `/newbot` and copy the bot token.
+2. (Optional) To read every message in groups, turn off **BotFather → Bot Settings → Group Privacy** — with privacy on, the bot only sees commands and mentions.
+3. In Elowen: **Settings → Plugins → Telegram** → paste the Bot token.
+4. Map at least one role policy (see below).
+
+### Role policies
+
+Each policy maps a Telegram identity to an Elowen project scope and an optional role prompt. First match wins; senders with no mapping are silently ignored. The identity can be:
+
+- **Telegram user ID** — `123456789` (exact match)
+- **@username** — case-insensitive
+- **Chat ID** — a whole group (negative ID); grants access to everyone in it
+
+Mark a policy **Admin** to allow model switching and the Telegram chat tools. Each policy can also narrow the allowed tools.
+
+Configure in **Settings → Plugins → Telegram → Role policies**.
+
+### Commands
+
+| Command | What it does |
+|---------|-------------|
+| `/model` | Switch the model for this chat |
+| `/context` | Continue one of your existing conversations here |
+| `/reasoning` | Toggle extended-thinking output |
+| `/fast` | Toggle fast mode (priority processing) |
+| `/voice` | Toggle spoken-audio replies (TTS) |
+| `/display` | Override tool activity and answer mode |
+| `/new` | Start a fresh conversation |
+| `/status` | Model + context usage of the live session |
+| `/stop` | Stop the current turn |
+| `/help` | Show available commands |
+
+**AskUserQuestion** renders as native inline-keyboard buttons: a single-select question is answered with one tap, a multi-select question has a Submit button, plus a free-text "Other" field.
+
+### Groups
+
+- `respondWithoutMention` (default on) — in groups, answer every message from a mapped sender. Off = only answer when @mentioned or replied to. Direct chats always get an answer.
+- `allowedChatIds` — comma-separated chat IDs to restrict where the bot responds. Empty = respond in every chat where a mapped sender writes.
+
+### Voice
+
+With an OpenAI-compatible provider configured (Settings → Brain), the bot transcribes incoming voice messages (STT, default `whisper-1`) and can attach a spoken-audio version of replies (TTS, default `gpt-4o-mini-tts`) — toggle per chat with `/voice`.
+
+### Vision
+
+Attach images to a message and the bot sends them to a vision-capable model. Configure `visionModel`, `maxImageBytes`, and `maxImages` in the plugin settings.
+
+### Proactive pushes
+
+Set `notifyChatId` to a numeric chat ID or an `@channelusername` and the bot posts cron/tick results and escalations there. Empty = no proactive pushes.
+
 ## Microsoft Teams
 
-Unlike Discord and WhatsApp, Teams delivers messages by **webhook**: Microsoft POSTs each activity to your Elowen instance over HTTPS. That means the daemon's `/hooks/` path must be reachable from the internet on your domain with a valid certificate. Installs provisioned by `elowen setup` already route `/hooks/` to the daemon in the generated nginx/Apache vhost; for a hand-written proxy config, add the location from the [Deployment guide](../DEPLOYMENT.md).
+Unlike Discord and WhatsApp, Teams delivers messages by **webhook**: Microsoft POSTs each activity to your Elowen instance over HTTPS. That means the daemon's `/hooks/` path must be reachable from the internet on your domain with a valid certificate. Installs provisioned by `elowen install` already route `/hooks/` to the daemon in the generated nginx/Apache vhost; for a hand-written proxy config, add the location from the [Deployment guide](../DEPLOYMENT.md).
 
 ### 1. Register the app in Microsoft Entra
 
@@ -188,10 +245,10 @@ Set `notifyChat` to a phone number or JID and the bot posts cron/tick results, e
 
 All channels share these traits:
 
-- **Reactions** — 👀 while thinking, ✅/❌ when done (Discord and WhatsApp; toggle with `reactions`)
+- **Reactions** — 👀 while thinking; ✅/❌ when done on Discord and WhatsApp, 👍/👎 on Telegram (its reaction emoji set is limited). Toggle with `reactions`.
 - **Runtime footer** — a small "model · context %" line under the final reply (toggle with `runtimeFooter`)
 - **Reasoning** — stream extended-thinking output into the progress bubble (toggle with `showReasoning`, off by default)
-- **AskUserQuestion** — when the agent needs a decision, it posts a prompt and waits for a reply (button click on Discord, Adaptive Card tap on Teams, numbered reply on WhatsApp). `askTimeoutMs` controls how long it stays open.
+- **AskUserQuestion** — when the agent needs a decision, it posts a prompt and waits for a reply (button click on Discord, inline-keyboard tap on Telegram, Adaptive Card tap on Teams, numbered reply on WhatsApp). `askTimeoutMs` controls how long it stays open.
 - **Language** — service messages (`/new`, `/model`, placeholders) in `en`, `cs` or `sk`, selectable from a dropdown in the plugin settings.
 
 ## Security model

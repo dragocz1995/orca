@@ -159,7 +159,8 @@ It will:
 2. Create (or reuse) a dedicated **service user** to run the agents
 3. Ask how you'll reach the UI — a **domain** (nginx or Apache reverse proxy +
    free Let's Encrypt HTTPS), the server's **IP on a port**, or **localhost
-   only**
+   only**. The generated vhost also routes `/hooks/` to the daemon so plugin
+   inbound webhooks work out of the box (see the [Deployment guide](../DEPLOYMENT.md))
 4. Write and enable the systemd units — `elowen-daemon` (`:4400`) and `elowen-web`
    (`:4500`) — plus the `elowen-update.timer` and a **sudoers drop-in** that lets
    the unprivileged service user restart its own units and reinstall Elowen in
