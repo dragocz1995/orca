@@ -1,0 +1,3 @@
+{
+  "description": "Delegovanie: spustí nového izolovaného subagenta, ktorý spracuje samostatnú úlohu a vráti výsledok. Subagent dedí prístup volajúceho, nikdy viac."
+}

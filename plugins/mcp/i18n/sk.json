@@ -1,0 +1,20 @@
+{
+  "description": "Napojí externé MCP servery (stdio, HTTP, SSE) do sady nástrojov asistenta.",
+  "fields": {
+    "servers": {
+      "label": "MCP servery"
+    },
+    "sec_timeouts": {
+      "label": "Časové limity",
+      "hint": "Globálne časové limity pre pripojenie a volania, uplatnené na každý nakonfigurovaný server."
+    },
+    "connectTimeoutMs": {
+      "label": "Časový limit pripojenia (ms)",
+      "hint": "Ako dlho čakať na pripojenie servera a výpis jeho nástrojov, než sa to vzdá."
+    },
+    "callTimeoutMs": {
+      "label": "Časový limit volania nástroja (ms)",
+      "hint": "Ako dlho čakať na dokončenie premosteného volania nástroja, než sa to vzdá."
+    }
+  }
+}

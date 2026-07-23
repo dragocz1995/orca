@@ -1,0 +1,21 @@
+{
+  "description": "Čítanie, zápis a výpis súborov v repozitároch Elowen, ku ktorým má používateľ prístup.",
+  "fields": {
+    "sec_limits": {
+      "label": "Limity",
+      "hint": "Obmedzenia veľkosti výstupu pre čítanie súborov a vyhľadávanie."
+    },
+    "readCap": {
+      "label": "Limit čítania",
+      "hint": "Maximálny počet bajtov načítaných zo súboru a vrátených pred orezaním."
+    },
+    "searchMaxMatches": {
+      "label": "Maximálny počet zhôd vyhľadávania",
+      "hint": "Maximálny počet zhôd, ktoré Search vráti pred orezaním."
+    },
+    "globMax": {
+      "label": "Glob max výsledkov",
+      "hint": "Maximálny počet súborov, ktoré Glob vráti, než výpis skráti."
+    }
+  }
+}

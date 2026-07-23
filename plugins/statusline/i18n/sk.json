@@ -1,0 +1,21 @@
+{
+  "description": "Stavový riadok chatu: zobrazuje využitie kontextu, celkový počet tokenov relácie a náklady pod konverzáciou — vo webovom docku aj v elowen chat CLI. Nižšie vyberte, čo sa má zobrazovať.",
+  "fields": {
+    "showModel": {
+      "label": "Model",
+      "hint": "Zobrazí názov aktívneho modelu."
+    },
+    "showContext": {
+      "label": "Využitie kontextu",
+      "hint": "Zobrazí, ako je zaplnené kontextové okno (percentá + tokeny)."
+    },
+    "showTokens": {
+      "label": "Celkom tokenov",
+      "hint": "Zobrazí celkový počet tokenov v konverzácii."
+    },
+    "showCost": {
+      "label": "Náklady",
+      "hint": "Zobrazí celkové náklady konverzácie (poskytovatelia s API kľúčom ich hlásia, pri predplatných sa zobrazí 0 $)."
+    }
+  }
+}

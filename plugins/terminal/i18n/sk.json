@@ -1,0 +1,17 @@
+{
+  "description": "Spúšťanie shellových príkazov (na popredí aj na pozadí) s pracovným adresárom obmedzeným na repozitáre, ku ktorým má používateľ prístup. Procesy na pozadí sa spravujú nástrojmi list/read/kill.",
+  "fields": {
+    "sec_limits": {
+      "label": "Limity",
+      "hint": "Limity veľkosti výstupu a časového limitu pre shellové príkazy."
+    },
+    "outputCap": {
+      "label": "Limit výstupu",
+      "hint": "Koľko bajtov stdout/stderr sa vráti pred orezaním. Zároveň obmedzuje priebežnú vyrovnávaciu pamäť výstupu udržiavanú pre procesy na pozadí."
+    },
+    "commandTimeoutMs": {
+      "label": "Časový limit príkazu (ms)",
+      "hint": "Ako dlho môže príkaz na popredí bežať, než je ukončený."
+    }
+  }
+}

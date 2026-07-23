@@ -1,0 +1,9 @@
+{
+  "description": "Vkladá aktuálny dátum, čas, deň v týždni a časové pásmo do každého ťahu, aby Elowen nikdy nehádala, aké je „teraz“. Bezpečné pre cache: beží v používateľskej správe, nie v systémovom prompte.",
+  "fields": {
+    "timezone": {
+      "label": "Časové pásmo",
+      "hint": "Časové pásmo IANA, napr. Europe/Prague. Prázdne = časové pásmo servera. Používa sa pre vkladaný dátum, čas a časovanie plánovaných úloh."
+    }
+  }
+}

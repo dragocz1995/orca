@@ -1,0 +1,33 @@
+{
+  "description": "Naplánované prompty: opakujúce sa úlohy (\"every 30m\", \"daily 07:30\") a jednorazové prebudenia (\"in 20m\", \"at 18:30\"), ktoré bežia ako vlastná konverzácia mozgu s plnou právomocou vlastníka. Správa len pre administrátorov.",
+  "fields": {
+    "sec_scheduler": {
+      "label": "Plánovač",
+      "hint": "Interval kontroly, správanie opakovania a timeout kontroly guardu."
+    },
+    "tickMs": {
+      "label": "Interval kontroly (ms)",
+      "hint": "Ako často sa kontrolujú splatné úlohy."
+    },
+    "retryAttempts": {
+      "label": "Počet pokusov o ťah",
+      "hint": "Celkový počet pokusov o ťah opakujúcej sa úlohy pri dočasnej chybe požiadavky — 1 znamená žiadny retry, 2 (predvolené) znamená jeden retry."
+    },
+    "retryBackoffMs": {
+      "label": "Oneskorenie pred opakovaním (ms)",
+      "hint": "Pauza pred opakovaním, aby dočasný problém mohol odznieť."
+    },
+    "checkTimeoutMs": {
+      "label": "Timeout kontroly (ms)",
+      "hint": "Timeout pre lacný guard príkaz \"check\" úlohy."
+    },
+    "checkOutputChars": {
+      "label": "Limit výstupu kontroly (znaky)",
+      "hint": "Koľko výstupu z guard príkazu „check“ sa odovzdá do ťahu mozgu. Zvýšte pre collectory, ktoré vytvárajú veľké agregované dáta."
+    },
+    "sessionIdleMs": {
+      "label": "Prah nečinnosti pre novú session (ms)",
+      "hint": "Voliteľné. Úloha nečinná dlhšie než táto hodnota medzi behmi začne pri ďalšom tiknutí novú konverzáciu — po vypršaní cache promptu je opätovné použitie starého kontextu čistá cena bez úspory. Nechajte prázdne pre predvolenú hodnotu hostiteľa (ako Discord). Nižšia hodnota pre časté úlohy, vyššia pre dlhšie zachovanie nadväznosti, alebo 0 pre trvalé zachovanie kontextu (nikdy nezačínať znova)."
+    }
+  }
+}
