@@ -617,6 +617,15 @@ export async function buildApp(opts: BuildOpts) {
   // loading is lazy (plugins load on first use, not at boot), and a plugin toggle invalidates every consumer at once —
   // a per-service memo would leave the workers on a stale registry until a daemon restart.
   const pluginProvider = new PluginRegistryProvider(() => {
+    // Never load against a half-built package: an in-place `npm run build` wipes dist/plugins for the
+    // whole tsc run before copying the plugin sources back, and a reload landing inside that window
+    // would see ONLY the user plugin dir — every session spawned then loses the bundled tools (files,
+    // terminal, …) and a stale same-name user copy silently wins the dedupe. An empty bundled dir is
+    // impossible in a healthy install, so treat it as mid-build: fail this load and let the provider
+    // keep serving the last good registry until a later get() finds the dir populated again.
+    if (discoverPlugins([pluginDirs[0]!]).length === 0) {
+      return Promise.reject(new Error('bundled plugins directory is empty — package build in progress?'));
+    }
     const enabled = config.get().plugins.enabled;
     const pluginConfig = Object.fromEntries(enabled.map((n) => [n, config.pluginConfig(n)]));
     // A plugin reload also refreshes the typed sub-agents: drop the memo so a newly added user `.md`
