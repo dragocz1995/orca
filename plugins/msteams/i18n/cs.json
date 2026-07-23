@@ -1,0 +1,28 @@
+{
+  "description": "Bot pro Microsoft Teams (Azure Bot Framework): napište mu v osobním chatu, skupinovém chatu nebo týmovém kanálu a odpoví z Elowen AI. Příchozí aktivity přicházejí na webhook démona /hooks/msteams/messages (ověřeno proti JWT Microsoftu); odpovědi, indikátor psaní a obrázky odcházejí přes Bot Connector REST API. Každá rolová politika mapuje Entra object ID / UPN / ID konverzace na povolené projekty Elowen a rolový prompt.",
+  "fields": {
+    "sec_connection": { "label": "Připojení", "hint": "Přihlašovací údaje Azure Bota. Postup: 1) Entra admin centrum → Registrace aplikací → Nová registrace (jeden tenant) → zkopírujte Application (client) ID a ID tenantu, poté Certifikáty a tajné klíče → Nový tajný klíč klienta. 2) Azure portál → vytvořte Azure Bot navázaný na toto App ID; nastavte messaging endpoint na https://<vaše-doména>/hooks/msteams/messages a povolte kanál Microsoft Teams. 3) Nahrajte balíček aplikace Teams do katalogu organizace." },
+    "appId": { "label": "Microsoft App ID", "hint": "Application (client) ID registrace aplikace v Entra — zároveň ID bota v prostředku Azure Bot." },
+    "appPassword": { "label": "Tajný klíč klienta", "hint": "Tajný klíč klienta z registrace aplikace (Certifikáty a tajné klíče). Používá se pro volání Bot Connector API." },
+    "tenantId": { "label": "ID tenantu", "hint": "Directory (tenant) ID vašeho Entra — bot se ověřuje vůči tomuto tenantu (registrace pro jeden tenant)." },
+    "notifyConversationId": { "label": "Konverzace pro oznámení", "hint": "Kam se odesílají proaktivní zprávy (výsledky cronu/ticku) — ID konverzace Teams, kterou bot již viděl. Prázdné = žádné proaktivní zprávy." },
+    "sec_replies": { "label": "Odpovědi a chování", "hint": "Kdy a jak bot odpovídá." },
+    "respondWithoutMention": { "label": "Odpovídat bez zmínky", "hint": "Zapnuto: ve skupinových chatech bot odpovídá na každou zprávu namapovaného odesílatele. Vypnuto: odpovídá jen při @zmínce. Příspěvky v týmových kanálech vyžadují @zmínku vždy — Teams je botovi jinak nedoručí." },
+    "toolActivity": { "label": "Aktivita nástrojů", "hint": "Co ukazuje průběžná zpráva, zatímco agent pracuje: nic, stavové řádky nástrojů, nebo stav včetně živého výstupu.", "options": { "off": "Vypnuto", "status": "Živý stav", "live": "Živý výstup" } },
+    "answerMode": { "label": "Doručení odpovědi", "hint": "Finální odešle jednu odpověď po skončení; živé streamuje odpověď do zprávy průběžně.", "options": { "final": "Pouze finální odpověď", "live": "Streamovat odpověď živě" } },
+    "toolOutput": { "label": "Detail výstupu nástrojů", "hint": "Kolik z výsledku každého nástroje průběžná zpráva ponechá po jeho dokončení.", "options": { "hidden": "Pouze stav", "summary": "Krátké shrnutí", "tail": "Konec výstupu" } },
+    "toolMessageMode": { "label": "Rozložení zpráv nástrojů", "hint": "Jedna zpráva průběžně edituje; per-tool odešle zprávu za každé volání nástroje.", "options": { "single": "Jedna živá zpráva", "per_tool": "Zpráva za každý nástroj" } },
+    "runtimeFooter": { "label": "Řádek s běhovými údaji", "hint": "Připojí pod finální odpověď malý řádek „model · kontext %“." },
+    "showReasoning": { "label": "Zobrazit uvažování", "hint": "Streamovat uvažování modelu do průběžné zprávy (modely s rozšířeným myšlením). Ve výchozím stavu vypnuto — obvykle jde o šum." },
+    "language": { "label": "Jazyk služebních zpráv", "hint": "Jazyk vlastních zpráv bota (chyby, odpovědi příkazů). Samotný agent odpovídá jazykem uživatele.", "options": { "en": "Angličtina", "cs": "Čeština" } },
+    "sec_conversation": { "label": "Konverzace", "hint": "Směrování obrázků." },
+    "visionModel": { "label": "Model pro obrázky", "hint": "Model použitý pro zprávy s obrazovými přílohami (musí podporovat vidění). Prázdné = běžný model chatu." },
+    "sec_media": { "label": "Limity médií", "hint": "Limity příchozích/odchozích obrázků a doba otevření čekající otázky." },
+    "maxImageBytes": { "label": "Max. velikost příchozího obrázku", "hint": "Největší obrazová příloha (v bajtech), kterou bot stáhne pro vidění." },
+    "maxImages": { "label": "Max. obrázků na zprávu", "hint": "Kolik obrazových příloh z jedné příchozí zprávy bot odešle modelu pro vidění." },
+    "maxUploadImages": { "label": "Max. obrázků na odpověď", "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi." },
+    "askTimeoutMs": { "label": "Časový limit otázky (ms)", "hint": "Jak dlouho zůstává karta s čekající otázkou zodpověditelná." },
+    "sec_roles": { "label": "Rolové politiky", "hint": "Mapují odesílatele v Teams na povolené projekty, rolový prompt a nástroje, které smí bot použít." },
+    "rolePolicies": { "label": "Rolové politiky", "hint": "Vyhrává první odpovídající politika; odesílatelé bez politiky jsou ignorováni. ID je Entra object ID odesílatele (GUID), jeho UPN/e-mail, nebo celé ID konverzace (povolí všem v daném chatu)." }
+  }
+}
